@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  dev:
+    build: .
+    volumes:
+      - .:/workspace                    # Project files (two-way sync with host)
+      - ~/.gitconfig:/root/.gitconfig:ro # Share your git identity with the container
+      - ~/.ssh:/root/.ssh:ro             # Share SSH keys for GitHub push/pull
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    stdin_open: true
+    tty: true
+    ports:
+      - "5173:5173"   # Vite dev server (so you can view in your browser)
+      - "3000:3000"   # Backend API server

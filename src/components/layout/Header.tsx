@@ -1,11 +1,21 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import UserPresence from '../panels/UserPresence';
 import SyncStatusIndicator from '../panels/SyncStatusIndicator';
+import { initOAuth, signIn, signOut, getAuthState, setAuthChangeCallback, type AuthState } from '../../sheets/oauth';
 
 export default function Header() {
   const { isHistoryPanelOpen, theme } = useGanttState();
   const dispatch = useGanttDispatch();
+  const [auth, setAuth] = useState<AuthState>(getAuthState());
+
+  useEffect(() => {
+    initOAuth();
+    setAuthChangeCallback((newState) => setAuth({ ...newState }));
+  }, []);
+
+  const handleSignIn = useCallback(() => signIn(), []);
+  const handleSignOut = useCallback(() => signOut(), []);
 
   return (
     <header className="flex items-center justify-between px-4 h-12 bg-surface-raised border-b border-border-subtle shrink-0">
@@ -24,6 +34,40 @@ export default function Header() {
       <div className="flex items-center gap-4">
         <UserPresence />
         <SyncStatusIndicator />
+        {/* Google Sign-In */}
+        {auth.accessToken ? (
+          <div className="flex items-center gap-2">
+            {auth.userPicture && (
+              <img
+                src={auth.userPicture}
+                alt={auth.userName || 'User'}
+                className="w-6 h-6 rounded-full"
+                referrerPolicy="no-referrer"
+              />
+            )}
+            <span className="text-xs text-text-secondary hidden sm:inline">
+              {auth.userName || auth.userEmail}
+            </span>
+            <button
+              onClick={handleSignOut}
+              className="text-xs text-text-muted hover:text-text-primary transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleSignIn}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-overlay transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4" />
+              <polyline points="10 17 15 12 10 7" />
+              <line x1="15" y1="12" x2="3" y2="12" />
+            </svg>
+            Sign in
+          </button>
+        )}
         {/* Theme toggle */}
         <button
           onClick={() => dispatch({ type: 'SET_THEME', theme: theme === 'dark' ? 'light' : 'dark' })}

@@ -39,3 +39,28 @@ Generate shareable outputs from the Gantt chart.
 - [ ] Export to PDF (print-friendly layout with headers/legend)
 - [ ] Export to PNG (rasterize SVG at chosen resolution)
 - [ ] Export to CSV (flat table of task data)
+
+## Phase 6: Gantt Chart UX Improvements (IN PROGRESS)
+Ten UX fixes and features, split into three parallel agent groups.
+
+### Group A — WASM Scheduler
+- [ ] A1: Add `computeEarliestStart` to Rust scheduler
+- [ ] A2: Add `computeCriticalPathScoped` for scoped critical path
+- [ ] A3: Add backward-drag constraint enforcement in cascade
+- [ ] A4: Add `cascadeDependentsWithIds` returning changed IDs
+
+### Group B — State + Sync (`feature/phase6-state-sync`)
+- [x] B1: Fix `CASCADE_DEPENDENTS` collab sync — add missing case to `applyActionToYjs`
+- [x] B2: Add new state fields (`undoStack`, `redoStack`, `lastCascadeIds`, `criticalPathScope`, `collapseWeekends`) and action types (`UNDO`, `REDO`, `SET_LAST_CASCADE_IDS`, `SET_CRITICAL_PATH_SCOPE`, `TOGGLE_COLLAPSE_WEEKENDS`)
+- [x] B3: Implement undo/redo in reducer with 50-snapshot limit
+- [x] B4: Update `CASCADE_DEPENDENTS` to track changed IDs + add new reducer cases
+- [x] B5: Wire up Ctrl+Z / Ctrl+Shift+Z keyboard shortcuts for undo/redo
+- [x] B6: Sync undo/redo to collab via full Yjs task array replacement
+
+### Group C — UI + Visual (blocked on A4 + B2)
+- [ ] C1: Cascade highlight animation on task bars
+- [ ] C2: Slack indicator component
+- [ ] C3: Scoped critical path UI controls
+- [ ] C4: Collapse weekends in timeline
+- [ ] C5: Undo/redo toolbar buttons
+- [ ] C6: Fix dependency modal click-outside

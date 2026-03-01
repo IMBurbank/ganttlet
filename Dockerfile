@@ -27,6 +27,14 @@ RUN echo "node ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/node
 # Switch to non-root user
 USER node
 
+# Install Rust toolchain, wasm32 target, and wasm-pack
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && . "$HOME/.cargo/env" \
+    && rustup target add wasm32-unknown-unknown \
+    && cargo install wasm-pack
+
+ENV PATH="/home/node/.cargo/bin:${PATH}"
+
 # Set up git config defaults (will be overridden by volume mount)
 
 RUN git config --global init.defaultBranch main

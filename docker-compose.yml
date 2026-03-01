@@ -26,3 +26,4 @@ services:
       - RELAY_HOST=0.0.0.0
       - RELAY_PORT=4000
       - RELAY_ALLOWED_ORIGINS=http://localhost:5173
+      - RUST_LOG=info

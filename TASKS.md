@@ -5,17 +5,17 @@ Claimable tasks for multi-agent development.
 
 ---
 
-## Rust-WASM Scheduling Engine
-Replace the JS CPM utils with a Rust module compiled to WebAssembly.
+## Rust-WASM Scheduling Engine (DONE)
+Replaced the JS CPM utils with a Rust module compiled to WebAssembly.
 
-- [ ] Scaffold Rust crate (`crates/scheduler/`) with `wasm-bindgen` + `wasm-pack`
-- [ ] Define shared types (`Task`, `Dependency`, `ScheduleResult`) in Rust
-- [ ] Implement topological sort for dependency graph
-- [ ] Implement forward pass (early start / early finish)
-- [ ] Implement backward pass (late start / late finish, total float)
-- [ ] Implement free float calculation
-- [ ] Expose `schedule(tasks, deps) -> ScheduleResult` via `wasm-bindgen`
-- [ ] Wire WASM module into React app, replacing JS `criticalPathUtils`
+- [x] Scaffold Rust crate (`crates/scheduler/`) with `wasm-bindgen` + `wasm-pack`
+- [x] Define shared types (`Task`, `Dependency`, `CascadeResult`) in Rust
+- [x] Implement CPM: topological sort, forward pass (ES/EF), backward pass (LS/LF), zero-float detection
+- [x] Implement cycle detection (`would_create_cycle`) via BFS reachability
+- [x] Implement cascade dependents (`cascade_dependents`) with date arithmetic
+- [x] Expose all functions via `#[wasm_bindgen]`
+- [x] Wire WASM module into React app via `schedulerWasm.ts` wrapper
+- [x] Delete old JS implementations (`criticalPathUtils.ts`, functions from `dependencyUtils.ts`)
 
 ## Resource Assignment & Leveling
 Basic resource tracking and overallocation detection.

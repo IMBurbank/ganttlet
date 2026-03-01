@@ -29,6 +29,10 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
+# WASM build output
+src/wasm/
+crates/scheduler/target/
+
 # Google Sheets credentials (NEVER commit these)
 credentials.json
 token.json

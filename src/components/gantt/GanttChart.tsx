@@ -4,7 +4,7 @@ import { useGanttState } from '../../state/GanttContext';
 import { dateToX, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
 import { buildTaskYPositions, ROW_HEIGHT } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
-import { computeCriticalPath } from '../../utils/criticalPathUtils';
+import { computeCriticalPath } from '../../utils/schedulerWasm';
 import TimelineHeader from './TimelineHeader';
 import GridLines from './GridLines';
 import TodayLine from './TodayLine';

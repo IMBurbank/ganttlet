@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { computeCriticalPath } from '../criticalPathUtils';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { computeCriticalPath, initScheduler } from '../schedulerWasm';
 import type { Task } from '../../types';
+
+beforeAll(async () => {
+  await initScheduler();
+});
 
 function makeTask(overrides: Partial<Task>): Task {
   return {

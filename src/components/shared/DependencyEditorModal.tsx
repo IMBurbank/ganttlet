@@ -2,7 +2,7 @@ import React, { useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task, Dependency, DependencyType } from '../../types';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-import { wouldCreateCycle } from '../../utils/dependencyUtils';
+import { wouldCreateCycle } from '../../utils/schedulerWasm';
 
 const DEP_TYPE_LABELS: Record<DependencyType, string> = {
   FS: 'Finish \u2192 Start',

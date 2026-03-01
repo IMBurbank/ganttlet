@@ -5,7 +5,7 @@ Ganttlet is a free, open-source Gantt chart with real-time collaboration and two
 
 ## Tech Stack
 - **Frontend**: React + TypeScript, Vite, custom SVG rendering
-- **Scheduling engine**: Rust → WebAssembly (in-browser) — currently JS, migration planned
+- **Scheduling engine**: Rust → WebAssembly (in-browser) — CPM, cycle detection, cascade
 - **Real-time sync**: Yjs (client) + Yrs (server) — CRDT-based
 - **Collaboration server**: Rust (axum + tokio-tungstenite) — stateless WebSocket relay
 - **Google Sheets**: API v4, client-side via OAuth2 token
@@ -23,9 +23,11 @@ See `docs/completed-phases.md` for detailed architecture notes (auth, sync, depl
 - Write tests for scheduling logic first — correctness is critical
 
 ## Commands
-- `npm run dev` — Start Vite dev server
+- `npm run build:wasm` — Build Rust scheduler to WASM
+- `npm run dev` — Build WASM + start Vite dev server
 - `npm run test` — Run unit tests
-- `npm run build` — Production build
+- `npm run build` — Build WASM + TypeScript check + production build
+- `cd crates/scheduler && cargo test` — Run Rust unit tests
 - `docker compose run --service-ports dev` — Enter the dev container
 - `docker compose exec dev bash` — Attach to running container
 - `claude --dangerously-skip-permissions` — Start Claude without permission checks
@@ -50,11 +52,11 @@ See `docs/completed-phases.md` for detailed architecture notes (auth, sync, depl
 See `TASKS.md` for claimable tasks and claiming convention.
 
 ## Roadmap (Future)
-- Rust→WASM scheduling engine (replace JS CPM utils)
 - Resource assignment and leveling
 - Baseline tracking
 - Export to PDF/PNG/CSV
 
 ## Completed Work
-Phases 0-4 are done (scaffolding, bug fixes, tests, Google Sheets sync, real-time collab).
+Phases 0-5 are done (scaffolding, bug fixes, tests, Google Sheets sync, real-time collab, WASM scheduler).
 Details in `docs/completed-phases.md`.
+- Phase 5: Rust→WASM scheduling engine — `crates/scheduler/` with CPM, cycle detection, cascade. Cloud Run deployment config in `deploy/cloudrun/`.

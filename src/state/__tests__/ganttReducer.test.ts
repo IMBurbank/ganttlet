@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { ganttReducer } from '../ganttReducer';
 import type { GanttState, Task } from '../../types';
+import { initScheduler } from '../../utils/schedulerWasm';
+
+beforeAll(async () => {
+  await initScheduler();
+});
 
 function makeTask(overrides: Partial<Task>): Task {
   return {

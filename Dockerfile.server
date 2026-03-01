@@ -11,5 +11,7 @@ RUN cargo build --release
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/ganttlet-relay /usr/local/bin/
+# Default port for local development.
+# Cloud Run sets the PORT env var automatically; the server reads it as a fallback.
 EXPOSE 4000
 CMD ["ganttlet-relay"]

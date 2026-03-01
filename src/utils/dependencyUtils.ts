@@ -1,5 +1,5 @@
 import type { Task, Dependency, DependencyType, ZoomLevel } from '../types';
-import { dateToX, daysBetween } from './dateUtils';
+import { dateToX } from './dateUtils';
 
 interface Point { x: number; y: number; }
 
@@ -117,67 +117,3 @@ export function createArrowHead(end: Point, depType?: DependencyType): string {
   return `M ${end.x} ${end.y} L ${end.x - size} ${end.y - size} L ${end.x - size} ${end.y + size} Z`;
 }
 
-export function wouldCreateCycle(
-  tasks: Task[],
-  successorId: string,
-  predecessorId: string,
-): boolean {
-  // If adding a dep from predecessorId → successorId,
-  // check if predecessorId is reachable by walking forward from successorId.
-  const taskMap = new Map(tasks.map(t => [t.id, t]));
-  const visited = new Set<string>();
-  const queue = [successorId];
-
-  while (queue.length > 0) {
-    const current = queue.pop()!;
-    if (current === predecessorId) return true;
-    if (visited.has(current)) continue;
-    visited.add(current);
-
-    // Find all tasks that depend on `current` (current is a predecessor)
-    for (const task of tasks) {
-      for (const dep of task.dependencies) {
-        if (dep.fromId === current) {
-          queue.push(task.id);
-        }
-      }
-    }
-  }
-  return false;
-}
-
-export function cascadeDependents(
-  tasks: Task[],
-  movedTaskId: string,
-  daysDelta: number,
-): Task[] {
-  const taskMap = new Map(tasks.map(t => [t.id, { ...t }]));
-  const visited = new Set<string>();
-
-  function cascade(taskId: string, delta: number) {
-    if (visited.has(taskId)) return;
-    visited.add(taskId);
-
-    // Find all tasks that depend on this task
-    for (const [, task] of taskMap) {
-      for (const dep of task.dependencies) {
-        if (dep.fromId === taskId) {
-          const dependent = taskMap.get(task.id);
-          if (!dependent || dependent.isSummary) continue;
-
-          const startDate = new Date(dependent.startDate);
-          const endDate = new Date(dependent.endDate);
-          startDate.setDate(startDate.getDate() + delta);
-          endDate.setDate(endDate.getDate() + delta);
-          dependent.startDate = startDate.toISOString().split('T')[0];
-          dependent.endDate = endDate.toISOString().split('T')[0];
-
-          cascade(task.id, delta);
-        }
-      }
-    }
-  }
-
-  cascade(movedTaskId, daysDelta);
-  return Array.from(taskMap.values());
-}

@@ -1,6 +1,6 @@
 import type { GanttState, Task } from '../types';
 import type { GanttAction } from './actions';
-import { cascadeDependents } from '../utils/dependencyUtils';
+import { cascadeDependents } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
 
 export function ganttReducer(state: GanttState, action: GanttAction): GanttState {

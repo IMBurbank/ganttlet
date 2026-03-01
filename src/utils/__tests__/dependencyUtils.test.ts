@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { wouldCreateCycle, cascadeDependents } from '../dependencyUtils';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { wouldCreateCycle, cascadeDependents, initScheduler } from '../schedulerWasm';
 import type { Task } from '../../types';
+
+beforeAll(async () => {
+  await initScheduler();
+});
 
 function makeTask(overrides: Partial<Task>): Task {
   return {

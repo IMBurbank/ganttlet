@@ -159,6 +159,9 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
       return { ...state, tasks };
     }
 
+    case 'SET_TASKS':
+      return { ...state, tasks: action.tasks };
+
     case 'SET_DEPENDENCY_EDITOR':
       return { ...state, dependencyEditor: action.editor };
 

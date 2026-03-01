@@ -1,17 +1,29 @@
 import React, { useCallback } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { loadFromSheet, getSpreadsheetId } from '../../sheets/sheetsSync';
+import { isSignedIn } from '../../sheets/oauth';
 
 export default function SyncStatusIndicator() {
   const { isSyncing, syncComplete } = useGanttState();
   const dispatch = useGanttDispatch();
 
-  const handleSync = useCallback(() => {
+  const sheetConnected = !!getSpreadsheetId() && isSignedIn();
+
+  const handleSync = useCallback(async () => {
     if (isSyncing) return;
-    dispatch({ type: 'START_SYNC' });
-    setTimeout(() => {
-      dispatch({ type: 'COMPLETE_SYNC' });
-      setTimeout(() => dispatch({ type: 'RESET_SYNC' }), 2000);
-    }, 1500);
+    if (getSpreadsheetId() && isSignedIn()) {
+      const tasks = await loadFromSheet();
+      if (tasks.length > 0) {
+        dispatch({ type: 'SET_TASKS', tasks });
+      }
+    } else {
+      // Fake sync for demo mode
+      dispatch({ type: 'START_SYNC' });
+      setTimeout(() => {
+        dispatch({ type: 'COMPLETE_SYNC' });
+        setTimeout(() => dispatch({ type: 'RESET_SYNC' }), 2000);
+      }, 1500);
+    }
   }, [dispatch, isSyncing]);
 
   return (
@@ -40,7 +52,7 @@ export default function SyncStatusIndicator() {
         </svg>
       )}
       <span className="hidden sm:inline">
-        {syncComplete ? 'Synced' : isSyncing ? 'Syncing...' : 'Sync Sheets'}
+        {syncComplete ? 'Synced' : isSyncing ? 'Syncing...' : sheetConnected ? 'Sync Sheets' : 'No Sheet'}
       </span>
     </button>
   );

@@ -1,4 +1,4 @@
-import type { ColorByField, ZoomLevel, ColumnConfig, Dependency, DependencyType } from '../types';
+import type { ColorByField, ZoomLevel, ColumnConfig, Dependency, DependencyType, Task } from '../types';
 
 export type GanttAction =
   | { type: 'MOVE_TASK'; taskId: string; newStartDate: string; newEndDate: string }
@@ -28,5 +28,6 @@ export type GanttAction =
   | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string }
   | { type: 'SET_DEPENDENCY_EDITOR'; editor: { taskId: string; highlightFromId?: string } | null }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
+  | { type: 'SET_TASKS'; tasks: Task[] }
   | { type: 'ADD_TASK'; parentId: string | null; afterTaskId: string | null }
   | { type: 'DELETE_TASK'; taskId: string };

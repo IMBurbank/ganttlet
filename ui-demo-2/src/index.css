@@ -1,0 +1,207 @@
+@import 'tailwindcss';
+
+:root {
+  --raw-surface-base: #ffffff;
+  --raw-surface-raised: #f9fafb;
+  --raw-surface-overlay: #f3f4f6;
+  --raw-surface-sunken: #e5e7eb;
+  --raw-text-primary: #111827;
+  --raw-text-secondary: #4b5563;
+  --raw-text-tertiary: #6b7280;
+  --raw-text-muted: #9ca3af;
+  --raw-border-default: #e5e7eb;
+  --raw-border-subtle: #f3f4f6;
+  --raw-border-strong: #d1d5db;
+
+  --raw-grid-line: #e5e7eb;
+  --raw-grid-weekend: rgba(0,0,0,0.03);
+  --raw-dep-arrow: #6b7280;
+  --raw-bar-text: #1e293b;
+  --raw-label-text: #6b7280;
+  --raw-bar-text-shadow: none;
+  --raw-input-bg: #ffffff;
+  --raw-input-border: #d1d5db;
+  --raw-input-text: #111827;
+  --raw-scrollbar-track: #f3f4f6;
+  --raw-scrollbar-thumb: #d1d5db;
+  --raw-scrollbar-thumb-hover: #9ca3af;
+  --raw-backdrop: rgba(0,0,0,0.2);
+  --raw-avatar-ring: #ffffff;
+}
+
+.dark {
+  --raw-surface-base: #030712;
+  --raw-surface-raised: #111827;
+  --raw-surface-overlay: #1f2937;
+  --raw-surface-sunken: #374151;
+  --raw-text-primary: #f3f4f6;
+  --raw-text-secondary: #9ca3af;
+  --raw-text-tertiary: #6b7280;
+  --raw-text-muted: #4b5563;
+  --raw-border-default: #374151;
+  --raw-border-subtle: rgba(31,41,55,0.5);
+  --raw-border-strong: #4b5563;
+
+  --raw-grid-line: #1e293b;
+  --raw-grid-weekend: rgba(30,41,59,0.5);
+  --raw-dep-arrow: #94a3b8;
+  --raw-bar-text: #ffffff;
+  --raw-label-text: #9ca3af;
+  --raw-bar-text-shadow: 0 0 3px rgba(0,0,0,0.8), 0 1px 2px rgba(0,0,0,0.6);
+  --raw-input-bg: #1e293b;
+  --raw-input-border: #3b82f6;
+  --raw-input-text: #f1f5f9;
+  --raw-scrollbar-track: #111827;
+  --raw-scrollbar-thumb: #374151;
+  --raw-scrollbar-thumb-hover: #4b5563;
+  --raw-backdrop: rgba(0,0,0,0.6);
+  --raw-avatar-ring: #0f172a;
+}
+
+@theme {
+  --color-gantt-blue: #3b82f6;
+  --color-gantt-green: #22c55e;
+  --color-gantt-purple: #a855f7;
+  --color-gantt-orange: #f97316;
+  --color-gantt-pink: #ec4899;
+  --color-gantt-cyan: #06b6d4;
+  --color-gantt-yellow: #eab308;
+  --color-gantt-red: #ef4444;
+  --color-gantt-teal: #14b8a6;
+  --color-gantt-indigo: #6366f1;
+
+  --color-surface-base: var(--raw-surface-base);
+  --color-surface-raised: var(--raw-surface-raised);
+  --color-surface-overlay: var(--raw-surface-overlay);
+  --color-surface-sunken: var(--raw-surface-sunken);
+  --color-text-primary: var(--raw-text-primary);
+  --color-text-secondary: var(--raw-text-secondary);
+  --color-text-tertiary: var(--raw-text-tertiary);
+  --color-text-muted: var(--raw-text-muted);
+  --color-border-default: var(--raw-border-default);
+  --color-border-subtle: var(--raw-border-subtle);
+  --color-border-strong: var(--raw-border-strong);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--raw-scrollbar-thumb) var(--raw-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--raw-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--raw-scrollbar-thumb);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--raw-scrollbar-thumb-hover);
+}
+
+body {
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-bar {
+  cursor: grab;
+  transition: filter 0.15s ease;
+}
+
+.task-bar:hover {
+  filter: brightness(1.15);
+}
+
+.task-bar:active {
+  cursor: grabbing;
+}
+
+.resize-handle {
+  cursor: ew-resize;
+}
+
+.inline-edit-input {
+  background: var(--raw-input-bg);
+  border: 1px solid var(--raw-input-border);
+  border-radius: 4px;
+  color: var(--raw-input-text);
+  padding: 2px 6px;
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+}
+
+.inline-edit-input:focus {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.dependency-arrow {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.dependency-arrow:hover .dep-stroke {
+  stroke: #60a5fa;
+}
+
+.dependency-arrow:hover .dep-head {
+  fill: #60a5fa;
+}
+
+.dependency-arrow:hover {
+  opacity: 1 !important;
+}
+
+.today-line {
+  pointer-events: none;
+}
+
+@keyframes sync-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.sync-spinning {
+  animation: sync-spin 1s linear infinite;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}

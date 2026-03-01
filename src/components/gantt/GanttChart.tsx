@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
-import { useGanttState } from '../../state/GanttContext';
-import { dateToX, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
+import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { dateToX, dateToXCollapsed, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineDaysFiltered, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
 import { buildTaskYPositions, ROW_HEIGHT } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
-import { computeCriticalPath } from '../../utils/schedulerWasm';
+import { computeCriticalPathScoped, computeEarliestStart } from '../../utils/schedulerWasm';
+import SlackIndicator from './SlackIndicator';
+import CascadeHighlight from './CascadeHighlight';
 import TimelineHeader from './TimelineHeader';
 import GridLines from './GridLines';
 import TodayLine from './TodayLine';
@@ -25,7 +27,18 @@ interface GanttChartProps {
 }
 
 export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, users, collabUsers, isCollabConnected, onDependencyClick }: GanttChartProps) {
-  const { showOwnerOnBar, showAreaOnBar, showOkrsOnBar, showCriticalPath } = useGanttState();
+  const { showOwnerOnBar, showAreaOnBar, showOkrsOnBar, showCriticalPath, criticalPathScope, collapseWeekends, lastCascadeIds } = useGanttState();
+  const dispatch = useGanttDispatch();
+
+  // Auto-clear cascade IDs after 2 seconds
+  useEffect(() => {
+    if (lastCascadeIds.length > 0) {
+      const timer = setTimeout(() => {
+        dispatch({ type: 'SET_LAST_CASCADE_IDS', taskIds: [] });
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastCascadeIds, dispatch]);
 
   const viewingMap = useMemo(() => {
     const map = new Map<string, { color: string; name: string }>();
@@ -46,8 +59,8 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
   }, [users, collabUsers, isCollabConnected]);
 
   const criticalPathIds = useMemo(
-    () => showCriticalPath ? computeCriticalPath(allTasks) : new Set<string>(),
-    [allTasks, showCriticalPath]
+    () => showCriticalPath ? computeCriticalPathScoped(allTasks, criticalPathScope) : new Set<string>(),
+    [allTasks, showCriticalPath, criticalPathScope]
   );
 
   const { start: timelineStart, end: timelineEnd } = useMemo(
@@ -59,10 +72,14 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
   const taskYPositions = useMemo(() => buildTaskYPositions(visibleTasks), [visibleTasks]);
 
   const totalDays = useMemo(() => {
-    if (zoom === 'day') return getTimelineDays(timelineStart, timelineEnd).length;
+    if (zoom === 'day') {
+      return collapseWeekends
+        ? getTimelineDaysFiltered(timelineStart, timelineEnd, true).length
+        : getTimelineDays(timelineStart, timelineEnd).length;
+    }
     if (zoom === 'week') return getTimelineWeeks(timelineStart, timelineEnd).length;
     return getTimelineMonths(timelineStart, timelineEnd).length;
-  }, [timelineStart, timelineEnd, zoom]);
+  }, [timelineStart, timelineEnd, zoom, collapseWeekends]);
 
   const totalWidth = totalDays * colWidth;
   const totalHeight = visibleTasks.length * ROW_HEIGHT;
@@ -88,15 +105,48 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
             zoom={zoom}
             totalHeight={totalHeight}
           />
+          {/* Slack indicators and cascade highlights */}
+          {visibleTasks.map(task => {
+            if (task.isSummary || task.isMilestone) return null;
+            const yPos = taskYPositions.get(task.id);
+            if (yPos === undefined) return null;
+
+            const earliest = computeEarliestStart(allTasks, task.id);
+            const taskX = dateToXCollapsed(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const taskEndX = dateToXCollapsed(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const taskWidth = Math.max(taskEndX - taskX, 0);
+
+            return (
+              <React.Fragment key={`indicators-${task.id}`}>
+                {earliest && (
+                  <SlackIndicator
+                    earliestX={dateToXCollapsed(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
+                    actualX={taskX}
+                    y={yPos}
+                    height={ROW_HEIGHT}
+                  />
+                )}
+                {lastCascadeIds.includes(task.id) && (
+                  <CascadeHighlight
+                    x={taskX}
+                    y={yPos}
+                    width={taskWidth}
+                    height={ROW_HEIGHT}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
           {/* Render bars */}
           {visibleTasks.map(task => {
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
             const color = getTaskColor(colorBy, task[colorBy] as string);
-            const x = dateToX(task.startDate, timelineStart, colWidth, zoom);
-            const endX = dateToX(task.endDate, timelineStart, colWidth, zoom);
+            const x = dateToXCollapsed(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const endX = dateToXCollapsed(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
             const width = Math.max(endX - x, 0);
             const viewer = viewingMap.get(task.id);
+            const earliest = computeEarliestStart(allTasks, task.id);
 
             if (task.isMilestone) {
               return (
@@ -155,6 +205,8 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
                 isCritical={criticalPathIds.has(task.id)}
                 viewerName={viewer?.name}
                 viewerColor={viewer?.color}
+                collapseWeekends={collapseWeekends}
+                earliestStart={earliest ?? undefined}
               />
             );
           })}

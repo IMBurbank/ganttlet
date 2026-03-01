@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ZoomLevel } from '../../types';
-import { getTimelineDays, isWeekendDay, getColumnWidth } from '../../utils/dateUtils';
+import { useGanttState } from '../../state/GanttContext';
+import { getTimelineDays, getTimelineDaysFiltered, isWeekendDay, getColumnWidth } from '../../utils/dateUtils';
 
 interface GridLinesProps {
   timelineStart: Date;
@@ -11,7 +12,10 @@ interface GridLinesProps {
 
 export default function GridLines({ timelineStart, timelineEnd, zoom, totalHeight }: GridLinesProps) {
   const colWidth = getColumnWidth(zoom);
-  const days = getTimelineDays(timelineStart, timelineEnd);
+  const { collapseWeekends } = useGanttState();
+  const days = zoom === 'day' && collapseWeekends
+    ? getTimelineDaysFiltered(timelineStart, timelineEnd, true)
+    : getTimelineDays(timelineStart, timelineEnd);
 
   if (zoom === 'day') {
     return (
@@ -21,7 +25,7 @@ export default function GridLines({ timelineStart, timelineEnd, zoom, totalHeigh
           const weekend = isWeekendDay(day);
           return (
             <React.Fragment key={i}>
-              {weekend && (
+              {!collapseWeekends && weekend && (
                 <rect x={x} y={0} width={colWidth} height={totalHeight} fill="var(--raw-grid-weekend)" />
               )}
               <line x1={x} y1={0} x2={x} y2={totalHeight} stroke="var(--raw-grid-line)" strokeWidth={1} />

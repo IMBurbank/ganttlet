@@ -137,7 +137,7 @@ export default function DependencyEditorModal() {
       onClick={(e) => { if (e.target === e.currentTarget) close(); }}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0" style={{ backgroundColor: 'var(--raw-backdrop)' }} />
+      <div className="absolute inset-0" style={{ backgroundColor: 'var(--raw-backdrop)' }} onClick={close} />
 
       {/* Modal content */}
       <div className="relative bg-surface-raised border border-border-default rounded-lg shadow-xl w-[560px] max-h-[80vh] flex flex-col fade-in">

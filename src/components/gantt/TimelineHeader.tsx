@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ZoomLevel } from '../../types';
-import { getTimelineDays, getTimelineWeeks, getTimelineMonths, getColumnWidth, formatTimelineHeader, formatTimelineSubHeader, getMonthLabel, isWeekendDay } from '../../utils/dateUtils';
+import { useGanttState } from '../../state/GanttContext';
+import { getTimelineDays, getTimelineDaysFiltered, getTimelineWeeks, getTimelineMonths, getColumnWidth, formatTimelineHeader, formatTimelineSubHeader, getMonthLabel, isWeekendDay } from '../../utils/dateUtils';
 import { format } from 'date-fns';
 
 interface TimelineHeaderProps {
@@ -12,9 +13,12 @@ interface TimelineHeaderProps {
 
 export default function TimelineHeader({ timelineStart, timelineEnd, zoom, totalWidth }: TimelineHeaderProps) {
   const colWidth = getColumnWidth(zoom);
+  const { collapseWeekends } = useGanttState();
 
   if (zoom === 'day') {
-    const days = getTimelineDays(timelineStart, timelineEnd);
+    const days = collapseWeekends
+      ? getTimelineDaysFiltered(timelineStart, timelineEnd, true)
+      : getTimelineDays(timelineStart, timelineEnd);
     // Group days by month for top row
     const months: { label: string; startIdx: number; count: number }[] = [];
     let currentMonth = '';

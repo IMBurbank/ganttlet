@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-import type { ColorByField, ZoomLevel } from '../../types';
+import type { ColorByField, ZoomLevel, CriticalPathScope } from '../../types';
 import { getPaletteEntries } from '../../data/colorPalettes';
+import UndoRedoButtons from '../shared/UndoRedoButtons';
 
 const colorByOptions: { value: ColorByField; label: string }[] = [
   { value: 'owner', label: 'Owner' },
@@ -21,8 +22,10 @@ export default function Toolbar() {
   const dispatch = useGanttDispatch();
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
+  const [showCpScopeMenu, setShowCpScopeMenu] = useState(false);
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
+  const cpScopeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -32,12 +35,30 @@ export default function Toolbar() {
       if (legendRef.current && !legendRef.current.contains(e.target as Node)) {
         setShowColorLegend(false);
       }
+      if (cpScopeRef.current && !cpScopeRef.current.contains(e.target as Node)) {
+        setShowCpScopeMenu(false);
+      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
   const legendEntries = getPaletteEntries(state.colorBy);
+
+  const projectNames = useMemo(
+    () => [...new Set(state.tasks.map(t => t.project).filter(Boolean))],
+    [state.tasks]
+  );
+  const milestoneTasks = useMemo(
+    () => state.tasks.filter(t => t.isMilestone),
+    [state.tasks]
+  );
+
+  function scopeLabel(scope: CriticalPathScope): string {
+    if (scope.type === 'all') return 'All';
+    if (scope.type === 'project') return scope.name;
+    return milestoneTasks.find(t => t.id === scope.id)?.name ?? scope.id;
+  }
 
   return (
     <div className="flex items-center gap-2 px-4 h-10 bg-surface-raised/50 border-b border-border-subtle shrink-0 text-xs">
@@ -82,6 +103,20 @@ export default function Toolbar() {
           </button>
         ))}
       </div>
+
+      {/* Collapse weekends */}
+      {state.zoomLevel === 'day' && (
+        <button
+          onClick={() => dispatch({ type: 'TOGGLE_COLLAPSE_WEEKENDS' })}
+          className={`px-2 py-0.5 rounded transition-colors ${
+            state.collapseWeekends
+              ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
+              : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
+          }`}
+        >
+          Hide Weekends
+        </button>
+      )}
 
       <div className="w-px h-5 bg-border-default" />
 
@@ -186,17 +221,74 @@ export default function Toolbar() {
 
       <div className="w-px h-5 bg-border-default" />
 
-      {/* Critical path toggle */}
-      <button
-        onClick={() => dispatch({ type: 'TOGGLE_CRITICAL_PATH' })}
-        className={`px-2 py-0.5 rounded transition-colors ${
-          state.showCriticalPath
-            ? 'bg-red-600/30 text-red-400 border border-red-500/40'
-            : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
-        }`}
-      >
-        Critical Path
-      </button>
+      {/* Critical path toggle + scope */}
+      <div className="relative flex items-center" ref={cpScopeRef}>
+        <button
+          onClick={() => dispatch({ type: 'TOGGLE_CRITICAL_PATH' })}
+          className={`px-2 py-0.5 rounded-l transition-colors ${
+            state.showCriticalPath
+              ? 'bg-red-600/30 text-red-400 border border-red-500/40'
+              : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
+          }`}
+        >
+          Critical Path
+        </button>
+        {state.showCriticalPath && (
+          <button
+            onClick={() => setShowCpScopeMenu(!showCpScopeMenu)}
+            className="px-1.5 py-0.5 rounded-r bg-red-600/30 text-red-400 border border-l-0 border-red-500/40 hover:bg-red-600/50 transition-colors"
+            title="Scope"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+          </button>
+        )}
+        {showCpScopeMenu && state.showCriticalPath && (
+          <div className="absolute top-full left-0 mt-1 bg-surface-overlay border border-border-default rounded-lg shadow-xl p-1 z-40 min-w-[160px] fade-in">
+            <button
+              onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'all' } }); setShowCpScopeMenu(false); }}
+              className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
+                state.criticalPathScope.type === 'all' ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+              }`}
+            >
+              All
+            </button>
+            {projectNames.length > 0 && (
+              <>
+                <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Projects</div>
+                {projectNames.map(name => (
+                  <button
+                    key={name}
+                    onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'project', name } }); setShowCpScopeMenu(false); }}
+                    className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
+                      state.criticalPathScope.type === 'project' && state.criticalPathScope.name === name
+                        ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </>
+            )}
+            {milestoneTasks.length > 0 && (
+              <>
+                <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Milestones</div>
+                {milestoneTasks.map(ms => (
+                  <button
+                    key={ms.id}
+                    onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'milestone', id: ms.id } }); setShowCpScopeMenu(false); }}
+                    className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
+                      state.criticalPathScope.type === 'milestone' && state.criticalPathScope.id === ms.id
+                        ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+                    }`}
+                  >
+                    {ms.name}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="w-px h-5 bg-border-default" />
 
@@ -207,6 +299,9 @@ export default function Toolbar() {
       >
         + Add Task
       </button>
+
+      {/* Undo/Redo */}
+      <UndoRedoButtons />
 
       <div className="flex-1" />
 

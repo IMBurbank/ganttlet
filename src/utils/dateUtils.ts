@@ -111,3 +111,46 @@ export function formatTimelineSubHeader(date: Date, zoom: ZoomLevel): string {
 export function getMonthLabel(date: Date): string {
   return format(date, 'MMMM yyyy');
 }
+
+/** Count business days (Mon-Fri) between two dates. */
+export function businessDaysBetween(start: Date, end: Date): number {
+  let count = 0;
+  const current = new Date(start);
+  while (current < end) {
+    if (!isWeekend(current)) count++;
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
+}
+
+/** dateToX that skips weekends when collapseWeekends is true and zoom is 'day'. */
+export function dateToXCollapsed(
+  dateStr: string, timelineStart: Date, colWidth: number,
+  zoom: ZoomLevel, collapseWeekends: boolean
+): number {
+  if (!collapseWeekends || zoom !== 'day') return dateToX(dateStr, timelineStart, colWidth, zoom);
+  const date = parseISO(dateStr);
+  return businessDaysBetween(timelineStart, date) * colWidth;
+}
+
+/** Inverse: x to date, skipping weekends. */
+export function xToDateCollapsed(
+  x: number, timelineStart: Date, colWidth: number,
+  zoom: ZoomLevel, collapseWeekends: boolean
+): Date {
+  if (!collapseWeekends || zoom !== 'day') return xToDate(x, timelineStart, colWidth, zoom);
+  const bizDays = Math.round(x / colWidth);
+  let count = 0;
+  const current = new Date(timelineStart);
+  while (count < bizDays) {
+    current.setDate(current.getDate() + 1);
+    if (!isWeekend(current)) count++;
+  }
+  return current;
+}
+
+/** Get timeline days, optionally filtering out weekends. */
+export function getTimelineDaysFiltered(start: Date, end: Date, collapseWeekends: boolean): Date[] {
+  const all = eachDayOfInterval({ start, end });
+  return collapseWeekends ? all.filter(d => !isWeekend(d)) : all;
+}

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type Dispatch } from 'react';
-import type { GanttState } from '../types';
+import type { GanttState, CriticalPathScope } from '../types';
 import { ganttReducer } from './ganttReducer';
 import type { GanttAction } from './actions';
 import { fakeTasks, fakeUsers, fakeChangeHistory, defaultColumns } from '../data/fakeData';
@@ -39,6 +39,11 @@ const initialState: GanttState = {
   theme: getInitialTheme(),
   collabUsers: [],
   isCollabConnected: false,
+  undoStack: [],
+  redoStack: [],
+  lastCascadeIds: [],
+  criticalPathScope: { type: 'all' } as CriticalPathScope,
+  collapseWeekends: true,
 };
 
 const GanttStateContext = createContext<GanttState>(initialState);
@@ -60,6 +65,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(ganttReducer, initialState);
   const yjsDocRef = useRef<Y.Doc | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
+  const pendingFullSyncRef = useRef(false);
   const [awareness, setAwareness] = useState<Awareness | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(getAccessToken());
 
@@ -76,7 +82,10 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
     dispatch(action);
 
-    if (yjsDocRef.current && TASK_MODIFYING_ACTIONS.has(action.type)) {
+    if (action.type === 'UNDO' || action.type === 'REDO') {
+      // UNDO/REDO replace the entire task array — flag for full sync in useEffect
+      pendingFullSyncRef.current = true;
+    } else if (yjsDocRef.current && TASK_MODIFYING_ACTIONS.has(action.type)) {
       applyActionToYjs(yjsDocRef.current, action);
     }
   }, []);
@@ -161,6 +170,30 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_COLLAB_USERS', users: [] });
     };
   }, [accessToken]);
+
+  // Full Yjs sync after undo/redo (replaces entire task array)
+  useEffect(() => {
+    if (pendingFullSyncRef.current && yjsDocRef.current) {
+      applyTasksToYjs(yjsDocRef.current, state.tasks);
+      pendingFullSyncRef.current = false;
+    }
+  }, [state.tasks]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          collabDispatch({ type: 'REDO' });
+        } else {
+          collabDispatch({ type: 'UNDO' });
+        }
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [collabDispatch]);
 
   return (
     <GanttStateContext.Provider value={state}>

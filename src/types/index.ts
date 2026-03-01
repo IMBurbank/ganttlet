@@ -71,6 +71,11 @@ export interface ColumnConfig {
   visible: boolean;
 }
 
+export type CriticalPathScope =
+  | { type: 'all' }
+  | { type: 'project'; name: string }
+  | { type: 'milestone'; id: string };
+
 export interface GanttState {
   tasks: Task[];
   columns: ColumnConfig[];
@@ -91,4 +96,9 @@ export interface GanttState {
   theme: 'light' | 'dark';
   collabUsers: CollabUser[];
   isCollabConnected: boolean;
+  undoStack: Task[][];
+  redoStack: Task[][];
+  lastCascadeIds: string[];
+  criticalPathScope: CriticalPathScope;
+  collapseWeekends: boolean;
 }

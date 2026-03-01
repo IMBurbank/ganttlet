@@ -3,7 +3,24 @@ import type { GanttAction } from './actions';
 import { cascadeDependents } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
 
+const UNDOABLE_ACTIONS = new Set([
+  'MOVE_TASK', 'RESIZE_TASK', 'CASCADE_DEPENDENTS',
+  'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
+  'ADD_TASK', 'DELETE_TASK',
+]);
+
 export function ganttReducer(state: GanttState, action: GanttAction): GanttState {
+  // Snapshot before undoable actions
+  let stateForReducer = state;
+  if (UNDOABLE_ACTIONS.has(action.type)) {
+    const undoStack = [...state.undoStack, state.tasks].slice(-50);
+    stateForReducer = { ...state, undoStack, redoStack: [] };
+  }
+
+  return ganttReducerInner(stateForReducer, action);
+}
+
+function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
   switch (action.type) {
     case 'MOVE_TASK': {
       let tasks = state.tasks.map(t =>
@@ -106,8 +123,15 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
 
     case 'CASCADE_DEPENDENTS': {
       let tasks = cascadeDependents(state.tasks, action.taskId, action.daysDelta);
+      // Track which task IDs had their dates changed
+      const changedIds: string[] = [];
+      for (let i = 0; i < tasks.length; i++) {
+        if (tasks[i].startDate !== state.tasks[i]?.startDate || tasks[i].endDate !== state.tasks[i]?.endDate) {
+          changedIds.push(tasks[i].id);
+        }
+      }
       tasks = recalcSummaryDates(tasks);
-      return { ...state, tasks };
+      return { ...state, tasks, lastCascadeIds: changedIds };
     }
 
     case 'TOGGLE_SHOW_OWNER_ON_BAR':
@@ -267,6 +291,39 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
 
     case 'SET_COLLAB_CONNECTED':
       return { ...state, isCollabConnected: action.connected };
+
+    case 'SET_LAST_CASCADE_IDS':
+      return { ...state, lastCascadeIds: action.taskIds };
+
+    case 'SET_CRITICAL_PATH_SCOPE':
+      return { ...state, criticalPathScope: action.scope };
+
+    case 'TOGGLE_COLLAPSE_WEEKENDS':
+      return { ...state, collapseWeekends: !state.collapseWeekends };
+
+    case 'UNDO': {
+      if (state.undoStack.length === 0) return state;
+      const prev = state.undoStack[state.undoStack.length - 1];
+      return {
+        ...state,
+        tasks: prev,
+        undoStack: state.undoStack.slice(0, -1),
+        redoStack: [...state.redoStack, state.tasks],
+        lastCascadeIds: [],
+      };
+    }
+
+    case 'REDO': {
+      if (state.redoStack.length === 0) return state;
+      const next = state.redoStack[state.redoStack.length - 1];
+      return {
+        ...state,
+        tasks: next,
+        redoStack: state.redoStack.slice(0, -1),
+        undoStack: [...state.undoStack, state.tasks],
+        lastCascadeIds: [],
+      };
+    }
 
     default:
       return state;

@@ -1,4 +1,4 @@
-import type { ColorByField, ZoomLevel, ColumnConfig, CollabUser, Dependency, DependencyType, Task } from '../types';
+import type { ColorByField, ZoomLevel, ColumnConfig, CollabUser, Dependency, DependencyType, Task, CriticalPathScope } from '../types';
 
 export type GanttAction =
   | { type: 'MOVE_TASK'; taskId: string; newStartDate: string; newEndDate: string }
@@ -32,4 +32,9 @@ export type GanttAction =
   | { type: 'ADD_TASK'; parentId: string | null; afterTaskId: string | null }
   | { type: 'DELETE_TASK'; taskId: string }
   | { type: 'SET_COLLAB_USERS'; users: CollabUser[] }
-  | { type: 'SET_COLLAB_CONNECTED'; connected: boolean };
+  | { type: 'SET_COLLAB_CONNECTED'; connected: boolean }
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
+  | { type: 'SET_LAST_CASCADE_IDS'; taskIds: string[] }
+  | { type: 'SET_CRITICAL_PATH_SCOPE'; scope: CriticalPathScope }
+  | { type: 'TOGGLE_COLLAPSE_WEEKENDS' };

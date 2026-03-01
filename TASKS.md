@@ -17,7 +17,7 @@ Replaced the JS CPM utils with a Rust module compiled to WebAssembly.
 - [x] Wire WASM module into React app via `schedulerWasm.ts` wrapper
 - [x] Delete old JS implementations (`criticalPathUtils.ts`, functions from `dependencyUtils.ts`)
 
-## Phase 6: Gantt Chart UX Improvements
+## Phase 6: Gantt Chart UX Improvements (DONE)
 Bug fixes, visual feedback, and new features across three parallel agent groups.
 See `CLAUDE.md` for interface contracts and file ownership.
 
@@ -58,34 +58,34 @@ See `CLAUDE.md` for interface contracts and file ownership.
 **Files**: `src/state/actions.ts`, `src/state/ganttReducer.ts`, `src/state/GanttContext.tsx`, `src/collab/yjsBinding.ts`, `src/types/index.ts`
 **Branch**: `feature/phase6-state-sync`
 
-- [ ] **B1**: Fix CASCADE_DEPENDENTS collab sync (bug fix — do first)
+- [x] **B1**: Fix CASCADE_DEPENDENTS collab sync (bug fix — do first)
   - File: `src/collab/yjsBinding.ts`
   - Bug: `CASCADE_DEPENDENTS` in `TASK_MODIFYING_ACTIONS` but no case in `applyActionToYjs()` switch — falls through to `default: break;`
   - Fix: add case that reads tasks from Yjs, calls `cascadeDependents`, writes changed dates back in a transaction
   - Import `cascadeDependents` from `schedulerWasm`
 
-- [ ] **B2**: Add new state fields and action types
+- [x] **B2**: Add new state fields and action types
   - File: `src/types/index.ts` — add `undoStack`, `redoStack`, `lastCascadeIds`, `criticalPathScope`, `collapseWeekends` to GanttState; add `CriticalPathScope` type
   - File: `src/state/actions.ts` — add UNDO, REDO, SET_LAST_CASCADE_IDS, SET_CRITICAL_PATH_SCOPE, TOGGLE_COLLAPSE_WEEKENDS
   - File: `src/state/GanttContext.tsx` — add defaults to initialState (`undoStack: []`, `redoStack: []`, `lastCascadeIds: []`, `criticalPathScope: { type: 'all' }`, `collapseWeekends: true`)
 
-- [ ] **B3**: Implement undo/redo in reducer
+- [x] **B3**: Implement undo/redo in reducer
   - File: `src/state/ganttReducer.ts`
   - Define UNDOABLE_ACTIONS: MOVE_TASK, RESIZE_TASK, CASCADE_DEPENDENTS, ADD/UPDATE/REMOVE_DEPENDENCY, ADD_TASK, DELETE_TASK
   - Before undoable action: push `state.tasks` snapshot to undoStack (max 50), clear redoStack
   - UNDO: pop undoStack → tasks, push current tasks → redoStack
   - REDO: pop redoStack → tasks, push current tasks → undoStack
 
-- [ ] **B4**: Update CASCADE_DEPENDENTS to track changed IDs
+- [x] **B4**: Update CASCADE_DEPENDENTS to track changed IDs
   - File: `src/state/ganttReducer.ts`
   - Modify CASCADE_DEPENDENTS case to use `cascadeDependentsWithIds` and store `changedIds` in `lastCascadeIds`
   - Add SET_LAST_CASCADE_IDS, SET_CRITICAL_PATH_SCOPE, TOGGLE_COLLAPSE_WEEKENDS cases
 
-- [ ] **B5**: Wire up keyboard shortcuts for undo/redo
+- [x] **B5**: Wire up keyboard shortcuts for undo/redo
   - File: `src/state/GanttContext.tsx`
   - Add `useEffect` for Ctrl+Z (undo) and Ctrl+Shift+Z (redo)
 
-- [ ] **B6**: Sync UNDO/REDO to collab
+- [x] **B6**: Sync UNDO/REDO to collab
   - File: `src/state/GanttContext.tsx` + `src/collab/yjsBinding.ts`
   - Use `pendingFullSyncRef` flag: when UNDO/REDO dispatched, set flag. `useEffect` watching `state.tasks` calls `applyTasksToYjs(doc, state.tasks)` when flag set, clears it
 

@@ -55,6 +55,15 @@ export interface FakeUser {
   viewingCellColumn: string | null;
 }
 
+export interface CollabUser {
+  clientId: number;
+  name: string;
+  email: string;
+  color: string;
+  viewingTaskId: string | null;
+  viewingCellColumn: string | null;
+}
+
 export interface ColumnConfig {
   key: string;
   label: string;
@@ -80,4 +89,6 @@ export interface GanttState {
   showCriticalPath: boolean;
   dependencyEditor: { taskId: string; highlightFromId?: string } | null;
   theme: 'light' | 'dark';
+  collabUsers: CollabUser[];
+  isCollabConnected: boolean;
 }

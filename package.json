@@ -12,7 +12,9 @@
   "dependencies": {
     "date-fns": "^4.1.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.29"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

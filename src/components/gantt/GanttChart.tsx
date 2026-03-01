@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser } from '../../types';
+import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
 import { useGanttState } from '../../state/GanttContext';
 import { dateToX, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
 import { buildTaskYPositions, ROW_HEIGHT } from '../../utils/layoutUtils';
@@ -19,21 +19,31 @@ interface GanttChartProps {
   zoom: ZoomLevel;
   colorBy: ColorByField;
   users: FakeUser[];
+  collabUsers?: CollabUser[];
+  isCollabConnected?: boolean;
   onDependencyClick?: (dep: Dependency, successorId: string) => void;
 }
 
-export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, users, onDependencyClick }: GanttChartProps) {
+export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, users, collabUsers, isCollabConnected, onDependencyClick }: GanttChartProps) {
   const { showOwnerOnBar, showAreaOnBar, showOkrsOnBar, showCriticalPath } = useGanttState();
 
   const viewingMap = useMemo(() => {
-    const map = new Map<string, FakeUser>();
-    users.forEach(u => {
-      if (u.viewingTaskId && u.isOnline) {
-        map.set(u.viewingTaskId, u);
-      }
-    });
+    const map = new Map<string, { color: string; name: string }>();
+    if (isCollabConnected && collabUsers && collabUsers.length > 0) {
+      collabUsers.forEach(u => {
+        if (u.viewingTaskId) {
+          map.set(u.viewingTaskId, { color: u.color, name: u.name });
+        }
+      });
+    } else {
+      users.forEach(u => {
+        if (u.viewingTaskId && u.isOnline) {
+          map.set(u.viewingTaskId, { color: u.color, name: u.name });
+        }
+      });
+    }
     return map;
-  }, [users]);
+  }, [users, collabUsers, isCollabConnected]);
 
   const criticalPathIds = useMemo(
     () => showCriticalPath ? computeCriticalPath(allTasks) : new Set<string>(),

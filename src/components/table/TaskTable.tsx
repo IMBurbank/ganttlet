@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Task, ColumnConfig, ColorByField, FakeUser } from '../../types';
+import type { Task, ColumnConfig, ColorByField, FakeUser, CollabUser } from '../../types';
 import ColumnHeader from './ColumnHeader';
 import TaskRow from './TaskRow';
 
@@ -9,15 +9,32 @@ interface TaskTableProps {
   colorBy: ColorByField;
   taskMap: Map<string, Task>;
   users: FakeUser[];
+  collabUsers?: CollabUser[];
+  isCollabConnected?: boolean;
 }
 
-export default function TaskTable({ tasks, columns, colorBy, taskMap, users }: TaskTableProps) {
-  const viewingMap = new Map<string, FakeUser>();
-  users.forEach(u => {
-    if (u.viewingTaskId && u.isOnline) {
-      viewingMap.set(u.viewingTaskId, u);
-    }
-  });
+export interface ViewerInfo {
+  name: string;
+  color: string;
+  viewingCellColumn: string | null;
+}
+
+export default function TaskTable({ tasks, columns, colorBy, taskMap, users, collabUsers, isCollabConnected }: TaskTableProps) {
+  const viewingMap = new Map<string, ViewerInfo>();
+
+  if (isCollabConnected && collabUsers && collabUsers.length > 0) {
+    collabUsers.forEach(u => {
+      if (u.viewingTaskId) {
+        viewingMap.set(u.viewingTaskId, { name: u.name, color: u.color, viewingCellColumn: u.viewingCellColumn });
+      }
+    });
+  } else {
+    users.forEach(u => {
+      if (u.viewingTaskId && u.isOnline) {
+        viewingMap.set(u.viewingTaskId, { name: u.name, color: u.color, viewingCellColumn: u.viewingCellColumn });
+      }
+    });
+  }
 
   const totalWidth = columns.filter(c => c.visible).reduce((sum, c) => sum + c.width, 0);
 

@@ -122,6 +122,8 @@ function AppContent() {
             colorBy={state.colorBy}
             taskMap={taskMap}
             users={state.users}
+            collabUsers={state.collabUsers}
+            isCollabConnected={state.isCollabConnected}
           />
         </div>
         {/* Gantt Chart - right panel */}
@@ -136,6 +138,8 @@ function AppContent() {
             zoom={state.zoomLevel}
             colorBy={state.colorBy}
             users={state.users}
+            collabUsers={state.collabUsers}
+            isCollabConnected={state.isCollabConnected}
             onDependencyClick={handleDependencyClick}
           />
         </div>

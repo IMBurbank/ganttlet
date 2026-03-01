@@ -1,0 +1,14 @@
+# Multi-stage build for the Ganttlet relay server
+
+# Stage 1: Build the Rust binary
+FROM rust:1.83-slim AS builder
+WORKDIR /app
+COPY server/ .
+RUN cargo build --release
+
+# Stage 2: Create a minimal runtime image
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/ganttlet-relay /usr/local/bin/
+EXPOSE 4000
+CMD ["ganttlet-relay"]

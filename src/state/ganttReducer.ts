@@ -262,6 +262,12 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
       return { ...state, tasks, contextMenu: null };
     }
 
+    case 'SET_COLLAB_USERS':
+      return { ...state, collabUsers: action.users };
+
+    case 'SET_COLLAB_CONNECTED':
+      return { ...state, isCollabConnected: action.connected };
+
     default:
       return state;
   }

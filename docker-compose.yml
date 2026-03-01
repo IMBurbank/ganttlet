@@ -15,3 +15,14 @@ services:
     ports:
       - "5173-5183:5173-5183"   # Vite dev servers (range for multiple sessions)
       - "3000-3010:3000-3010"   # Backend API servers (range for multiple sessions)
+
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "4000:4000"
+    environment:
+      - RELAY_HOST=0.0.0.0
+      - RELAY_PORT=4000
+      - RELAY_ALLOWED_ORIGINS=http://localhost:5173

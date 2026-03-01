@@ -47,6 +47,8 @@ function makeState(overrides: Partial<GanttState> = {}): GanttState {
     showCriticalPath: false,
     dependencyEditor: null,
     theme: 'dark',
+    collabUsers: [],
+    isCollabConnected: false,
     ...overrides,
   };
 }

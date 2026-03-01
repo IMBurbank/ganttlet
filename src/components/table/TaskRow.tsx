@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { Task, ColumnConfig, ColorByField, FakeUser } from '../../types';
+import type { Task, ColumnConfig, ColorByField } from '../../types';
+import type { ViewerInfo } from './TaskTable';
 import { useGanttDispatch } from '../../state/GanttContext';
 import { getTaskDepth } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
@@ -13,7 +14,7 @@ interface TaskRowProps {
   columns: ColumnConfig[];
   colorBy: ColorByField;
   taskMap: Map<string, Task>;
-  viewer: FakeUser | null;
+  viewer: ViewerInfo | null;
 }
 
 export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: TaskRowProps) {

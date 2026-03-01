@@ -54,6 +54,11 @@ function makeState(overrides: Partial<GanttState> = {}): GanttState {
     theme: 'dark',
     collabUsers: [],
     isCollabConnected: false,
+    undoStack: [],
+    redoStack: [],
+    lastCascadeIds: [],
+    criticalPathScope: { type: 'all' },
+    collapseWeekends: true,
     ...overrides,
   };
 }

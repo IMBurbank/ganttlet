@@ -2,6 +2,7 @@ import * as Y from 'yjs';
 import type { Dispatch } from 'react';
 import type { Task, Dependency } from '../types';
 import type { GanttAction } from '../state/actions';
+import { cascadeDependents } from '../utils/schedulerWasm';
 
 /**
  * Flag to prevent echoing local changes back through the observer.
@@ -224,6 +225,30 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
           for (let i = 0; i < yarray.length; i++) {
             const ymap = yarray.get(i) as Y.Map<unknown>;
             ymap.set('isHidden', false);
+          }
+        });
+      } finally {
+        isLocalUpdate = false;
+      }
+      break;
+    }
+
+    case 'CASCADE_DEPENDENTS': {
+      isLocalUpdate = true;
+      try {
+        doc.transact(() => {
+          const currentTasks = readTasksFromYjs(doc);
+          const updated = cascadeDependents(currentTasks, action.taskId, action.daysDelta);
+          for (const task of updated) {
+            const idx = findTaskIndex(yarray, task.id);
+            if (idx !== -1) {
+              const orig = currentTasks.find(t => t.id === task.id);
+              if (orig && (orig.startDate !== task.startDate || orig.endDate !== task.endDate)) {
+                const ymap = yarray.get(idx) as Y.Map<unknown>;
+                ymap.set('startDate', task.startDate);
+                ymap.set('endDate', task.endDate);
+              }
+            }
           }
         });
       } finally {

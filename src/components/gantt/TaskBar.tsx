@@ -43,6 +43,7 @@ export default function TaskBar({
     origStartDate: string;
     origEndDate: string;
     mode: 'move' | 'resize';
+    lastStartDate: string;
   } | null>(null);
   const clipId = useRef(`task-clip-${++clipIdCounter}`);
 
@@ -54,7 +55,7 @@ export default function TaskBar({
   const handleMouseDown = useCallback((e: React.MouseEvent, mode: 'move' | 'resize') => {
     e.preventDefault();
     e.stopPropagation();
-    dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode };
+    dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode, lastStartDate: startDate };
 
     function onMouseMove(ev: MouseEvent) {
       if (!dragRef.current) return;
@@ -68,6 +69,7 @@ export default function TaskBar({
         newEnd.setDate(newEnd.getDate() + duration);
         const newEndStr = formatDate(newEnd);
 
+        dragRef.current.lastStartDate = newStartStr;
         dispatch({ type: 'MOVE_TASK', taskId, newStartDate: newStartStr, newEndDate: newEndStr });
       } else {
         const newEndX = dateToX(dragRef.current.origEndDate, timelineStart, colWidth, zoom) + dx;
@@ -86,7 +88,7 @@ export default function TaskBar({
         const finalTask = dragRef.current;
         dragRef.current = null;
         if (finalTask.mode === 'move') {
-          const delta = daysBetween(finalTask.origStartDate, startDate);
+          const delta = daysBetween(finalTask.origStartDate, finalTask.lastStartDate);
           if (delta !== 0) {
             dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
           }

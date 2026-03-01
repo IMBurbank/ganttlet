@@ -1,4 +1,4 @@
-export type DependencyType = 'FS' | 'FF' | 'SS' | 'SF';
+export type DependencyType = 'FS' | 'FF' | 'SS';
 
 export interface Dependency {
   fromId: string;

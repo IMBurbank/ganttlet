@@ -198,6 +198,16 @@ export default function Toolbar() {
         Critical Path
       </button>
 
+      <div className="w-px h-5 bg-border-default" />
+
+      {/* Add task */}
+      <button
+        onClick={() => dispatch({ type: 'ADD_TASK', parentId: null, afterTaskId: null })}
+        className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors"
+      >
+        + Add Task
+      </button>
+
       <div className="flex-1" />
 
       {/* Show all hidden */}

@@ -43,10 +43,6 @@ export function getDependencyPoints(
       start = { x: fromStartX - STUB, y: fromY + midRow };
       end = { x: toStartX - STUB, y: toY + midRow };
       break;
-    case 'SF':
-      start = { x: fromStartX - STUB, y: fromY + midRow };
-      end = { x: toEndX + STUB, y: toY + midRow };
-      break;
   }
 
   return { start, end };
@@ -113,7 +109,7 @@ export function createArrowHead(end: Point, depType?: DependencyType): string {
   const size = 5;
   // FS/SS: end point is LEFT of the target bar → arrowhead points RIGHT (toward bar)
   // FF/SF: end point is RIGHT of the target bar → arrowhead points LEFT (toward bar)
-  if (depType === 'FF' || depType === 'SF') {
+  if (depType === 'FF') {
     // Points left
     return `M ${end.x} ${end.y} L ${end.x + size} ${end.y - size} L ${end.x + size} ${end.y + size} Z`;
   }

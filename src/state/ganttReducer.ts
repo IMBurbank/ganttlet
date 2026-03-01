@@ -1,4 +1,4 @@
-import type { GanttState } from '../types';
+import type { GanttState, Task } from '../types';
 import type { GanttAction } from './actions';
 import { cascadeDependents } from '../utils/dependencyUtils';
 import { recalcSummaryDates } from '../utils/summaryUtils';
@@ -164,6 +164,100 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
 
     case 'SET_THEME':
       return { ...state, theme: action.theme };
+
+    case 'ADD_TASK': {
+      const newId = `task-${Date.now()}`;
+      const today = new Date().toISOString().split('T')[0];
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + 5);
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      const newTask: Task = {
+        id: newId,
+        name: 'New Task',
+        startDate: today,
+        endDate: endDateStr,
+        duration: 5,
+        owner: '',
+        workStream: '',
+        project: '',
+        functionalArea: '',
+        done: false,
+        description: '',
+        isMilestone: false,
+        isSummary: false,
+        parentId: action.parentId,
+        childIds: [],
+        dependencies: [],
+        isExpanded: false,
+        isHidden: false,
+        notes: '',
+        okrs: [],
+      };
+
+      let tasks = [...state.tasks];
+
+      // If it has a parent, add to parent's childIds
+      if (action.parentId) {
+        tasks = tasks.map(t =>
+          t.id === action.parentId
+            ? { ...t, childIds: [...t.childIds, newId] }
+            : t
+        );
+      }
+
+      // Insert after the specified task, or at the end
+      if (action.afterTaskId) {
+        const idx = tasks.findIndex(t => t.id === action.afterTaskId);
+        if (idx !== -1) {
+          let insertIdx = idx + 1;
+          const afterTask = tasks[idx];
+          if (afterTask.isSummary && afterTask.isExpanded) {
+            const descendants = new Set<string>();
+            const queue = [...afterTask.childIds];
+            while (queue.length > 0) {
+              const cid = queue.pop()!;
+              descendants.add(cid);
+              const child = tasks.find(t => t.id === cid);
+              if (child) queue.push(...child.childIds);
+            }
+            while (insertIdx < tasks.length && descendants.has(tasks[insertIdx].id)) {
+              insertIdx++;
+            }
+          }
+          tasks.splice(insertIdx, 0, newTask);
+        } else {
+          tasks.push(newTask);
+        }
+      } else {
+        tasks.push(newTask);
+      }
+
+      tasks = recalcSummaryDates(tasks);
+      return { ...state, tasks };
+    }
+
+    case 'DELETE_TASK': {
+      const toDelete = new Set<string>();
+      const queue = [action.taskId];
+      while (queue.length > 0) {
+        const id = queue.pop()!;
+        toDelete.add(id);
+        const task = state.tasks.find(t => t.id === id);
+        if (task) queue.push(...task.childIds);
+      }
+
+      let tasks = state.tasks
+        .filter(t => !toDelete.has(t.id))
+        .map(t => ({
+          ...t,
+          childIds: t.childIds.filter(cid => !toDelete.has(cid)),
+          dependencies: t.dependencies.filter(d => !toDelete.has(d.fromId)),
+        }));
+
+      tasks = recalcSummaryDates(tasks);
+      return { ...state, tasks, contextMenu: null };
+    }
 
     default:
       return state;

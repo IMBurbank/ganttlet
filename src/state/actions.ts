@@ -27,4 +27,6 @@ export type GanttAction =
   | { type: 'UPDATE_DEPENDENCY'; taskId: string; fromId: string; newType: DependencyType; newLag: number }
   | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string }
   | { type: 'SET_DEPENDENCY_EDITOR'; editor: { taskId: string; highlightFromId?: string } | null }
-  | { type: 'SET_THEME'; theme: 'light' | 'dark' };
+  | { type: 'SET_THEME'; theme: 'light' | 'dark' }
+  | { type: 'ADD_TASK'; parentId: string | null; afterTaskId: string | null }
+  | { type: 'DELETE_TASK'; taskId: string };

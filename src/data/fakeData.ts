@@ -362,7 +362,7 @@ export const fakeTasks: Task[] = [
     childIds: [],
     dependencies: [
       { fromId: 'ux-3', toId: 'ux-4', type: 'FS', lag: 2 },
-      { fromId: 'pe-5', toId: 'ux-4', type: 'SF', lag: 0 },
+      { fromId: 'pe-5', toId: 'ux-4', type: 'FS', lag: 0 },
     ],
     isExpanded: false,
     isHidden: false,

@@ -6,8 +6,7 @@ import type { Task } from '../types';
  * Backward pass: compute latest start/finish for each task.
  * Critical tasks: those with zero total float (ES === LS).
  *
- * Only considers non-summary, non-milestone leaf tasks for durations,
- * but milestones are included if they sit on the critical path.
+ * Handles FS, SS, and FF dependency types correctly.
  */
 export function computeCriticalPath(tasks: Task[]): Set<string> {
   const nonSummary = tasks.filter(t => !t.isSummary);
@@ -24,9 +23,9 @@ export function computeCriticalPath(tasks: Task[]): Set<string> {
   const ES = new Map<string, number>();
   const EF = new Map<string, number>();
 
-  // Topological sort based on dependencies
+  // Build adjacency with dependency type
   const inDegree = new Map<string, number>();
-  const successors = new Map<string, { taskId: string; lag: number }[]>();
+  const successors = new Map<string, { taskId: string; lag: number; type: 'FS' | 'FF' | 'SS' }[]>();
 
   for (const t of nonSummary) {
     inDegree.set(t.id, 0);
@@ -36,41 +35,63 @@ export function computeCriticalPath(tasks: Task[]): Set<string> {
   for (const t of nonSummary) {
     for (const dep of t.dependencies) {
       if (!taskMap.has(dep.fromId) || taskMap.get(dep.fromId)!.isSummary) continue;
-      // Only handle FS dependencies for CPM (most common)
-      // For other types, approximate: SS/FF/SF all constrain timing
+      const depType = dep.type === 'FS' || dep.type === 'SS' || dep.type === 'FF' ? dep.type : 'FS';
       inDegree.set(t.id, (inDegree.get(t.id) || 0) + 1);
       if (!successors.has(dep.fromId)) successors.set(dep.fromId, []);
-      successors.get(dep.fromId)!.push({ taskId: t.id, lag: dep.lag });
+      successors.get(dep.fromId)!.push({ taskId: t.id, lag: dep.lag, type: depType });
     }
   }
 
-  // Forward pass
-  const queue: string[] = [];
+  // Initialize ES/EF from task dates
   for (const t of nonSummary) {
     ES.set(t.id, toDays(t.startDate));
     const dur = t.isMilestone ? 0 : t.duration;
     EF.set(t.id, toDays(t.startDate) + dur);
+  }
+
+  // Forward pass - BFS in topological order
+  const queue: string[] = [];
+  for (const t of nonSummary) {
     if ((inDegree.get(t.id) || 0) === 0) {
       queue.push(t.id);
     }
   }
 
-  // BFS forward pass
   const processed = new Set<string>();
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (processed.has(current)) continue;
     processed.add(current);
+    const curES = ES.get(current) || 0;
     const curEF = EF.get(current) || 0;
 
     for (const succ of (successors.get(current) || [])) {
-      const successorES = ES.get(succ.taskId) || 0;
-      const newES = curEF + succ.lag;
-      if (newES > successorES) {
-        ES.set(succ.taskId, newES);
-        const dur = taskMap.get(succ.taskId)?.isMilestone ? 0 : (taskMap.get(succ.taskId)?.duration || 0);
-        EF.set(succ.taskId, newES + dur);
+      const successorTask = taskMap.get(succ.taskId);
+      if (!successorTask) continue;
+      const succDur = successorTask.isMilestone ? 0 : successorTask.duration;
+      const currentSuccES = ES.get(succ.taskId) || 0;
+
+      let newES: number;
+      switch (succ.type) {
+        case 'FS':
+          // ES(succ) >= EF(pred) + lag
+          newES = curEF + succ.lag;
+          break;
+        case 'SS':
+          // ES(succ) >= ES(pred) + lag
+          newES = curES + succ.lag;
+          break;
+        case 'FF':
+          // EF(succ) >= EF(pred) + lag → ES(succ) >= EF(pred) + lag - dur(succ)
+          newES = curEF + succ.lag - succDur;
+          break;
       }
+
+      if (newES > currentSuccES) {
+        ES.set(succ.taskId, newES);
+        EF.set(succ.taskId, newES + succDur);
+      }
+
       const deg = (inDegree.get(succ.taskId) || 1) - 1;
       inDegree.set(succ.taskId, deg);
       if (deg <= 0) {
@@ -98,20 +119,48 @@ export function computeCriticalPath(tasks: Task[]): Set<string> {
   // Process in reverse topological order
   const reverseOrder = [...processed].reverse();
   for (const taskId of reverseOrder) {
-    const curLS = LS.get(taskId) || projectEnd;
-
     const task = taskMap.get(taskId);
     if (!task) continue;
+    const curLS = LS.get(taskId) || projectEnd;
+    const curLF = LF.get(taskId) || projectEnd;
 
-    // Update predecessors
+    // Update predecessors based on dependency type
     for (const dep of task.dependencies) {
       if (!taskMap.has(dep.fromId) || taskMap.get(dep.fromId)!.isSummary) continue;
+      const depType = dep.type === 'FS' || dep.type === 'SS' || dep.type === 'FF' ? dep.type : 'FS';
+      const predTask = taskMap.get(dep.fromId)!;
+      const predDur = predTask.isMilestone ? 0 : predTask.duration;
+
+      let newLF: number;
+      let newLS: number;
+
+      switch (depType) {
+        case 'FS':
+          // LF(pred) <= LS(succ) - lag
+          newLF = curLS - dep.lag;
+          newLS = newLF - predDur;
+          break;
+        case 'SS':
+          // LS(pred) <= LS(succ) - lag
+          newLS = curLS - dep.lag;
+          newLF = newLS + predDur;
+          break;
+        case 'FF':
+          // LF(pred) <= LF(succ) - lag
+          newLF = curLF - dep.lag;
+          newLS = newLF - predDur;
+          break;
+      }
+
       const predLF = LF.get(dep.fromId) || projectEnd;
-      const newLF = curLS - dep.lag;
+      const predLS = LS.get(dep.fromId) || projectEnd;
+
+      // We need to constrain the predecessor, so take the minimum
       if (newLF < predLF) {
         LF.set(dep.fromId, newLF);
-        const predDur = taskMap.get(dep.fromId)?.isMilestone ? 0 : (taskMap.get(dep.fromId)?.duration || 0);
-        LS.set(dep.fromId, newLF - predDur);
+      }
+      if (newLS < predLS) {
+        LS.set(dep.fromId, newLS);
       }
     }
   }

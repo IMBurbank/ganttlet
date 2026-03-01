@@ -77,17 +77,29 @@ function AppContent() {
     if (!task) return [];
     return [
       ...(task.isSummary
-        ? [{
-            label: task.isExpanded ? 'Collapse group' : 'Expand group',
-            onClick: () => dispatch({ type: 'TOGGLE_EXPAND', taskId: task.id }),
-          }]
-        : [{
-            label: 'Edit dependencies',
-            onClick: () => dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: { taskId: task.id } }),
-          }]),
+        ? [
+            {
+              label: task.isExpanded ? 'Collapse group' : 'Expand group',
+              onClick: () => dispatch({ type: 'TOGGLE_EXPAND', taskId: task.id }),
+            },
+            {
+              label: 'Add subtask',
+              onClick: () => dispatch({ type: 'ADD_TASK', parentId: task.id, afterTaskId: null }),
+            },
+          ]
+        : [
+            {
+              label: 'Edit dependencies',
+              onClick: () => dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: { taskId: task.id } }),
+            },
+          ]),
       {
-        label: 'Hide task',
-        onClick: () => dispatch({ type: 'HIDE_TASK', taskId: task.id }),
+        label: 'Add task below',
+        onClick: () => dispatch({ type: 'ADD_TASK', parentId: task.parentId, afterTaskId: task.id }),
+      },
+      {
+        label: 'Delete task',
+        onClick: () => dispatch({ type: 'DELETE_TASK', taskId: task.id }),
         danger: true,
       },
     ];

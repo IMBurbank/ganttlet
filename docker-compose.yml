@@ -4,13 +4,14 @@ services:
   dev:
     build: .
     volumes:
-      - .:/workspace                    # Project files (two-way sync with host)
-      - ~/.gitconfig:/root/.gitconfig:ro # Share your git identity with the container
-      - ~/.ssh:/root/.ssh:ro             # Share SSH keys for GitHub push/pull
+      - .:/workspace                          # Project files (two-way sync with host)
+      - ~/.gitconfig:/home/node/.gitconfig:ro    # Share your git identity with the container
+      - ~/.ssh:/home/node/.ssh:ro                # Share SSH keys for GitHub push/pull
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CLI_FLAGS=${CLAUDE_CLI_FLAGS}
     stdin_open: true
     tty: true
     ports:
-      - "5173:5173"   # Vite dev server (so you can view in your browser)
-      - "3000:3000"   # Backend API server
+      - "5173-5183:5173-5183"   # Vite dev servers (range for multiple sessions)
+      - "3000-3010:3000-3010"   # Backend API servers (range for multiple sessions)

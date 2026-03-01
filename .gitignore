@@ -20,6 +20,12 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 
+# Claude Code
+.claude/
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+
 # Docker
 docker-compose.override.yml
 

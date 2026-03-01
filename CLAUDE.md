@@ -1,128 +1,60 @@
 # Ganttlet
 
 ## Project Overview
-Ganttlet is a free, open-source Gantt chart with real-time collaboration and two-way Google Sheets sync. It aims to provide a full set of project management features -- more comparable to Microsoft Project or Primavera P6 than most available free Gantt chart options that sync to Google Sheets. So far this is all tentative and subject to change.
-
-## Core Features (Planned)
-- **Interactive Gantt chart**: Drag to reschedule, resize to change duration, in-browser
-- **Dependency management**: FS, FF, SS link types with lag/lead (SF dropped — too rare to justify complexity)
-- **Critical Path Method (CPM)**: Auto-calculate early/late start/finish, total/free float
-- **Cascade updates**: When a task date changes, all dependent tasks auto-update
-- **Two-way Google Sheets sync**: Edit in Sheets or in the app; changes flow both directions
-- **Real-time collaboration**: See other users' cursors and edits in near real-time (like Google Sheets)
-- **WBS (Work Breakdown Structure)**: Hierarchical task grouping with summary tasks
-- **Milestones**: Zero-duration markers for key dates
-- **Resource assignment**: Basic resource tracking (stretch goal)
+Ganttlet is a free, open-source Gantt chart with real-time collaboration and two-way Google Sheets sync — comparable to Microsoft Project or Primavera P6.
 
 ## Tech Stack
-- **Frontend**: React + TypeScript, Vite bundler
-- **Gantt rendering**: Custom SVG (no external library)
-- **Scheduling engine**: Rust compiled to WebAssembly (runs entirely in-browser)
-- **Real-time sync**: Yjs (client) + Yrs (server) — CRDT-based conflict resolution
-- **Collaboration server**: Rust (axum + tokio-tungstenite) — thin WebSocket relay, no business logic
-- **Google Sheets integration**: Google Sheets API v4, called directly from the browser using OAuth2 client-side flow
-- **Auth**: Google OAuth2 — identity and authorization derived from Google Drive sharing permissions
-- **Testing**: TBD (Likely Vitest for unit tests, Playwright for E2E)
+- **Frontend**: React + TypeScript, Vite, custom SVG rendering
+- **Scheduling engine**: Rust → WebAssembly (in-browser) — currently JS, migration planned
+- **Real-time sync**: Yjs (client) + Yrs (server) — CRDT-based
+- **Collaboration server**: Rust (axum + tokio-tungstenite) — stateless WebSocket relay
+- **Google Sheets**: API v4, client-side via OAuth2 token
+- **Auth**: Google OAuth2 — permissions derived from Google Drive sharing
+- **Testing**: Vitest + jsdom (unit), Playwright (E2E planned)
 
 ## Architecture
-
-### Overview
-The app has two components: a browser client and a thin relay server.
-
-- **Client**: All business logic runs in the browser — scheduling engine (Rust→WASM), Gantt rendering, and Google Sheets reads/writes (using the user's own OAuth token).
-- **Relay server**: A small Rust binary that relays CRDT updates between connected clients over WebSocket. It holds no business logic, stores no data persistently, and makes no outbound calls except to Google APIs for auth validation.
-
-### Real-Time Collaboration
-- Uses Yjs (browser) and Yrs (server) for CRDT-based real-time sync
-- One Yrs document per room (room = Google Sheet ID)
-- Fast path: User edit → Yjs update → WebSocket → relay → other clients (milliseconds)
-- Slow path: Client debounces Yjs changes → writes to Google Sheets API (seconds)
-- Yjs awareness protocol handles cursor/presence — ephemeral, never persisted
-
-### Auth & Permissions
-- Google OAuth2 provides identity (no separate user database)
-- Google Drive sharing permissions are the ACL:
-  - Sheet owner/editor → can edit in Ganttlet (writer role)
-  - Sheet viewer → can view the live Gantt chart (reader role)
-  - No access → connection refused
-- Client sends Google access token on WebSocket connect
-- Server validates token with Google, checks Drive permissions, assigns role
-- Server never stores tokens — validates per connection
-
-### Google Sheets Sync
-- Client-side only — the server never reads or writes Sheets
-- Each client reads/writes the Sheet using the user's own OAuth token
-- Clients poll for external Sheet changes on a periodic interval (~30s)
-- Google Sheets is the persistence layer — if the server goes down, no data is lost
-- Google Sheets version history provides audit trail for free
-
-### Deployment Model
-- Same server binary for public and enterprise deployments, different config
-- Enterprise (e.g., Google): runs inside corporate VPC, behind corporate auth, no data leaves the perimeter
-- Public: hosted instance with standard Google OAuth
-- Server config: bind address, allowed origins, Google OAuth client ID — nothing else
+Browser client + thin relay server. All business logic (scheduling, rendering, Sheets I/O) runs in the browser. The relay server only forwards CRDT updates over WebSocket.
+See `docs/completed-phases.md` for detailed architecture notes (auth, sync, deployment).
 
 ## Architecture Principles
-- Keep the scheduling engine (CPM calculations, dependency resolution) as a pure Rust→WASM module, separate from UI
-- The relay server is stateless (in-memory only) and credential-free — it never touches Google Sheets data
-- The Google Sheets sync layer should be its own module, not coupled to the UI
-- Prefer small, focused commits on feature branches
-- Write tests for scheduling logic first — correctness here is critical
-
-## Development Environment
-- Runs in Docker for isolation (see docker-compose.yml)
-- Vite dev server on port 5173
-- Relay server TBD (will run alongside Vite in dev, separate container in production)
-- macOS host, VS Code editor, view in browser at localhost:5173
-
-## Git Workflow
-- `main` branch is always deployable
-- Work on feature branches: `feature/description`
-- Commit often with descriptive messages
-- Open PRs for review before merging to main
+- Scheduling engine is a pure Rust→WASM module, separate from UI
+- Relay server is stateless and credential-free
+- Google Sheets sync layer is its own module, not coupled to UI
+- Write tests for scheduling logic first — correctness is critical
 
 ## Commands
 - `npm run dev` — Start Vite dev server
 - `npm run test` — Run unit tests
 - `npm run build` — Production build
-- `docker compose run  --service-ports dev` — Enter the dev container
-- `docker exec -it $(docker ps -q) bash` - Enter the dev container from another session
-- `claude --dangerously-skip-permissions` - Start claude in container without permissions checks
+- `docker compose run --service-ports dev` — Enter the dev container
+- `docker compose exec dev bash` — Attach to running container
+- `claude --dangerously-skip-permissions` — Start Claude without permission checks
 
-## Roadmap
+## Development Environment
+- Docker-based (see `docker-compose.yml`, `Dockerfile`)
+- Vite on port 5173, view at localhost:5173
+- macOS host, VS Code editor
 
-### Phase 0: Promote ui-demo-2 to root — DONE
-- Copied ui-demo-2 src/, config files to workspace root
-- Removed ui-demo-1/, ui-demo-2/, ui-demo-3/
-- Package renamed to "ganttlet"
+## Git Workflow
+- `main` is always deployable
+- Feature branches: `feature/description`
+- Commit often, descriptive messages, PRs before merge
 
-### Phase 1: Bug Fixes — DONE
-- **1A**: Fix cascade/drag bug in TaskBar (incorrect delta on mouseUp)
-- **1B**: Remove SF dependency type, fix CPM forward/backward pass for SS/FF
-- **1C**: CPM engine corrections (store dep type in adjacency list)
-- **1D**: Add/Delete task CRUD (ADD_TASK, DELETE_TASK actions, context menu, toolbar button)
+## Development Practices
+- Multi-agent workflow: split features across parallel agents using git worktree isolation
+- Each agent works on non-overlapping files to prevent merge conflicts
+- Agents commit and verify (build/test) before finishing
+- PostToolUse hook (`scripts/verify.sh`) runs `tsc` + `vitest` after `.ts/.tsx` edits
 
-### Phase 2: Testing Infrastructure — DONE
-- Vitest + jsdom setup
-- 45 unit tests for criticalPathUtils, dependencyUtils, summaryUtils, dateUtils, ganttReducer
+## Task Queue
+See `TASKS.md` for claimable tasks and claiming convention.
 
-### Phase 3: Google Sheets Integration — DONE
-- **3A**: Google OAuth2 (Identity Services, PKCE flow, sign-in/sign-out)
-- **3B**: Sheets sync (sheetsClient, sheetsMapper, sheetsSync, debounced write, polling)
-
-### Phase 4: Real-Time Collaboration — DONE
-- **4A**: Yjs client (yjsProvider, yjsBinding, awareness protocol)
-- **4B**: Relay server (Rust axum + tokio WebSocket, room management, auth)
-- **4C**: Integration testing (build + unit tests pass)
-
-### Future
+## Roadmap (Future)
 - Rust→WASM scheduling engine (replace JS CPM utils)
 - Resource assignment and leveling
 - Baseline tracking
-- Export to PDF/PNG
+- Export to PDF/PNG/CSV
 
-## Development Practices
-- Multi-agent workflow: complex features are split across parallel agents using git worktree isolation
-- Each agent works on non-overlapping files to prevent merge conflicts
-- Agents commit and verify (build/test) before finishing
-- Orchestrator merges branches sequentially with build verification between each
+## Completed Work
+Phases 0-4 are done (scaffolding, bug fixes, tests, Google Sheets sync, real-time collab).
+Details in `docs/completed-phases.md`.

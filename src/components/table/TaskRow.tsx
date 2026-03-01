@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task, ColumnConfig, ColorByField } from '../../types';
 import type { ViewerInfo } from './TaskTable';
-import { useGanttDispatch } from '../../state/GanttContext';
+import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
 import { getTaskDepth } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
 import InlineEdit from './InlineEdit';
@@ -19,6 +19,7 @@ interface TaskRowProps {
 
 export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: TaskRowProps) {
   const dispatch = useGanttDispatch();
+  const setViewingTask = useSetViewingTask();
   const depth = getTaskDepth(task, taskMap);
   const visibleColumns = columns.filter(c => c.visible);
   const color = getTaskColor(colorBy, task[colorBy] as string);
@@ -250,6 +251,8 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: Tas
         borderLeft: isViewed ? `3px solid ${viewerColor}` : '3px solid transparent',
       }}
       onContextMenu={handleContextMenu}
+      onMouseEnter={() => setViewingTask(task.id, null)}
+      onMouseLeave={() => setViewingTask(null, null)}
     >
       {visibleColumns.map(col => {
         const isCellViewed = isViewed && viewerCellColumn === col.key;
@@ -260,6 +263,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: Tas
             isHighlighted={isCellViewed}
             viewerColor={viewerColor}
             viewerName={viewer?.name}
+            onCellClick={() => setViewingTask(task.id, col.key)}
           >
             {renderCell(col)}
           </PresenceCell>
@@ -274,12 +278,14 @@ function PresenceCell({
   isHighlighted,
   viewerColor,
   viewerName,
+  onCellClick,
   children,
 }: {
   width: number;
   isHighlighted: boolean;
   viewerColor?: string;
   viewerName?: string;
+  onCellClick?: () => void;
   children: React.ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -305,6 +311,7 @@ function PresenceCell({
         boxShadow: isHighlighted ? `inset 0 0 0 2px ${viewerColor}` : undefined,
         borderRadius: isHighlighted ? 2 : undefined,
       }}
+      onClick={onCellClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import UserPresence from '../panels/UserPresence';
 import SyncStatusIndicator from '../panels/SyncStatusIndicator';
-import { initOAuth, signIn, signOut, getAuthState, setAuthChangeCallback, type AuthState } from '../../sheets/oauth';
+import { initOAuth, signIn, signOut, getAuthState, setAuthChangeCallback, removeAuthChangeCallback, type AuthState } from '../../sheets/oauth';
 
 export default function Header() {
   const { isHistoryPanelOpen, theme } = useGanttState();
@@ -11,7 +11,9 @@ export default function Header() {
 
   useEffect(() => {
     initOAuth();
-    setAuthChangeCallback((newState) => setAuth({ ...newState }));
+    const handleAuthChange = (newState: AuthState) => setAuth({ ...newState });
+    setAuthChangeCallback(handleAuthChange);
+    return () => removeAuthChangeCallback(handleAuthChange);
   }, []);
 
   const handleSignIn = useCallback(() => signIn(), []);

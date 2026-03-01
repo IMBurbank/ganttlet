@@ -281,9 +281,12 @@ fn handle_incoming_message(
         .map(|c| c.info.role)
         .unwrap_or(DriveRole::Reader);
 
-    // Yjs WebSocket protocol: first byte = message type tag
-    let msg_tag = data[0];
-    let payload = &data[1..];
+    // Yjs WebSocket protocol: first field = varuint message type tag
+    let Some((msg_tag, tag_size)) = read_varuint(data) else {
+        return;
+    };
+    let msg_tag = msg_tag as u8;
+    let payload = &data[tag_size..];
 
     match msg_tag {
         msg_type::SYNC => {
@@ -316,14 +319,26 @@ fn handle_sync_message(
         return;
     }
 
-    let sync_tag = payload[0];
-    let sync_data = &payload[1..];
+    // Read varuint sync sub-type tag
+    let Some((sync_tag_val, tag_size)) = read_varuint(payload) else {
+        return;
+    };
+    let sync_tag = sync_tag_val as u8;
+    let sync_payload = &payload[tag_size..];
 
     match sync_tag {
         sync_type::STEP1 => {
-            // Client sent their state vector. We respond with the updates
-            // they are missing (encoded as SyncStep2).
-            match StateVector::decode_v1(sync_data) {
+            // Client sent their state vector wrapped as varUint8Array.
+            // Read the length-prefixed byte array to get the raw state vector.
+            let Some((sv_bytes, _consumed)) = read_var_uint8_array(sync_payload) else {
+                warn!(
+                    room_id = %room_id,
+                    client_id = client_id,
+                    "Failed to read varUint8Array for SyncStep1"
+                );
+                return;
+            };
+            match StateVector::decode_v1(sv_bytes) {
                 Ok(remote_sv) => {
                     let update = room.doc.transact().encode_state_as_update_v1(&remote_sv);
                     if let Some(msg) = encode_sync_step2(&update) {
@@ -343,7 +358,7 @@ fn handle_sync_message(
             }
         }
         sync_type::STEP2 | sync_type::UPDATE => {
-            // Client sent a document update. Only writers may modify the doc.
+            // Client sent a document update wrapped as varUint8Array.
             if client_role != DriveRole::Writer {
                 warn!(
                     room_id = %room_id,
@@ -353,7 +368,16 @@ fn handle_sync_message(
                 return;
             }
 
-            match Update::decode_v1(sync_data) {
+            let Some((update_bytes, _consumed)) = read_var_uint8_array(sync_payload) else {
+                warn!(
+                    room_id = %room_id,
+                    client_id = client_id,
+                    "Failed to read varUint8Array for sync update"
+                );
+                return;
+            };
+
+            match Update::decode_v1(update_bytes) {
                 Ok(update) => {
                     // Apply the update to the room's Y-Doc
                     let mut txn = room.doc.transact_mut();
@@ -368,8 +392,8 @@ fn handle_sync_message(
                     }
                     drop(txn);
 
-                    // Broadcast the update to all other clients
-                    if let Some(msg) = encode_sync_update(sync_data) {
+                    // Broadcast the raw update bytes to all other clients
+                    if let Some(msg) = encode_sync_update(update_bytes) {
                         broadcast_to_others(&room.clients, client_id, &msg);
                     }
                 }
@@ -404,34 +428,88 @@ fn handle_awareness_message(room: &mut Room, client_id: ClientId, data: &[u8]) {
 }
 
 // ---------------------------------------------------------------------------
-// Encoding helpers — manually construct the simple Yjs binary wire format
+// lib0 varuint helpers — match the encoding used by y-websocket / y-protocols
 // ---------------------------------------------------------------------------
 
-/// Encode a SyncStep1 message: [SYNC tag] [STEP1 tag] [state vector bytes].
+/// Read a lib0 variable-length unsigned integer from a byte slice.
+/// Returns (value, bytes_consumed) or None if the buffer is too short.
+fn read_varuint(data: &[u8]) -> Option<(usize, usize)> {
+    let mut value: usize = 0;
+    let mut shift = 0;
+    for (i, &byte) in data.iter().enumerate() {
+        value |= ((byte & 0x7F) as usize) << shift;
+        if byte < 0x80 {
+            return Some((value, i + 1));
+        }
+        shift += 7;
+        if shift > 35 {
+            return None; // overflow protection
+        }
+    }
+    None // incomplete varuint
+}
+
+/// Read a lib0 varUint8Array: [varuint length] [length bytes].
+/// Returns the byte-array payload and total bytes consumed, or None.
+fn read_var_uint8_array(data: &[u8]) -> Option<(&[u8], usize)> {
+    let (len, prefix_size) = read_varuint(data)?;
+    let end = prefix_size + len;
+    if data.len() < end {
+        return None;
+    }
+    Some((&data[prefix_size..end], end))
+}
+
+/// Write a lib0 variable-length unsigned integer into a buffer.
+fn write_varuint(buf: &mut Vec<u8>, mut value: usize) {
+    loop {
+        let mut byte = (value & 0x7F) as u8;
+        value >>= 7;
+        if value > 0 {
+            byte |= 0x80;
+        }
+        buf.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+}
+
+/// Write a lib0 varUint8Array: [varuint length] [bytes].
+fn write_var_uint8_array(buf: &mut Vec<u8>, data: &[u8]) {
+    write_varuint(buf, data.len());
+    buf.extend_from_slice(data);
+}
+
+// ---------------------------------------------------------------------------
+// Encoding helpers — construct the Yjs binary wire format with lib0 encoding
+// ---------------------------------------------------------------------------
+
+/// Encode a SyncStep1 message: [varuint SYNC] [varuint STEP1] [varUint8Array state_vector].
 fn encode_sync_step1(sv: &StateVector) -> Option<Vec<u8>> {
     let sv_bytes = sv.encode_v1();
-    let mut buf = Vec::with_capacity(2 + sv_bytes.len());
-    buf.push(msg_type::SYNC);
-    buf.push(sync_type::STEP1);
-    buf.extend_from_slice(&sv_bytes);
+    let mut buf = Vec::with_capacity(2 + 5 + sv_bytes.len());
+    write_varuint(&mut buf, msg_type::SYNC as usize);
+    write_varuint(&mut buf, sync_type::STEP1 as usize);
+    write_var_uint8_array(&mut buf, &sv_bytes);
     Some(buf)
 }
 
-/// Encode a SyncStep2 message: [SYNC tag] [STEP2 tag] [update bytes].
+/// Encode a SyncStep2 message: [varuint SYNC] [varuint STEP2] [varUint8Array update].
 fn encode_sync_step2(update: &[u8]) -> Option<Vec<u8>> {
-    let mut buf = Vec::with_capacity(2 + update.len());
-    buf.push(msg_type::SYNC);
-    buf.push(sync_type::STEP2);
-    buf.extend_from_slice(update);
+    let mut buf = Vec::with_capacity(2 + 5 + update.len());
+    write_varuint(&mut buf, msg_type::SYNC as usize);
+    write_varuint(&mut buf, sync_type::STEP2 as usize);
+    write_var_uint8_array(&mut buf, update);
     Some(buf)
 }
 
-/// Encode a sync Update message: [SYNC tag] [UPDATE tag] [update bytes].
+/// Encode a sync Update message: [varuint SYNC] [varuint UPDATE] [varUint8Array update].
 fn encode_sync_update(update: &[u8]) -> Option<Vec<u8>> {
-    let mut buf = Vec::with_capacity(2 + update.len());
-    buf.push(msg_type::SYNC);
-    buf.push(sync_type::UPDATE);
-    buf.extend_from_slice(update);
+    let mut buf = Vec::with_capacity(2 + 5 + update.len());
+    write_varuint(&mut buf, msg_type::SYNC as usize);
+    write_varuint(&mut buf, sync_type::UPDATE as usize);
+    write_var_uint8_array(&mut buf, update);
     Some(buf)
 }
 

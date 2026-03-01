@@ -16,10 +16,20 @@ let authState: AuthState = {
 };
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
-let onAuthChange: ((state: AuthState) => void) | null = null;
+const authChangeListeners = new Set<(state: AuthState) => void>();
 
 export function setAuthChangeCallback(cb: (state: AuthState) => void) {
-  onAuthChange = cb;
+  authChangeListeners.add(cb);
+}
+
+export function removeAuthChangeCallback(cb: (state: AuthState) => void) {
+  authChangeListeners.delete(cb);
+}
+
+function notifyAuthChange() {
+  for (const cb of authChangeListeners) {
+    cb(authState);
+  }
 }
 
 export function getAuthState(): AuthState {
@@ -81,10 +91,10 @@ function handleTokenResponse(response: google.accounts.oauth2.TokenResponse) {
         userName: info.name || null,
         userPicture: info.picture || null,
       };
-      onAuthChange?.(authState);
+      notifyAuthChange();
     })
     .catch(() => {
-      onAuthChange?.(authState);
+      notifyAuthChange();
     });
 }
 
@@ -107,7 +117,7 @@ export function signOut(): void {
         userPicture: null,
         expiresAt: 0,
       };
-      onAuthChange?.(authState);
+      notifyAuthChange();
     });
   }
 }

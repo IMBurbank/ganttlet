@@ -23,7 +23,7 @@ export function connectCollab(roomId: string, accessToken: string): CollabConnec
 
   doc = new Y.Doc();
 
-  const wsUrl = `${COLLAB_URL}/ws/${roomId}`;
+  const wsUrl = `${COLLAB_URL}/ws`;
 
   provider = new WebsocketProvider(wsUrl, roomId, doc, {
     params: { token: accessToken },

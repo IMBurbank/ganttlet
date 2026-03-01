@@ -1,13 +1,14 @@
-import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback, type Dispatch } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type Dispatch } from 'react';
 import type { GanttState } from '../types';
 import { ganttReducer } from './ganttReducer';
 import type { GanttAction } from './actions';
 import { fakeTasks, fakeUsers, fakeChangeHistory, defaultColumns } from '../data/fakeData';
 import { initSync, loadFromSheet, scheduleSave, startPolling, stopPolling, getSpreadsheetId } from '../sheets/sheetsSync';
-import { isSignedIn, getAccessToken } from '../sheets/oauth';
+import { isSignedIn, getAccessToken, getAuthState, setAuthChangeCallback, removeAuthChangeCallback, type AuthState } from '../sheets/oauth';
 import { connectCollab, disconnectCollab } from '../collab/yjsProvider';
 import { bindYjsToDispatch, applyTasksToYjs, applyActionToYjs } from '../collab/yjsBinding';
-import { setLocalAwareness, getCollabUsers } from '../collab/awareness';
+import { setLocalAwareness, updateViewingTask, getCollabUsers } from '../collab/awareness';
+import type { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
 
 function getInitialTheme(): 'light' | 'dark' {
@@ -42,6 +43,7 @@ const initialState: GanttState = {
 
 const GanttStateContext = createContext<GanttState>(initialState);
 const GanttDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
+const AwarenessContext = createContext<Awareness | null>(null);
 
 /** Action types that modify task data and should be synced to Yjs */
 const TASK_MODIFYING_ACTIONS = new Set([
@@ -57,6 +59,18 @@ const TASK_MODIFYING_ACTIONS = new Set([
 export function GanttProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(ganttReducer, initialState);
   const yjsDocRef = useRef<Y.Doc | null>(null);
+  const awarenessRef = useRef<Awareness | null>(null);
+  const [awareness, setAwareness] = useState<Awareness | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(getAccessToken());
+
+  // Track auth state changes so collab can reconnect after sign-in
+  useEffect(() => {
+    const handleAuthChange = (authState: AuthState) => {
+      setAccessToken(authState.accessToken);
+    };
+    setAuthChangeCallback(handleAuthChange);
+    return () => removeAuthChangeCallback(handleAuthChange);
+  }, []);
 
   // Wrap dispatch to also apply task-modifying actions to Yjs
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
@@ -95,25 +109,26 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.tasks]);
 
-  // Yjs collaboration connection
+  // Yjs collaboration connection — reconnects when access token changes (e.g. after sign-in)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
-    if (!roomId) return;
-
-    const accessToken = getAccessToken() || 'anonymous';
+    if (!roomId || !accessToken) return;
 
     let cleanup: (() => void) | null = null;
 
     try {
-      const { doc, provider, awareness } = connectCollab(roomId, accessToken);
+      const { doc, provider, awareness: aw } = connectCollab(roomId, accessToken);
       yjsDocRef.current = doc;
+      awarenessRef.current = aw;
+      setAwareness(aw);
 
       cleanup = bindYjsToDispatch(doc, dispatch);
 
-      setLocalAwareness(awareness, {
-        name: 'Anonymous User',
-        email: '',
+      const auth = getAuthState();
+      setLocalAwareness(aw, {
+        name: auth.userName || auth.userEmail || 'Anonymous User',
+        email: auth.userEmail || '',
       });
 
       provider.on('status', (event: { status: string }) => {
@@ -128,8 +143,8 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
-      awareness.on('change', () => {
-        const users = getCollabUsers(awareness);
+      aw.on('change', () => {
+        const users = getCollabUsers(aw);
         dispatch({ type: 'SET_COLLAB_USERS', users });
       });
     } catch (err) {
@@ -139,16 +154,20 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (cleanup) cleanup();
       yjsDocRef.current = null;
+      awarenessRef.current = null;
+      setAwareness(null);
       disconnectCollab();
       dispatch({ type: 'SET_COLLAB_CONNECTED', connected: false });
       dispatch({ type: 'SET_COLLAB_USERS', users: [] });
     };
-  }, []);
+  }, [accessToken]);
 
   return (
     <GanttStateContext.Provider value={state}>
       <GanttDispatchContext.Provider value={collabDispatch}>
-        {children}
+        <AwarenessContext.Provider value={awareness}>
+          {children}
+        </AwarenessContext.Provider>
       </GanttDispatchContext.Provider>
     </GanttStateContext.Provider>
   );
@@ -160,4 +179,17 @@ export function useGanttState() {
 
 export function useGanttDispatch() {
   return useContext(GanttDispatchContext);
+}
+
+/**
+ * Update which task/cell the local user is viewing.
+ * Call with (null, null) to clear.
+ */
+export function useSetViewingTask() {
+  const aw = useContext(AwarenessContext);
+  return useCallback((taskId: string | null, cellColumn: string | null) => {
+    if (aw) {
+      updateViewingTask(aw, taskId, cellColumn);
+    }
+  }, [aw]);
 }

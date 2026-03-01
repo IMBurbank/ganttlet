@@ -1,6 +1,6 @@
 import React, { useRef, useCallback } from 'react';
 import type { ZoomLevel } from '../../types';
-import { useGanttDispatch } from '../../state/GanttContext';
+import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
 import { dateToX, xToDate, formatDate, daysBetween, getColumnWidth } from '../../utils/dateUtils';
 import Tooltip from '../shared/Tooltip';
 
@@ -38,6 +38,7 @@ export default function TaskBar({
   viewerName, viewerColor,
 }: TaskBarProps) {
   const dispatch = useGanttDispatch();
+  const setViewingTask = useSetViewingTask();
   const dragRef = useRef<{
     startX: number;
     origStartDate: string;
@@ -120,7 +121,11 @@ export default function TaskBar({
 
   return (
     <Tooltip content={tooltipContent} delay={300} svg>
-      <g opacity={done ? 0.4 : 1}>
+      <g
+        opacity={done ? 0.4 : 1}
+        onMouseEnter={() => setViewingTask(taskId, null)}
+        onMouseLeave={() => setViewingTask(null, null)}
+      >
         <defs>
           <clipPath id={clipId.current}>
             <rect x={x + 4} y={barY} width={Math.max(width - 8, 0)} height={barHeight} />

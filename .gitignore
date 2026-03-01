@@ -33,3 +33,4 @@ docker-compose.override.yml
 credentials.json
 token.json
 *.credentials.json
+tsconfig.tsbuildinfo

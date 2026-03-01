@@ -5,7 +5,7 @@ Ganttlet is a free, open-source Gantt chart with real-time collaboration and two
 
 ## Core Features (Planned)
 - **Interactive Gantt chart**: Drag to reschedule, resize to change duration, in-browser
-- **Dependency management**: FS, FF, SS, SF link types with lag/lead
+- **Dependency management**: FS, FF, SS link types with lag/lead (SF dropped — too rare to justify complexity)
 - **Critical Path Method (CPM)**: Auto-calculate early/late start/finish, total/free float
 - **Cascade updates**: When a task date changes, all dependent tasks auto-update
 - **Two-way Google Sheets sync**: Edit in Sheets or in the app; changes flow both directions
@@ -16,7 +16,7 @@ Ganttlet is a free, open-source Gantt chart with real-time collaboration and two
 
 ## Tech Stack
 - **Frontend**: React + TypeScript, Vite bundler
-- **Gantt rendering**: TBD (evaluate: frappe-gantt, dhtmlxGantt, or custom canvas/SVG)
+- **Gantt rendering**: Custom SVG (no external library)
 - **Scheduling engine**: Rust compiled to WebAssembly (runs entirely in-browser)
 - **Real-time sync**: Yjs (client) + Yrs (server) — CRDT-based conflict resolution
 - **Collaboration server**: Rust (axum + tokio-tungstenite) — thin WebSocket relay, no business logic
@@ -88,3 +88,41 @@ The app has two components: a browser client and a thin relay server.
 - `docker compose run  --service-ports dev` — Enter the dev container
 - `docker exec -it $(docker ps -q) bash` - Enter the dev container from another session
 - `claude --dangerously-skip-permissions` - Start claude in container without permissions checks
+
+## Roadmap
+
+### Phase 0: Promote ui-demo-2 to root — DONE
+- Copied ui-demo-2 src/, config files to workspace root
+- Removed ui-demo-1/, ui-demo-2/, ui-demo-3/
+- Package renamed to "ganttlet"
+
+### Phase 1: Bug Fixes (in progress)
+- **1A**: Fix cascade/drag bug in TaskBar (incorrect delta on mouseUp)
+- **1B**: Remove SF dependency type, fix CPM forward/backward pass for SS/FF
+- **1C**: CPM engine corrections (store dep type in adjacency list)
+- **1D**: Add/Delete task CRUD (ADD_TASK, DELETE_TASK actions, context menu, toolbar button)
+
+### Phase 2: Testing Infrastructure (in progress)
+- Vitest + jsdom setup
+- Unit tests for criticalPathUtils, dependencyUtils, summaryUtils, dateUtils, ganttReducer
+
+### Phase 3: Google Sheets Integration
+- **3A**: Google OAuth2 (Identity Services, PKCE flow, sign-in/sign-out)
+- **3B**: Sheets sync (sheetsClient, sheetsMapper, sheetsSync, debounced write, polling)
+
+### Phase 4: Real-Time Collaboration
+- **4A**: Yjs client (yjsProvider, yjsBinding, awareness protocol)
+- **4B**: Relay server (Rust axum + tokio WebSocket, room management, auth)
+- **4C**: Integration testing
+
+### Future
+- Rust→WASM scheduling engine (replace JS CPM utils)
+- Resource assignment and leveling
+- Baseline tracking
+- Export to PDF/PNG
+
+## Development Practices
+- Multi-agent workflow: complex features are split across parallel agents using git worktree isolation
+- Each agent works on non-overlapping files to prevent merge conflicts
+- Agents commit and verify (build/test) before finishing
+- Orchestrator merges branches sequentially with build verification between each

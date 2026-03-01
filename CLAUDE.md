@@ -96,24 +96,24 @@ The app has two components: a browser client and a thin relay server.
 - Removed ui-demo-1/, ui-demo-2/, ui-demo-3/
 - Package renamed to "ganttlet"
 
-### Phase 1: Bug Fixes (in progress)
+### Phase 1: Bug Fixes — DONE
 - **1A**: Fix cascade/drag bug in TaskBar (incorrect delta on mouseUp)
 - **1B**: Remove SF dependency type, fix CPM forward/backward pass for SS/FF
 - **1C**: CPM engine corrections (store dep type in adjacency list)
 - **1D**: Add/Delete task CRUD (ADD_TASK, DELETE_TASK actions, context menu, toolbar button)
 
-### Phase 2: Testing Infrastructure (in progress)
+### Phase 2: Testing Infrastructure — DONE
 - Vitest + jsdom setup
-- Unit tests for criticalPathUtils, dependencyUtils, summaryUtils, dateUtils, ganttReducer
+- 45 unit tests for criticalPathUtils, dependencyUtils, summaryUtils, dateUtils, ganttReducer
 
-### Phase 3: Google Sheets Integration
+### Phase 3: Google Sheets Integration — DONE
 - **3A**: Google OAuth2 (Identity Services, PKCE flow, sign-in/sign-out)
 - **3B**: Sheets sync (sheetsClient, sheetsMapper, sheetsSync, debounced write, polling)
 
-### Phase 4: Real-Time Collaboration
+### Phase 4: Real-Time Collaboration — DONE
 - **4A**: Yjs client (yjsProvider, yjsBinding, awareness protocol)
 - **4B**: Relay server (Rust axum + tokio WebSocket, room management, auth)
-- **4C**: Integration testing
+- **4C**: Integration testing (build + unit tests pass)
 
 ### Future
 - Rust→WASM scheduling engine (replace JS CPM utils)

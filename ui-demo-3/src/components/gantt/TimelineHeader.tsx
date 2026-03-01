@@ -1,0 +1,98 @@
+import React from 'react';
+import type { ZoomLevel } from '../../types';
+import { getTimelineDays, getTimelineWeeks, getTimelineMonths, getColumnWidth, formatTimelineHeader, formatTimelineSubHeader, getMonthLabel, isWeekendDay } from '../../utils/dateUtils';
+import { format } from 'date-fns';
+
+interface TimelineHeaderProps {
+  timelineStart: Date;
+  timelineEnd: Date;
+  zoom: ZoomLevel;
+  totalWidth: number;
+}
+
+export default function TimelineHeader({ timelineStart, timelineEnd, zoom, totalWidth }: TimelineHeaderProps) {
+  const colWidth = getColumnWidth(zoom);
+
+  if (zoom === 'day') {
+    const days = getTimelineDays(timelineStart, timelineEnd);
+    // Group days by month for top row
+    const months: { label: string; startIdx: number; count: number }[] = [];
+    let currentMonth = '';
+    for (let i = 0; i < days.length; i++) {
+      const ml = format(days[i], 'MMMM yyyy');
+      if (ml !== currentMonth) {
+        months.push({ label: ml, startIdx: i, count: 1 });
+        currentMonth = ml;
+      } else {
+        months[months.length - 1].count++;
+      }
+    }
+
+    return (
+      <div className="sticky top-0 z-10 bg-gray-900 border-b border-gray-700" style={{ width: totalWidth }}>
+        {/* Month row */}
+        <div className="flex h-6 border-b border-gray-800">
+          {months.map((m, i) => (
+            <div
+              key={i}
+              className="text-xs font-semibold text-gray-400 flex items-center px-2 border-r border-gray-800 truncate"
+              style={{ width: m.count * colWidth }}
+            >
+              {m.label}
+            </div>
+          ))}
+        </div>
+        {/* Day row */}
+        <div className="flex h-6">
+          {days.map((day, i) => {
+            const weekend = isWeekendDay(day);
+            return (
+              <div
+                key={i}
+                className={`flex flex-col items-center justify-center text-center border-r border-gray-800 shrink-0 ${
+                  weekend ? 'bg-gray-800/30 text-gray-600' : 'text-gray-500'
+                }`}
+                style={{ width: colWidth }}
+              >
+                <span className="text-[10px] leading-none">{formatTimelineHeader(day, zoom)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (zoom === 'week') {
+    const weeks = getTimelineWeeks(timelineStart, timelineEnd);
+    return (
+      <div className="sticky top-0 z-10 bg-gray-900 border-b border-gray-700 flex h-[50px]" style={{ width: totalWidth }}>
+        {weeks.map((week, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-center text-xs text-gray-500 border-r border-gray-800 shrink-0"
+            style={{ width: colWidth }}
+          >
+            {formatTimelineHeader(week, zoom)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Month
+  const months = getTimelineMonths(timelineStart, timelineEnd);
+  return (
+    <div className="sticky top-0 z-10 bg-gray-900 border-b border-gray-700 flex h-[50px]" style={{ width: totalWidth }}>
+      {months.map((month, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-center text-xs text-gray-500 border-r border-gray-800 shrink-0"
+          style={{ width: colWidth }}
+        >
+          {formatTimelineHeader(month, zoom)}
+        </div>
+      ))}
+    </div>
+  );
+}

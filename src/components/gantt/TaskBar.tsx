@@ -1,7 +1,8 @@
 import React, { useRef, useCallback } from 'react';
 import type { ZoomLevel } from '../../types';
 import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
-import { dateToX, xToDate, formatDate, daysBetween, getColumnWidth } from '../../utils/dateUtils';
+import { dateToX, xToDate, dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, getColumnWidth } from '../../utils/dateUtils';
+import { parseISO } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
 
 interface TaskBarProps {
@@ -27,6 +28,8 @@ interface TaskBarProps {
   isCritical?: boolean;
   viewerName?: string;
   viewerColor?: string;
+  collapseWeekends?: boolean;
+  earliestStart?: string;
 }
 
 let clipIdCounter = 0;
@@ -35,7 +38,7 @@ export default function TaskBar({
   taskId, taskName, startDate, endDate, done, color,
   x, y, width, timelineStart, zoom, rowHeight, notes,
   owner, functionalArea, okrs, showOwner, showArea, showOkrs, isCritical,
-  viewerName, viewerColor,
+  viewerName, viewerColor, collapseWeekends = false, earliestStart,
 }: TaskBarProps) {
   const dispatch = useGanttDispatch();
   const setViewingTask = useSetViewingTask();
@@ -63,9 +66,19 @@ export default function TaskBar({
       const dx = ev.clientX - dragRef.current.startX;
 
       if (dragRef.current.mode === 'move') {
-        const newStart = xToDate(dateToX(dragRef.current.origStartDate, timelineStart, colWidth, zoom) + dx, timelineStart, colWidth, zoom);
+        let newStart = xToDateCollapsed(
+          dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends) + dx,
+          timelineStart, colWidth, zoom, collapseWeekends
+        );
+        let newStartStr = formatDate(newStart);
+
+        // Clamp to earliest start constraint
+        if (earliestStart && newStartStr < earliestStart) {
+          newStartStr = earliestStart;
+          newStart = parseISO(earliestStart);
+        }
+
         const duration = daysBetween(dragRef.current.origStartDate, dragRef.current.origEndDate);
-        const newStartStr = formatDate(newStart);
         const newEnd = new Date(newStart);
         newEnd.setDate(newEnd.getDate() + duration);
         const newEndStr = formatDate(newEnd);
@@ -73,10 +86,10 @@ export default function TaskBar({
         dragRef.current.lastStartDate = newStartStr;
         dispatch({ type: 'MOVE_TASK', taskId, newStartDate: newStartStr, newEndDate: newEndStr });
       } else {
-        const newEndX = dateToX(dragRef.current.origEndDate, timelineStart, colWidth, zoom) + dx;
-        const origStartX = dateToX(dragRef.current.origStartDate, timelineStart, colWidth, zoom);
+        const newEndX = dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + dx;
+        const origStartX = dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends);
         if (newEndX - origStartX < minWidth) return;
-        const newEnd = xToDate(newEndX, timelineStart, colWidth, zoom);
+        const newEnd = xToDateCollapsed(newEndX, timelineStart, colWidth, zoom, collapseWeekends);
         const newEndStr = formatDate(newEnd);
         const newDuration = daysBetween(dragRef.current.origStartDate, newEndStr);
         if (newDuration < 1) return;
@@ -101,7 +114,7 @@ export default function TaskBar({
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [dispatch, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth]);
+  }, [dispatch, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth, collapseWeekends, earliestStart]);
 
   // Build owner/area/okrs subtitle
   const subtitleParts: string[] = [];

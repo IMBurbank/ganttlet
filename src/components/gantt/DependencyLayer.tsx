@@ -12,10 +12,11 @@ interface DependencyLayerProps {
   rowHeight: number;
   onArrowClick?: (dep: Dependency, successorId: string) => void;
   criticalPathIds?: Set<string>;
+  collapseWeekends?: boolean;
 }
 
 export default function DependencyLayer({
-  tasks, allTasks, taskYPositions, timelineStart, zoom, rowHeight, onArrowClick, criticalPathIds,
+  tasks, allTasks, taskYPositions, timelineStart, zoom, rowHeight, onArrowClick, criticalPathIds, collapseWeekends,
 }: DependencyLayerProps) {
   const taskMap = new Map(allTasks.map(t => [t.id, t]));
   const colWidth = getColumnWidth(zoom);
@@ -42,6 +43,7 @@ export default function DependencyLayer({
           rowHeight={rowHeight}
           onClick={onArrowClick ? (d) => onArrowClick(d, task.id) : undefined}
           isCritical={isCritical}
+          collapseWeekends={collapseWeekends}
         />
       );
     }

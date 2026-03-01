@@ -1,5 +1,5 @@
 import type { Task, Dependency, DependencyType, ZoomLevel } from '../types';
-import { dateToX } from './dateUtils';
+import { dateToXCollapsed } from './dateUtils';
 
 interface Point { x: number; y: number; }
 
@@ -15,15 +15,16 @@ export function getDependencyPoints(
   colWidth: number,
   zoom: ZoomLevel,
   rowHeight: number,
+  collapseWeekends: boolean = false,
 ): { start: Point; end: Point } | null {
   const fromY = taskYPositions.get(dep.fromId);
   const toY = taskYPositions.get(dep.toId);
   if (fromY === undefined || toY === undefined) return null;
 
-  const fromStartX = dateToX(fromTask.startDate, timelineStart, colWidth, zoom);
-  const fromEndX = dateToX(fromTask.endDate, timelineStart, colWidth, zoom);
-  const toStartX = dateToX(toTask.startDate, timelineStart, colWidth, zoom);
-  const toEndX = dateToX(toTask.endDate, timelineStart, colWidth, zoom);
+  const fromStartX = dateToXCollapsed(fromTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const fromEndX = dateToXCollapsed(fromTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const toStartX = dateToXCollapsed(toTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const toEndX = dateToXCollapsed(toTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
   const midRow = rowHeight / 2;
 
   let start: Point;
@@ -107,13 +108,14 @@ export function createBezierPath(start: Point, end: Point, depType?: DependencyT
 
 export function createArrowHead(end: Point, depType?: DependencyType): string {
   const size = 5;
-  // FS/SS: end point is LEFT of the target bar → arrowhead points RIGHT (toward bar)
-  // FF/SF: end point is RIGHT of the target bar → arrowhead points LEFT (toward bar)
+  // The path line terminates at `end`. The arrowhead tip should extend
+  // BEYOND `end` toward the target bar, with the base at `end` connecting
+  // to the incoming line.
   if (depType === 'FF') {
-    // Points left
-    return `M ${end.x} ${end.y} L ${end.x + size} ${end.y - size} L ${end.x + size} ${end.y + size} Z`;
+    // Tip points left (toward bar end), base at end.x
+    return `M ${end.x - size} ${end.y} L ${end.x} ${end.y - size} L ${end.x} ${end.y + size} Z`;
   }
-  // Points right (FS, SS, or default)
-  return `M ${end.x} ${end.y} L ${end.x - size} ${end.y - size} L ${end.x - size} ${end.y + size} Z`;
+  // Tip points right (toward bar start), base at end.x (FS, SS, or default)
+  return `M ${end.x + size} ${end.y} L ${end.x} ${end.y - size} L ${end.x} ${end.y + size} Z`;
 }
 

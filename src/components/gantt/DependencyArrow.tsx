@@ -13,12 +13,13 @@ interface DependencyArrowProps {
   rowHeight: number;
   onClick?: (dep: Dependency) => void;
   isCritical?: boolean;
+  collapseWeekends?: boolean;
 }
 
 export default function DependencyArrow({
-  dep, fromTask, toTask, taskYPositions, timelineStart, colWidth, zoom, rowHeight, onClick, isCritical,
+  dep, fromTask, toTask, taskYPositions, timelineStart, colWidth, zoom, rowHeight, onClick, isCritical, collapseWeekends,
 }: DependencyArrowProps) {
-  const points = getDependencyPoints(dep, fromTask, toTask, taskYPositions, timelineStart, colWidth, zoom, rowHeight);
+  const points = getDependencyPoints(dep, fromTask, toTask, taskYPositions, timelineStart, colWidth, zoom, rowHeight, collapseWeekends);
   if (!points) return null;
 
   const path = createBezierPath(points.start, points.end, dep.type);

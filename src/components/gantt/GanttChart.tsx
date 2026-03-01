@@ -220,6 +220,7 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
             rowHeight={ROW_HEIGHT}
             onArrowClick={onDependencyClick}
             criticalPathIds={criticalPathIds}
+            collapseWeekends={collapseWeekends}
           />
         </svg>
       </div>

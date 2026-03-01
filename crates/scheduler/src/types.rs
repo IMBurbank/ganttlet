@@ -30,6 +30,8 @@ pub struct Task {
     pub is_milestone: bool,
     pub is_summary: bool,
     pub dependencies: Vec<Dependency>,
+    #[serde(default)]
+    pub project: String,
 }
 
 /// Result of a cascade operation: which task moved and its new dates.

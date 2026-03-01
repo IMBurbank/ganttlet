@@ -44,12 +44,12 @@ describe('criticalPathUtils', () => {
     expect(computeCriticalPath(tasks)).toEqual(new Set());
   });
 
-  it('marks single task as critical', () => {
+  it('standalone task is not critical', () => {
     const tasks: Task[] = [
       makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
     ];
     const critical = computeCriticalPath(tasks);
-    expect(critical.has('a')).toBe(true);
+    expect(critical.has('a')).toBe(false);
   });
 
   it('identifies critical path in linear FS chain', () => {
@@ -110,9 +110,11 @@ describe('criticalPathUtils', () => {
     const tasks: Task[] = [
       makeTask({ id: 'summary', isSummary: true, childIds: ['a'] }),
       makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 10, parentId: 'summary' }),
+      makeTask({ id: 'b', startDate: '2026-03-11', endDate: '2026-03-20', duration: 10, dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
     ];
     const critical = computeCriticalPath(tasks);
     expect(critical.has('summary')).toBe(false);
     expect(critical.has('a')).toBe(true);
+    expect(critical.has('b')).toBe(true);
   });
 });

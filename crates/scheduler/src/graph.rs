@@ -43,6 +43,7 @@ mod tests {
             is_milestone: false,
             is_summary: false,
             dependencies: vec![],
+            project: String::new(),
         }
     }
 

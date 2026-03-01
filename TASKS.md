@@ -25,12 +25,12 @@ See `CLAUDE.md` for interface contracts and file ownership.
 **Files**: `crates/scheduler/src/*`, `src/utils/schedulerWasm.ts`
 **Branch**: `feature/phase6-wasm-scheduler`
 
-- [ ] **A1**: Fix critical path — only connected chains
+- [x] **A1**: Fix critical path — only connected chains
   - File: `crates/scheduler/src/cpm.rs`
   - Bug: all zero-float tasks returned including standalone (no deps). Fix: task is critical only if zero float AND `(in_degree > 0 || out_degree > 0)` — participates in at least one dependency
   - Tests: standalone task excluded, chain still detected
 
-- [ ] **A2**: Add scoped critical path computation
+- [x] **A2**: Add scoped critical path computation
   - File: `crates/scheduler/src/cpm.rs`, `types.rs`, `lib.rs`
   - Add `compute_critical_path_scoped(tasks, scope)` with scope variants: All, Project(name), Milestone(id)
   - Project scope: filter tasks to matching project, run CPM on subset
@@ -38,12 +38,12 @@ See `CLAUDE.md` for interface contracts and file ownership.
   - Add `project: String` field to Rust Task struct
   - Tests: all scope = existing + A1 fix, project scope filters, milestone scope traces predecessors
 
-- [ ] **A3**: Add `compute_earliest_start` to Rust crate
+- [x] **A3**: Add `compute_earliest_start` to Rust crate
   - File: `crates/scheduler/src/constraints.rs` (new)
   - `compute_earliest_start(tasks, task_id) -> Option<String>`: for each dep on task, compute earliest possible start date by type (FS/SS/FF with lag), return the latest
   - Tests: no deps → None, single FS → end+1, FS+lag → end+lag+1, multiple deps → latest wins, SS dep → start
 
-- [ ] **A4**: Expose all new functions in TypeScript wrapper
+- [x] **A4**: Expose all new functions in TypeScript wrapper
   - File: `src/utils/schedulerWasm.ts`
   - Add `computeEarliestStart`, `cascadeDependentsWithIds`, `computeCriticalPathScoped`
   - Update existing `computeCriticalPath` to call scoped variant with `{ type: 'all' }`

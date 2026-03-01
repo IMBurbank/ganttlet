@@ -1,5 +1,14 @@
 use crate::types::{DepType, Task};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CriticalPathScope {
+    All,
+    Project { name: String },
+    Milestone { id: String },
+}
 
 /// Parse "YYYY-MM-DD" to days since epoch (simple arithmetic, no chrono).
 fn date_to_days(date_str: &str) -> i64 {
@@ -203,18 +212,70 @@ pub fn compute_critical_path(tasks: &[Task]) -> Vec<String> {
         }
     }
 
-    // Critical tasks have zero float (ES === LS)
+    // Critical tasks have zero float (ES === LS) AND participate in at least one dependency.
+    // Note: in_degree was modified during forward pass, so check original dependencies instead.
     let mut critical_ids = Vec::new();
     for t in &non_summary {
         let task_es = *es.get(t.id.as_str()).unwrap_or(&0);
         let task_ls = *ls.get(t.id.as_str()).unwrap_or(&0);
         let float = task_ls - task_es;
-        if float.abs() < 1 {
+        let has_predecessors = !t.dependencies.is_empty();
+        let has_successors = successors
+            .get(t.id.as_str())
+            .map_or(false, |s| !s.is_empty());
+        if float.abs() < 1 && (has_predecessors || has_successors) {
             critical_ids.push(t.id.clone());
         }
     }
 
     critical_ids
+}
+
+/// Compute critical path scoped to a subset of tasks.
+pub fn compute_critical_path_scoped(tasks: &[Task], scope: &CriticalPathScope) -> Vec<String> {
+    match scope {
+        CriticalPathScope::All => compute_critical_path(tasks),
+        CriticalPathScope::Project { name } => {
+            let filtered: Vec<Task> = tasks
+                .iter()
+                .filter(|t| t.project == *name)
+                .cloned()
+                .collect();
+            compute_critical_path(&filtered)
+        }
+        CriticalPathScope::Milestone { id } => {
+            // BFS backward from the milestone through dependency graph
+            let task_map: HashMap<&str, &Task> =
+                tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+            let mut subset_ids: HashSet<String> = HashSet::new();
+            let mut queue: VecDeque<String> = VecDeque::new();
+
+            // Start from the milestone task
+            if task_map.contains_key(id.as_str()) {
+                queue.push_back(id.clone());
+                subset_ids.insert(id.clone());
+            }
+
+            // Walk backward through dependencies (follow fromId links)
+            while let Some(current) = queue.pop_front() {
+                if let Some(task) = task_map.get(current.as_str()) {
+                    for dep in &task.dependencies {
+                        if !subset_ids.contains(&dep.from_id) {
+                            subset_ids.insert(dep.from_id.clone());
+                            queue.push_back(dep.from_id.clone());
+                        }
+                    }
+                }
+            }
+
+            let subset: Vec<Task> = tasks
+                .iter()
+                .filter(|t| subset_ids.contains(&t.id))
+                .cloned()
+                .collect();
+            compute_critical_path(&subset)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -231,6 +292,7 @@ mod tests {
             is_milestone: false,
             is_summary: false,
             dependencies: vec![],
+            project: String::new(),
         }
     }
 
@@ -258,10 +320,26 @@ mod tests {
     }
 
     #[test]
-    fn single_task_is_critical() {
+    fn standalone_task_not_critical() {
         let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 9)];
         let critical = compute_critical_path(&tasks);
+        assert!(!critical.contains(&"a".to_string()));
+    }
+
+    #[test]
+    fn standalone_task_alongside_chain() {
+        let mut b = make_task("b", "2026-03-10", "2026-03-19", 9);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+
+        let tasks = vec![
+            make_task("a", "2026-03-01", "2026-03-10", 9),
+            b,
+            make_task("c", "2026-03-01", "2026-03-05", 5), // standalone, no deps
+        ];
+        let critical = compute_critical_path(&tasks);
         assert!(critical.contains(&"a".to_string()));
+        assert!(critical.contains(&"b".to_string()));
+        assert!(!critical.contains(&"c".to_string()));
     }
 
     #[test]
@@ -330,15 +408,103 @@ mod tests {
 
     #[test]
     fn excludes_summary_tasks() {
+        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         let tasks = vec![
             Task {
                 is_summary: true,
                 ..make_task("summary", "2026-03-01", "2026-03-10", 10)
             },
             make_task("a", "2026-03-01", "2026-03-10", 10),
+            b,
         ];
         let critical = compute_critical_path(&tasks);
         assert!(!critical.contains(&"summary".to_string()));
         assert!(critical.contains(&"a".to_string()));
+        assert!(critical.contains(&"b".to_string()));
+    }
+
+    // --- Scoped critical path tests ---
+
+    fn make_project_task(id: &str, start: &str, end: &str, duration: i32, project: &str) -> Task {
+        Task {
+            project: project.to_string(),
+            ..make_task(id, start, end, duration)
+        }
+    }
+
+    #[test]
+    fn scoped_all_same_as_default() {
+        let mut b = make_task("b", "2026-03-10", "2026-03-19", 9);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 9), b];
+
+        let default = compute_critical_path(&tasks);
+        let scoped = compute_critical_path_scoped(&tasks, &CriticalPathScope::All);
+        assert_eq!(default, scoped);
+    }
+
+    #[test]
+    fn scoped_project_filters() {
+        // Alpha chain: a1 -> a2
+        let mut a2 = make_project_task("a2", "2026-03-11", "2026-03-20", 10, "Alpha");
+        a2.dependencies = vec![make_dep("a1", "a2", DepType::FS, 0)];
+
+        // Beta chain: b1 -> b2
+        let mut b2 = make_project_task("b2", "2026-03-11", "2026-03-20", 10, "Beta");
+        b2.dependencies = vec![make_dep("b1", "b2", DepType::FS, 0)];
+
+        let tasks = vec![
+            make_project_task("a1", "2026-03-01", "2026-03-10", 10, "Alpha"),
+            a2,
+            make_project_task("b1", "2026-03-01", "2026-03-10", 10, "Beta"),
+            b2,
+        ];
+
+        let alpha_critical = compute_critical_path_scoped(
+            &tasks,
+            &CriticalPathScope::Project {
+                name: "Alpha".to_string(),
+            },
+        );
+        assert!(alpha_critical.contains(&"a1".to_string()));
+        assert!(alpha_critical.contains(&"a2".to_string()));
+        assert!(!alpha_critical.contains(&"b1".to_string()));
+        assert!(!alpha_critical.contains(&"b2".to_string()));
+    }
+
+    #[test]
+    fn scoped_milestone_traces_predecessors() {
+        // Chain: a -> b -> c -> milestone
+        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        let mut c = make_task("c", "2026-03-21", "2026-03-30", 10);
+        c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
+        let mut ms = make_task("ms", "2026-03-30", "2026-03-30", 0);
+        ms.is_milestone = true;
+        ms.dependencies = vec![make_dep("c", "ms", DepType::FS, 0)];
+
+        // Unrelated standalone task
+        let standalone = make_task("x", "2026-03-01", "2026-03-05", 5);
+
+        let tasks = vec![
+            make_task("a", "2026-03-01", "2026-03-10", 10),
+            b,
+            c,
+            ms,
+            standalone,
+        ];
+
+        let milestone_critical = compute_critical_path_scoped(
+            &tasks,
+            &CriticalPathScope::Milestone {
+                id: "ms".to_string(),
+            },
+        );
+        assert!(milestone_critical.contains(&"a".to_string()));
+        assert!(milestone_critical.contains(&"b".to_string()));
+        assert!(milestone_critical.contains(&"c".to_string()));
+        assert!(milestone_critical.contains(&"ms".to_string()));
+        assert!(!milestone_critical.contains(&"x".to_string()));
     }
 }

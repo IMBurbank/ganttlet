@@ -42,8 +42,11 @@ const initialState: GanttState = {
   undoStack: [],
   redoStack: [],
   lastCascadeIds: [],
-  criticalPathScope: { type: 'all' } as CriticalPathScope,
+  criticalPathScope: { type: 'project', name: '' } as CriticalPathScope,
   collapseWeekends: true,
+  focusNewTaskId: null,
+  isLeftPaneCollapsed: false,
+  reparentPicker: null,
 };
 
 const GanttStateContext = createContext<GanttState>(initialState);
@@ -82,8 +85,8 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
     dispatch(action);
 
-    if (action.type === 'UNDO' || action.type === 'REDO') {
-      // UNDO/REDO replace the entire task array — flag for full sync in useEffect
+    if (action.type === 'UNDO' || action.type === 'REDO' || action.type === 'REPARENT_TASK') {
+      // UNDO/REDO/REPARENT replace the entire task array — flag for full sync in useEffect
       pendingFullSyncRef.current = true;
     } else if (yjsDocRef.current && TASK_MODIFYING_ACTIONS.has(action.type)) {
       applyActionToYjs(yjsDocRef.current, action);
@@ -189,6 +192,10 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
         } else {
           collabDispatch({ type: 'UNDO' });
         }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault();
+        collabDispatch({ type: 'TOGGLE_LEFT_PANE' });
       }
     }
     document.addEventListener('keydown', handleKeyDown);

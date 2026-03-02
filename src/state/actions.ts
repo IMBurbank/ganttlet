@@ -37,4 +37,8 @@ export type GanttAction =
   | { type: 'REDO' }
   | { type: 'SET_LAST_CASCADE_IDS'; taskIds: string[] }
   | { type: 'SET_CRITICAL_PATH_SCOPE'; scope: CriticalPathScope }
-  | { type: 'TOGGLE_COLLAPSE_WEEKENDS' };
+  | { type: 'TOGGLE_COLLAPSE_WEEKENDS' }
+  | { type: 'REPARENT_TASK'; taskId: string; newParentId: string | null; newId?: string }
+  | { type: 'SET_REPARENT_PICKER'; picker: { taskId: string } | null }
+  | { type: 'TOGGLE_LEFT_PANE' }
+  | { type: 'CLEAR_FOCUS_NEW_TASK' };

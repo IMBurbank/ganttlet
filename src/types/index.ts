@@ -72,8 +72,8 @@ export interface ColumnConfig {
 }
 
 export type CriticalPathScope =
-  | { type: 'all' }
   | { type: 'project'; name: string }
+  | { type: 'workstream'; name: string }
   | { type: 'milestone'; id: string };
 
 export interface GanttState {
@@ -101,4 +101,7 @@ export interface GanttState {
   lastCascadeIds: string[];
   criticalPathScope: CriticalPathScope;
   collapseWeekends: boolean;
+  focusNewTaskId: string | null;
+  isLeftPaneCollapsed: boolean;
+  reparentPicker: { taskId: string } | null;
 }

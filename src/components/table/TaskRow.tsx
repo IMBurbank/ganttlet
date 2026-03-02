@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task, ColumnConfig, ColorByField } from '../../types';
 import type { ViewerInfo } from './TaskTable';
 import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
 import { getTaskDepth } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
+import { getHierarchyRole } from '../../utils/hierarchyUtils';
 import InlineEdit from './InlineEdit';
 import PredecessorsCell from './PredecessorsCell';
 import { formatDisplayDate, addDaysToDate, daysBetween } from '../../utils/dateUtils';
@@ -15,11 +16,20 @@ interface TaskRowProps {
   colorBy: ColorByField;
   taskMap: Map<string, Task>;
   viewer: ViewerInfo | null;
+  autoFocusName?: boolean;
 }
 
-export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: TaskRowProps) {
+export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoFocusName }: TaskRowProps) {
   const dispatch = useGanttDispatch();
+  const rowRef = useRef<HTMLDivElement>(null);
   const setViewingTask = useSetViewingTask();
+
+  useEffect(() => {
+    if (autoFocusName && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [autoFocusName]);
+
   const depth = getTaskDepth(task, taskMap);
   const visibleColumns = columns.filter(c => c.visible);
   const color = getTaskColor(colorBy, task[colorBy] as string);
@@ -118,6 +128,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: Tas
             <InlineEdit
               value={task.name}
               onSave={v => handleFieldUpdate('name', v)}
+              autoEdit={autoFocusName}
             />
           </div>
         );
@@ -194,20 +205,28 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: Tas
             onSave={v => handleFieldUpdate('functionalArea', v)}
           />
         );
-      case 'workStream':
+      case 'workStream': {
+        const role = getHierarchyRole(task, taskMap);
+        const wsReadOnly = role === 'task';
         return (
           <InlineEdit
             value={task.workStream}
             onSave={v => handleFieldUpdate('workStream', v)}
+            readOnly={wsReadOnly}
           />
         );
-      case 'project':
+      }
+      case 'project': {
+        const role = getHierarchyRole(task, taskMap);
+        const projReadOnly = role === 'task' || role === 'workstream';
         return (
           <InlineEdit
             value={task.project}
             onSave={v => handleFieldUpdate('project', v)}
+            readOnly={projReadOnly}
           />
         );
+      }
       case 'predecessors':
         return <PredecessorsCell task={task} taskMap={taskMap} />;
       case 'okrs':
@@ -244,6 +263,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer }: Tas
 
   return (
     <div
+      ref={rowRef}
       className={`flex items-center h-11 border-b border-border-subtle text-sm hover:bg-surface-overlay/30 transition-colors group ${
         task.isSummary ? 'font-medium text-text-primary' : 'text-text-secondary'
       } ${task.isMilestone ? 'italic' : ''}`}

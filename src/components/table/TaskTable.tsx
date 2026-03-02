@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { Task, ColumnConfig, ColorByField, FakeUser, CollabUser } from '../../types';
+import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import ColumnHeader from './ColumnHeader';
 import TaskRow from './TaskRow';
 
@@ -20,6 +21,18 @@ export interface ViewerInfo {
 }
 
 export default function TaskTable({ tasks, columns, colorBy, taskMap, users, collabUsers, isCollabConnected }: TaskTableProps) {
+  const state = useGanttState();
+  const dispatch = useGanttDispatch();
+  const focusNewTaskId = state.focusNewTaskId;
+
+  useEffect(() => {
+    if (focusNewTaskId) {
+      requestAnimationFrame(() => {
+        dispatch({ type: 'CLEAR_FOCUS_NEW_TASK' });
+      });
+    }
+  }, [focusNewTaskId, dispatch]);
+
   const viewingMap = new Map<string, ViewerInfo>();
 
   if (isCollabConnected && collabUsers && collabUsers.length > 0) {
@@ -54,6 +67,7 @@ export default function TaskTable({ tasks, columns, colorBy, taskMap, users, col
               colorBy={colorBy}
               taskMap={taskMap}
               viewer={viewer ?? null}
+              autoFocusName={task.id === focusNewTaskId}
             />
           );
         })}

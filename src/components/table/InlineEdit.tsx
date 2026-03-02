@@ -7,12 +7,21 @@ interface InlineEditProps {
   displayValue?: string;
   min?: number;
   max?: number;
+  autoEdit?: boolean;
+  readOnly?: boolean;
 }
 
-export default function InlineEdit({ value, onSave, type = 'text', displayValue, min, max }: InlineEditProps) {
+export default function InlineEdit({ value, onSave, type = 'text', displayValue, min, max, autoEdit, readOnly }: InlineEditProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (autoEdit && !editing) {
+      setEditValue(value);
+      setEditing(true);
+    }
+  }, [autoEdit]);
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -49,6 +58,14 @@ export default function InlineEdit({ value, onSave, type = 'text', displayValue,
         min={min}
         max={max}
       />
+    );
+  }
+
+  if (readOnly) {
+    return (
+      <span className="text-text-secondary truncate" title={value}>
+        {displayValue || value || '\u00A0'}
+      </span>
     );
   }
 

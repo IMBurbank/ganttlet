@@ -1,4 +1,9 @@
-use reqwest::Client;
+use bytes::Bytes;
+use http_body_util::{BodyExt, Empty};
+use hyper::Request;
+use hyper_rustls::HttpsConnectorBuilder;
+use hyper_util::client::legacy::{connect::HttpConnector, Client};
+use hyper_util::rt::TokioExecutor;
 use serde::Deserialize;
 use std::fmt;
 
@@ -62,33 +67,59 @@ struct DriveCapabilities {
     can_edit: Option<bool>,
 }
 
+/// Build an HTTPS client using hyper + rustls.
+fn https_client() -> Client<
+    hyper_rustls::HttpsConnector<HttpConnector>,
+    Empty<Bytes>,
+> {
+    let tls = HttpsConnectorBuilder::new()
+        .with_webpki_roots()
+        .https_only()
+        .enable_http1()
+        .build();
+    Client::builder(TokioExecutor::new()).build(tls)
+}
+
 /// Validate a Google access token by calling the userinfo API.
 ///
 /// Returns the authenticated user's information if the token is valid.
 pub async fn validate_token(token: &str) -> Result<UserInfo, AuthError> {
-    let client = Client::new();
+    let client = https_client();
+
+    let req = Request::get("https://www.googleapis.com/oauth2/v2/userinfo")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Empty::<Bytes>::new())
+        .map_err(|e| AuthError::RequestFailed(format!("Failed to build request: {}", e)))?;
+
     let response = client
-        .get("https://www.googleapis.com/oauth2/v2/userinfo")
-        .bearer_auth(token)
-        .send()
+        .request(req)
         .await
         .map_err(|e| AuthError::RequestFailed(format!("Failed to call userinfo API: {}", e)))?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
+    let status = response.status();
+
+    if !status.is_success() {
+        let body_bytes = response
+            .into_body()
+            .collect()
             .await
-            .unwrap_or_else(|_| "unknown error".to_string());
+            .map(|b| b.to_bytes())
+            .unwrap_or_default();
+        let body = String::from_utf8_lossy(&body_bytes);
         return Err(AuthError::InvalidToken(format!(
             "Google userinfo returned {}: {}",
             status, body
         )));
     }
 
-    let info: GoogleUserInfo = response
-        .json()
+    let body_bytes = response
+        .into_body()
+        .collect()
         .await
+        .map_err(|e| AuthError::RequestFailed(format!("Failed to read response body: {}", e)))?
+        .to_bytes();
+
+    let info: GoogleUserInfo = serde_json::from_slice(&body_bytes)
         .map_err(|e| AuthError::RequestFailed(format!("Failed to parse userinfo response: {}", e)))?;
 
     Ok(UserInfo {
@@ -103,16 +134,19 @@ pub async fn validate_token(token: &str) -> Result<UserInfo, AuthError> {
 /// The `file_id` corresponds to the Google Sheet ID (which is also the room ID).
 /// Returns the user's role (Writer or Reader) based on their Drive permissions.
 pub async fn check_drive_permission(token: &str, file_id: &str) -> Result<DriveRole, AuthError> {
-    let client = Client::new();
+    let client = https_client();
     let url = format!(
         "https://www.googleapis.com/drive/v3/files/{}?fields=capabilities",
         file_id
     );
 
+    let req = Request::get(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Empty::<Bytes>::new())
+        .map_err(|e| AuthError::RequestFailed(format!("Failed to build request: {}", e)))?;
+
     let response = client
-        .get(&url)
-        .bearer_auth(token)
-        .send()
+        .request(req)
         .await
         .map_err(|e| AuthError::RequestFailed(format!("Failed to call Drive API: {}", e)))?;
 
@@ -131,19 +165,27 @@ pub async fn check_drive_permission(token: &str, file_id: &str) -> Result<DriveR
     }
 
     if !status.is_success() {
-        let body = response
-            .text()
+        let body_bytes = response
+            .into_body()
+            .collect()
             .await
-            .unwrap_or_else(|_| "unknown error".to_string());
+            .map(|b| b.to_bytes())
+            .unwrap_or_default();
+        let body = String::from_utf8_lossy(&body_bytes);
         return Err(AuthError::RequestFailed(format!(
             "Drive API returned {}: {}",
             status, body
         )));
     }
 
-    let file_info: DriveFileResponse = response
-        .json()
+    let body_bytes = response
+        .into_body()
+        .collect()
         .await
+        .map_err(|e| AuthError::RequestFailed(format!("Failed to read response body: {}", e)))?
+        .to_bytes();
+
+    let file_info: DriveFileResponse = serde_json::from_slice(&body_bytes)
         .map_err(|e| AuthError::RequestFailed(format!("Failed to parse Drive response: {}", e)))?;
 
     let can_edit = file_info

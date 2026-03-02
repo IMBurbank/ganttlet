@@ -78,6 +78,10 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         taskId, taskName: task!.name, field: 'endDate',
         oldValue, newValue: value, user: 'You',
       });
+      const endDelta = daysBetween(oldValue, value);
+      if (endDelta !== 0) {
+        dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
+      }
     } else {
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field, value });
       dispatch({

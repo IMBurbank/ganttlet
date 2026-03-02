@@ -49,6 +49,7 @@ export default function TaskBar({
     origEndDate: string;
     mode: 'move' | 'resize';
     lastStartDate: string;
+    lastEndDate: string;
   } | null>(null);
   const clipId = useRef(`task-clip-${++clipIdCounter}`);
 
@@ -60,7 +61,7 @@ export default function TaskBar({
   const handleMouseDown = useCallback((e: React.MouseEvent, mode: 'move' | 'resize') => {
     e.preventDefault();
     e.stopPropagation();
-    dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode, lastStartDate: startDate };
+    dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode, lastStartDate: startDate, lastEndDate: endDate };
 
     function onMouseMove(ev: MouseEvent) {
       if (!dragRef.current) return;
@@ -95,6 +96,7 @@ export default function TaskBar({
         const newDuration = daysBetween(dragRef.current.origStartDate, newEndStr);
         if (newDuration < 1) return;
         dispatch({ type: 'RESIZE_TASK', taskId, newEndDate: newEndStr, newDuration });
+        dragRef.current.lastEndDate = newEndStr;
       }
     }
 
@@ -106,6 +108,11 @@ export default function TaskBar({
           const delta = daysBetween(finalTask.origStartDate, finalTask.lastStartDate);
           if (delta !== 0) {
             dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
+          }
+        } else {
+          const endDelta = daysBetween(finalTask.origEndDate, finalTask.lastEndDate);
+          if (endDelta !== 0) {
+            dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
           }
         }
       }

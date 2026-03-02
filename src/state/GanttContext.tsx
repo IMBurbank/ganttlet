@@ -2,7 +2,7 @@ import React, { createContext, useContext, useReducer, useEffect, useRef, useSta
 import type { GanttState, CriticalPathScope } from '../types';
 import { ganttReducer } from './ganttReducer';
 import type { GanttAction } from './actions';
-import { fakeTasks, fakeUsers, fakeChangeHistory, defaultColumns } from '../data/fakeData';
+import { fakeTasks, fakeChangeHistory, defaultColumns } from '../data/fakeData';
 import { initSync, loadFromSheet, scheduleSave, startPolling, stopPolling, getSpreadsheetId } from '../sheets/sheetsSync';
 import { isSignedIn, getAccessToken, getAuthState, setAuthChangeCallback, removeAuthChangeCallback, type AuthState } from '../sheets/oauth';
 import { connectCollab, disconnectCollab } from '../collab/yjsProvider';
@@ -26,7 +26,7 @@ const initialState: GanttState = {
   zoomLevel: 'day',
   searchQuery: '',
   changeHistory: fakeChangeHistory,
-  users: fakeUsers,
+  users: [],
   isHistoryPanelOpen: false,
   isSyncing: false,
   syncComplete: false,

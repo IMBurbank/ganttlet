@@ -27,9 +27,10 @@ export default function TaskTable({ tasks, columns, colorBy, taskMap, users, col
 
   useEffect(() => {
     if (focusNewTaskId) {
-      requestAnimationFrame(() => {
+      const timer = setTimeout(() => {
         dispatch({ type: 'CLEAR_FOCUS_NEW_TASK' });
-      });
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [focusNewTaskId, dispatch]);
 

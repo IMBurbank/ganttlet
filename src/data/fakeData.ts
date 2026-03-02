@@ -44,7 +44,7 @@ export const fakeTasks: Task[] = [
     isExpanded: true,
     isHidden: false,
     notes: 'Core platform work for Q2',
-    okrs: [],
+    okrs: ["KR: API p99 latency < 200ms", "KR: Zero-downtime migration", "KR: 99.9% uptime SLA"],
   },
   {
     id: 'pe-1',
@@ -280,7 +280,7 @@ export const fakeTasks: Task[] = [
     isExpanded: true,
     isHidden: false,
     notes: 'Design & frontend for Q2',
-    okrs: [],
+    okrs: ["KR: User satisfaction > 4.5/5", "KR: Ship design system v2", "KR: WCAG 2.1 AA compliance"],
   },
   {
     id: 'ux-1',
@@ -495,7 +495,7 @@ export const fakeTasks: Task[] = [
     isExpanded: true,
     isHidden: false,
     notes: 'Marketing & launch prep',
-    okrs: [],
+    okrs: ["KR: 20% market share increase", "KR: 3x website conversion rate", "KR: 50 published content pieces"],
   },
   {
     id: 'gtm-1',

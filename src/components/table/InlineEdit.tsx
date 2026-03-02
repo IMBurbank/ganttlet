@@ -15,13 +15,16 @@ export default function InlineEdit({ value, onSave, type = 'text', displayValue,
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
+  const prevAutoEditRef = useRef(autoEdit);
 
   useEffect(() => {
-    if (autoEdit && !editing) {
+    const wasAutoEdit = prevAutoEditRef.current;
+    prevAutoEditRef.current = autoEdit;
+    if (autoEdit && !wasAutoEdit && !editing) {
       setEditValue(value);
       setEditing(true);
     }
-  }, [autoEdit]);
+  }, [autoEdit, editing, value]);
 
   useEffect(() => {
     if (editing && inputRef.current) {

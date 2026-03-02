@@ -45,9 +45,14 @@ function mapTasksToWasm(tasks: Task[]) {
  */
 export function computeCriticalPath(tasks: Task[]): Set<string> {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
-  const result: string[] = wasmModule.compute_critical_path(wasmTasks);
-  return new Set(result);
+  try {
+    const wasmTasks = mapTasksToWasm(tasks);
+    const result: string[] = wasmModule.compute_critical_path(wasmTasks);
+    return new Set(result);
+  } catch (err) {
+    console.error('computeCriticalPath failed:', err);
+    return new Set<string>();
+  }
 }
 
 /**
@@ -55,9 +60,14 @@ export function computeCriticalPath(tasks: Task[]): Set<string> {
  */
 export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScope): Set<string> {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
-  const result: string[] = wasmModule.compute_critical_path_scoped(wasmTasks, scope);
-  return new Set(result);
+  try {
+    const wasmTasks = mapTasksToWasm(tasks);
+    const result: string[] = wasmModule.compute_critical_path_scoped(wasmTasks, scope);
+    return new Set(result);
+  } catch (err) {
+    console.error('computeCriticalPathScoped failed:', err, 'scope:', scope);
+    return new Set<string>();
+  }
 }
 
 /**
@@ -66,8 +76,13 @@ export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScop
  */
 export function computeEarliestStart(tasks: Task[], taskId: string): string | null {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
-  return wasmModule.compute_earliest_start(wasmTasks, taskId) ?? null;
+  try {
+    const wasmTasks = mapTasksToWasm(tasks);
+    return wasmModule.compute_earliest_start(wasmTasks, taskId) ?? null;
+  } catch (err) {
+    console.error('computeEarliestStart failed:', err, 'taskId:', taskId);
+    return null;
+  }
 }
 
 /**
@@ -79,8 +94,13 @@ export function wouldCreateCycle(
   predecessorId: string,
 ): boolean {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
-  return wasmModule.would_create_cycle(wasmTasks, successorId, predecessorId);
+  try {
+    const wasmTasks = mapTasksToWasm(tasks);
+    return wasmModule.would_create_cycle(wasmTasks, successorId, predecessorId);
+  } catch (err) {
+    console.error('wouldCreateCycle failed:', err);
+    return true; // Assume cycle exists on error to be safe
+  }
 }
 
 /**
@@ -93,25 +113,30 @@ export function cascadeDependents(
   daysDelta: number,
 ): Task[] {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
+  try {
+    const wasmTasks = mapTasksToWasm(tasks);
 
-  const results: CascadeResult[] = wasmModule.cascade_dependents(
-    wasmTasks,
-    movedTaskId,
-    daysDelta,
-  );
+    const results: CascadeResult[] = wasmModule.cascade_dependents(
+      wasmTasks,
+      movedTaskId,
+      daysDelta,
+    );
 
-  // Build a map of changed tasks
-  const changedMap = new Map(results.map(r => [r.id, r]));
+    // Build a map of changed tasks
+    const changedMap = new Map(results.map(r => [r.id, r]));
 
-  // Merge changes back into full Task array
-  return tasks.map(t => {
-    const changed = changedMap.get(t.id);
-    if (changed) {
-      return { ...t, startDate: changed.startDate, endDate: changed.endDate };
-    }
-    return t;
-  });
+    // Merge changes back into full Task array
+    return tasks.map(t => {
+      const changed = changedMap.get(t.id);
+      if (changed) {
+        return { ...t, startDate: changed.startDate, endDate: changed.endDate };
+      }
+      return t;
+    });
+  } catch (err) {
+    console.error('cascadeDependents failed:', err);
+    return tasks;
+  }
 }
 
 /**
@@ -123,20 +148,25 @@ export function cascadeDependentsWithIds(
   daysDelta: number,
 ): { tasks: Task[]; changedIds: string[] } {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
+  try {
+    const wasmTasks = mapTasksToWasm(tasks);
 
-  const results: CascadeResult[] = wasmModule.cascade_dependents(
-    wasmTasks,
-    movedTaskId,
-    daysDelta,
-  );
+    const results: CascadeResult[] = wasmModule.cascade_dependents(
+      wasmTasks,
+      movedTaskId,
+      daysDelta,
+    );
 
-  const changedIds = results.map(r => r.id);
-  const changedMap = new Map(results.map(r => [r.id, r]));
-  const updatedTasks = tasks.map(t => {
-    const changed = changedMap.get(t.id);
-    return changed ? { ...t, startDate: changed.startDate, endDate: changed.endDate } : t;
-  });
+    const changedIds = results.map(r => r.id);
+    const changedMap = new Map(results.map(r => [r.id, r]));
+    const updatedTasks = tasks.map(t => {
+      const changed = changedMap.get(t.id);
+      return changed ? { ...t, startDate: changed.startDate, endDate: changed.endDate } : t;
+    });
 
-  return { tasks: updatedTasks, changedIds };
+    return { tasks: updatedTasks, changedIds };
+  } catch (err) {
+    console.error('cascadeDependentsWithIds failed:', err);
+    return { tasks, changedIds: [] };
+  }
 }

@@ -1,4 +1,4 @@
-import type { GanttState, Task } from '../types';
+import type { GanttState, Task, CascadeShift } from '../types';
 import type { GanttAction } from './actions';
 import { cascadeDependents } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
@@ -152,16 +152,19 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'CASCADE_DEPENDENTS': {
+      const preCascadeDates = new Map(state.tasks.map(t => [t.id, { start: t.startDate, end: t.endDate }]));
       let tasks = cascadeDependents(state.tasks, action.taskId, action.daysDelta);
-      // Track which task IDs had their dates changed
       const changedIds: string[] = [];
+      const shifts: CascadeShift[] = [];
       for (let i = 0; i < tasks.length; i++) {
-        if (tasks[i].startDate !== state.tasks[i]?.startDate || tasks[i].endDate !== state.tasks[i]?.endDate) {
+        const pre = preCascadeDates.get(tasks[i].id);
+        if (pre && (tasks[i].startDate !== pre.start || tasks[i].endDate !== pre.end)) {
           changedIds.push(tasks[i].id);
+          shifts.push({ taskId: tasks[i].id, fromStartDate: pre.start, fromEndDate: pre.end });
         }
       }
       tasks = recalcSummaryDates(tasks);
-      return { ...state, tasks, lastCascadeIds: changedIds };
+      return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: shifts };
     }
 
     case 'TOGGLE_SHOW_OWNER_ON_BAR':
@@ -343,6 +346,9 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     case 'SET_LAST_CASCADE_IDS':
       return { ...state, lastCascadeIds: action.taskIds };
 
+    case 'SET_CASCADE_SHIFTS':
+      return { ...state, cascadeShifts: action.shifts };
+
     case 'SET_CRITICAL_PATH_SCOPE':
       return { ...state, criticalPathScope: action.scope };
 
@@ -358,6 +364,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         undoStack: state.undoStack.slice(0, -1),
         redoStack: [...state.redoStack, state.tasks],
         lastCascadeIds: [],
+        cascadeShifts: [],
       };
     }
 
@@ -370,6 +377,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         redoStack: state.redoStack.slice(0, -1),
         undoStack: [...state.undoStack, state.tasks],
         lastCascadeIds: [],
+        cascadeShifts: [],
       };
     }
 

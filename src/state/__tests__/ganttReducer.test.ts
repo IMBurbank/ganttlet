@@ -533,6 +533,43 @@ describe('ganttReducer', () => {
     });
   });
 
+  describe('CASCADE_DEPENDENTS on end-date/duration changes', () => {
+    it('cascades dependents when end date increases (positive delta)', () => {
+      const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
+      const child = makeTask({
+        id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
+        dependencies: [{ fromId: 'A', toId: 'B', type: 'FS', lag: 0 }],
+      });
+      let state = makeState({ tasks: [parent, child] });
+
+      // Simulate end date change: A's end date moves from Mar 10 to Mar 15 (5 day delta)
+      state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-15' });
+      state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: 5 });
+
+      const childTask = state.tasks.find(t => t.id === 'B')!;
+      expect(childTask.startDate).toBe('2026-03-16');
+      expect(childTask.endDate).toBe('2026-03-25');
+    });
+
+    it('cascades dependents when duration decreases (negative delta)', () => {
+      const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
+      const child = makeTask({
+        id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
+        dependencies: [{ fromId: 'A', toId: 'B', type: 'FS', lag: 0 }],
+      });
+      let state = makeState({ tasks: [parent, child] });
+
+      // Simulate duration decrease: A's end date moves from Mar 10 to Mar 7 (-3 day delta)
+      state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-07' });
+      state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'duration', value: 6 });
+      state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: -3 });
+
+      const childTask = state.tasks.find(t => t.id === 'B')!;
+      expect(childTask.startDate).toBe('2026-03-08');
+      expect(childTask.endDate).toBe('2026-03-17');
+    });
+  });
+
   describe('SET_CASCADE_SHIFTS', () => {
     it('sets cascade shifts', () => {
       const state = makeState({ cascadeShifts: [] });

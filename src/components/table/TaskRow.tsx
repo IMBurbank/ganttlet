@@ -84,12 +84,17 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         taskId: task.id, taskName: task.name, field: 'endDate',
         oldValue, newValue: value, user: 'You',
       });
+      const endDelta = daysBetween(oldValue, value);
+      if (endDelta !== 0) {
+        dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
+      }
     }
   }
 
   function handleDurationUpdate(value: string) {
     const newDuration = parseInt(value, 10);
     if (isNaN(newDuration) || newDuration < 0) return;
+    const oldEndDate = task.endDate;
     const oldValue = String(task.duration);
     const newEndDate = addDaysToDate(task.startDate, newDuration);
     dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
@@ -99,6 +104,10 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
       taskId: task.id, taskName: task.name, field: 'duration',
       oldValue, newValue: value, user: 'You',
     });
+    const endDelta = daysBetween(oldEndDate, newEndDate);
+    if (endDelta !== 0) {
+      dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
+    }
   }
 
   function renderCell(col: ColumnConfig) {

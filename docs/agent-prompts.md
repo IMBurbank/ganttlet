@@ -6,13 +6,26 @@ Each session runs in its own git worktree and can spawn subagents for subtasks.
 ## Setup
 
 Claude Code runs in Docker with the project root mounted at `/workspace/`.
-Attach three terminals to the running dev container, one per agent group.
+
+### Execution flow
+
+Groups A and C run in parallel in worktrees (no shared files). After both finish,
+merge A and C into main, then Group B starts from the merged main (it imports files
+that Group A creates). Group D handles the final B merge and cleanup.
+
+```
+  A (worktree) ──┐
+                  ├── merge A+C to main ── B (worktree from merged main) ── D (merge B, cleanup)
+  C (worktree) ──┘
+```
+
+### Terminal commands
 
 ```bash
-# From the host, open three terminals and attach each to the dev container:
+# From the host, attach terminals to the running dev container:
 docker compose exec dev bash
 
-# Inside the container, create worktrees from /workspace:
+# ── Stage 1: Run A and C in parallel ──
 
 # Terminal 1 — Group A (starts immediately)
 cd /workspace
@@ -28,14 +41,21 @@ cd /workspace/.claude/worktrees/phase7-groupC
 npm install
 claude --dangerously-skip-permissions
 
-# Terminal 3 — Group B (waits for A7 to complete)
+# ── Stage 2: After A and C finish, merge to main ──
+
+# Terminal 3 — Merge A+C, then start Group B
 cd /workspace
+git merge feature/phase7-hierarchy-state --no-ff -m "Merge feature/phase7-hierarchy-state: hierarchy enforcement, task reparenting, dependency validation"
+git merge feature/phase7-wasm-scheduler --no-ff -m "Merge feature/phase7-wasm-scheduler: workstream-scoped critical path, remove All scope"
+# Now create B's worktree from the merged main (has A's and C's files)
 git worktree add /workspace/.claude/worktrees/phase7-groupB -b feature/phase7-ui-components
 cd /workspace/.claude/worktrees/phase7-groupB
 npm install
 claude --dangerously-skip-permissions
 
-# Terminal 4 — Group D integration (waits for all groups)
+# ── Stage 3: After B finishes, run Group D integration ──
+
+# Terminal 4 — Group D (merge B, final build/test, cleanup)
 cd /workspace
 claude --dangerously-skip-permissions
 ```
@@ -46,8 +66,7 @@ claude --dangerously-skip-permissions
 - When marking tasks done, agents should edit `/workspace/TASKS.md` (the main copy, not the worktree copy) so other agents can see updates
 - Each worktree has its own `node_modules` — `npm install` is required after creation
 - `npm run build:wasm` in Group C's worktree uses the Rust toolchain already in the container
-
-After all three finish, merge branches into main.
+- Group B's worktree is created **after** A+C merge to main, so it has all the types, utils, and WASM changes it depends on
 
 ---
 
@@ -816,24 +835,19 @@ npx tsc --noEmit
 
 ## Group B Prompt — UI Components
 
-Paste this into Terminal 3. The agent will poll TASKS.md until A7 is done, then start work automatically.
+Paste this into Terminal 3. This worktree was created **after** merging Groups A and C to main, so all dependency files already exist.
 
 ````
 You are the Group B agent for Phase 7 of Ganttlet. You own ALL UI components. NO OTHER FILES.
 
-## BEFORE YOU START — Wait for dependencies
+## Prerequisites — already met
 
-You depend on Group A (task A7) completing first. Group A provides the types, actions, state fields, hierarchy utils, and dependency validation you import.
+Your worktree was created from main after Groups A and C merged. You already have:
+- `src/utils/hierarchyUtils.ts` and `src/utils/dependencyValidation.ts` (Group A)
+- Updated `src/types/index.ts`, `src/state/actions.ts`, `src/state/GanttContext.tsx` (Group A)
+- Updated `src/utils/schedulerWasm.ts` and WASM module (Group C)
 
-**Poll `/workspace/TASKS.md` every 30 seconds** until this line shows `[x]`:
-- `[x] **A7**:` (Group A added new actions, state fields, keyboard shortcuts)
-
-Use this procedure:
-1. Read `/workspace/TASKS.md` and check if A7 is marked `[x]`
-2. If NOT done, say "Waiting for A7... (check N)" then sleep 30 seconds and check again
-3. If done, say "Dependencies met — starting Group B work" and proceed to the tasks below
-
-Do NOT start modifying any files until the dependency is confirmed done. You may use the waiting time to read and familiarize yourself with the files you'll be editing.
+You can start working immediately.
 
 ## Your files (exclusive ownership — only touch these)
 - src/App.tsx
@@ -1851,77 +1865,56 @@ npm run test
 
 ## Group D Prompt — Integration, Merge, Build, Test, Cleanup
 
-Paste this into Terminal 4. The agent will poll TASKS.md until all three groups finish, then handle everything.
+Paste this into Terminal 4 after Group B finishes. Groups A and C are already merged to main.
 
 ````
-You are the Group D integration agent for Phase 7 of Ganttlet. Your job is to wait for Groups A, B, and C to finish, then merge their branches, fix any issues, verify the build, and clean up.
+You are the Group D integration agent for Phase 7 of Ganttlet. Groups A and C are already merged to main. Your job is to merge Group B's branch, fix any issues, verify the build, and clean up.
 
 You work in the MAIN repo at `/workspace` (not a worktree).
 
-## STEP 1 — Wait for all groups to finish
+## STEP 1 — Wait for Group B to finish
 
-Poll `/workspace/TASKS.md` every 30 seconds until ALL THREE of these final tasks are marked `[x]`:
-- `[x] **A9**:` (Group A's last task — tests)
+Poll `/workspace/TASKS.md` every 30 seconds until Group B's last task is marked `[x]`:
 - `[x] **B7**:` (Group B's last task — critical path scope UI)
-- `[x] **C4**:` (Group C's last task — Rust tests)
 
 Procedure:
-1. Read `/workspace/TASKS.md` and check if all three are `[x]`
-2. If NOT all done, say "Waiting for groups to finish... (check N) — A9:[x/pending] B7:[x/pending] C4:[x/pending]" then sleep 30 seconds and check again
-3. Once all three are done, say "All groups finished — starting integration" and proceed
+1. Read `/workspace/TASKS.md` and check if B7 is `[x]`
+2. If NOT done, say "Waiting for Group B to finish... (check N)" then sleep 30 seconds and check again
+3. Once done, say "Group B finished — starting integration" and proceed
 
-While waiting, you may read files to familiarize yourself with the codebase. Do NOT modify any files until all three groups are confirmed done.
+While waiting, you may read files to familiarize yourself with the codebase. Do NOT modify any files until B7 is confirmed done.
 
-## STEP 2 — Verify branches have committed changes
-
-Before merging, confirm each branch has clean committed state:
+## STEP 2 — Verify Group B branch has committed changes
 
 ```bash
 cd /workspace
-
-# Check Group A branch
-git log main..feature/phase7-hierarchy-state --oneline
-git -C .claude/worktrees/phase7-groupA status
 
 # Check Group B branch
 git log main..feature/phase7-ui-components --oneline
 git -C .claude/worktrees/phase7-groupB status
-
-# Check Group C branch
-git log main..feature/phase7-wasm-scheduler --oneline
-git -C .claude/worktrees/phase7-groupC status
 ```
 
-If any branch has uncommitted changes, warn the user and wait. Do NOT proceed with uncommitted work.
+If the branch has uncommitted changes, warn the user and wait. Do NOT proceed with uncommitted work.
 
-If a branch has NO commits beyond main, that group may not have finished properly — warn the user.
+If the branch has NO commits beyond main, Group B may not have finished properly — warn the user.
 
-## STEP 3 — Merge branches into main
+## STEP 3 — Merge Group B into main
 
-Merge in dependency order (A and C first since B depends on A):
+Groups A and C are already merged. Only B remains:
 
 ```bash
 cd /workspace
 git checkout main
-
-# Merge Group A (hierarchy + state — no dependencies)
-git merge feature/phase7-hierarchy-state --no-ff -m "Merge feature/phase7-hierarchy-state: hierarchy enforcement, task reparenting, dependency validation"
-
-# Merge Group C (WASM scheduler — no dependencies on A for file overlap)
-git merge feature/phase7-wasm-scheduler --no-ff -m "Merge feature/phase7-wasm-scheduler: workstream-scoped critical path, remove All scope"
-
-# Merge Group B (UI — depends on A and C, but no file overlap)
 git merge feature/phase7-ui-components --no-ff -m "Merge feature/phase7-ui-components: task bar popover, focus new task, pane collapse, reparent picker"
 ```
 
 ### Handling merge conflicts
 
-Conflicts should be rare since file ownership is zero-overlap. But if they occur:
+Conflicts should be very rare since B was branched from the merged A+C main and has zero file overlap. But if they occur:
 
-1. The most likely conflicts are in import statements or re-exports
-2. Read both sides of the conflict carefully
-3. Resolve by keeping BOTH sides' changes (they should be additive)
-4. After resolving, stage and commit the merge
+1. Read both sides of the conflict carefully
+2. Resolve by keeping BOTH sides' changes (they should be additive)
+3. After resolving, stage and commit the merge
 
 If a conflict is complex or ambiguous, describe it to the user before resolving.
 

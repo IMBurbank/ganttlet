@@ -76,6 +76,12 @@ export type CriticalPathScope =
   | { type: 'workstream'; name: string }
   | { type: 'milestone'; id: string };
 
+export interface CascadeShift {
+  taskId: string;
+  fromStartDate: string;
+  fromEndDate: string;
+}
+
 export interface GanttState {
   tasks: Task[];
   columns: ColumnConfig[];
@@ -99,6 +105,7 @@ export interface GanttState {
   undoStack: Task[][];
   redoStack: Task[][];
   lastCascadeIds: string[];
+  cascadeShifts: CascadeShift[];
   criticalPathScope: CriticalPathScope;
   collapseWeekends: boolean;
   focusNewTaskId: string | null;

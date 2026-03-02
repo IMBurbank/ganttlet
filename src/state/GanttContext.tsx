@@ -42,6 +42,7 @@ const initialState: GanttState = {
   undoStack: [],
   redoStack: [],
   lastCascadeIds: [],
+  cascadeShifts: [],
   criticalPathScope: { type: 'project', name: '' } as CriticalPathScope,
   collapseWeekends: true,
   focusNewTaskId: null,

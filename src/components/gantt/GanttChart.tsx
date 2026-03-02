@@ -27,7 +27,7 @@ interface GanttChartProps {
 }
 
 export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, users, collabUsers, isCollabConnected, onDependencyClick }: GanttChartProps) {
-  const { showOwnerOnBar, showAreaOnBar, showOkrsOnBar, showCriticalPath, criticalPathScope, collapseWeekends, lastCascadeIds } = useGanttState();
+  const { showOwnerOnBar, showAreaOnBar, showOkrsOnBar, showCriticalPath, criticalPathScope, collapseWeekends, lastCascadeIds, cascadeShifts } = useGanttState();
   const dispatch = useGanttDispatch();
 
   // Auto-clear cascade IDs after 2 seconds
@@ -39,6 +39,16 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
       return () => clearTimeout(timer);
     }
   }, [lastCascadeIds, dispatch]);
+
+  // Auto-clear cascade shifts after 2 seconds
+  useEffect(() => {
+    if (cascadeShifts.length > 0) {
+      const timer = setTimeout(() => {
+        dispatch({ type: 'SET_CASCADE_SHIFTS', shifts: [] });
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [cascadeShifts, dispatch]);
 
   const viewingMap = useMemo(() => {
     const map = new Map<string, { color: string; name: string }>();
@@ -116,6 +126,8 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
             const taskEndX = dateToXCollapsed(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
             const taskWidth = Math.max(taskEndX - taskX, 0);
 
+            const shift = cascadeShifts.find(s => s.taskId === task.id);
+
             return (
               <React.Fragment key={`indicators-${task.id}`}>
                 {earliest && (
@@ -126,11 +138,13 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
                     height={ROW_HEIGHT}
                   />
                 )}
-                {lastCascadeIds.includes(task.id) && (
+                {shift && (
                   <CascadeHighlight
-                    x={taskX}
+                    originalX={dateToXCollapsed(shift.fromStartDate, timelineStart, colWidth, zoom, collapseWeekends)}
+                    currentX={taskX}
                     y={yPos}
-                    width={taskWidth}
+                    originalWidth={Math.max(dateToXCollapsed(shift.fromEndDate, timelineStart, colWidth, zoom, collapseWeekends) - dateToXCollapsed(shift.fromStartDate, timelineStart, colWidth, zoom, collapseWeekends), 0)}
+                    currentWidth={taskWidth}
                     height={ROW_HEIGHT}
                   />
                 )}

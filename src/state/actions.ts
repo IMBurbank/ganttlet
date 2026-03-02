@@ -1,4 +1,4 @@
-import type { ColorByField, ZoomLevel, ColumnConfig, CollabUser, Dependency, DependencyType, Task, CriticalPathScope } from '../types';
+import type { ColorByField, ZoomLevel, ColumnConfig, CollabUser, Dependency, DependencyType, Task, CriticalPathScope, CascadeShift } from '../types';
 
 export type GanttAction =
   | { type: 'MOVE_TASK'; taskId: string; newStartDate: string; newEndDate: string }
@@ -36,6 +36,7 @@ export type GanttAction =
   | { type: 'UNDO' }
   | { type: 'REDO' }
   | { type: 'SET_LAST_CASCADE_IDS'; taskIds: string[] }
+  | { type: 'SET_CASCADE_SHIFTS'; shifts: CascadeShift[] }
   | { type: 'SET_CRITICAL_PATH_SCOPE'; scope: CriticalPathScope }
   | { type: 'TOGGLE_COLLAPSE_WEEKENDS' }
   | { type: 'REPARENT_TASK'; taskId: string; newParentId: string | null; newId?: string }

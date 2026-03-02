@@ -219,11 +219,7 @@ pub fn compute_critical_path(tasks: &[Task]) -> Vec<String> {
         let task_es = *es.get(t.id.as_str()).unwrap_or(&0);
         let task_ls = *ls.get(t.id.as_str()).unwrap_or(&0);
         let float = task_ls - task_es;
-        let has_predecessors = !t.dependencies.is_empty();
-        let has_successors = successors
-            .get(t.id.as_str())
-            .map_or(false, |s| !s.is_empty());
-        if float.abs() < 1 && (has_predecessors || has_successors) {
+        if float.abs() < 1 {
             critical_ids.push(t.id.clone());
         }
     }
@@ -326,10 +322,11 @@ mod tests {
     }
 
     #[test]
-    fn standalone_task_not_critical() {
+    fn standalone_task_is_critical() {
+        // A single standalone task determines the project end, so it is critical
         let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 9)];
         let critical = compute_critical_path(&tasks);
-        assert!(!critical.contains(&"a".to_string()));
+        assert!(critical.contains(&"a".to_string()));
     }
 
     #[test]

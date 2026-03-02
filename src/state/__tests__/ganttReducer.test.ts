@@ -57,6 +57,7 @@ function makeState(overrides: Partial<GanttState> = {}): GanttState {
     undoStack: [],
     redoStack: [],
     lastCascadeIds: [],
+    cascadeShifts: [],
     criticalPathScope: { type: 'project', name: '' },
     collapseWeekends: true,
     focusNewTaskId: null,
@@ -484,6 +485,87 @@ describe('ganttReducer', () => {
       const state = makeState({ reparentPicker: { taskId: 'x' } });
       const result = ganttReducer(state, { type: 'SET_REPARENT_PICKER', picker: null });
       expect(result.reparentPicker).toBeNull();
+    });
+  });
+
+  describe('CASCADE_DEPENDENTS', () => {
+    it('populates cascadeShifts with pre-cascade dates for changed tasks', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
+          makeTask({
+            id: 'b',
+            startDate: '2026-03-10',
+            endDate: '2026-03-19',
+            duration: 9,
+            dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
+          }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'CASCADE_DEPENDENTS',
+        taskId: 'a',
+        daysDelta: 3,
+      });
+      // Task 'b' should have been cascaded
+      expect(result.lastCascadeIds).toContain('b');
+      expect(result.cascadeShifts.length).toBeGreaterThan(0);
+      const shiftB = result.cascadeShifts.find(s => s.taskId === 'b');
+      expect(shiftB).toBeDefined();
+      expect(shiftB!.fromStartDate).toBe('2026-03-10');
+      expect(shiftB!.fromEndDate).toBe('2026-03-19');
+    });
+
+    it('does not include unchanged tasks in cascadeShifts', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
+          makeTask({ id: 'c', startDate: '2026-03-01', endDate: '2026-03-05', duration: 4 }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'CASCADE_DEPENDENTS',
+        taskId: 'a',
+        daysDelta: 3,
+      });
+      // 'c' has no dependency on 'a', so it shouldn't be cascaded
+      expect(result.cascadeShifts.find(s => s.taskId === 'c')).toBeUndefined();
+    });
+  });
+
+  describe('SET_CASCADE_SHIFTS', () => {
+    it('sets cascade shifts', () => {
+      const state = makeState({ cascadeShifts: [] });
+      const shifts = [{ taskId: 't1', fromStartDate: '2026-03-01', fromEndDate: '2026-03-10' }];
+      const result = ganttReducer(state, { type: 'SET_CASCADE_SHIFTS', shifts });
+      expect(result.cascadeShifts).toEqual(shifts);
+    });
+
+    it('clears cascade shifts', () => {
+      const state = makeState({
+        cascadeShifts: [{ taskId: 't1', fromStartDate: '2026-03-01', fromEndDate: '2026-03-10' }],
+      });
+      const result = ganttReducer(state, { type: 'SET_CASCADE_SHIFTS', shifts: [] });
+      expect(result.cascadeShifts).toEqual([]);
+    });
+  });
+
+  describe('UNDO clears cascade state', () => {
+    it('clears cascadeShifts on undo', () => {
+      // First do an action that creates an undo snapshot
+      const state = makeState({
+        tasks: [makeTask({ id: 'a' })],
+        cascadeShifts: [{ taskId: 'a', fromStartDate: '2026-03-01', fromEndDate: '2026-03-10' }],
+      });
+      // Move task to create undo entry
+      const afterMove = ganttReducer(state, {
+        type: 'MOVE_TASK',
+        taskId: 'a',
+        newStartDate: '2026-03-05',
+        newEndDate: '2026-03-14',
+      });
+      const afterUndo = ganttReducer(afterMove, { type: 'UNDO' });
+      expect(afterUndo.cascadeShifts).toEqual([]);
     });
   });
 });

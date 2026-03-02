@@ -5,9 +5,10 @@ import type { ViewerInfo } from './TaskTable';
 import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
 import { getTaskDepth } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
-import { getHierarchyRole } from '../../utils/hierarchyUtils';
+import { getHierarchyRole, findWorkstreamAncestor } from '../../utils/hierarchyUtils';
 import InlineEdit from './InlineEdit';
 import PredecessorsCell from './PredecessorsCell';
+import OKRPickerModal from '../shared/OKRPickerModal';
 import { formatDisplayDate, addDaysToDate, daysBetween } from '../../utils/dateUtils';
 
 interface TaskRowProps {
@@ -23,6 +24,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
   const dispatch = useGanttDispatch();
   const rowRef = useRef<HTMLDivElement>(null);
   const setViewingTask = useSetViewingTask();
+  const [okrPickerOpen, setOkrPickerOpen] = useState(false);
 
   useEffect(() => {
     if (autoFocusName && rowRef.current) {
@@ -229,22 +231,39 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
       }
       case 'predecessors':
         return <PredecessorsCell task={task} taskMap={taskMap} />;
-      case 'okrs':
+      case 'okrs': {
+        const okrDisplay = task.okrs.join(', ');
+        const workstream = findWorkstreamAncestor(task, taskMap);
+        const availableOkrs = workstream ? workstream.okrs : [];
         return (
-          <InlineEdit
-            value={task.okrs.join(', ')}
-            onSave={v => {
-              const oldValue = task.okrs.join(', ');
-              const newOkrs = v ? v.split(',').map(s => s.trim()).filter(Boolean) : [];
-              dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'okrs', value: newOkrs });
-              dispatch({
-                type: 'ADD_CHANGE_RECORD',
-                taskId: task.id, taskName: task.name, field: 'okrs',
-                oldValue, newValue: v, user: 'You',
-              });
-            }}
-          />
+          <>
+            <span
+              className="cursor-pointer hover:text-blue-400 transition-colors truncate text-xs"
+              onClick={() => setOkrPickerOpen(true)}
+              title="Click to edit OKRs"
+            >
+              {okrDisplay || '\u00A0'}
+            </span>
+            {okrPickerOpen && (
+              <OKRPickerModal
+                taskId={task.id}
+                currentOkrs={task.okrs}
+                availableOkrs={availableOkrs}
+                onSave={(okrs) => {
+                  const oldValue = task.okrs.join(', ');
+                  dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'okrs', value: okrs });
+                  dispatch({
+                    type: 'ADD_CHANGE_RECORD',
+                    taskId: task.id, taskName: task.name, field: 'okrs',
+                    oldValue, newValue: okrs.join(', '), user: 'You',
+                  });
+                }}
+                onClose={() => setOkrPickerOpen(false)}
+              />
+            )}
+          </>
         );
+      }
       case 'notes':
         return (
           <InlineEdit

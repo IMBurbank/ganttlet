@@ -1,22 +1,47 @@
-# Unplanned issues
+# Unplanned Issues
 
-Tracking for issues that haven't yet been reviewed and added to the project plan. Agents should put their id next to items that they're planning before the begin their plan and remove the items from the list once their respective plan has been added to the appropriate project files. Grab no more than 3 at a time and continue until until they are all gone.
+Triage buffer for issues not yet assigned to a phase. A planning agent picks
+items from **Backlog**, moves them to **Claimed**, and once planned into
+`TASKS.md` + `CLAUDE.md`, moves them to **Planned**.
 
-Be mindful that other agents may be working in parallel. And a user may continue adding new items to this list while you work. 
+## Rules (agents MUST follow these)
+1. Claim up to 3 items at a time by moving them to **Claimed** with your agent ID.
+2. Plan each item into `TASKS.md` under the appropriate phase.
+3. Move planned items to **Planned** with a reference to the phase/group/task.
+4. Do not modify items claimed by another agent.
+5. A user may add new items to **Backlog** at any time.
 
-Do not remove text above this line
 ---
 
-## Issues below have not yet been planned
+## Backlog
+<!-- Add new issues here. One per line, prefixed with `- [ ]`. -->
 
-[] 
 
-## All issues below have been planned 
+## Claimed
+<!-- Agents move items here while planning. Format: `- [AGENT_ID] description` -->
 
-### These tasks were assigned for Phase 7: Hierarchy Enforcement, Task Movement & UX Improvements to agent groups (A, B, or C) running in parallel.
 
-Issues that have been reviewed and added to the Phase 7 project plan.
-See `TASKS.md` under "Phase 7" for the full task breakdown and `CLAUDE.md` for interface contracts.
+## Planned
+<!-- Agents move items here after planning into TASKS.md. Format: `- [x] description → Phase X, Group Y, Task Z` -->
+
+
+---
+
+## Archive
+
+### Phase 8: Bug Fixes, OKR Enhancement, Cascade UX & Deployment
+
+| # | Issue | Priority | Group | Task(s) |
+|---|-------|----------|-------|---------|
+| 1 | Automatic UI verification (E2E/visual tests) | P3 | C | C1, C2 |
+| 2 | Major bug: most cells no longer editable | P0 | A | A1, A4 |
+| 3 | OKR selection for tasks + seed data | P2 | A | A2, A3, A4 |
+| 4 | Bug: critical path not highlighting full chain | P1 | B | B1, B3, B5 |
+| 5 | Major bug: workstream critical path crashes app | P0 | B | B2, B3, B5 |
+| 6 | Cascade highlighting jittery → shadow trail | P2 | B | B4, B5 |
+| 7 | Deploy to Google Cloud | P4 | C | C3, C4 |
+
+### Phase 7: Hierarchy Enforcement, Task Movement & UX Improvements
 
 | # | Issue | Group | Task(s) |
 |---|-------|-------|---------|

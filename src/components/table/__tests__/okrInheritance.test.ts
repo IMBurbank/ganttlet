@@ -59,6 +59,7 @@ function makeState(overrides: Partial<GanttState> = {}): GanttState {
     undoStack: [],
     redoStack: [],
     lastCascadeIds: [],
+    cascadeShifts: [],
     criticalPathScope: { type: 'project', name: '' },
     collapseWeekends: true,
     focusNewTaskId: null,

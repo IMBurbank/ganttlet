@@ -18,156 +18,148 @@ Replaced the JS CPM utils with a Rust module compiled to WebAssembly.
 - [x] Delete old JS implementations (`criticalPathUtils.ts`, functions from `dependencyUtils.ts`)
 
 ## Phase 6: Gantt Chart UX Improvements (DONE)
-Bug fixes, visual feedback, and new features across three parallel agent groups.
+Scoped critical path, undo/redo, cascade highlights, weekend collapse, drag constraints, slack indicators, collab sync fix, column close buttons, dependency modal fix.
+Three parallel groups: WASM scheduler enhancements, state management + collab sync, UI + visual feedback.
+
+---
+
+## Phase 7: Hierarchy Enforcement, Task Movement & UX Improvements
+Hierarchy enforcement, task reparenting, and UX polish across three parallel agent groups.
 See `CLAUDE.md` for interface contracts and file ownership.
 
-### Group A: WASM Scheduler Enhancements
-**Files**: `crates/scheduler/src/*`, `src/utils/schedulerWasm.ts`
-**Branch**: `feature/phase6-wasm-scheduler`
+### Group A: Hierarchy Enforcement + State Management
+**Files**: `src/utils/hierarchyUtils.ts` (new), `src/utils/dependencyValidation.ts` (new), `src/state/ganttReducer.ts`, `src/state/actions.ts`, `src/types/index.ts`, `src/state/GanttContext.tsx`, `src/collab/yjsBinding.ts`, `src/data/fakeData.ts`, `src/utils/__tests__/hierarchyUtils.test.ts` (new), `src/utils/__tests__/dependencyValidation.test.ts` (new), `src/state/__tests__/ganttReducer.test.ts`
+**Branch**: `feature/phase7-hierarchy-state`
 
-- [x] **A1**: Fix critical path — only connected chains
-  - File: `crates/scheduler/src/cpm.rs`
-  - Bug: all zero-float tasks returned including standalone (no deps). Fix: task is critical only if zero float AND `(in_degree > 0 || out_degree > 0)` — participates in at least one dependency
-  - Tests: standalone task excluded, chain still detected
+- [ ] **A1**: Create `src/utils/hierarchyUtils.ts`
+  - Pure functions for hierarchy queries: `getHierarchyRole`, `findProjectAncestor`, `findWorkstreamAncestor`, `getAllDescendantIds`, `isDescendantOf`, `generatePrefixedId`, `computeInheritedFields`
+  - `getHierarchyRole(task, taskMap)` — project if `isSummary && !parentId`, workstream if `isSummary && parent is project`, else task
+  - `generatePrefixedId(parent, tasks)` — find max N in `{parentId}-N` pattern, return `{parentId}-{N+1}`
+  - `computeInheritedFields(parentId, taskMap)` — inherit `project`, `workStream`, `okrs` from parent based on role
 
-- [x] **A2**: Add scoped critical path computation
-  - File: `crates/scheduler/src/cpm.rs`, `types.rs`, `lib.rs`
-  - Add `compute_critical_path_scoped(tasks, scope)` with scope variants: All, Project(name), Milestone(id)
-  - Project scope: filter tasks to matching project, run CPM on subset
-  - Milestone scope: BFS backward from milestone through deps to find transitive predecessors, run CPM on subset + milestone
-  - Add `project: String` field to Rust Task struct
-  - Tests: all scope = existing + A1 fix, project scope filters, milestone scope traces predecessors
+- [ ] **A2**: Create `src/utils/dependencyValidation.ts`
+  - `validateDependencyHierarchy(tasks, successorId, predecessorId)` — projects can't depend on own descendants, workstreams can't depend on own children, tasks can't depend on ancestor project/workstream
+  - `checkMoveConflicts(tasks, taskId, newParentId)` — check if task has deps on the target project/workstream entity itself (deps on sibling tasks are fine)
 
-- [x] **A3**: Add `compute_earliest_start` to Rust crate
-  - File: `crates/scheduler/src/constraints.rs` (new)
-  - `compute_earliest_start(tasks, task_id) -> Option<String>`: for each dep on task, compute earliest possible start date by type (FS/SS/FF with lag), return the latest
-  - Tests: no deps → None, single FS → end+1, FS+lag → end+lag+1, multiple deps → latest wins, SS dep → start
+- [ ] **A3**: Modify `ADD_TASK` in reducer (Issues #1, #2, #3)
+  - Call `computeInheritedFields(parentId, taskMap)` for `project`, `workStream`, `okrs`
+  - Call `generatePrefixedId(parent, tasks)` for workstream-prefixed ID
+  - Set `focusNewTaskId: newId` in returned state (Issue #5 signal)
 
-- [x] **A4**: Expose all new functions in TypeScript wrapper
-  - File: `src/utils/schedulerWasm.ts`
-  - Add `computeEarliestStart`, `cascadeDependentsWithIds`, `computeCriticalPathScoped`
-  - Update existing `computeCriticalPath` to call scoped variant with `{ type: 'all' }`
-  - Update WASM task mapping to include `project` field
-  - Verify: `cargo test` passes, `npm run test` passes
+- [ ] **A4**: Modify `UPDATE_TASK_FIELD` in reducer
+  - When `field === 'name'` and task is a project or workstream, cascade field updates to descendants
+  - Project rename → update `project` field on all descendants
+  - Workstream rename → update `workStream` field on all descendants
 
-**Execution**: A1 → A2 → A3 → A4 (sequential)
+- [ ] **A5**: Add hierarchy validation to `ADD_DEPENDENCY`
+  - Call `validateDependencyHierarchy()` before adding; if invalid, return state unchanged
 
----
+- [ ] **A6**: Add `REPARENT_TASK` reducer case (Issue #4)
+  - Validate: not reparenting to self or own descendant
+  - Call `checkMoveConflicts()` — reject if conflicts exist
+  - Update `parentId`, `childIds`, inherited fields, reposition in array, update dependency references if `newId` provided
+  - Call `recalcSummaryDates`
 
-### Group B: State Management, Undo/Redo, Collab Sync Fix
-**Files**: `src/state/actions.ts`, `src/state/ganttReducer.ts`, `src/state/GanttContext.tsx`, `src/collab/yjsBinding.ts`, `src/types/index.ts`
-**Branch**: `feature/phase6-state-sync`
+- [ ] **A7**: Add new actions and state fields
+  - `src/state/actions.ts`: Add `REPARENT_TASK`, `SET_REPARENT_PICKER`, `TOGGLE_LEFT_PANE`, `CLEAR_FOCUS_NEW_TASK`
+  - `src/types/index.ts`: Add `focusNewTaskId`, `isLeftPaneCollapsed`, `reparentPicker` to GanttState; update `CriticalPathScope` to remove `all`, add `workstream`
+  - `src/state/GanttContext.tsx`: Add initial values, `Ctrl+B` shortcut for `TOGGLE_LEFT_PANE`, change default `criticalPathScope`
+  - `src/collab/yjsBinding.ts`: Handle `REPARENT_TASK` via full sync
 
-- [x] **B1**: Fix CASCADE_DEPENDENTS collab sync (bug fix — do first)
-  - File: `src/collab/yjsBinding.ts`
-  - Bug: `CASCADE_DEPENDENTS` in `TASK_MODIFYING_ACTIONS` but no case in `applyActionToYjs()` switch — falls through to `default: break;`
-  - Fix: add case that reads tasks from Yjs, calls `cascadeDependents`, writes changed dates back in a transaction
-  - Import `cascadeDependents` from `schedulerWasm`
+- [ ] **A8**: Fix seed data in `src/data/fakeData.ts`
+  - Fix inconsistent `project` fields — all tasks should have `project: 'Q2 Product Launch'`
+  - Workstreams: set `project` to parent project's name, keep `workStream` as own name
+  - Leaf tasks: set `project` to `'Q2 Product Launch'`, `workStream` to parent workstream's name
 
-- [x] **B2**: Add new state fields and action types
-  - File: `src/types/index.ts` — add `undoStack`, `redoStack`, `lastCascadeIds`, `criticalPathScope`, `collapseWeekends` to GanttState; add `CriticalPathScope` type
-  - File: `src/state/actions.ts` — add UNDO, REDO, SET_LAST_CASCADE_IDS, SET_CRITICAL_PATH_SCOPE, TOGGLE_COLLAPSE_WEEKENDS
-  - File: `src/state/GanttContext.tsx` — add defaults to initialState (`undoStack: []`, `redoStack: []`, `lastCascadeIds: []`, `criticalPathScope: { type: 'all' }`, `collapseWeekends: true`)
+- [ ] **A9**: Tests
+  - `src/utils/__tests__/hierarchyUtils.test.ts` (new): hierarchy role classification, prefixed ID generation, inherited fields
+  - `src/utils/__tests__/dependencyValidation.test.ts` (new): hierarchy violation rejection, cross-project deps allowed, move conflict detection
+  - `src/state/__tests__/ganttReducer.test.ts` (extend): ADD_TASK inheritance, UPDATE_TASK_FIELD cascade, ADD_DEPENDENCY rejection, REPARENT_TASK
 
-- [x] **B3**: Implement undo/redo in reducer
-  - File: `src/state/ganttReducer.ts`
-  - Define UNDOABLE_ACTIONS: MOVE_TASK, RESIZE_TASK, CASCADE_DEPENDENTS, ADD/UPDATE/REMOVE_DEPENDENCY, ADD_TASK, DELETE_TASK
-  - Before undoable action: push `state.tasks` snapshot to undoStack (max 50), clear redoStack
-  - UNDO: pop undoStack → tasks, push current tasks → redoStack
-  - REDO: pop redoStack → tasks, push current tasks → undoStack
-
-- [x] **B4**: Update CASCADE_DEPENDENTS to track changed IDs
-  - File: `src/state/ganttReducer.ts`
-  - Modify CASCADE_DEPENDENTS case to use `cascadeDependentsWithIds` and store `changedIds` in `lastCascadeIds`
-  - Add SET_LAST_CASCADE_IDS, SET_CRITICAL_PATH_SCOPE, TOGGLE_COLLAPSE_WEEKENDS cases
-
-- [x] **B5**: Wire up keyboard shortcuts for undo/redo
-  - File: `src/state/GanttContext.tsx`
-  - Add `useEffect` for Ctrl+Z (undo) and Ctrl+Shift+Z (redo)
-
-- [x] **B6**: Sync UNDO/REDO to collab
-  - File: `src/state/GanttContext.tsx` + `src/collab/yjsBinding.ts`
-  - Use `pendingFullSyncRef` flag: when UNDO/REDO dispatched, set flag. `useEffect` watching `state.tasks` calls `applyTasksToYjs(doc, state.tasks)` when flag set, clears it
-
-**Execution**: B1 → B2 → B3 → B4 → B5+B6 (B5 and B6 in parallel)
+**Execution**: A1 → A2 → A3+A4+A5 → A6 → A7 → A8 → A9
 
 ---
 
-### Group C: UI, Visual Feedback, Timeline Improvements
-**Files**: `src/components/gantt/*`, `src/components/table/ColumnHeader.tsx`, `src/components/shared/*`, `src/components/layout/Toolbar.tsx`, `src/utils/dateUtils.ts`
-**Branch**: `feature/phase6-ui-visual`
-**Depends on**: A4 (WASM functions), B2 (new state fields)
+### Group B: UI Components
+**Files**: `src/App.tsx`, `src/components/gantt/TaskBar.tsx`, `src/components/gantt/TaskBarPopover.tsx` (new), `src/components/table/TaskRow.tsx`, `src/components/table/InlineEdit.tsx`, `src/components/table/TaskTable.tsx`, `src/components/shared/DependencyEditorModal.tsx`, `src/components/shared/ReparentPickerModal.tsx` (new), `src/components/layout/Toolbar.tsx`
+**Branch**: `feature/phase7-ui-components`
+**Depends on**: A7 (types + actions), A1 (hierarchy utils), A2 (dep validation)
 
-- [x] **C1**: Fix dependency modal click-outside
-  - File: `src/components/shared/DependencyEditorModal.tsx`
-  - Bug: backdrop div at line 140 intercepts clicks, so `e.target === e.currentTarget` on outer container is always false
-  - Fix: add `onClick={close}` directly to the backdrop div
+- [ ] **B1**: Focus on new task (Issue #5)
+  - `InlineEdit.tsx`: Add `autoEdit?: boolean` prop — when true, enter edit mode automatically
+  - `TaskRow.tsx`: Add `autoFocusName?: boolean` prop, pass to name cell's `InlineEdit`; `scrollIntoView` when true
+  - `TaskTable.tsx`: Read `focusNewTaskId` from state, pass `autoFocusName` to `TaskRow`, dispatch `CLEAR_FOCUS_NEW_TASK` after one animation frame
 
-- [x] **C2**: Add column close buttons
-  - File: `src/components/table/ColumnHeader.tsx`
-  - Add X button to each column header (except "name"), hover-visible, dispatches TOGGLE_COLUMN
-  - Needs `useGanttDispatch` hook
+- [ ] **B2**: Edit from task bars (Issue #6)
+  - `TaskBarPopover.tsx` (new): Portal-based popover with editable fields (name, start/end date, duration, owner)
+  - `TaskBar.tsx`: Add `onDoubleClick` handler to open popover at click position
 
-- [x] **C3**: Collapse weekends in day view
-  - File: `src/utils/dateUtils.ts` — add `businessDaysBetween`, `dateToXCollapsed`, `xToDateCollapsed`, `getTimelineDaysFiltered`
-  - File: `src/components/gantt/TimelineHeader.tsx` — use filtered days when weekends collapsed
-  - File: `src/components/gantt/GridLines.tsx` — same: filter out weekend days
-  - File: `src/components/gantt/GanttChart.tsx` — read `collapseWeekends` from state, pass to children, use collapsed positioning
-  - File: `src/components/gantt/TaskBar.tsx` — accept `collapseWeekends` prop, use collapsed positioning in drag
+- [ ] **B3**: Collapse/expand left pane (Issue #7)
+  - `App.tsx`: Read `isLeftPaneCollapsed`, set left pane to `w-0 overflow-hidden` when collapsed; add divider button with chevron; `transition-all duration-200`
 
-- [x] **C4**: Critical path scope UI in Toolbar
-  - File: `src/components/layout/Toolbar.tsx`
-  - Replace single "Critical Path" toggle with split button: toggle on/off + scope dropdown (All / project names / milestones)
-  - Dispatch SET_CRITICAL_PATH_SCOPE on scope change
+- [ ] **B4**: Reparent picker modal (Issue #4 UI)
+  - `ReparentPickerModal.tsx` (new): List workstream/project targets, exclude current parent and descendants, show `checkMoveConflicts()` warnings, dispatch `REPARENT_TASK`
+  - `App.tsx`: Add "Move to workstream..." context menu item for non-summary tasks, render `ReparentPickerModal` when `state.reparentPicker` is set
 
-- [x] **C5**: Pass scoped critical path to GanttChart
-  - File: `src/components/gantt/GanttChart.tsx`
-  - Change `computeCriticalPath(allTasks)` to `computeCriticalPathScoped(allTasks, criticalPathScope)`
+- [ ] **B5**: Dependency modal hierarchy filtering
+  - `DependencyEditorModal.tsx`: Add `validateDependencyHierarchy` check to `availablePredecessors` filter and `getValidPredecessorsForRow`
 
-- [x] **C6**: Enforce drag constraints in TaskBar
-  - File: `src/components/gantt/TaskBar.tsx`
-  - Add `earliestStart` prop, clamp drag start date to `>= earliestStart` in onMouseMove
+- [ ] **B6**: Read-only inherited fields in table
+  - `TaskRow.tsx`: Import `getHierarchyRole`; for `workStream` and `project` cells, render as read-only text if the field is inherited
 
-- [x] **C7**: Slack indicator + cascade highlights
-  - File: `src/components/gantt/SlackIndicator.tsx` (new) — dashed rect showing slack region between earliest start and actual start
-  - File: `src/components/gantt/CascadeHighlight.tsx` (new) — amber flash overlay on cascaded tasks
-  - File: `src/components/gantt/GanttChart.tsx` — compute earliest starts, render SlackIndicator + CascadeHighlight, auto-clear cascade IDs after 2s
+- [ ] **B7**: Critical path scope UI (Issue #10 — UI part)
+  - `Toolbar.tsx`: Remove "All" button from scope dropdown; add "Workstreams" section; dispatch `SET_CRITICAL_PATH_SCOPE` with `{ type: 'workstream', name }` for workstream selections
 
-- [x] **C8**: Undo/Redo toolbar buttons
-  - File: `src/components/shared/UndoRedoButtons.tsx` (new) — reads undoStack/redoStack length, renders buttons
-  - File: `src/components/layout/Toolbar.tsx` — render `<UndoRedoButtons />` after Add Task button
+**Execution**: B1+B2+B3 → B4+B5+B6 → B7
 
-- [x] **C9**: Weekend toggle in Toolbar
-  - File: `src/components/layout/Toolbar.tsx` — add "Collapse Weekends" toggle near zoom controls, dispatches TOGGLE_COLLAPSE_WEEKENDS
+---
 
-**Execution**: C1+C2 → C3 → C4+C5+C6 → C7+C8+C9 (parallel within stages)
+### Group C: WASM Critical Path Rework
+**Files**: `crates/scheduler/src/cpm.rs`, `crates/scheduler/src/types.rs`, `crates/scheduler/src/lib.rs`, `src/utils/schedulerWasm.ts`
+**Branch**: `feature/phase7-wasm-scheduler`
+
+- [ ] **C1**: Add `work_stream` field to Rust Task
+  - `crates/scheduler/src/types.rs`: Add `#[serde(default)] pub work_stream: String`
+
+- [ ] **C2**: Update `CriticalPathScope` enum
+  - `crates/scheduler/src/cpm.rs`: Remove `All` variant, add `Workstream { name: String }`
+  - Update `compute_critical_path_scoped`: `Workstream` filters by `t.work_stream == name`
+
+- [ ] **C3**: Update WASM TypeScript wrapper
+  - `src/utils/schedulerWasm.ts`: Add `workStream` to task-to-WASM mapping; remove local `CriticalPathScope` type duplicate; update `computeCriticalPathScoped` for new scope variants
+
+- [ ] **C4**: Rust tests
+  - Add tests for workstream-scoped critical path
+  - Verify `All` removal doesn't break callers
+
+**Execution**: C1 → C2 → C3 → C4
 
 ---
 
 ### Cross-Group Dependencies
-- C5 depends on A4 (`computeCriticalPathScoped` must exist)
-- C6+C7 depend on A3+A4 (`computeEarliestStart` must exist)
-- C7 cascade depends on B4 (`lastCascadeIds` state must exist)
-- C8 depends on B3 (undo/redo state must exist)
-- C3+C9 depend on B2 (`collapseWeekends` state must exist)
-- **Run Groups A and B in parallel. Start Group C after A4 and B2 complete.**
+- Groups A and C run in parallel (no shared files)
+- Group B depends on A7 (types, actions, state fields), A1 (hierarchy utils), A2 (dep validation)
+- B7 depends on C2+C3 (new CriticalPathScope type with workstream variant)
+- **Run Groups A and C in parallel. Start Group B after A7 completes.**
 
 ---
 
 ### Integration Verification (after merge)
-1. `npm run build` — production build succeeds
+1. `npm run build` succeeds
 2. `npm run test` — all tests pass
-3. Manual smoke test:
-   - Critical Path → only connected chains (not standalone tasks)
-   - Scoped by project or milestone
-   - Drag forward → dependents cascade with amber flash
-   - Drag backward past constraint → clamped
-   - Slack indicator visible when task is after earliest start
-   - Ctrl+Z / Ctrl+Shift+Z → undo/redo works
-   - Second tab → cascade and undo sync via collab
-   - Click outside dependency modal → closes
-   - Column header X → hides column
-   - Collapse Weekends → weekend columns disappear in day view
+3. `cargo test` — Rust tests pass
+4. Manual smoke test:
+   - Add task under workstream → inherits project/workStream/okrs, gets prefixed ID
+   - Add Task from toolbar → scrolls into view, name field focused for editing
+   - Rename a project → all descendants' `project` field updates
+   - Double-click task bar → popover appears, edit name/dates/owner
+   - Ctrl+B → left pane collapses; Ctrl+B again → restores with same columns
+   - Right-click task → "Move to workstream..." → picker shows valid targets
+   - Move task to different workstream → ID changes, all dependency links update
+   - Try to add dep from task to its own project → blocked
+   - Try to move task into workstream where it depends on that workstream → warning
+   - Critical path scope dropdown → shows Projects and Workstreams sections, no "All"
+   - Select workstream scope → only that workstream's critical chain highlighted
 
 ---
 

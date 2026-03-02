@@ -1,4 +1,4 @@
-# Phase 6 Agent Prompts
+# Phase 7 Agent Prompts
 
 Three self-contained prompts for parallel Claude CLI sessions.
 Each session runs in its own git worktree and can spawn subagents for subtasks.
@@ -14,28 +14,28 @@ docker compose exec dev bash
 
 # Inside the container, create worktrees from /workspace:
 
-# Terminal 1 — Group A
+# Terminal 1 — Group A (starts immediately)
 cd /workspace
-git worktree add /workspace/.claude/worktrees/phase6-groupA -b feature/phase6-wasm-scheduler
-cd /workspace/.claude/worktrees/phase6-groupA
+git worktree add /workspace/.claude/worktrees/phase7-groupA -b feature/phase7-hierarchy-state
+cd /workspace/.claude/worktrees/phase7-groupA
 npm install
 claude --dangerously-skip-permissions
 
-# Terminal 2 — Group B
+# Terminal 2 — Group C (starts immediately — parallel with A)
 cd /workspace
-git worktree add /workspace/.claude/worktrees/phase6-groupB -b feature/phase6-state-sync
-cd /workspace/.claude/worktrees/phase6-groupB
+git worktree add /workspace/.claude/worktrees/phase7-groupC -b feature/phase7-wasm-scheduler
+cd /workspace/.claude/worktrees/phase7-groupC
 npm install
 claude --dangerously-skip-permissions
 
-# Terminal 3 — Group C (can start immediately — it polls TASKS.md for A4+B2 completion)
+# Terminal 3 — Group B (waits for A7 to complete)
 cd /workspace
-git worktree add /workspace/.claude/worktrees/phase6-groupC -b feature/phase6-ui-visual
-cd /workspace/.claude/worktrees/phase6-groupC
+git worktree add /workspace/.claude/worktrees/phase7-groupB -b feature/phase7-ui-components
+cd /workspace/.claude/worktrees/phase7-groupB
 npm install
 claude --dangerously-skip-permissions
 
-# Terminal 4 — Group D integration (can start immediately — polls for A4+B6+C9 completion)
+# Terminal 4 — Group D integration (waits for all groups)
 cd /workspace
 claude --dangerously-skip-permissions
 ```
@@ -45,1065 +45,1805 @@ claude --dangerously-skip-permissions
 - TASKS.md at `/workspace/TASKS.md` is the shared coordination file — all worktrees can see the main repo's copy
 - When marking tasks done, agents should edit `/workspace/TASKS.md` (the main copy, not the worktree copy) so other agents can see updates
 - Each worktree has its own `node_modules` — `npm install` is required after creation
-- `npm run build:wasm` in Group A's worktree uses the Rust toolchain already in the container
+- `npm run build:wasm` in Group C's worktree uses the Rust toolchain already in the container
 
 After all three finish, merge branches into main.
 
 ---
 
-## Group A Prompt — WASM Scheduler Enhancements
+## Group A Prompt — Hierarchy Enforcement + State Management
 
 Paste this into Terminal 1:
 
 ````
-You are the Group A agent for Phase 6 of Ganttlet. You own the Rust WASM scheduler and its TypeScript wrapper. NO OTHER FILES.
+You are the Group A agent for Phase 7 of Ganttlet. You own hierarchy utilities, dependency validation, state management, and seed data. NO OTHER FILES.
 
 ## Your files (exclusive ownership — only touch these)
-- crates/scheduler/src/cpm.rs
-- crates/scheduler/src/types.rs
-- crates/scheduler/src/lib.rs
-- crates/scheduler/src/cascade.rs (read-only reference)
-- crates/scheduler/src/graph.rs (read-only reference)
-- crates/scheduler/src/constraints.rs (NEW — you create this)
-- crates/scheduler/Cargo.toml (if needed)
-- src/utils/schedulerWasm.ts
+- src/utils/hierarchyUtils.ts (NEW — you create this)
+- src/utils/dependencyValidation.ts (NEW — you create this)
+- src/state/ganttReducer.ts
+- src/state/actions.ts
+- src/types/index.ts
+- src/state/GanttContext.tsx
+- src/collab/yjsBinding.ts
+- src/data/fakeData.ts
+- src/utils/__tests__/hierarchyUtils.test.ts (NEW — you create this)
+- src/utils/__tests__/dependencyValidation.test.ts (NEW — you create this)
+- src/state/__tests__/ganttReducer.test.ts (extend existing)
 
 ## DO NOT TOUCH
-Any file in src/state/, src/collab/, src/components/, src/types/. Those belong to Groups B and C.
+Any file in crates/, src/components/, src/App.tsx, src/utils/schedulerWasm.ts. Those belong to Groups B and C.
 
-## Tasks (execute sequentially: A1 → A2 → A3 → A4)
+## Tasks (execute sequentially: A1 → A2 → A3+A4+A5 → A6 → A7 → A8 → A9)
 
-### A1: Fix critical path — only connected dependency chains
+### A1: Create `src/utils/hierarchyUtils.ts`
 
-File: crates/scheduler/src/cpm.rs
-
-**Bug**: `compute_critical_path()` returns ALL zero-float tasks, including standalone tasks with no dependencies. A single task with no predecessors or successors always has zero float and gets marked critical — this is wrong.
-
-**Current code** (lines 206-217):
-```rust
-let mut critical_ids = Vec::new();
-for t in &non_summary {
-    let task_es = *es.get(t.id.as_str()).unwrap_or(&0);
-    let task_ls = *ls.get(t.id.as_str()).unwrap_or(&0);
-    let float = task_ls - task_es;
-    if float.abs() < 1 {
-        critical_ids.push(t.id.clone());
-    }
-}
-```
-
-**Fix**: After the zero-float check, also require that the task participates in at least one dependency relationship. Use the `in_degree` and `successors` maps already computed above. A task is critical only if `float.abs() < 1 AND (in_degree[id] > 0 || successors[id].len() > 0)`.
-
-**Tests to add**:
-- `standalone_task_not_critical`: Single task with no deps → NOT critical (this is a CHANGE from the existing `single_task_is_critical` test — update it)
-- `standalone_task_alongside_chain`: A→B chain plus standalone C. A and B are critical, C is NOT.
-
-**Tests to verify still pass**:
-- `linear_fs_chain` — all three tasks remain critical
-- `non_critical_task_with_float` — C still excluded
-
-Run: `cd crates/scheduler && cargo test`
-
----
-
-### A2: Add scoped critical path computation
-
-**Files**: crates/scheduler/src/cpm.rs, crates/scheduler/src/types.rs, crates/scheduler/src/lib.rs
-
-**Step 1**: Add `project` field to the Rust Task struct.
-
-In `types.rs`, add to the Task struct:
-```rust
-pub project: String,
-```
-This field is `#[serde(rename_all = "camelCase")]` so it maps to `project` in JS (same name).
-
-Update ALL test helper `make_task` functions across all test modules (cpm.rs, cascade.rs, graph.rs) to include `project: String::new()`.
-
-**Step 2**: Add scope enum to `cpm.rs`:
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum CriticalPathScope {
-    All,
-    Project { name: String },
-    Milestone { id: String },
-}
-```
-
-**Step 3**: Add `compute_critical_path_scoped(tasks, scope)` in `cpm.rs`:
-- `All` → call existing `compute_critical_path(tasks)` (with A1 fix applied)
-- `Project { name }` → filter tasks to only those where `task.project == name`, then call `compute_critical_path(&filtered)`
-- `Milestone { id }` → BFS backward from the milestone task through the dependency graph (follow `dep.fromId` links) to find ALL transitive predecessors. Collect those + the milestone. Run `compute_critical_path(&subset)`.
-
-**Step 4**: Add WASM export in `lib.rs`:
-```rust
-#[wasm_bindgen]
-pub fn compute_critical_path_scoped(tasks_js: JsValue, scope_js: JsValue) -> Result<JsValue, JsValue> {
-    let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
-        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
-    let scope: cpm::CriticalPathScope = serde_wasm_bindgen::from_value(scope_js)
-        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize scope: {}", e)))?;
-    let critical_ids = cpm::compute_critical_path_scoped(&tasks, &scope);
-    serde_wasm_bindgen::to_value(&critical_ids)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
-}
-```
-
-**Tests**:
-- `scoped_all_same_as_default`: `compute_critical_path_scoped(tasks, All)` == `compute_critical_path(tasks)`
-- `scoped_project_filters`: Two projects "Alpha" and "Beta" with independent chains. Scoping to "Alpha" only returns Alpha's chain.
-- `scoped_milestone_traces_predecessors`: A→B→C→Milestone. Scoping to Milestone returns A,B,C,Milestone critical chain.
-
-Run: `cd crates/scheduler && cargo test`
-
----
-
-### A3: Add `compute_earliest_start` to Rust crate
-
-**File**: crates/scheduler/src/constraints.rs (NEW FILE)
-
-Create a new module. Add `pub mod constraints;` to `lib.rs`.
-
-```rust
-use crate::types::{DepType, Task};
-
-/// Compute the earliest possible start date for a task given its dependencies.
-/// Returns None if the task has no dependencies (unconstrained).
-pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
-    // find the task
-    // iterate its dependencies
-    // for each dep, find the predecessor task and compute earliest start:
-    //   FS: predecessor.end_date + lag + 1 day  (FS means finish-to-start: start after predecessor finishes)
-    //   SS: predecessor.start_date + lag
-    //   FF: predecessor.end_date + lag - task.duration + 1 day
-    // return the maximum (latest) of all computed dates, or None if no deps
-}
-```
-
-Reuse the `add_days` and `parse_date` helpers from `cascade.rs` — either extract them to a shared `date_utils.rs` module, or duplicate the simple ones. Prefer extracting to avoid duplication.
-
-**WASM export** in `lib.rs`:
-```rust
-#[wasm_bindgen]
-pub fn compute_earliest_start(tasks_js: JsValue, task_id: &str) -> Result<JsValue, JsValue> {
-    let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
-        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
-    let result = constraints::compute_earliest_start(&tasks, task_id);
-    serde_wasm_bindgen::to_value(&result)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
-}
-```
-
-**Tests** (in constraints.rs):
-- `no_deps_returns_none`: task with no dependencies → None
-- `single_fs_dep`: A(start 03-01, end 03-10) → B(FS, lag 0). Earliest start for B = 03-11 (end + 1 day)
-- `fs_dep_with_lag`: A(end 03-10) → B(FS, lag 2). Earliest = 03-13
-- `multiple_deps_latest_wins`: A(end 03-10) and C(end 03-15) both FS to B. Earliest = 03-16
-- `ss_dep`: A(start 03-01) → B(SS, lag 3). Earliest = 03-04
-
-Run: `cd crates/scheduler && cargo test`
-
----
-
-### A4: Expose all new functions in TypeScript wrapper
-
-**File**: src/utils/schedulerWasm.ts
-
-Add three new exports that Group B and C will consume (they depend on these signatures exactly):
+Pure functions for hierarchy queries. All other hierarchy work depends on this.
 
 ```typescript
 import type { Task } from '../types';
 
-// Existing CriticalPathScope will be defined in types/index.ts by Group B.
-// For now, define it locally or import from types:
-export type CriticalPathScope =
-  | { type: 'all' }
-  | { type: 'project'; name: string }
-  | { type: 'milestone'; id: string };
+export type HierarchyRole = 'project' | 'workstream' | 'task';
 
-export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScope): Set<string> {
-  if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks); // extract the existing mapping to a helper
-  const result: string[] = wasmModule.compute_critical_path_scoped(wasmTasks, scope);
-  return new Set(result);
+/**
+ * Determine a task's role in the hierarchy.
+ * - project: isSummary && no parentId (top-level summary)
+ * - workstream: isSummary && parent is a project
+ * - task: everything else (leaf tasks, milestones)
+ */
+export function getHierarchyRole(task: Task, taskMap: Map<string, Task>): HierarchyRole {
+  if (task.isSummary && !task.parentId) return 'project';
+  if (task.isSummary && task.parentId) {
+    const parent = taskMap.get(task.parentId);
+    if (parent && parent.isSummary && !parent.parentId) return 'workstream';
+  }
+  return 'task';
 }
 
-export function computeEarliestStart(tasks: Task[], taskId: string): string | null {
-  if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
-  return wasmModule.compute_earliest_start(wasmTasks, taskId) ?? null;
+/**
+ * Walk up the parentId chain to find the project ancestor (top-level summary).
+ * Returns null if the task itself is a project or has no project ancestor.
+ */
+export function findProjectAncestor(task: Task, taskMap: Map<string, Task>): Task | null {
+  let current = task.parentId ? taskMap.get(task.parentId) : undefined;
+  while (current) {
+    if (current.isSummary && !current.parentId) return current;
+    current = current.parentId ? taskMap.get(current.parentId) : undefined;
+  }
+  return null;
 }
 
-export function cascadeDependentsWithIds(
-  tasks: Task[],
-  movedTaskId: string,
-  daysDelta: number,
-): { tasks: Task[]; changedIds: string[] } {
-  if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  const wasmTasks = mapTasksToWasm(tasks);
-  const results: CascadeResult[] = wasmModule.cascade_dependents(wasmTasks, movedTaskId, daysDelta);
-  const changedIds = results.map(r => r.id);
-  const changedMap = new Map(results.map(r => [r.id, r]));
-  const updatedTasks = tasks.map(t => {
-    const changed = changedMap.get(t.id);
-    return changed ? { ...t, startDate: changed.startDate, endDate: changed.endDate } : t;
-  });
-  return { tasks: updatedTasks, changedIds };
+/**
+ * Walk up the parentId chain to find the workstream ancestor.
+ * Returns null if not found.
+ */
+export function findWorkstreamAncestor(task: Task, taskMap: Map<string, Task>): Task | null {
+  let current = task.parentId ? taskMap.get(task.parentId) : undefined;
+  while (current) {
+    if (getHierarchyRole(current, taskMap) === 'workstream') return current;
+    current = current.parentId ? taskMap.get(current.parentId) : undefined;
+  }
+  return null;
 }
-```
 
-**Also**:
-1. Extract the repeated task-mapping code into a `mapTasksToWasm(tasks)` helper.
-2. Add `project: t.project` to the WASM task mapping object.
-3. Update the existing `computeCriticalPath` to call `computeCriticalPathScoped(tasks, { type: 'all' })` for backward compatibility.
-
-**Verify**:
-```bash
-cd crates/scheduler && cargo test
-npm run build:wasm
-npm run test
-```
-
-## When done
-1. Mark tasks A1-A4 as `[x]` in TASKS.md
-2. Commit with message: "feat: scoped critical path, earliest start, cascade IDs in WASM scheduler"
-3. Run `npm run build` to verify full build passes
-````
-
----
-
-## Group B Prompt — State Management, Undo/Redo, Collab Sync
-
-Paste this into Terminal 2:
-
-````
-You are the Group B agent for Phase 6 of Ganttlet. You own the state management, action types, and collab sync layer. NO OTHER FILES.
-
-## Your files (exclusive ownership — only touch these)
-- src/types/index.ts
-- src/state/actions.ts
-- src/state/ganttReducer.ts
-- src/state/GanttContext.tsx
-- src/collab/yjsBinding.ts
-
-## DO NOT TOUCH
-Any file in crates/, src/utils/schedulerWasm.ts, src/components/. Those belong to Groups A and C.
-
-## Read-only dependencies (you import from these but don't modify them)
-- src/utils/schedulerWasm.ts — provides `cascadeDependents`, `cascadeDependentsWithIds` (Group A adds this)
-
-## Tasks (execute: B1 → B2 → B3 → B4 → B5+B6 in parallel)
-
-### B1: Fix CASCADE_DEPENDENTS collab sync (bug fix)
-
-**File**: src/collab/yjsBinding.ts
-
-**Bug**: `CASCADE_DEPENDENTS` is in `TASK_MODIFYING_ACTIONS` (GanttContext.tsx:56) so `collabDispatch` calls `applyActionToYjs()` for it. But `applyActionToYjs()` has no `case 'CASCADE_DEPENDENTS'` in its switch — it falls through to `default: break;` at line 240. Cascaded date changes NEVER reach other users.
-
-**Fix**: Add a case to the switch in `applyActionToYjs()` (after the `SHOW_ALL_TASKS` case, before `SET_TASKS`):
-
-```typescript
-case 'CASCADE_DEPENDENTS': {
-  isLocalUpdate = true;
-  try {
-    doc.transact(() => {
-      const currentTasks = readTasksFromYjs(doc);
-      // Import cascadeDependents from schedulerWasm
-      const { cascadeDependents } = await import('../utils/schedulerWasm');
-      // Actually this needs to be sync — cascadeDependents IS sync (no await needed)
-      const updated = cascadeDependents(currentTasks, action.taskId, action.daysDelta);
-      for (const task of updated) {
-        const idx = findTaskIndex(yarray, task.id);
-        if (idx !== -1) {
-          const orig = currentTasks.find(t => t.id === task.id);
-          if (orig && (orig.startDate !== task.startDate || orig.endDate !== task.endDate)) {
-            const ymap = yarray.get(idx) as Y.Map<unknown>;
-            ymap.set('startDate', task.startDate);
-            ymap.set('endDate', task.endDate);
-          }
+/**
+ * BFS down childIds to collect all descendant IDs.
+ */
+export function getAllDescendantIds(taskId: string, taskMap: Map<string, Task>): Set<string> {
+  const descendants = new Set<string>();
+  const queue = [taskId];
+  while (queue.length > 0) {
+    const id = queue.pop()!;
+    const task = taskMap.get(id);
+    if (task) {
+      for (const childId of task.childIds) {
+        if (!descendants.has(childId)) {
+          descendants.add(childId);
+          queue.push(childId);
         }
       }
-    });
-  } finally {
-    isLocalUpdate = false;
-  }
-  break;
-}
-```
-
-Note: `cascadeDependents` is a synchronous function. Add the import at the top of the file:
-```typescript
-import { cascadeDependents } from '../utils/schedulerWasm';
-```
-
-**Verify**: `npm run test` passes, TypeScript compiles.
-
----
-
-### B2: Add new state fields and action types
-
-This is the critical dependency for Group C. Complete it ASAP and mark `[x]` in TASKS.md.
-
-**File**: src/types/index.ts
-
-Add the `CriticalPathScope` type before `GanttState`:
-```typescript
-export type CriticalPathScope =
-  | { type: 'all' }
-  | { type: 'project'; name: string }
-  | { type: 'milestone'; id: string };
-```
-
-Add to `GanttState` interface (after `isCollabConnected`):
-```typescript
-undoStack: Task[][];
-redoStack: Task[][];
-lastCascadeIds: string[];
-criticalPathScope: CriticalPathScope;
-collapseWeekends: boolean;
-```
-
-**File**: src/state/actions.ts
-
-Add to the `GanttAction` union (before the closing semicolon):
-```typescript
-| { type: 'UNDO' }
-| { type: 'REDO' }
-| { type: 'SET_LAST_CASCADE_IDS'; taskIds: string[] }
-| { type: 'SET_CRITICAL_PATH_SCOPE'; scope: CriticalPathScope }
-| { type: 'TOGGLE_COLLAPSE_WEEKENDS' }
-```
-
-Add the import for `CriticalPathScope`:
-```typescript
-import type { ColorByField, ZoomLevel, ColumnConfig, CollabUser, Dependency, DependencyType, Task, CriticalPathScope } from '../types';
-```
-
-**File**: src/state/GanttContext.tsx
-
-Add to `initialState` (after `isCollabConnected: false`):
-```typescript
-undoStack: [],
-redoStack: [],
-lastCascadeIds: [],
-criticalPathScope: { type: 'all' } as CriticalPathScope,
-collapseWeekends: true,
-```
-
-Import `CriticalPathScope`:
-```typescript
-import type { GanttState, CriticalPathScope } from '../types';
-```
-
-**Verify**: `npx tsc --noEmit` passes. Mark B2 as done in TASKS.md.
-
----
-
-### B3: Implement undo/redo in reducer
-
-**File**: src/state/ganttReducer.ts
-
-**Step 1**: Define which actions are undoable:
-```typescript
-const UNDOABLE_ACTIONS = new Set([
-  'MOVE_TASK', 'RESIZE_TASK', 'CASCADE_DEPENDENTS',
-  'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
-  'ADD_TASK', 'DELETE_TASK',
-]);
-```
-
-**Step 2**: Wrap the reducer to snapshot before undoable actions. Replace the top of `ganttReducer`:
-
-```typescript
-export function ganttReducer(state: GanttState, action: GanttAction): GanttState {
-  // Snapshot before undoable actions
-  let stateForReducer = state;
-  if (UNDOABLE_ACTIONS.has(action.type)) {
-    const undoStack = [...state.undoStack, state.tasks].slice(-50); // max 50
-    stateForReducer = { ...state, undoStack, redoStack: [] };
-  }
-
-  return ganttReducerInner(stateForReducer, action);
-}
-
-function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
-  switch (action.type) {
-    // ... all existing cases ...
-```
-
-**Step 3**: Add UNDO and REDO cases inside `ganttReducerInner`:
-```typescript
-case 'UNDO': {
-  if (state.undoStack.length === 0) return state;
-  const prev = state.undoStack[state.undoStack.length - 1];
-  return {
-    ...state,
-    tasks: prev,
-    undoStack: state.undoStack.slice(0, -1),
-    redoStack: [...state.redoStack, state.tasks],
-    lastCascadeIds: [],
-  };
-}
-
-case 'REDO': {
-  if (state.redoStack.length === 0) return state;
-  const next = state.redoStack[state.redoStack.length - 1];
-  return {
-    ...state,
-    tasks: next,
-    redoStack: state.redoStack.slice(0, -1),
-    undoStack: [...state.undoStack, state.tasks],
-    lastCascadeIds: [],
-  };
-}
-```
-
-**Verify**: `npm run test` passes.
-
----
-
-### B4: Update CASCADE_DEPENDENTS to track changed IDs + add new reducer cases
-
-**File**: src/state/ganttReducer.ts
-
-**Step 1**: Update the CASCADE_DEPENDENTS case. Import `cascadeDependentsWithIds` from schedulerWasm (Group A adds this — if it doesn't exist yet, keep using `cascadeDependents` and add a TODO comment; we'll update when A4 is done).
-
-For now, since `cascadeDependentsWithIds` may not exist yet, implement it inline:
-```typescript
-case 'CASCADE_DEPENDENTS': {
-  const result = cascadeDependents(state.tasks, action.taskId, action.daysDelta);
-  // Track which task IDs changed
-  const changedIds = result
-    .filter((t, i) => t.startDate !== state.tasks[i]?.startDate || t.endDate !== state.tasks[i]?.endDate)
-    .map(t => t.id);
-  let tasks = recalcSummaryDates(result);
-  return { ...state, tasks, lastCascadeIds: changedIds };
-}
-```
-
-Actually, a simpler approach: compare before/after to find changed IDs:
-```typescript
-case 'CASCADE_DEPENDENTS': {
-  let tasks = cascadeDependents(state.tasks, action.taskId, action.daysDelta);
-  // Find IDs of tasks whose dates changed
-  const changedIds: string[] = [];
-  for (let i = 0; i < tasks.length; i++) {
-    if (tasks[i].startDate !== state.tasks[i]?.startDate || tasks[i].endDate !== state.tasks[i]?.endDate) {
-      changedIds.push(tasks[i].id);
     }
   }
-  tasks = recalcSummaryDates(tasks);
-  return { ...state, tasks, lastCascadeIds: changedIds };
+  return descendants;
+}
+
+/**
+ * Check if taskId is a descendant of ancestorId.
+ */
+export function isDescendantOf(taskId: string, ancestorId: string, taskMap: Map<string, Task>): boolean {
+  return getAllDescendantIds(ancestorId, taskMap).has(taskId);
+}
+
+/**
+ * Generate a prefixed ID for a new task under the given parent.
+ * Pattern: {parentId}-{N+1} where N is the max existing number.
+ * Example: parent "pe" with existing "pe-1", "pe-3" → returns "pe-4"
+ */
+export function generatePrefixedId(parent: Task, existingTasks: Task[]): string {
+  const prefix = `${parent.id}-`;
+  let maxN = 0;
+  for (const t of existingTasks) {
+    if (t.id.startsWith(prefix)) {
+      const suffix = t.id.slice(prefix.length);
+      const n = parseInt(suffix, 10);
+      if (!isNaN(n) && n > maxN) maxN = n;
+    }
+  }
+  return `${prefix}${maxN + 1}`;
+}
+
+/**
+ * Compute inherited fields based on parent's role.
+ * - If parent is project: { project: parent.name, workStream: '', okrs: [...parent.okrs] }
+ * - If parent is workstream: { project: parent.project, workStream: parent.name, okrs: [...parent.okrs] }
+ * - If no parent: { project: '', workStream: '', okrs: [] }
+ */
+export function computeInheritedFields(
+  parentId: string | null,
+  taskMap: Map<string, Task>
+): { project: string; workStream: string; okrs: string[] } {
+  if (!parentId) return { project: '', workStream: '', okrs: [] };
+  const parent = taskMap.get(parentId);
+  if (!parent) return { project: '', workStream: '', okrs: [] };
+
+  const role = getHierarchyRole(parent, taskMap);
+  if (role === 'project') {
+    return { project: parent.name, workStream: '', okrs: [...parent.okrs] };
+  }
+  if (role === 'workstream') {
+    return { project: parent.project, workStream: parent.name, okrs: [...parent.okrs] };
+  }
+  // Parent is a regular task — inherit its fields
+  return { project: parent.project, workStream: parent.workStream, okrs: [...parent.okrs] };
 }
 ```
 
-**Step 2**: Add remaining new cases:
-```typescript
-case 'SET_LAST_CASCADE_IDS':
-  return { ...state, lastCascadeIds: action.taskIds };
-
-case 'SET_CRITICAL_PATH_SCOPE':
-  return { ...state, criticalPathScope: action.scope };
-
-case 'TOGGLE_COLLAPSE_WEEKENDS':
-  return { ...state, collapseWeekends: !state.collapseWeekends };
-```
-
-**Verify**: `npm run test` passes.
-
 ---
 
-### B5: Wire up keyboard shortcuts for undo/redo
+### A2: Create `src/utils/dependencyValidation.ts`
 
-**File**: src/state/GanttContext.tsx
-
-Add a `useEffect` inside `GanttProvider` (after the collab effect):
+Hierarchy-aware dependency validation.
 
 ```typescript
-// Keyboard shortcuts for undo/redo
-useEffect(() => {
-  function handleKeyDown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-      e.preventDefault();
-      if (e.shiftKey) {
-        collabDispatch({ type: 'REDO' });
-      } else {
-        collabDispatch({ type: 'UNDO' });
+import type { Task, Dependency } from '../types';
+import { getHierarchyRole, isDescendantOf, getAllDescendantIds } from './hierarchyUtils';
+
+export interface DepValidationError {
+  code: string;
+  message: string;
+}
+
+/**
+ * Validate whether adding a dependency from predecessorId to successorId
+ * would violate hierarchy rules.
+ *
+ * Rules:
+ * - A project cannot depend on its own descendants
+ * - A workstream cannot depend on its own child tasks
+ * - A task cannot depend on its own ancestor project/workstream
+ *
+ * Returns null if valid, { code, message } if invalid.
+ */
+export function validateDependencyHierarchy(
+  tasks: Task[],
+  successorId: string,
+  predecessorId: string
+): DepValidationError | null {
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const successor = taskMap.get(successorId);
+  const predecessor = taskMap.get(predecessorId);
+  if (!successor || !predecessor) return null;
+
+  // Check if predecessor is an ancestor of successor
+  if (isDescendantOf(successorId, predecessorId, taskMap)) {
+    const predRole = getHierarchyRole(predecessor, taskMap);
+    return {
+      code: 'ANCESTOR_DEPENDENCY',
+      message: `Cannot add dependency: ${predecessor.name} is an ancestor ${predRole} of ${successor.name}`,
+    };
+  }
+
+  // Check if successor is an ancestor of predecessor
+  if (isDescendantOf(predecessorId, successorId, taskMap)) {
+    const succRole = getHierarchyRole(successor, taskMap);
+    return {
+      code: 'DESCENDANT_DEPENDENCY',
+      message: `Cannot add dependency: ${successor.name} is an ancestor ${succRole} of ${predecessor.name}`,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Check if moving taskId under newParentId would create conflicts
+ * with existing dependencies.
+ *
+ * A conflict exists if the task (or its descendants) has a dependency
+ * on the target parent entity itself (not on sibling tasks under that parent).
+ *
+ * Returns list of conflicting deps with human-readable reasons.
+ */
+export function checkMoveConflicts(
+  tasks: Task[],
+  taskId: string,
+  newParentId: string
+): { dep: Dependency; reason: string }[] {
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const task = taskMap.get(taskId);
+  const newParent = taskMap.get(newParentId);
+  if (!task || !newParent) return [];
+
+  const conflicts: { dep: Dependency; reason: string }[] = [];
+
+  // Get the ancestor chain of the new parent (the parent itself + its ancestors)
+  const ancestorIds = new Set<string>([newParentId]);
+  let current = newParent.parentId ? taskMap.get(newParent.parentId) : undefined;
+  while (current) {
+    ancestorIds.add(current.id);
+    current = current.parentId ? taskMap.get(current.parentId) : undefined;
+  }
+
+  // Get all IDs being moved (task + its descendants)
+  const movingIds = new Set([taskId, ...getAllDescendantIds(taskId, taskMap)]);
+
+  // Check all deps of moving tasks
+  for (const movingId of movingIds) {
+    const movingTask = taskMap.get(movingId);
+    if (!movingTask) continue;
+
+    for (const dep of movingTask.dependencies) {
+      // Conflict if dep references the new parent or its ancestors directly
+      if (ancestorIds.has(dep.fromId)) {
+        const fromTask = taskMap.get(dep.fromId);
+        conflicts.push({
+          dep,
+          reason: `${movingTask.name} depends on ${fromTask?.name ?? dep.fromId}, which is an ancestor of the target`,
+        });
       }
     }
   }
-  document.addEventListener('keydown', handleKeyDown);
-  return () => document.removeEventListener('keydown', handleKeyDown);
-}, [collabDispatch]);
-```
 
-Also add UNDO and REDO to `TASK_MODIFYING_ACTIONS` so they sync to Yjs:
-```typescript
-const TASK_MODIFYING_ACTIONS = new Set([
-  'MOVE_TASK', 'RESIZE_TASK', 'UPDATE_TASK_FIELD', 'TOGGLE_EXPAND',
-  'HIDE_TASK', 'SHOW_ALL_TASKS', 'CASCADE_DEPENDENTS',
-  'UNDO', 'REDO',
-]);
+  // Also check if any ancestor deps point TO moving tasks
+  for (const ancestorId of ancestorIds) {
+    const ancestor = taskMap.get(ancestorId);
+    if (!ancestor) continue;
+    for (const dep of ancestor.dependencies) {
+      if (movingIds.has(dep.fromId)) {
+        const fromTask = taskMap.get(dep.fromId);
+        conflicts.push({
+          dep,
+          reason: `${ancestor.name} depends on ${fromTask?.name ?? dep.fromId}, which is being moved`,
+        });
+      }
+    }
+  }
+
+  return conflicts;
+}
 ```
 
 ---
 
-### B6: Sync UNDO/REDO to collab
+### A3: Modify `ADD_TASK` in reducer (Issues #1, #2, #3)
 
-**File**: src/collab/yjsBinding.ts
+File: `src/state/ganttReducer.ts` (the `ADD_TASK` case, currently lines 195-265)
 
-UNDO/REDO replace the entire task array, so they need a full sync rather than incremental updates. Add cases:
+Import at the top:
+```typescript
+import { computeInheritedFields, generatePrefixedId, getHierarchyRole } from '../utils/hierarchyUtils';
+```
+
+Modify the ADD_TASK case. The key changes:
+1. Build a taskMap from current tasks
+2. If there's a parent, call `computeInheritedFields(parentId, taskMap)` to get `project`, `workStream`, `okrs`
+3. If there's a parent that is a project or workstream (isSummary), call `generatePrefixedId(parent, tasks)` instead of `task-${Date.now()}`
+4. Set `focusNewTaskId: newId` in the returned state
 
 ```typescript
-case 'UNDO':
-case 'REDO': {
-  // These replace the entire task array — handled via full sync.
-  // The collabDispatch wrapper in GanttContext already calls applyActionToYjs.
-  // We need to do a full replacement, but we don't have the resulting tasks here.
-  // Instead, we'll handle this differently...
+case 'ADD_TASK': {
+  const taskMap = new Map(state.tasks.map(t => [t.id, t]));
+  const parent = action.parentId ? taskMap.get(action.parentId) : undefined;
+
+  // Generate ID: prefixed if parent is summary, otherwise timestamp
+  const newId = parent && parent.isSummary
+    ? generatePrefixedId(parent, state.tasks)
+    : `task-${Date.now()}`;
+
+  // Inherit fields from parent
+  const inherited = computeInheritedFields(action.parentId, taskMap);
+
+  const today = new Date().toISOString().split('T')[0];
+  const endDate = new Date();
+  endDate.setDate(endDate.getDate() + 5);
+  const endDateStr = endDate.toISOString().split('T')[0];
+
+  const newTask: Task = {
+    id: newId,
+    name: 'New Task',
+    startDate: today,
+    endDate: endDateStr,
+    duration: 5,
+    owner: '',
+    workStream: inherited.workStream,
+    project: inherited.project,
+    functionalArea: '',
+    done: false,
+    description: '',
+    isMilestone: false,
+    isSummary: false,
+    parentId: action.parentId,
+    childIds: [],
+    dependencies: [],
+    isExpanded: false,
+    isHidden: false,
+    notes: '',
+    okrs: inherited.okrs,
+  };
+
+  let tasks = [...state.tasks];
+
+  // If it has a parent, add to parent's childIds
+  if (action.parentId) {
+    tasks = tasks.map(t =>
+      t.id === action.parentId
+        ? { ...t, childIds: [...t.childIds, newId] }
+        : t
+    );
+  }
+
+  // Insert after the specified task, or at the end
+  if (action.afterTaskId) {
+    const idx = tasks.findIndex(t => t.id === action.afterTaskId);
+    if (idx !== -1) {
+      let insertIdx = idx + 1;
+      const afterTask = tasks[idx];
+      if (afterTask.isSummary && afterTask.isExpanded) {
+        const descendants = new Set<string>();
+        const queue = [...afterTask.childIds];
+        while (queue.length > 0) {
+          const cid = queue.pop()!;
+          descendants.add(cid);
+          const child = tasks.find(t => t.id === cid);
+          if (child) queue.push(...child.childIds);
+        }
+        while (insertIdx < tasks.length && descendants.has(tasks[insertIdx].id)) {
+          insertIdx++;
+        }
+      }
+      tasks.splice(insertIdx, 0, newTask);
+    } else {
+      tasks.push(newTask);
+    }
+  } else {
+    tasks.push(newTask);
+  }
+
+  tasks = recalcSummaryDates(tasks);
+  return { ...state, tasks, focusNewTaskId: newId };
+}
+```
+
+---
+
+### A4: Modify `UPDATE_TASK_FIELD` in reducer
+
+When `field === 'name'` and the task is a project or workstream, cascade field updates to descendants.
+
+Replace the current UPDATE_TASK_FIELD case (lines 45-53) with:
+
+```typescript
+case 'UPDATE_TASK_FIELD': {
+  const taskMap = new Map(state.tasks.map(t => [t.id, t]));
+  const targetTask = taskMap.get(action.taskId);
+
+  let tasks = state.tasks.map(t =>
+    t.id === action.taskId
+      ? { ...t, [action.field]: action.value }
+      : t
+  );
+
+  // If renaming a project or workstream, cascade to descendants
+  if (action.field === 'name' && targetTask && typeof action.value === 'string') {
+    const role = getHierarchyRole(targetTask, taskMap);
+
+    if (role === 'project') {
+      // Update own project field + all descendants' project field
+      const descendantIds = getAllDescendantIds(action.taskId, taskMap);
+      tasks = tasks.map(t => {
+        if (t.id === action.taskId) return { ...t, project: action.value as string };
+        if (descendantIds.has(t.id)) return { ...t, project: action.value as string };
+        return t;
+      });
+    } else if (role === 'workstream') {
+      // Update own workStream field + all child tasks' workStream field
+      const descendantIds = getAllDescendantIds(action.taskId, taskMap);
+      tasks = tasks.map(t => {
+        if (t.id === action.taskId) return { ...t, workStream: action.value as string };
+        if (descendantIds.has(t.id)) return { ...t, workStream: action.value as string };
+        return t;
+      });
+    }
+  }
+
+  tasks = recalcSummaryDates(tasks);
+  return { ...state, tasks };
+}
+```
+
+Add the import for `getAllDescendantIds` (should already be imported from A3).
+
+---
+
+### A5: Add hierarchy validation to `ADD_DEPENDENCY`
+
+Import at the top (add to existing import):
+```typescript
+import { validateDependencyHierarchy } from '../utils/dependencyValidation';
+```
+
+Replace the ADD_DEPENDENCY case (lines 149-157):
+
+```typescript
+case 'ADD_DEPENDENCY': {
+  // Validate hierarchy rules
+  const hierarchyError = validateDependencyHierarchy(
+    state.tasks,
+    action.taskId,
+    action.dependency.fromId
+  );
+  if (hierarchyError) return state; // Silently reject — UI filters invalid options
+
+  let tasks = state.tasks.map(t =>
+    t.id === action.taskId
+      ? { ...t, dependencies: [...t.dependencies, action.dependency] }
+      : t
+  );
+  tasks = recalcSummaryDates(tasks);
+  return { ...state, tasks };
+}
+```
+
+---
+
+### A6: Add `REPARENT_TASK` reducer case
+
+Add this case to the `ganttReducerInner` switch, before the `default` case. Also add `'REPARENT_TASK'` to the `UNDOABLE_ACTIONS` set at the top.
+
+```typescript
+case 'REPARENT_TASK': {
+  const taskMap = new Map(state.tasks.map(t => [t.id, t]));
+  const task = taskMap.get(action.taskId);
+  if (!task) return state;
+
+  // Can't reparent to self
+  if (action.newParentId === action.taskId) return state;
+
+  // Can't reparent to own descendant
+  if (action.newParentId && isDescendantOf(action.newParentId, action.taskId, taskMap)) {
+    return state;
+  }
+
+  // Check for dependency conflicts
+  if (action.newParentId) {
+    const conflicts = checkMoveConflicts(state.tasks, action.taskId, action.newParentId);
+    if (conflicts.length > 0) return state;
+  }
+
+  let tasks = [...state.tasks];
+
+  // 1. Remove from old parent's childIds
+  if (task.parentId) {
+    tasks = tasks.map(t =>
+      t.id === task.parentId
+        ? { ...t, childIds: t.childIds.filter(cid => cid !== action.taskId) }
+        : t
+    );
+  }
+
+  // 2. Determine new ID
+  const newId = action.newId || action.taskId;
+  const oldId = action.taskId;
+
+  // 3. Compute inherited fields from new parent
+  const updatedTaskMap = new Map(tasks.map(t => [t.id, t]));
+  const inherited = computeInheritedFields(action.newParentId, updatedTaskMap);
+
+  // 4. Update the task itself
+  tasks = tasks.map(t => {
+    if (t.id === oldId) {
+      return {
+        ...t,
+        id: newId,
+        parentId: action.newParentId,
+        project: inherited.project,
+        workStream: inherited.workStream,
+      };
+    }
+    return t;
+  });
+
+  // 5. Add to new parent's childIds
+  if (action.newParentId) {
+    tasks = tasks.map(t =>
+      t.id === action.newParentId
+        ? { ...t, childIds: [...t.childIds, newId] }
+        : t
+    );
+  }
+
+  // 6. If ID changed, update all references
+  if (newId !== oldId) {
+    tasks = tasks.map(t => {
+      let updated = t;
+
+      // Update parentId references
+      if (t.parentId === oldId) {
+        updated = { ...updated, parentId: newId };
+      }
+
+      // Update childIds references
+      if (t.childIds.includes(oldId)) {
+        updated = { ...updated, childIds: updated.childIds.map(cid => cid === oldId ? newId : cid) };
+      }
+
+      // Update dependency references (fromId and toId)
+      const newDeps = t.dependencies.map(d => ({
+        ...d,
+        fromId: d.fromId === oldId ? newId : d.fromId,
+        toId: d.toId === oldId ? newId : d.toId,
+      }));
+      if (JSON.stringify(newDeps) !== JSON.stringify(t.dependencies)) {
+        updated = { ...updated, dependencies: newDeps };
+      }
+
+      return updated;
+    });
+  }
+
+  // 7. Also update descendants' inherited fields
+  const descendantIds = getAllDescendantIds(newId, new Map(tasks.map(t => [t.id, t])));
+  if (descendantIds.size > 0) {
+    tasks = tasks.map(t => {
+      if (descendantIds.has(t.id)) {
+        return { ...t, project: inherited.project, workStream: inherited.workStream || t.workStream };
+      }
+      return t;
+    });
+  }
+
+  // 8. Reposition task in array after new parent
+  if (action.newParentId) {
+    const taskToMove = tasks.find(t => t.id === newId);
+    if (taskToMove) {
+      tasks = tasks.filter(t => t.id !== newId);
+      const parentIdx = tasks.findIndex(t => t.id === action.newParentId);
+      if (parentIdx !== -1) {
+        // Insert after parent's last descendant
+        let insertIdx = parentIdx + 1;
+        const parentTask = tasks[parentIdx];
+        const parentDescendants = getAllDescendantIds(parentTask.id, new Map(tasks.map(t => [t.id, t])));
+        while (insertIdx < tasks.length && parentDescendants.has(tasks[insertIdx].id)) {
+          insertIdx++;
+        }
+        tasks.splice(insertIdx, 0, taskToMove);
+      } else {
+        tasks.push(taskToMove);
+      }
+    }
+  }
+
+  tasks = recalcSummaryDates(tasks);
+  return { ...state, tasks, reparentPicker: null };
+}
+```
+
+Import at the top:
+```typescript
+import { isDescendantOf, getAllDescendantIds, computeInheritedFields, generatePrefixedId, getHierarchyRole } from '../utils/hierarchyUtils';
+import { checkMoveConflicts } from '../utils/dependencyValidation';
+```
+
+---
+
+### A7: Add new actions and state fields
+
+**File: `src/state/actions.ts`**
+
+Add to the GanttAction union (before the closing semicolon):
+```typescript
+| { type: 'REPARENT_TASK'; taskId: string; newParentId: string | null; newId?: string }
+| { type: 'SET_REPARENT_PICKER'; picker: { taskId: string } | null }
+| { type: 'TOGGLE_LEFT_PANE' }
+| { type: 'CLEAR_FOCUS_NEW_TASK' }
+```
+
+**File: `src/types/index.ts`**
+
+Update `CriticalPathScope` — remove `all`, add `workstream`:
+```typescript
+export type CriticalPathScope =
+  | { type: 'project'; name: string }
+  | { type: 'workstream'; name: string }
+  | { type: 'milestone'; id: string };
+```
+
+Add to `GanttState` (after `collapseWeekends`):
+```typescript
+focusNewTaskId: string | null;
+isLeftPaneCollapsed: boolean;
+reparentPicker: { taskId: string } | null;
+```
+
+**File: `src/state/GanttContext.tsx`**
+
+Add to `initialState`:
+```typescript
+focusNewTaskId: null,
+isLeftPaneCollapsed: false,
+reparentPicker: null,
+```
+
+Change the criticalPathScope default:
+```typescript
+criticalPathScope: { type: 'project', name: '' } as CriticalPathScope,
+```
+
+Add Ctrl+B keyboard shortcut. In the existing keyboard shortcuts `useEffect`, add:
+```typescript
+if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+  e.preventDefault();
+  collabDispatch({ type: 'TOGGLE_LEFT_PANE' });
+}
+```
+
+**File: `src/state/ganttReducer.ts`**
+
+Add reducer cases for the new actions:
+```typescript
+case 'SET_REPARENT_PICKER':
+  return { ...state, reparentPicker: action.picker };
+
+case 'TOGGLE_LEFT_PANE':
+  return { ...state, isLeftPaneCollapsed: !state.isLeftPaneCollapsed };
+
+case 'CLEAR_FOCUS_NEW_TASK':
+  return { ...state, focusNewTaskId: null };
+```
+
+**File: `src/collab/yjsBinding.ts`**
+
+Add `REPARENT_TASK` to the switch in `applyActionToYjs`. Use full sync (same pattern as SET_TASKS):
+```typescript
+case 'REPARENT_TASK': {
+  // Reparent replaces multiple tasks — do a full sync
+  // The actual state change is in the reducer; here we just mark for full sync
+  // This is handled by the pendingFullSyncRef pattern in GanttContext
   break;
 }
 ```
 
-**Better approach**: In GanttContext.tsx, use a ref to detect when UNDO/REDO was dispatched, then do a full sync in a useEffect:
-
+In `GanttContext.tsx`, add `REPARENT_TASK` to the pendingFullSync check alongside UNDO/REDO:
 ```typescript
-// In GanttProvider:
-const pendingFullSyncRef = useRef(false);
-
-// Modify collabDispatch:
-const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
-  dispatch(action);
-
-  if (action.type === 'UNDO' || action.type === 'REDO') {
-    pendingFullSyncRef.current = true;
-  } else if (yjsDocRef.current && TASK_MODIFYING_ACTIONS.has(action.type)) {
-    applyActionToYjs(yjsDocRef.current, action);
-  }
-}, []);
-
-// Add effect to sync after undo/redo:
-useEffect(() => {
-  if (pendingFullSyncRef.current && yjsDocRef.current) {
-    applyTasksToYjs(yjsDocRef.current, state.tasks);
-    pendingFullSyncRef.current = false;
-  }
-}, [state.tasks]);
+if (action.type === 'UNDO' || action.type === 'REDO' || action.type === 'REPARENT_TASK') {
+  pendingFullSyncRef.current = true;
+}
 ```
 
-Remove UNDO/REDO from `TASK_MODIFYING_ACTIONS` since we handle them specially. Keep the set as before.
+Also add `'REPARENT_TASK'` and `'UPDATE_TASK_FIELD'` to the TASK_MODIFYING_ACTIONS set if not already there (UPDATE_TASK_FIELD should already be there).
 
-**Verify**: `npm run test` passes. Open two browser tabs with `?room=test`. Move a task, Ctrl+Z — both tabs should revert.
-
-## When done
-1. Mark tasks B1-B6 as `[x]` in TASKS.md
-2. Commit with message: "feat: undo/redo, cascade sync fix, scoped critical path state"
-3. Run `npm run build` to verify full build passes
-````
+**Verify**: `npx tsc --noEmit` passes. Mark A7 as done in TASKS.md.
 
 ---
 
-## Group C Prompt — UI, Visual Feedback, Timeline
+### A8: Fix seed data in `src/data/fakeData.ts`
 
-Paste this into Terminal 3. The agent will poll TASKS.md until its dependencies (A4, B2) are done, then start work automatically.
+The seed data has inconsistent `project` fields. Fix all tasks:
 
-````
-You are the Group C agent for Phase 6 of Ganttlet. You own ALL UI components and the dateUtils module. NO OTHER FILES.
+- `root`: `project: 'Q2 Product Launch'` (already correct)
+- `pe`: change `project` from `'API Overhaul'` to `'Q2 Product Launch'`
+- `ux`: change `project` from `'Design System'` to `'Q2 Product Launch'`
+- `gtm`: change `project` from `'Marketing Push'` to `'Q2 Product Launch'`
+- All `pe-*` tasks: change `project` from `'API Overhaul'` to `'Q2 Product Launch'`
+- All `ux-*` tasks: change `project` from `'Design System'` to `'Q2 Product Launch'`
+- All `gtm-*` tasks: change `project` from `'Marketing Push'` to `'Q2 Product Launch'`
+- `ms-api`: change `project` from `'API Overhaul'` to `'Q2 Product Launch'`
+- `ms-ux`: change `project` from `'Design System'` to `'Q2 Product Launch'`
+- `ms-gtm`: change `project` from `'Marketing Push'` to `'Q2 Product Launch'`
+- `ms-launch`: already correct
 
-## BEFORE YOU START — Wait for dependencies
-
-You depend on Group A (task A4) and Group B (task B2) completing first. Their work provides the WASM functions and state fields you import.
-
-**Poll `/workspace/TASKS.md` every 30 seconds** until BOTH of these lines show `[x]`:
-- `[x] **A4**:` (Group A exposed WASM functions in TypeScript wrapper)
-- `[x] **B2**:` (Group B added new state fields and action types)
-
-Use this procedure:
-1. Read `/workspace/TASKS.md` and check if both A4 and B2 are marked `[x]`
-2. If NOT both done, say "Waiting for A4 and B2... (check N)" then sleep 30 seconds and check again
-3. If BOTH done, say "Dependencies met — starting Group C work" and proceed to the tasks below
-
-Do NOT start modifying any files until both dependencies are confirmed done. You may use the waiting time to read and familiarize yourself with the files you'll be editing.
-
-## Your files (exclusive ownership — only touch these)
-- src/components/gantt/TaskBar.tsx
-- src/components/gantt/GanttChart.tsx
-- src/components/gantt/DependencyLayer.tsx
-- src/components/gantt/TimelineHeader.tsx
-- src/components/gantt/GridLines.tsx
-- src/components/gantt/CascadeHighlight.tsx (NEW — you create this)
-- src/components/gantt/SlackIndicator.tsx (NEW — you create this)
-- src/components/table/ColumnHeader.tsx
-- src/components/shared/DependencyEditorModal.tsx
-- src/components/shared/UndoRedoButtons.tsx (NEW — you create this)
-- src/components/layout/Toolbar.tsx
-- src/utils/dateUtils.ts
-
-## DO NOT TOUCH
-Any file in crates/, src/state/, src/collab/, src/types/. Those belong to Groups A and B.
-
-## Read-only dependencies (you import from these but don't modify them)
-- src/types/index.ts — GanttState now has: undoStack, redoStack, lastCascadeIds, criticalPathScope, collapseWeekends, CriticalPathScope type
-- src/state/actions.ts — New actions: UNDO, REDO, SET_LAST_CASCADE_IDS, SET_CRITICAL_PATH_SCOPE, TOGGLE_COLLAPSE_WEEKENDS
-- src/state/GanttContext.tsx — useGanttState() and useGanttDispatch() hooks
-- src/utils/schedulerWasm.ts — New functions: computeCriticalPathScoped(tasks, scope), computeEarliestStart(tasks, taskId), cascadeDependentsWithIds(tasks, id, delta)
-
-## Tasks (execute: C1+C2 → C3 → C4+C5+C6 → C7+C8+C9)
-
-You can use subagents for parallel tasks within a stage (e.g. C1 and C2 simultaneously).
-
-### C1: Fix dependency modal click-outside (quick bug fix)
-
-**File**: src/components/shared/DependencyEditorModal.tsx
-
-**Bug**: The outer container div (line 136-137) has `onClick={(e) => { if (e.target === e.currentTarget) close(); }}`. But the backdrop div (line 140) is a child `<div className="absolute inset-0" .../>` that covers the entire area. When user clicks the backdrop, `e.target` is the backdrop div, NOT the outer container, so `e.target === e.currentTarget` is always false for backdrop clicks.
-
-**Fix**: Add `onClick={close}` directly to the backdrop div at line 140:
-```typescript
-<div className="absolute inset-0" style={{ backgroundColor: 'var(--raw-backdrop)' }} onClick={close} />
-```
-
-That's it. One line change.
+The `workStream` fields should match the parent workstream's name:
+- `pe` children: `workStream: 'Platform Engineering'` (already correct)
+- `ux` children: `workStream: 'User Experience'` (already correct)
+- `gtm` children: `workStream: 'Go-to-Market'` (already correct)
 
 ---
 
-### C2: Add column close buttons
+### A9: Tests
 
-**File**: src/components/table/ColumnHeader.tsx
+**File: `src/utils/__tests__/hierarchyUtils.test.ts`** (NEW)
 
-Current code is minimal (25 lines). Enhance it:
+Test:
+- `getHierarchyRole`: correctly classifies project (isSummary, no parent), workstream (isSummary, parent is project), and task
+- `generatePrefixedId`: returns `pe-10` when `pe-9` exists, handles gaps (pe-1, pe-5 → pe-6)
+- `computeInheritedFields`: project parent → inherits project name, workstream parent → inherits project + workStream names
+- `findProjectAncestor` / `findWorkstreamAncestor`: correct traversal
+- `getAllDescendantIds` / `isDescendantOf`: correct BFS
 
+**File: `src/utils/__tests__/dependencyValidation.test.ts`** (NEW)
+
+Test:
+- `validateDependencyHierarchy`: rejects project depending on own descendant, rejects task depending on own ancestor, allows cross-project deps, allows cross-workstream deps
+- `checkMoveConflicts`: detects conflict when task depends on target parent, no conflict when task depends on sibling under target
+
+**File: `src/state/__tests__/ganttReducer.test.ts`** (extend existing)
+
+Add tests for:
+- `ADD_TASK` under a workstream parent: inherits `project`, `workStream`, `okrs`, gets prefixed ID, sets `focusNewTaskId`
+- `UPDATE_TASK_FIELD` renaming a project: cascades `project` field to all descendants
+- `UPDATE_TASK_FIELD` renaming a workstream: cascades `workStream` field to descendants
+- `ADD_DEPENDENCY` with hierarchy violation: returns state unchanged
+- `REPARENT_TASK`: updates `parentId`, `childIds`, inherited fields; with `newId` updates dependency references
+
+Update the `makeState` helper to include the new fields:
 ```typescript
-import React from 'react';
-import type { ColumnConfig } from '../../types';
-import { useGanttDispatch } from '../../state/GanttContext';
-
-interface ColumnHeaderProps {
-  columns: ColumnConfig[];
-}
-
-export default function ColumnHeader({ columns }: ColumnHeaderProps) {
-  const dispatch = useGanttDispatch();
-  const visibleColumns = columns.filter(c => c.visible);
-
-  return (
-    <div className="flex items-center h-[50px] bg-surface-raised border-b border-border-default text-xs font-semibold text-text-secondary uppercase tracking-wider select-none">
-      {visibleColumns.map(col => (
-        <div
-          key={col.key}
-          className="px-2 truncate shrink-0 flex items-center justify-between group"
-          style={{ width: col.width }}
-        >
-          <span>{col.label}</span>
-          {col.key !== 'name' && (
-            <button
-              onClick={() => dispatch({ type: 'TOGGLE_COLUMN', columnKey: col.key })}
-              className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary ml-1 transition-opacity cursor-pointer"
-              title={`Hide ${col.label}`}
-            >
-              &times;
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
+focusNewTaskId: null,
+isLeftPaneCollapsed: false,
+reparentPicker: null,
 ```
 
----
-
-### C3: Collapse weekends in day view
-
-**File**: src/utils/dateUtils.ts
-
-Add weekend-aware functions:
-
+Update the `criticalPathScope` default in makeState to match the new type (no 'all'):
 ```typescript
-import { isWeekend as isWeekendFn } from 'date-fns';
-
-/** Count business days (Mon-Fri) between two dates. */
-export function businessDaysBetween(start: Date, end: Date): number {
-  let count = 0;
-  const current = new Date(start);
-  while (current < end) {
-    if (!isWeekendFn(current)) count++;
-    current.setDate(current.getDate() + 1);
-  }
-  return count;
-}
-
-/** dateToX that skips weekends when collapseWeekends is true and zoom is 'day'. */
-export function dateToXCollapsed(
-  dateStr: string, timelineStart: Date, colWidth: number,
-  zoom: ZoomLevel, collapseWeekends: boolean
-): number {
-  if (!collapseWeekends || zoom !== 'day') return dateToX(dateStr, timelineStart, colWidth, zoom);
-  const date = parseISO(dateStr);
-  return businessDaysBetween(timelineStart, date) * colWidth;
-}
-
-/** Inverse: x to date, skipping weekends. */
-export function xToDateCollapsed(
-  x: number, timelineStart: Date, colWidth: number,
-  zoom: ZoomLevel, collapseWeekends: boolean
-): Date {
-  if (!collapseWeekends || zoom !== 'day') return xToDate(x, timelineStart, colWidth, zoom);
-  const bizDays = Math.round(x / colWidth);
-  let count = 0;
-  const current = new Date(timelineStart);
-  while (count < bizDays) {
-    current.setDate(current.getDate() + 1);
-    if (!isWeekendFn(current)) count++;
-  }
-  return current;
-}
-
-/** Get timeline days, optionally filtering out weekends. */
-export function getTimelineDaysFiltered(start: Date, end: Date, collapseWeekends: boolean): Date[] {
-  const all = eachDayOfInterval({ start, end });
-  return collapseWeekends ? all.filter(d => !isWeekendFn(d)) : all;
-}
+criticalPathScope: { type: 'project', name: '' },
 ```
-
-**File**: src/components/gantt/TimelineHeader.tsx
-
-Read `collapseWeekends` from state. In the `zoom === 'day'` branch, use `getTimelineDaysFiltered` instead of `getTimelineDays`:
-
-```typescript
-import { useGanttState } from '../../state/GanttContext';
-// ...
-const { collapseWeekends } = useGanttState();
-// In the day zoom block:
-const days = collapseWeekends
-  ? getTimelineDaysFiltered(timelineStart, timelineEnd, true)
-  : getTimelineDays(timelineStart, timelineEnd);
-```
-
-Import `getTimelineDaysFiltered` from dateUtils.
-
-**File**: src/components/gantt/GridLines.tsx
-
-Same pattern — read `collapseWeekends` from state, use filtered days. When weekends are collapsed, there are no weekend columns to shade.
-
-**File**: src/components/gantt/GanttChart.tsx
-
-Read `collapseWeekends` from state. Use `dateToXCollapsed` instead of `dateToX` for task positioning. Pass `collapseWeekends` to child components that need it. Update `totalDays` calculation to use filtered days when weekends collapsed.
-
-**File**: src/components/gantt/TaskBar.tsx
-
-Add `collapseWeekends` prop (default false). Use `dateToXCollapsed`/`xToDateCollapsed` in the drag handler instead of `dateToX`/`xToDate`.
-
----
-
-### C4: Critical path scope UI in Toolbar
-
-**File**: src/components/layout/Toolbar.tsx
-
-Replace the single Critical Path toggle button with a split button group:
-1. Toggle on/off (dispatches `TOGGLE_CRITICAL_PATH`)
-2. When on, show a dropdown to select scope:
-   - "All" (default)
-   - List of unique project names from `state.tasks.map(t => t.project).filter(Boolean)`
-   - List of milestone tasks from `state.tasks.filter(t => t.isMilestone)`
-3. Dispatch `SET_CRITICAL_PATH_SCOPE` when scope changes.
-
-Read `criticalPathScope` from state to highlight current selection.
-
-Import `CriticalPathScope` from types.
-
----
-
-### C5: Pass scoped critical path to GanttChart
-
-**File**: src/components/gantt/GanttChart.tsx
-
-Change from:
-```typescript
-const criticalPathIds = useMemo(
-  () => showCriticalPath ? computeCriticalPath(allTasks) : new Set<string>(),
-  [allTasks, showCriticalPath]
-);
-```
-
-To:
-```typescript
-import { computeCriticalPathScoped } from '../../utils/schedulerWasm';
-// ...
-const { showCriticalPath, criticalPathScope, collapseWeekends } = useGanttState();
-const criticalPathIds = useMemo(
-  () => showCriticalPath ? computeCriticalPathScoped(allTasks, criticalPathScope) : new Set<string>(),
-  [allTasks, showCriticalPath, criticalPathScope]
-);
-```
-
-Remove the old `computeCriticalPath` import if no longer needed.
-
----
-
-### C6: Enforce drag constraints in TaskBar
-
-**File**: src/components/gantt/TaskBar.tsx
-
-Add `earliestStart?: string` prop to `TaskBarProps`.
-
-In `onMouseMove` for move mode, after computing `newStartStr`, clamp it:
-```typescript
-if (dragRef.current.mode === 'move') {
-  let newStart = xToDateCollapsed(
-    dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends) + dx,
-    timelineStart, colWidth, zoom, collapseWeekends
-  );
-  let newStartStr = formatDate(newStart);
-
-  // Clamp to earliest start constraint
-  if (earliestStart && newStartStr < earliestStart) {
-    newStartStr = earliestStart;
-    newStart = parseISO(earliestStart);
-  }
-
-  const duration = daysBetween(dragRef.current.origStartDate, dragRef.current.origEndDate);
-  const newEnd = new Date(newStart);
-  newEnd.setDate(newEnd.getDate() + duration);
-  const newEndStr = formatDate(newEnd);
-
-  dragRef.current.lastStartDate = newStartStr;
-  dispatch({ type: 'MOVE_TASK', taskId, newStartDate: newStartStr, newEndDate: newEndStr });
-}
-```
-
-Import `parseISO` from date-fns.
-
-**In GanttChart.tsx**: compute earliestStart for each task and pass it down:
-```typescript
-import { computeEarliestStart } from '../../utils/schedulerWasm';
-// Inside the task rendering loop:
-const earliest = computeEarliestStart(allTasks, task.id);
-// Pass to TaskBar:
-earliestStart={earliest ?? undefined}
-```
-
----
-
-### C7: Slack indicator + cascade highlights
-
-**File**: src/components/gantt/SlackIndicator.tsx (NEW)
-
-Renders a dashed rect between the earliest possible start and actual start of a task, showing available slack:
-
-```typescript
-import React from 'react';
-
-interface SlackIndicatorProps {
-  earliestX: number;
-  actualX: number;
-  y: number;
-  height: number;
-}
-
-export default function SlackIndicator({ earliestX, actualX, y, height }: SlackIndicatorProps) {
-  if (actualX <= earliestX) return null; // No slack
-  return (
-    <rect
-      x={earliestX}
-      y={y + 4}
-      width={actualX - earliestX}
-      height={height - 8}
-      rx={3}
-      fill="none"
-      stroke="var(--raw-text-muted)"
-      strokeWidth={1}
-      strokeDasharray="4 2"
-      opacity={0.4}
-      style={{ pointerEvents: 'none' }}
-    />
-  );
-}
-```
-
-**File**: src/components/gantt/CascadeHighlight.tsx (NEW)
-
-Amber flash overlay on tasks that just moved due to cascade:
-
-```typescript
-import React, { useEffect, useState } from 'react';
-
-interface CascadeHighlightProps {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export default function CascadeHighlight({ x, y, width, height }: CascadeHighlightProps) {
-  const [opacity, setOpacity] = useState(0.5);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setOpacity(0), 1500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (opacity === 0) return null;
-
-  return (
-    <rect
-      x={x - 2}
-      y={y + 2}
-      width={width + 4}
-      height={height - 4}
-      rx={5}
-      fill="#f59e0b"
-      opacity={opacity}
-      style={{ pointerEvents: 'none', transition: 'opacity 0.5s ease-out' }}
-    />
-  );
-}
-```
-
-**File**: src/components/gantt/GanttChart.tsx
-
-Add slack and cascade rendering:
-
-```typescript
-import { computeEarliestStart } from '../../utils/schedulerWasm';
-import SlackIndicator from './SlackIndicator';
-import CascadeHighlight from './CascadeHighlight';
-
-// Inside GanttChart:
-const { lastCascadeIds } = useGanttState();
-const dispatch = useGanttDispatch();
-
-// Auto-clear cascade IDs after 2 seconds
-useEffect(() => {
-  if (lastCascadeIds.length > 0) {
-    const timer = setTimeout(() => {
-      dispatch({ type: 'SET_LAST_CASCADE_IDS', taskIds: [] });
-    }, 2000);
-    return () => clearTimeout(timer);
-  }
-}, [lastCascadeIds, dispatch]);
-
-// In the SVG, BEFORE TaskBars, render slack indicators and cascade highlights:
-{visibleTasks.map(task => {
-  if (task.isSummary || task.isMilestone) return null;
-  const yPos = taskYPositions.get(task.id);
-  if (yPos === undefined) return null;
-
-  const earliest = computeEarliestStart(allTasks, task.id);
-  const taskX = dateToXCollapsed(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-  const taskEndX = dateToXCollapsed(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-  const taskWidth = Math.max(taskEndX - taskX, 0);
-
-  return (
-    <React.Fragment key={`indicators-${task.id}`}>
-      {earliest && (
-        <SlackIndicator
-          earliestX={dateToXCollapsed(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
-          actualX={taskX}
-          y={yPos}
-          height={ROW_HEIGHT}
-        />
-      )}
-      {lastCascadeIds.includes(task.id) && (
-        <CascadeHighlight
-          x={taskX}
-          y={yPos}
-          width={taskWidth}
-          height={ROW_HEIGHT}
-        />
-      )}
-    </React.Fragment>
-  );
-})}
-```
-
----
-
-### C8: Undo/Redo toolbar buttons
-
-**File**: src/components/shared/UndoRedoButtons.tsx (NEW)
-
-```typescript
-import React from 'react';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-
-export default function UndoRedoButtons() {
-  const { undoStack, redoStack } = useGanttState();
-  const dispatch = useGanttDispatch();
-
-  return (
-    <>
-      <button
-        onClick={() => dispatch({ type: 'UNDO' })}
-        disabled={undoStack.length === 0}
-        className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors disabled:text-text-muted disabled:cursor-not-allowed cursor-pointer"
-        title="Undo (Ctrl+Z)"
-      >
-        Undo
-      </button>
-      <button
-        onClick={() => dispatch({ type: 'REDO' })}
-        disabled={redoStack.length === 0}
-        className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors disabled:text-text-muted disabled:cursor-not-allowed cursor-pointer"
-        title="Redo (Ctrl+Shift+Z)"
-      >
-        Redo
-      </button>
-    </>
-  );
-}
-```
-
-**File**: src/components/layout/Toolbar.tsx
-
-Import and render after the Add Task button:
-```typescript
-import UndoRedoButtons from '../shared/UndoRedoButtons';
-// In the JSX, after the Add Task button:
-<UndoRedoButtons />
-```
-
----
-
-### C9: Weekend toggle in Toolbar
-
-**File**: src/components/layout/Toolbar.tsx
-
-Add a toggle button near the zoom controls. After the zoom button group:
-
-```typescript
-{/* Collapse weekends */}
-{state.zoomLevel === 'day' && (
-  <button
-    onClick={() => dispatch({ type: 'TOGGLE_COLLAPSE_WEEKENDS' })}
-    className={`px-2 py-0.5 rounded transition-colors ${
-      state.collapseWeekends
-        ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
-        : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
-    }`}
-  >
-    Hide Weekends
-  </button>
-)}
-```
-
-Only show this button when zoom is 'day' since weekends aren't relevant in week/month view.
 
 ---
 
 ## Verification
 
-After all tasks are done:
 ```bash
-npx tsc --noEmit
 npm run test
-npm run build
+npx tsc --noEmit
 ```
 
 ## When done
-1. Mark tasks C1-C9 as `[x]` in TASKS.md
-2. Commit with message: "feat: UX improvements — modal fix, column close, weekends, undo UI, slack/cascade visuals, drag constraints, scoped critical path UI"
+1. Mark tasks A1-A9 as `[x]` in `/workspace/TASKS.md`
+2. Commit with message: "feat: hierarchy enforcement, task reparenting, dependency validation, seed data fix"
+3. Run `npm run build` to verify full build passes
+````
+
+---
+
+## Group B Prompt — UI Components
+
+Paste this into Terminal 3. The agent will poll TASKS.md until A7 is done, then start work automatically.
+
+````
+You are the Group B agent for Phase 7 of Ganttlet. You own ALL UI components. NO OTHER FILES.
+
+## BEFORE YOU START — Wait for dependencies
+
+You depend on Group A (task A7) completing first. Group A provides the types, actions, state fields, hierarchy utils, and dependency validation you import.
+
+**Poll `/workspace/TASKS.md` every 30 seconds** until this line shows `[x]`:
+- `[x] **A7**:` (Group A added new actions, state fields, keyboard shortcuts)
+
+Use this procedure:
+1. Read `/workspace/TASKS.md` and check if A7 is marked `[x]`
+2. If NOT done, say "Waiting for A7... (check N)" then sleep 30 seconds and check again
+3. If done, say "Dependencies met — starting Group B work" and proceed to the tasks below
+
+Do NOT start modifying any files until the dependency is confirmed done. You may use the waiting time to read and familiarize yourself with the files you'll be editing.
+
+## Your files (exclusive ownership — only touch these)
+- src/App.tsx
+- src/components/gantt/TaskBar.tsx
+- src/components/gantt/TaskBarPopover.tsx (NEW — you create this)
+- src/components/table/TaskRow.tsx
+- src/components/table/InlineEdit.tsx
+- src/components/table/TaskTable.tsx
+- src/components/shared/DependencyEditorModal.tsx
+- src/components/shared/ReparentPickerModal.tsx (NEW — you create this)
+- src/components/layout/Toolbar.tsx
+
+## DO NOT TOUCH
+Any file in crates/, src/state/, src/collab/, src/types/, src/utils/, src/data/. Those belong to Groups A and C.
+
+## Read-only dependencies (you import from these but don't modify them)
+- src/types/index.ts — GanttState now has: `focusNewTaskId`, `isLeftPaneCollapsed`, `reparentPicker`; `CriticalPathScope` now has `workstream` variant instead of `all`
+- src/state/actions.ts — New actions: `REPARENT_TASK`, `SET_REPARENT_PICKER`, `TOGGLE_LEFT_PANE`, `CLEAR_FOCUS_NEW_TASK`
+- src/state/GanttContext.tsx — `useGanttState()` and `useGanttDispatch()` hooks
+- src/utils/hierarchyUtils.ts — `getHierarchyRole`, `generatePrefixedId`, `computeInheritedFields`, etc.
+- src/utils/dependencyValidation.ts — `validateDependencyHierarchy`, `checkMoveConflicts`
+
+## Tasks (execute: B1+B2+B3 → B4+B5+B6 → B7)
+
+You can use subagents for parallel tasks within a stage.
+
+### B1: Focus on new task (Issue #5)
+
+**File: `src/components/table/InlineEdit.tsx`**
+
+Add an `autoEdit?: boolean` prop. When `autoEdit` becomes true, enter edit mode automatically.
+
+```typescript
+interface InlineEditProps {
+  value: string;
+  onSave: (value: string) => void;
+  type?: 'text' | 'date' | 'number';
+  displayValue?: string;
+  min?: number;
+  max?: number;
+  autoEdit?: boolean;
+}
+
+export default function InlineEdit({ value, onSave, type = 'text', displayValue, min, max, autoEdit }: InlineEditProps) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-enter edit mode when autoEdit becomes true
+  useEffect(() => {
+    if (autoEdit && !editing) {
+      setEditValue(value);
+      setEditing(true);
+    }
+  }, [autoEdit]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  // ... rest unchanged
+}
+```
+
+**File: `src/components/table/TaskRow.tsx`**
+
+Add `autoFocusName?: boolean` prop. Pass it to the name cell's InlineEdit as `autoEdit`. Add a ref and `useEffect` to scroll into view when `autoFocusName` is true.
+
+```typescript
+interface TaskRowProps {
+  task: Task;
+  columns: ColumnConfig[];
+  colorBy: ColorByField;
+  taskMap: Map<string, Task>;
+  viewer: ViewerInfo | null;
+  autoFocusName?: boolean;
+}
+
+export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoFocusName }: TaskRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Scroll into view when auto-focusing
+  useEffect(() => {
+    if (autoFocusName && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [autoFocusName]);
+
+  // In renderCell, for the 'name' case, pass autoEdit to InlineEdit:
+  // case 'name':
+  //   ...
+  //   <InlineEdit
+  //     value={task.name}
+  //     onSave={v => handleFieldUpdate('name', v)}
+  //     autoEdit={autoFocusName}
+  //   />
+
+  // Add ref={rowRef} to the root div
+  return (
+    <div
+      ref={rowRef}
+      className={...}
+      ...
+    >
+```
+
+**File: `src/components/table/TaskTable.tsx`**
+
+Read `focusNewTaskId` from `useGanttState()`. Pass `autoFocusName={task.id === focusNewTaskId}` to each TaskRow. Add a `useEffect` to dispatch `CLEAR_FOCUS_NEW_TASK` after one animation frame.
+
+```typescript
+import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+
+export default function TaskTable({ tasks, columns, colorBy, taskMap, users, collabUsers, isCollabConnected }: TaskTableProps) {
+  const { focusNewTaskId } = useGanttState();
+  const dispatch = useGanttDispatch();
+
+  // Clear focus signal after one frame
+  useEffect(() => {
+    if (focusNewTaskId) {
+      requestAnimationFrame(() => {
+        dispatch({ type: 'CLEAR_FOCUS_NEW_TASK' });
+      });
+    }
+  }, [focusNewTaskId, dispatch]);
+
+  // In the map, pass autoFocusName:
+  // <TaskRow
+  //   ...
+  //   autoFocusName={task.id === focusNewTaskId}
+  // />
+}
+```
+
+---
+
+### B2: Edit from task bars (Issue #6)
+
+**File: `src/components/gantt/TaskBarPopover.tsx`** (NEW)
+
+Create a portal-based popover for editing task fields. Follow the pattern from `DependencyEditorModal.tsx`.
+
+```typescript
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { addDaysToDate, daysBetween } from '../../utils/dateUtils';
+
+interface TaskBarPopoverProps {
+  taskId: string;
+  position: { x: number; y: number };
+  onClose: () => void;
+}
+
+export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPopoverProps) {
+  const state = useGanttState();
+  const dispatch = useGanttDispatch();
+  const task = state.tasks.find(t => t.id === taskId);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Close on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    // Delay to avoid immediate close from the double-click that opened it
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClick);
+    }, 100);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClick);
+    };
+  }, [onClose]);
+
+  if (!task) return null;
+
+  function handleFieldUpdate(field: string, value: string | number) {
+    dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field, value });
+    dispatch({
+      type: 'ADD_CHANGE_RECORD',
+      taskId, taskName: task!.name, field,
+      oldValue: String((task as any)[field] ?? ''),
+      newValue: String(value), user: 'You',
+    });
+  }
+
+  function handleStartDateChange(value: string) {
+    const oldStart = task!.startDate;
+    const newEndDate = addDaysToDate(value, task!.duration);
+    dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'startDate', value });
+    dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value: newEndDate });
+    const delta = daysBetween(oldStart, value);
+    if (delta !== 0) {
+      dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
+    }
+  }
+
+  function handleEndDateChange(value: string) {
+    const newDuration = daysBetween(task!.startDate, value);
+    if (newDuration < 0) return;
+    dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
+    dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });
+  }
+
+  // Position the popover, clamping to viewport
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    left: Math.min(position.x, window.innerWidth - 320),
+    top: Math.min(position.y + 10, window.innerHeight - 300),
+    zIndex: 50,
+  };
+
+  const popover = (
+    <div ref={popoverRef} style={style} className="bg-surface-raised border border-border-default rounded-lg shadow-xl p-3 w-[300px] fade-in">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-text-muted font-mono">{task.id}</span>
+        <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-lg leading-none cursor-pointer">&times;</button>
+      </div>
+
+      <div className="space-y-2">
+        {/* Name */}
+        <div>
+          <label className="text-[10px] text-text-muted uppercase">Name</label>
+          <input
+            type="text"
+            defaultValue={task.name}
+            onBlur={e => { if (e.target.value !== task.name) handleFieldUpdate('name', e.target.value); }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            autoFocus
+            className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
+          />
+        </div>
+
+        {/* Dates row */}
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="text-[10px] text-text-muted uppercase">Start</label>
+            <input
+              type="date"
+              defaultValue={task.startDate}
+              onBlur={e => { if (e.target.value !== task.startDate) handleStartDateChange(e.target.value); }}
+              className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-[10px] text-text-muted uppercase">End</label>
+            <input
+              type="date"
+              defaultValue={task.endDate}
+              onBlur={e => { if (e.target.value !== task.endDate) handleEndDateChange(e.target.value); }}
+              className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Duration + Owner row */}
+        <div className="flex gap-2">
+          <div className="w-20">
+            <label className="text-[10px] text-text-muted uppercase">Duration</label>
+            <input
+              type="number"
+              defaultValue={task.duration}
+              min={1}
+              onBlur={e => {
+                const d = parseInt(e.target.value, 10);
+                if (!isNaN(d) && d > 0 && d !== task.duration) {
+                  const newEnd = addDaysToDate(task.startDate, d);
+                  dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: d });
+                  dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value: newEnd });
+                }
+              }}
+              className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-[10px] text-text-muted uppercase">Owner</label>
+            <input
+              type="text"
+              defaultValue={task.owner}
+              onBlur={e => { if (e.target.value !== task.owner) handleFieldUpdate('owner', e.target.value); }}
+              className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(popover, document.body);
+}
+```
+
+**File: `src/components/gantt/TaskBar.tsx`**
+
+Add state for the popover and a double-click handler. Import `TaskBarPopover`.
+
+Add state:
+```typescript
+const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
+```
+
+Add double-click handler on the main bar rects (the two `<rect>` elements with `onMouseDown`):
+```typescript
+onDoubleClick={(e) => {
+  e.stopPropagation();
+  setPopoverPos({ x: e.clientX, y: e.clientY });
+}}
+```
+
+Render the popover conditionally at the bottom of the `<g>` element (inside the Tooltip), using a foreignObject or rendering it outside SVG. Since popover is a portal, render it outside the SVG return:
+
+```typescript
+return (
+  <>
+    <Tooltip content={tooltipContent} delay={300} svg>
+      <g ...>
+        {/* existing SVG content */}
+      </g>
+    </Tooltip>
+    {popoverPos && (
+      <TaskBarPopover
+        taskId={taskId}
+        position={popoverPos}
+        onClose={() => setPopoverPos(null)}
+      />
+    )}
+  </>
+);
+```
+
+Note: The `<>` fragment may need to be used since SVG elements can't contain React portals directly. The TaskBarPopover uses `createPortal` to render to `document.body`, so it works fine.
+
+---
+
+### B3: Collapse/expand left pane (Issue #7)
+
+**File: `src/App.tsx`**
+
+Read `isLeftPaneCollapsed` from state. When collapsed, hide the left pane. Add a divider button.
+
+```typescript
+const { isLeftPaneCollapsed } = useGanttState(); // add to existing destructuring or call
+
+// Replace the left panel div:
+{/* Task Table - left panel */}
+<div
+  ref={tableScrollRef}
+  className={`shrink-0 border-r border-border-default overflow-y-auto overflow-x-hidden transition-all duration-200 ${
+    isLeftPaneCollapsed ? 'w-0 overflow-hidden' : ''
+  }`}
+  onScroll={handleTableScroll}
+>
+  <TaskTable ... />
+</div>
+
+{/* Collapse/expand divider */}
+<button
+  onClick={() => dispatch({ type: 'TOGGLE_LEFT_PANE' })}
+  className="shrink-0 w-5 flex items-center justify-center bg-surface-raised/50 border-r border-border-subtle hover:bg-surface-overlay transition-colors cursor-pointer group"
+  title={isLeftPaneCollapsed ? 'Expand table (Ctrl+B)' : 'Collapse table (Ctrl+B)'}
+>
+  <svg
+    width="10" height="10" viewBox="0 0 10 10" fill="currentColor"
+    className={`text-text-muted group-hover:text-text-primary transition-transform ${isLeftPaneCollapsed ? 'rotate-0' : 'rotate-180'}`}
+  >
+    <path d="M7 1 L2 5 L7 9 Z" />
+  </svg>
+</button>
+```
+
+Import `useGanttState` if not already imported (it should be).
+
+---
+
+### B4: Reparent picker modal (Issue #4 UI)
+
+**File: `src/components/shared/ReparentPickerModal.tsx`** (NEW)
+
+```typescript
+import React, { useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { getHierarchyRole, getAllDescendantIds, generatePrefixedId } from '../../utils/hierarchyUtils';
+import { checkMoveConflicts } from '../../utils/dependencyValidation';
+
+export default function ReparentPickerModal() {
+  const state = useGanttState();
+  const dispatch = useGanttDispatch();
+  const picker = state.reparentPicker;
+
+  const close = useCallback(() => {
+    dispatch({ type: 'SET_REPARENT_PICKER', picker: null });
+  }, [dispatch]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [close]);
+
+  if (!picker) return null;
+
+  const taskMap = new Map(state.tasks.map(t => [t.id, t]));
+  const task = taskMap.get(picker.taskId);
+  if (!task) return null;
+
+  const descendantIds = getAllDescendantIds(picker.taskId, taskMap);
+
+  // Valid targets: summary tasks (projects/workstreams), excluding self, descendants, and current parent
+  const targets = state.tasks.filter(t => {
+    if (!t.isSummary) return false;
+    if (t.id === picker.taskId) return false;
+    if (t.id === task.parentId) return false;
+    if (descendantIds.has(t.id)) return false;
+    return true;
+  });
+
+  function handleSelect(targetId: string) {
+    const target = taskMap.get(targetId);
+    if (!target) return;
+
+    const conflicts = checkMoveConflicts(state.tasks, picker!.taskId, targetId);
+    if (conflicts.length > 0) {
+      // For now, show alert — could be enhanced to inline warning
+      alert(`Cannot move: ${conflicts.map(c => c.reason).join('; ')}`);
+      return;
+    }
+
+    const newId = generatePrefixedId(target, state.tasks);
+    dispatch({
+      type: 'REPARENT_TASK',
+      taskId: picker!.taskId,
+      newParentId: targetId,
+      newId,
+    });
+  }
+
+  const modal = (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="absolute inset-0" style={{ backgroundColor: 'var(--raw-backdrop)' }} onClick={close} />
+      <div className="relative bg-surface-raised border border-border-default rounded-lg shadow-xl w-[400px] max-h-[60vh] flex flex-col fade-in">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
+          <h2 className="text-sm font-semibold text-text-primary">
+            Move "{task.name}" to...
+          </h2>
+          <button onClick={close} className="text-text-secondary hover:text-text-primary transition-colors text-lg leading-none cursor-pointer">&times;</button>
+        </div>
+
+        <div className="px-4 py-3 overflow-y-auto flex-1">
+          {targets.length === 0 ? (
+            <p className="text-text-muted text-sm">No valid targets available.</p>
+          ) : (
+            <div className="space-y-1">
+              {targets.map(target => {
+                const role = getHierarchyRole(target, taskMap);
+                const conflicts = checkMoveConflicts(state.tasks, picker!.taskId, target.id);
+                return (
+                  <button
+                    key={target.id}
+                    onClick={() => handleSelect(target.id)}
+                    disabled={conflicts.length > 0}
+                    className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                      conflicts.length > 0
+                        ? 'text-text-muted cursor-not-allowed opacity-50'
+                        : 'text-text-secondary hover:bg-surface-overlay hover:text-text-primary cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase text-text-muted bg-surface-sunken px-1.5 py-0.5 rounded">{role}</span>
+                      <span>{target.name}</span>
+                      <span className="text-text-muted text-xs font-mono">({target.id})</span>
+                    </div>
+                    {conflicts.length > 0 && (
+                      <div className="text-xs text-red-400 mt-1">{conflicts[0].reason}</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(modal, document.body);
+}
+```
+
+**File: `src/App.tsx`**
+
+Add "Move to workstream..." to the context menu for non-summary, non-milestone tasks. Also render the `ReparentPickerModal`.
+
+In `contextMenuItems`, add after the existing non-summary items:
+```typescript
+// For non-summary tasks, add reparent option
+...(task.isSummary ? [] : [
+  {
+    label: 'Move to workstream...',
+    onClick: () => dispatch({ type: 'SET_REPARENT_PICKER', picker: { taskId: task.id } }),
+  },
+]),
+```
+
+At the bottom of the JSX, after the DependencyEditorModal:
+```typescript
+import ReparentPickerModal from './components/shared/ReparentPickerModal';
+// ...
+{state.reparentPicker && <ReparentPickerModal />}
+```
+
+---
+
+### B5: Dependency modal hierarchy filtering
+
+**File: `src/components/shared/DependencyEditorModal.tsx`**
+
+Import `validateDependencyHierarchy`:
+```typescript
+import { validateDependencyHierarchy } from '../../utils/dependencyValidation';
+```
+
+Update `availablePredecessors` filter (around line 38-41) to also check hierarchy:
+```typescript
+const availablePredecessors = nonSummaryTasks.filter(t => {
+  if (task.dependencies.some(d => d.fromId === t.id)) return false;
+  if (wouldCreateCycle(state.tasks, task.id, t.id)) return false;
+  if (validateDependencyHierarchy(state.tasks, task.id, t.id)) return false;
+  return true;
+});
+```
+
+Update `getValidPredecessorsForRow` (around line 125-132) similarly:
+```typescript
+function getValidPredecessorsForRow(currentFromId: string) {
+  return nonSummaryTasks.filter(t => {
+    if (t.id === currentFromId) return true;
+    if (task!.dependencies.some(d => d.fromId === t.id)) return false;
+    if (wouldCreateCycle(state.tasks, task!.id, t.id)) return false;
+    if (validateDependencyHierarchy(state.tasks, task!.id, t.id)) return false;
+    return true;
+  });
+}
+```
+
+---
+
+### B6: Read-only inherited fields in table
+
+**File: `src/components/table/TaskRow.tsx`**
+
+Import `getHierarchyRole`:
+```typescript
+import { getHierarchyRole } from '../../utils/hierarchyUtils';
+```
+
+In `renderCell`, for the `workStream` and `project` cases, check if the field is inherited (i.e., the task is not a project/workstream itself). If so, render as read-only text.
+
+Replace the `workStream` case:
+```typescript
+case 'workStream': {
+  const role = getHierarchyRole(task, taskMap);
+  // workStream is editable only on workstreams themselves (it's their name)
+  // For tasks under a workstream, it's inherited and read-only
+  if (role === 'task') {
+    return <span className="text-text-secondary text-xs">{task.workStream}</span>;
+  }
+  return (
+    <InlineEdit
+      value={task.workStream}
+      onSave={v => handleFieldUpdate('workStream', v)}
+    />
+  );
+}
+```
+
+Replace the `project` case:
+```typescript
+case 'project': {
+  const role = getHierarchyRole(task, taskMap);
+  // project is editable only on projects themselves (it's their name)
+  // For workstreams and tasks, it's inherited and read-only
+  if (role !== 'project') {
+    return <span className="text-text-secondary text-xs">{task.project}</span>;
+  }
+  return (
+    <InlineEdit
+      value={task.project}
+      onSave={v => handleFieldUpdate('project', v)}
+    />
+  );
+}
+```
+
+---
+
+### B7: Critical path scope UI (Issue #10 — UI part)
+
+**File: `src/components/layout/Toolbar.tsx`**
+
+Remove the "All" button from the scope dropdown. Derive project names from summary tasks with no parent. Add a "Workstreams" section.
+
+Replace the `projectNames` memo:
+```typescript
+const projectNames = useMemo(
+  () => state.tasks.filter(t => t.isSummary && !t.parentId).map(t => t.name).filter(Boolean),
+  [state.tasks]
+);
+const workstreamNames = useMemo(
+  () => state.tasks.filter(t => t.isSummary && t.parentId !== null).map(t => t.name).filter(Boolean),
+  [state.tasks]
+);
+```
+
+Update the `scopeLabel` function (remove the `all` case):
+```typescript
+function scopeLabel(scope: CriticalPathScope): string {
+  if (scope.type === 'project') return scope.name || 'Select scope';
+  if (scope.type === 'workstream') return scope.name;
+  return milestoneTasks.find(t => t.id === scope.id)?.name ?? scope.id;
+}
+```
+
+In the scope dropdown JSX, remove the "All" button and add workstreams:
+```typescript
+{showCpScopeMenu && state.showCriticalPath && (
+  <div className="absolute top-full left-0 mt-1 bg-surface-overlay border border-border-default rounded-lg shadow-xl p-1 z-40 min-w-[160px] fade-in">
+    {projectNames.length > 0 && (
+      <>
+        <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Projects</div>
+        {projectNames.map(name => (
+          <button
+            key={name}
+            onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'project', name } }); setShowCpScopeMenu(false); }}
+            className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
+              state.criticalPathScope.type === 'project' && state.criticalPathScope.name === name
+                ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+            }`}
+          >
+            {name}
+          </button>
+        ))}
+      </>
+    )}
+    {workstreamNames.length > 0 && (
+      <>
+        <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Workstreams</div>
+        {workstreamNames.map(name => (
+          <button
+            key={name}
+            onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'workstream', name } }); setShowCpScopeMenu(false); }}
+            className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
+              state.criticalPathScope.type === 'workstream' && (state.criticalPathScope as any).name === name
+                ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+            }`}
+          >
+            {name}
+          </button>
+        ))}
+      </>
+    )}
+    {milestoneTasks.length > 0 && (
+      <>
+        <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Milestones</div>
+        {milestoneTasks.map(ms => (
+          <button
+            key={ms.id}
+            onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'milestone', id: ms.id } }); setShowCpScopeMenu(false); }}
+            className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
+              state.criticalPathScope.type === 'milestone' && state.criticalPathScope.id === ms.id
+                ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+            }`}
+          >
+            {ms.name}
+          </button>
+        ))}
+      </>
+    )}
+  </div>
+)}
+```
+
+---
+
+## Verification
+
+```bash
+npx tsc --noEmit
+npm run test
+```
+
+Manual checks:
+- Add Task from toolbar → scrolls into view, name field focused for editing
+- Double-click task bar → popover appears, edit name/dates/owner
+- Ctrl+B → left pane collapses; Ctrl+B again → restores with same columns
+- Right-click task → "Move to workstream..." → picker shows valid targets
+- Dep modal excludes hierarchy-invalid predecessors
+- workStream/project columns are read-only for child tasks
+- Critical path scope dropdown shows Projects and Workstreams sections, no "All"
+
+## When done
+1. Mark tasks B1-B7 as `[x]` in `/workspace/TASKS.md`
+2. Commit with message: "feat: task bar popover, focus new task, pane collapse, reparent picker, hierarchy UI"
+3. Run `npm run build` to verify full build passes
+````
+
+---
+
+## Group C Prompt — WASM Critical Path Rework
+
+Paste this into Terminal 2:
+
+````
+You are the Group C agent for Phase 7 of Ganttlet. You own the Rust WASM scheduler and its TypeScript wrapper. NO OTHER FILES.
+
+## Your files (exclusive ownership — only touch these)
+- crates/scheduler/src/cpm.rs
+- crates/scheduler/src/types.rs
+- crates/scheduler/src/lib.rs
+- src/utils/schedulerWasm.ts
+
+## DO NOT TOUCH
+Any file in src/state/, src/collab/, src/components/, src/types/, src/data/. Those belong to Groups A and B.
+
+## Tasks (execute sequentially: C1 → C2 → C3 → C4)
+
+### C1: Add `work_stream` field to Rust Task
+
+**File: `crates/scheduler/src/types.rs`**
+
+Add a `work_stream` field to the Task struct:
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Task {
+    pub id: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub duration: i32,
+    pub is_milestone: bool,
+    pub is_summary: bool,
+    pub dependencies: Vec<Dependency>,
+    #[serde(default)]
+    pub project: String,
+    #[serde(default)]
+    pub work_stream: String,
+}
+```
+
+Update ALL test helper `make_task` functions across all test modules (cpm.rs, cascade.rs, graph.rs, constraints.rs) to include `work_stream: String::new()`.
+
+Run: `cd crates/scheduler && cargo test`
+
+---
+
+### C2: Update `CriticalPathScope` enum
+
+**File: `crates/scheduler/src/cpm.rs`**
+
+Remove the `All` variant from `CriticalPathScope` and add `Workstream`:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CriticalPathScope {
+    Project { name: String },
+    Workstream { name: String },
+    Milestone { id: String },
+}
+```
+
+Update `compute_critical_path_scoped` to handle the new variant:
+
+```rust
+pub fn compute_critical_path_scoped(tasks: &[Task], scope: &CriticalPathScope) -> Vec<String> {
+    match scope {
+        CriticalPathScope::Project { name } => {
+            let filtered: Vec<Task> = tasks
+                .iter()
+                .filter(|t| t.project == *name)
+                .cloned()
+                .collect();
+            compute_critical_path(&filtered)
+        }
+        CriticalPathScope::Workstream { name } => {
+            let filtered: Vec<Task> = tasks
+                .iter()
+                .filter(|t| t.work_stream == *name)
+                .cloned()
+                .collect();
+            compute_critical_path(&filtered)
+        }
+        CriticalPathScope::Milestone { id } => {
+            // BFS backward from milestone — existing logic, unchanged
+            let task_map: HashMap<&str, &Task> =
+                tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+            let mut subset_ids: HashSet<String> = HashSet::new();
+            let mut queue: VecDeque<String> = VecDeque::new();
+
+            if task_map.contains_key(id.as_str()) {
+                queue.push_back(id.clone());
+                subset_ids.insert(id.clone());
+            }
+
+            while let Some(current) = queue.pop_front() {
+                if let Some(task) = task_map.get(current.as_str()) {
+                    for dep in &task.dependencies {
+                        if !subset_ids.contains(&dep.from_id) {
+                            subset_ids.insert(dep.from_id.clone());
+                            queue.push_back(dep.from_id.clone());
+                        }
+                    }
+                }
+            }
+
+            let subset: Vec<Task> = tasks
+                .iter()
+                .filter(|t| subset_ids.contains(&t.id))
+                .cloned()
+                .collect();
+            compute_critical_path(&subset)
+        }
+    }
+}
+```
+
+Update the existing `make_task` and `make_project_task` helpers in the test module:
+```rust
+fn make_task(id: &str, start: &str, end: &str, duration: i32) -> Task {
+    Task {
+        id: id.to_string(),
+        start_date: start.to_string(),
+        end_date: end.to_string(),
+        duration,
+        is_milestone: false,
+        is_summary: false,
+        dependencies: vec![],
+        project: String::new(),
+        work_stream: String::new(),
+    }
+}
+```
+
+Update `make_project_task`:
+```rust
+fn make_project_task(id: &str, start: &str, end: &str, duration: i32, project: &str) -> Task {
+    Task {
+        project: project.to_string(),
+        ..make_task(id, start, end, duration)
+    }
+}
+```
+
+Update `scoped_all_same_as_default` test — since `All` no longer exists, change it to test project scope matching all tasks:
+```rust
+#[test]
+fn scoped_project_matches_all_when_same_project() {
+    let mut b = make_project_task("b", "2026-03-10", "2026-03-19", 9, "Alpha");
+    b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+    let tasks = vec![make_project_task("a", "2026-03-01", "2026-03-10", 9, "Alpha"), b];
+
+    let scoped = compute_critical_path_scoped(&tasks, &CriticalPathScope::Project { name: "Alpha".to_string() });
+    let default_result = compute_critical_path(&tasks);
+    assert_eq!(default_result, scoped);
+}
+```
+
+Run: `cd crates/scheduler && cargo test`
+
+---
+
+### C3: Update WASM TypeScript wrapper
+
+**File: `src/utils/schedulerWasm.ts`**
+
+1. Add `workStream` to the task-to-WASM mapping in `mapTasksToWasm`:
+```typescript
+function mapTasksToWasm(tasks: Task[]) {
+  return tasks.map(t => ({
+    id: t.id,
+    startDate: t.startDate,
+    endDate: t.endDate,
+    duration: t.duration,
+    isMilestone: t.isMilestone,
+    isSummary: t.isSummary,
+    project: t.project,
+    workStream: t.workStream,
+    dependencies: t.dependencies.map(d => ({
+      fromId: d.fromId,
+      toId: d.toId,
+      type: d.type,
+      lag: d.lag,
+    })),
+  }));
+}
+```
+
+2. Remove the local `CriticalPathScope` type definition (lines 14-17). Import it from `../types` instead:
+```typescript
+import type { Task, CriticalPathScope } from '../types';
+```
+
+Note: This depends on Group A having updated the `CriticalPathScope` type in `src/types/index.ts` (task A7). If A7 isn't done yet, keep the local type temporarily and add a TODO comment.
+
+3. Update `computeCriticalPath` — since `All` no longer exists, use a project scope or just call the underlying WASM `compute_critical_path` directly:
+```typescript
+export function computeCriticalPath(tasks: Task[]): Set<string> {
+  if (!wasmModule) throw new Error('WASM scheduler not initialized');
+  const wasmTasks = mapTasksToWasm(tasks);
+  const result: string[] = wasmModule.compute_critical_path(wasmTasks);
+  return new Set(result);
+}
+```
+
+**Verify**:
+```bash
+cd crates/scheduler && cargo test
+npm run build:wasm
+npx tsc --noEmit
+npm run test
+```
+
+---
+
+### C4: Rust tests
+
+Add tests for workstream-scoped critical path.
+
+**File: `crates/scheduler/src/cpm.rs`** (in the `mod tests` block)
+
+```rust
+fn make_workstream_task(id: &str, start: &str, end: &str, duration: i32, project: &str, ws: &str) -> Task {
+    Task {
+        project: project.to_string(),
+        work_stream: ws.to_string(),
+        ..make_task(id, start, end, duration)
+    }
+}
+
+#[test]
+fn scoped_workstream_filters() {
+    // Engineering chain: e1 -> e2
+    let mut e2 = make_workstream_task("e2", "2026-03-11", "2026-03-20", 10, "Alpha", "Engineering");
+    e2.dependencies = vec![make_dep("e1", "e2", DepType::FS, 0)];
+
+    // Design chain: d1 -> d2
+    let mut d2 = make_workstream_task("d2", "2026-03-11", "2026-03-20", 10, "Alpha", "Design");
+    d2.dependencies = vec![make_dep("d1", "d2", DepType::FS, 0)];
+
+    let tasks = vec![
+        make_workstream_task("e1", "2026-03-01", "2026-03-10", 10, "Alpha", "Engineering"),
+        e2,
+        make_workstream_task("d1", "2026-03-01", "2026-03-10", 10, "Alpha", "Design"),
+        d2,
+    ];
+
+    let eng_critical = compute_critical_path_scoped(
+        &tasks,
+        &CriticalPathScope::Workstream { name: "Engineering".to_string() },
+    );
+    assert!(eng_critical.contains(&"e1".to_string()));
+    assert!(eng_critical.contains(&"e2".to_string()));
+    assert!(!eng_critical.contains(&"d1".to_string()));
+    assert!(!eng_critical.contains(&"d2".to_string()));
+}
+
+#[test]
+fn workstream_scope_empty_returns_empty() {
+    let tasks = vec![make_workstream_task("a", "2026-03-01", "2026-03-10", 10, "Alpha", "Engineering")];
+    let result = compute_critical_path_scoped(
+        &tasks,
+        &CriticalPathScope::Workstream { name: "NonExistent".to_string() },
+    );
+    assert!(result.is_empty());
+}
+```
+
+Run: `cd crates/scheduler && cargo test`
+
+---
+
+## Verification
+
+```bash
+cd crates/scheduler && cargo test
+npm run build:wasm
+npx tsc --noEmit
+npm run test
+```
+
+## When done
+1. Mark tasks C1-C4 as `[x]` in `/workspace/TASKS.md`
+2. Commit with message: "feat: workstream-scoped critical path, remove All scope variant"
 3. Run `npm run build` to verify full build passes
 ````
 
@@ -1114,20 +1854,20 @@ npm run build
 Paste this into Terminal 4. The agent will poll TASKS.md until all three groups finish, then handle everything.
 
 ````
-You are the Group D integration agent for Phase 6 of Ganttlet. Your job is to wait for Groups A, B, and C to finish, then merge their branches, fix any issues, verify the build, and clean up.
+You are the Group D integration agent for Phase 7 of Ganttlet. Your job is to wait for Groups A, B, and C to finish, then merge their branches, fix any issues, verify the build, and clean up.
 
 You work in the MAIN repo at `/workspace` (not a worktree).
 
 ## STEP 1 — Wait for all groups to finish
 
 Poll `/workspace/TASKS.md` every 30 seconds until ALL THREE of these final tasks are marked `[x]`:
-- `[x] **A4**:` (Group A's last task — WASM TypeScript wrapper)
-- `[x] **B6**:` (Group B's last task — collab sync for undo/redo)
-- `[x] **C9**:` (Group C's last task — weekend toggle in Toolbar)
+- `[x] **A9**:` (Group A's last task — tests)
+- `[x] **B7**:` (Group B's last task — critical path scope UI)
+- `[x] **C4**:` (Group C's last task — Rust tests)
 
 Procedure:
 1. Read `/workspace/TASKS.md` and check if all three are `[x]`
-2. If NOT all done, say "Waiting for groups to finish... (check N) — A4:[x/pending] B6:[x/pending] C9:[x/pending]" then sleep 30 seconds and check again
+2. If NOT all done, say "Waiting for groups to finish... (check N) — A9:[x/pending] B7:[x/pending] C4:[x/pending]" then sleep 30 seconds and check again
 3. Once all three are done, say "All groups finished — starting integration" and proceed
 
 While waiting, you may read files to familiarize yourself with the codebase. Do NOT modify any files until all three groups are confirmed done.
@@ -1140,16 +1880,16 @@ Before merging, confirm each branch has clean committed state:
 cd /workspace
 
 # Check Group A branch
-git log main..feature/phase6-wasm-scheduler --oneline
-git -C .claude/worktrees/phase6-groupA status
+git log main..feature/phase7-hierarchy-state --oneline
+git -C .claude/worktrees/phase7-groupA status
 
 # Check Group B branch
-git log main..feature/phase6-state-sync --oneline
-git -C .claude/worktrees/phase6-groupB status
+git log main..feature/phase7-ui-components --oneline
+git -C .claude/worktrees/phase7-groupB status
 
 # Check Group C branch
-git log main..feature/phase6-ui-visual --oneline
-git -C .claude/worktrees/phase6-groupC status
+git log main..feature/phase7-wasm-scheduler --oneline
+git -C .claude/worktrees/phase7-groupC status
 ```
 
 If any branch has uncommitted changes, warn the user and wait. Do NOT proceed with uncommitted work.
@@ -1158,20 +1898,20 @@ If a branch has NO commits beyond main, that group may not have finished properl
 
 ## STEP 3 — Merge branches into main
 
-Merge in dependency order (A and B first since C depends on both):
+Merge in dependency order (A and C first since B depends on A):
 
 ```bash
 cd /workspace
 git checkout main
 
-# Merge Group A (WASM scheduler — no dependencies)
-git merge feature/phase6-wasm-scheduler --no-ff -m "Merge feature/phase6-wasm-scheduler: scoped critical path, earliest start, cascade IDs"
+# Merge Group A (hierarchy + state — no dependencies)
+git merge feature/phase7-hierarchy-state --no-ff -m "Merge feature/phase7-hierarchy-state: hierarchy enforcement, task reparenting, dependency validation"
 
-# Merge Group B (state/sync — no dependencies on A)
-git merge feature/phase6-state-sync --no-ff -m "Merge feature/phase6-state-sync: undo/redo, cascade sync fix, new state fields"
+# Merge Group C (WASM scheduler — no dependencies on A for file overlap)
+git merge feature/phase7-wasm-scheduler --no-ff -m "Merge feature/phase7-wasm-scheduler: workstream-scoped critical path, remove All scope"
 
-# Merge Group C (UI — depends on A and B, but no file overlap)
-git merge feature/phase6-ui-visual --no-ff -m "Merge feature/phase6-ui-visual: UX improvements, visual feedback, weekend collapse"
+# Merge Group B (UI — depends on A and C, but no file overlap)
+git merge feature/phase7-ui-components --no-ff -m "Merge feature/phase7-ui-components: task bar popover, focus new task, pane collapse, reparent picker"
 ```
 
 ### Handling merge conflicts
@@ -1211,9 +1951,10 @@ npm run build
 If any step fails, diagnose and fix the issue. Common post-merge problems:
 
 - **TypeScript errors**: Usually missing imports or type mismatches at the boundaries between groups. Fix the imports.
-- **Rust test failures**: Likely the `project` field wasn't added to all test helpers. Add `project: String::new()` to any `make_task` helper that's missing it.
-- **WASM build failure**: Check that `lib.rs` exports are correct and `Cargo.toml` hasn't been corrupted.
-- **Runtime import errors**: Check that `schedulerWasm.ts` exports match what components import.
+- **CriticalPathScope mismatch**: Group A removes `all` from the type but Group B's Toolbar still references it — update Toolbar to not use `all`.
+- **Rust test failures**: The `work_stream` field wasn't added to all test helpers. Add `work_stream: String::new()`.
+- **WASM build failure**: Check that `lib.rs` exports are correct.
+- **Import path errors**: `schedulerWasm.ts` may import `CriticalPathScope` from `../types` (Group C) but Group A may have changed the type — verify they match.
 - **Reducer exhaustiveness**: If TypeScript complains about unhandled action types in the switch, add the missing cases.
 
 After fixing any issues, commit the fixes:
@@ -1226,14 +1967,16 @@ git commit -m "fix: resolve post-merge integration issues"
 
 Read through the key integration points and verify they're wired correctly:
 
-1. **WASM → TypeScript**: `src/utils/schedulerWasm.ts` exports `computeCriticalPathScoped`, `computeEarliestStart`, `cascadeDependentsWithIds`
-2. **State → UI**: `src/types/index.ts` has `undoStack`, `redoStack`, `lastCascadeIds`, `criticalPathScope`, `collapseWeekends` in GanttState
-3. **Actions → Reducer**: All new actions (UNDO, REDO, SET_LAST_CASCADE_IDS, SET_CRITICAL_PATH_SCOPE, TOGGLE_COLLAPSE_WEEKENDS) have cases in the reducer
-4. **Reducer → Context**: `initialState` in GanttContext.tsx has defaults for all new fields
-5. **Collab sync**: `CASCADE_DEPENDENTS` has a case in `applyActionToYjs()` switch (not falling through to default)
-6. **GanttChart → WASM**: `computeCriticalPathScoped` is called instead of `computeCriticalPath`
-7. **TaskBar → constraints**: `earliestStart` prop is passed from GanttChart and used in drag handler
-8. **Weekend collapse**: `dateToXCollapsed` used in GanttChart, TaskBar, TimelineHeader, GridLines
+1. **Hierarchy utils → Reducer**: `ganttReducer.ts` imports from `hierarchyUtils.ts` and `dependencyValidation.ts`
+2. **State → UI**: `src/types/index.ts` has `focusNewTaskId`, `isLeftPaneCollapsed`, `reparentPicker` in GanttState
+3. **Actions → Reducer**: All new actions (REPARENT_TASK, SET_REPARENT_PICKER, TOGGLE_LEFT_PANE, CLEAR_FOCUS_NEW_TASK) have cases in the reducer
+4. **CriticalPathScope**: Type in `types/index.ts` matches what WASM returns (no `all`, has `workstream`)
+5. **Collab sync**: `REPARENT_TASK` triggers full sync via `pendingFullSyncRef` pattern
+6. **Seed data**: `fakeData.ts` has consistent `project: 'Q2 Product Launch'` for all tasks
+7. **WASM mapping**: `schedulerWasm.ts` includes `workStream` in `mapTasksToWasm`
+8. **Task bar popover**: `TaskBar.tsx` imports `TaskBarPopover` and handles double-click
+9. **Reparent picker**: `App.tsx` renders `ReparentPickerModal` when `state.reparentPicker` is set
+10. **Pane collapse**: `App.tsx` reads `isLeftPaneCollapsed` and applies `w-0 overflow-hidden`
 
 If any wiring is missing, fix it and commit.
 
@@ -1243,14 +1986,14 @@ If any wiring is missing, fix it and commit.
 cd /workspace
 
 # Remove worktrees
-git worktree remove /workspace/.claude/worktrees/phase6-groupA 2>/dev/null || true
-git worktree remove /workspace/.claude/worktrees/phase6-groupB 2>/dev/null || true
-git worktree remove /workspace/.claude/worktrees/phase6-groupC 2>/dev/null || true
+git worktree remove /workspace/.claude/worktrees/phase7-groupA 2>/dev/null || true
+git worktree remove /workspace/.claude/worktrees/phase7-groupB 2>/dev/null || true
+git worktree remove /workspace/.claude/worktrees/phase7-groupC 2>/dev/null || true
 
 # Delete feature branches (they're merged)
-git branch -d feature/phase6-wasm-scheduler
-git branch -d feature/phase6-state-sync
-git branch -d feature/phase6-ui-visual
+git branch -d feature/phase7-hierarchy-state
+git branch -d feature/phase7-ui-components
+git branch -d feature/phase7-wasm-scheduler
 
 # Prune worktree metadata
 git worktree prune

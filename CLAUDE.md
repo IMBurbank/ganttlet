@@ -51,58 +51,94 @@ See `docs/completed-phases.md` for detailed architecture notes (auth, sync, depl
 ## Task Queue
 See `TASKS.md` for claimable tasks and claiming convention.
 
-## Phase 6: Gantt Chart UX Improvements (IN PROGRESS)
+## Phase 6: Gantt Chart UX Improvements (DONE)
 Ten UX fixes and features, split into three parallel agent groups with zero file overlap.
+Details in `TASKS.md` under "Phase 6".
+
+## Phase 7: Hierarchy Enforcement, Task Movement & UX Improvements (IN PROGRESS)
+Ten issues addressing hierarchy enforcement, task reparenting, and UX polish.
+See `docs/unplanned-issues.md` for the original issue list.
 
 ### Agent Groups & File Ownership
 ```
-Group A (WASM Scheduler)         Group B (State + Sync)           Group C (UI + Visual)
-  crates/scheduler/src/*           src/state/actions.ts             src/components/gantt/TaskBar.tsx
-  src/utils/schedulerWasm.ts       src/state/ganttReducer.ts        src/components/gantt/GanttChart.tsx
-                                   src/state/GanttContext.tsx        src/components/gantt/DependencyLayer.tsx
-                                   src/collab/yjsBinding.ts         src/components/gantt/TimelineHeader.tsx
-                                   src/types/index.ts               src/components/gantt/GridLines.tsx
-                                                                    src/components/gantt/CascadeHighlight.tsx (new)
-                                                                    src/components/gantt/SlackIndicator.tsx (new)
-                                                                    src/components/table/ColumnHeader.tsx
-                                                                    src/components/shared/DependencyEditorModal.tsx
-                                                                    src/components/shared/UndoRedoButtons.tsx (new)
-                                                                    src/components/layout/Toolbar.tsx
-                                                                    src/utils/dateUtils.ts
+Group A (Hierarchy + State)              Group B (UI Components)              Group C (WASM + Scheduler)
+  src/utils/hierarchyUtils.ts (new)        src/App.tsx                          crates/scheduler/src/cpm.rs
+  src/utils/dependencyValidation.ts (new)  src/components/gantt/TaskBar.tsx      crates/scheduler/src/types.rs
+  src/state/ganttReducer.ts                src/components/gantt/TaskBarPopover.tsx (new)  crates/scheduler/src/lib.rs
+  src/state/actions.ts                     src/components/table/TaskRow.tsx      src/utils/schedulerWasm.ts
+  src/types/index.ts                       src/components/table/InlineEdit.tsx
+  src/state/GanttContext.tsx               src/components/table/TaskTable.tsx
+  src/collab/yjsBinding.ts                src/components/shared/DependencyEditorModal.tsx
+  src/data/fakeData.ts                     src/components/shared/ReparentPickerModal.tsx (new)
+  src/utils/__tests__/hierarchyUtils.test.ts (new)      src/components/layout/Toolbar.tsx
+  src/utils/__tests__/dependencyValidation.test.ts (new)
+  src/state/__tests__/ganttReducer.test.ts
 ```
 
 ### Interface Contracts
-**Contract 1 — WASM functions** (Group A provides, B+C consume):
+**Contract 1 — Hierarchy utilities** (Group A provides, Groups B+C consume):
 ```typescript
-export function computeEarliestStart(tasks: Task[], taskId: string): string | null;
-export function cascadeDependentsWithIds(tasks: Task[], movedTaskId: string, daysDelta: number): { tasks: Task[]; changedIds: string[] };
-export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScope): Set<string>;
+// src/utils/hierarchyUtils.ts
+export type HierarchyRole = 'project' | 'workstream' | 'task';
+export function getHierarchyRole(task: Task, taskMap: Map<string, Task>): HierarchyRole;
+export function findProjectAncestor(task: Task, taskMap: Map<string, Task>): Task | null;
+export function findWorkstreamAncestor(task: Task, taskMap: Map<string, Task>): Task | null;
+export function getAllDescendantIds(taskId: string, taskMap: Map<string, Task>): Set<string>;
+export function isDescendantOf(taskId: string, ancestorId: string, taskMap: Map<string, Task>): boolean;
+export function generatePrefixedId(parent: Task, existingTasks: Task[]): string;
+export function computeInheritedFields(parentId: string | null, taskMap: Map<string, Task>): { project: string; workStream: string; okrs: string[] };
 ```
 
-**Contract 2 — New action types** (Group B defines):
+**Contract 2 — Dependency validation** (Group A provides, Group B consumes):
 ```typescript
-| { type: 'UNDO' } | { type: 'REDO' }
-| { type: 'SET_LAST_CASCADE_IDS'; taskIds: string[] }
-| { type: 'SET_CRITICAL_PATH_SCOPE'; scope: CriticalPathScope }
-| { type: 'TOGGLE_COLLAPSE_WEEKENDS' }
+// src/utils/dependencyValidation.ts
+export interface DepValidationError { code: string; message: string; }
+export function validateDependencyHierarchy(tasks: Task[], successorId: string, predecessorId: string): DepValidationError | null;
+export function checkMoveConflicts(tasks: Task[], taskId: string, newParentId: string): { dep: Dependency; reason: string }[];
 ```
 
-**Contract 3 — New state fields** (Group B adds to GanttState):
+**Contract 3 — New action types** (Group A defines, Group B consumes):
 ```typescript
-undoStack: Task[][]; redoStack: Task[][]; lastCascadeIds: string[];
-criticalPathScope: CriticalPathScope; collapseWeekends: boolean;
+| { type: 'REPARENT_TASK'; taskId: string; newParentId: string | null; newId?: string }
+| { type: 'SET_REPARENT_PICKER'; picker: { taskId: string } | null }
+| { type: 'TOGGLE_LEFT_PANE' }
+| { type: 'CLEAR_FOCUS_NEW_TASK' }
+```
+
+**Contract 4 — New state fields** (Group A adds to GanttState):
+```typescript
+focusNewTaskId: string | null;    // set by ADD_TASK, cleared by CLEAR_FOCUS_NEW_TASK
+isLeftPaneCollapsed: boolean;     // toggled by TOGGLE_LEFT_PANE
+reparentPicker: { taskId: string } | null;
+```
+
+**Contract 5 — CriticalPathScope change** (Group C modifies, Group A updates type):
+```typescript
+// Remove 'all' variant, add 'workstream':
+export type CriticalPathScope =
+  | { type: 'project'; name: string }
+  | { type: 'workstream'; name: string }
+  | { type: 'milestone'; id: string };
 ```
 
 ### Execution Order
-- Groups A and B run in parallel
-- Group C starts after A4 and B2 complete (needs WASM functions + new state fields)
-- Within-group parallelism noted in TASKS.md
+- Groups A and C run in parallel
+- Group B starts after A7 completes (needs types, hierarchy utils, and dep validation)
+- Within-group order: A1 → A2 → A3+A4+A5 → A6 → A7 → A8 → A9
+- Within-group order: C1 → C2 → C3 → C4
+- Within-group order: B1+B2+B3 → B4+B5+B6 → B7
 
-### Known Bugs Being Fixed
-1. `CASCADE_DEPENDENTS` missing from `applyActionToYjs()` switch — cascades don't sync to collab
-2. Backward drag past dependency constraint crashes app — no constraint enforcement
-3. Critical path marks standalone tasks — should only highlight connected chains
-4. Dependency modal click-outside broken — backdrop div intercepts clicks
+### Issues Addressed
+1. Workstream added within project auto-assigns to that project
+2. Task created within workstream inherits workStream + okrs
+3. New task IDs use workstream prefix (e.g. `pe-10`)
+4. Tasks can move between workstreams; ID + deps updated
+5. Add Task button focuses the new task for immediate editing
+6. Tasks editable from Gantt chart task bars (popover on double-click)
+7. Shortcut to collapse/expand the left table pane (Ctrl+B)
+8. Enforce project > workstream > task hierarchy + field consistency
+9. Block moves that would create dependency on own project/workstream
+10. Critical path scoped to projects/workstreams only (remove "All")
 
 ## Roadmap (Future)
 - Resource assignment and leveling
@@ -110,7 +146,8 @@ criticalPathScope: CriticalPathScope; collapseWeekends: boolean;
 - Export to PDF/PNG/CSV
 
 ## Completed Work
-Phases 0-5 are done (scaffolding, bug fixes, tests, Google Sheets sync, real-time collab, WASM scheduler).
+Phases 0-6 are done (scaffolding, bug fixes, tests, Google Sheets sync, real-time collab, WASM scheduler, UX improvements).
 Details in `docs/completed-phases.md`.
 - Phase 5: Rust→WASM scheduling engine — `crates/scheduler/` with CPM, cycle detection, cascade. Cloud Run deployment config in `deploy/cloudrun/`.
-- Phase 6: UX improvements — see task list in `TASKS.md` under "Phase 6".
+- Phase 6: UX improvements — undo/redo, cascade highlights, weekend collapse, critical path scoping, drag constraints, collab sync fix, column close buttons.
+- Phase 7: Hierarchy enforcement, task movement & UX — see task list in `TASKS.md` under "Phase 7".

@@ -55,8 +55,8 @@ export default function Toolbar() {
   );
 
   function scopeLabel(scope: CriticalPathScope): string {
-    if (scope.type === 'all') return 'All';
     if (scope.type === 'project') return scope.name;
+    if (scope.type === 'workstream') return scope.name;
     return milestoneTasks.find(t => t.id === scope.id)?.name ?? scope.id;
   }
 
@@ -244,14 +244,6 @@ export default function Toolbar() {
         )}
         {showCpScopeMenu && state.showCriticalPath && (
           <div className="absolute top-full left-0 mt-1 bg-surface-overlay border border-border-default rounded-lg shadow-xl p-1 z-40 min-w-[160px] fade-in">
-            <button
-              onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'all' } }); setShowCpScopeMenu(false); }}
-              className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                state.criticalPathScope.type === 'all' ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
-              }`}
-            >
-              All
-            </button>
             {projectNames.length > 0 && (
               <>
                 <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Projects</div>

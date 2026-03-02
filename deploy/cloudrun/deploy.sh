@@ -25,7 +25,7 @@ IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
 # Comma-separated list of allowed CORS origins for the relay server.
 # In production, set this to your frontend URL(s).
-ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-https://your-frontend-domain.com}"
+ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-https://${PROJECT_ID}.web.app,https://${PROJECT_ID}.firebaseapp.com}"
 
 # Minimum and maximum instances. Cloud Run can scale to zero by default.
 MIN_INSTANCES="${MIN_INSTANCES:-0}"

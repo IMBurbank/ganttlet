@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CriticalPathScope {
-    All,
     Project { name: String },
+    Workstream { name: String },
     Milestone { id: String },
 }
 
@@ -234,11 +234,18 @@ pub fn compute_critical_path(tasks: &[Task]) -> Vec<String> {
 /// Compute critical path scoped to a subset of tasks.
 pub fn compute_critical_path_scoped(tasks: &[Task], scope: &CriticalPathScope) -> Vec<String> {
     match scope {
-        CriticalPathScope::All => compute_critical_path(tasks),
         CriticalPathScope::Project { name } => {
             let filtered: Vec<Task> = tasks
                 .iter()
                 .filter(|t| t.project == *name)
+                .cloned()
+                .collect();
+            compute_critical_path(&filtered)
+        }
+        CriticalPathScope::Workstream { name } => {
+            let filtered: Vec<Task> = tasks
+                .iter()
+                .filter(|t| t.work_stream == *name)
                 .cloned()
                 .collect();
             compute_critical_path(&filtered)
@@ -250,13 +257,11 @@ pub fn compute_critical_path_scoped(tasks: &[Task], scope: &CriticalPathScope) -
             let mut subset_ids: HashSet<String> = HashSet::new();
             let mut queue: VecDeque<String> = VecDeque::new();
 
-            // Start from the milestone task
             if task_map.contains_key(id.as_str()) {
                 queue.push_back(id.clone());
                 subset_ids.insert(id.clone());
             }
 
-            // Walk backward through dependencies (follow fromId links)
             while let Some(current) = queue.pop_front() {
                 if let Some(task) = task_map.get(current.as_str()) {
                     for dep in &task.dependencies {
@@ -293,6 +298,7 @@ mod tests {
             is_summary: false,
             dependencies: vec![],
             project: String::new(),
+            work_stream: String::new(),
         }
     }
 
@@ -434,14 +440,14 @@ mod tests {
     }
 
     #[test]
-    fn scoped_all_same_as_default() {
-        let mut b = make_task("b", "2026-03-10", "2026-03-19", 9);
+    fn scoped_project_matches_all_when_same_project() {
+        let mut b = make_project_task("b", "2026-03-10", "2026-03-19", 9, "Alpha");
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 9), b];
+        let tasks = vec![make_project_task("a", "2026-03-01", "2026-03-10", 9, "Alpha"), b];
 
-        let default = compute_critical_path(&tasks);
-        let scoped = compute_critical_path_scoped(&tasks, &CriticalPathScope::All);
-        assert_eq!(default, scoped);
+        let scoped = compute_critical_path_scoped(&tasks, &CriticalPathScope::Project { name: "Alpha".to_string() });
+        let default_result = compute_critical_path(&tasks);
+        assert_eq!(default_result, scoped);
     }
 
     #[test]
@@ -506,5 +512,52 @@ mod tests {
         assert!(milestone_critical.contains(&"c".to_string()));
         assert!(milestone_critical.contains(&"ms".to_string()));
         assert!(!milestone_critical.contains(&"x".to_string()));
+    }
+
+    // --- Workstream-scoped critical path tests ---
+
+    fn make_workstream_task(id: &str, start: &str, end: &str, duration: i32, project: &str, ws: &str) -> Task {
+        Task {
+            project: project.to_string(),
+            work_stream: ws.to_string(),
+            ..make_task(id, start, end, duration)
+        }
+    }
+
+    #[test]
+    fn scoped_workstream_filters() {
+        // Engineering chain: e1 -> e2
+        let mut e2 = make_workstream_task("e2", "2026-03-11", "2026-03-20", 10, "Alpha", "Engineering");
+        e2.dependencies = vec![make_dep("e1", "e2", DepType::FS, 0)];
+
+        // Design chain: d1 -> d2
+        let mut d2 = make_workstream_task("d2", "2026-03-11", "2026-03-20", 10, "Alpha", "Design");
+        d2.dependencies = vec![make_dep("d1", "d2", DepType::FS, 0)];
+
+        let tasks = vec![
+            make_workstream_task("e1", "2026-03-01", "2026-03-10", 10, "Alpha", "Engineering"),
+            e2,
+            make_workstream_task("d1", "2026-03-01", "2026-03-10", 10, "Alpha", "Design"),
+            d2,
+        ];
+
+        let eng_critical = compute_critical_path_scoped(
+            &tasks,
+            &CriticalPathScope::Workstream { name: "Engineering".to_string() },
+        );
+        assert!(eng_critical.contains(&"e1".to_string()));
+        assert!(eng_critical.contains(&"e2".to_string()));
+        assert!(!eng_critical.contains(&"d1".to_string()));
+        assert!(!eng_critical.contains(&"d2".to_string()));
+    }
+
+    #[test]
+    fn workstream_scope_empty_returns_empty() {
+        let tasks = vec![make_workstream_task("a", "2026-03-01", "2026-03-10", 10, "Alpha", "Engineering")];
+        let result = compute_critical_path_scoped(
+            &tasks,
+            &CriticalPathScope::Workstream { name: "NonExistent".to_string() },
+        );
+        assert!(result.is_empty());
     }
 }

@@ -65,6 +65,7 @@ mod tests {
             is_summary: false,
             dependencies: vec![],
             project: String::new(),
+            work_stream: String::new(),
         }
     }
 

@@ -32,6 +32,8 @@ pub struct Task {
     pub dependencies: Vec<Dependency>,
     #[serde(default)]
     pub project: String,
+    #[serde(default)]
+    pub work_stream: String,
 }
 
 /// Result of a cascade operation: which task moved and its new dates.

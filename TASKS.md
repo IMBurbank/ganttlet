@@ -31,47 +31,47 @@ See `CLAUDE.md` for interface contracts and file ownership.
 **Files**: `src/utils/hierarchyUtils.ts` (new), `src/utils/dependencyValidation.ts` (new), `src/state/ganttReducer.ts`, `src/state/actions.ts`, `src/types/index.ts`, `src/state/GanttContext.tsx`, `src/collab/yjsBinding.ts`, `src/data/fakeData.ts`, `src/utils/__tests__/hierarchyUtils.test.ts` (new), `src/utils/__tests__/dependencyValidation.test.ts` (new), `src/state/__tests__/ganttReducer.test.ts`
 **Branch**: `feature/phase7-hierarchy-state`
 
-- [ ] **A1**: Create `src/utils/hierarchyUtils.ts`
+- [x] **A1**: Create `src/utils/hierarchyUtils.ts`
   - Pure functions for hierarchy queries: `getHierarchyRole`, `findProjectAncestor`, `findWorkstreamAncestor`, `getAllDescendantIds`, `isDescendantOf`, `generatePrefixedId`, `computeInheritedFields`
   - `getHierarchyRole(task, taskMap)` — project if `isSummary && !parentId`, workstream if `isSummary && parent is project`, else task
   - `generatePrefixedId(parent, tasks)` — find max N in `{parentId}-N` pattern, return `{parentId}-{N+1}`
   - `computeInheritedFields(parentId, taskMap)` — inherit `project`, `workStream`, `okrs` from parent based on role
 
-- [ ] **A2**: Create `src/utils/dependencyValidation.ts`
+- [x] **A2**: Create `src/utils/dependencyValidation.ts`
   - `validateDependencyHierarchy(tasks, successorId, predecessorId)` — projects can't depend on own descendants, workstreams can't depend on own children, tasks can't depend on ancestor project/workstream
   - `checkMoveConflicts(tasks, taskId, newParentId)` — check if task has deps on the target project/workstream entity itself (deps on sibling tasks are fine)
 
-- [ ] **A3**: Modify `ADD_TASK` in reducer (Issues #1, #2, #3)
+- [x] **A3**: Modify `ADD_TASK` in reducer (Issues #1, #2, #3)
   - Call `computeInheritedFields(parentId, taskMap)` for `project`, `workStream`, `okrs`
   - Call `generatePrefixedId(parent, tasks)` for workstream-prefixed ID
   - Set `focusNewTaskId: newId` in returned state (Issue #5 signal)
 
-- [ ] **A4**: Modify `UPDATE_TASK_FIELD` in reducer
+- [x] **A4**: Modify `UPDATE_TASK_FIELD` in reducer
   - When `field === 'name'` and task is a project or workstream, cascade field updates to descendants
   - Project rename → update `project` field on all descendants
   - Workstream rename → update `workStream` field on all descendants
 
-- [ ] **A5**: Add hierarchy validation to `ADD_DEPENDENCY`
+- [x] **A5**: Add hierarchy validation to `ADD_DEPENDENCY`
   - Call `validateDependencyHierarchy()` before adding; if invalid, return state unchanged
 
-- [ ] **A6**: Add `REPARENT_TASK` reducer case (Issue #4)
+- [x] **A6**: Add `REPARENT_TASK` reducer case (Issue #4)
   - Validate: not reparenting to self or own descendant
   - Call `checkMoveConflicts()` — reject if conflicts exist
   - Update `parentId`, `childIds`, inherited fields, reposition in array, update dependency references if `newId` provided
   - Call `recalcSummaryDates`
 
-- [ ] **A7**: Add new actions and state fields
+- [x] **A7**: Add new actions and state fields
   - `src/state/actions.ts`: Add `REPARENT_TASK`, `SET_REPARENT_PICKER`, `TOGGLE_LEFT_PANE`, `CLEAR_FOCUS_NEW_TASK`
   - `src/types/index.ts`: Add `focusNewTaskId`, `isLeftPaneCollapsed`, `reparentPicker` to GanttState; update `CriticalPathScope` to remove `all`, add `workstream`
   - `src/state/GanttContext.tsx`: Add initial values, `Ctrl+B` shortcut for `TOGGLE_LEFT_PANE`, change default `criticalPathScope`
   - `src/collab/yjsBinding.ts`: Handle `REPARENT_TASK` via full sync
 
-- [ ] **A8**: Fix seed data in `src/data/fakeData.ts`
+- [x] **A8**: Fix seed data in `src/data/fakeData.ts`
   - Fix inconsistent `project` fields — all tasks should have `project: 'Q2 Product Launch'`
   - Workstreams: set `project` to parent project's name, keep `workStream` as own name
   - Leaf tasks: set `project` to `'Q2 Product Launch'`, `workStream` to parent workstream's name
 
-- [ ] **A9**: Tests
+- [x] **A9**: Tests
   - `src/utils/__tests__/hierarchyUtils.test.ts` (new): hierarchy role classification, prefixed ID generation, inherited fields
   - `src/utils/__tests__/dependencyValidation.test.ts` (new): hierarchy violation rejection, cross-project deps allowed, move conflict detection
   - `src/state/__tests__/ganttReducer.test.ts` (extend): ADD_TASK inheritance, UPDATE_TASK_FIELD cascade, ADD_DEPENDENCY rejection, REPARENT_TASK

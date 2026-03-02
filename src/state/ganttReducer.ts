@@ -2,11 +2,14 @@ import type { GanttState, Task } from '../types';
 import type { GanttAction } from './actions';
 import { cascadeDependents } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
+import { computeInheritedFields, generatePrefixedId, getHierarchyRole, getAllDescendantIds, isDescendantOf } from '../utils/hierarchyUtils';
+import { validateDependencyHierarchy } from '../utils/dependencyValidation';
+import { checkMoveConflicts } from '../utils/dependencyValidation';
 
 const UNDOABLE_ACTIONS = new Set([
   'MOVE_TASK', 'RESIZE_TASK', 'CASCADE_DEPENDENTS',
   'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
-  'ADD_TASK', 'DELETE_TASK',
+  'ADD_TASK', 'DELETE_TASK', 'REPARENT_TASK',
 ]);
 
 export function ganttReducer(state: GanttState, action: GanttAction): GanttState {
@@ -43,11 +46,38 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'UPDATE_TASK_FIELD': {
+      const taskMap = new Map(state.tasks.map(t => [t.id, t]));
+      const targetTask = taskMap.get(action.taskId);
+
       let tasks = state.tasks.map(t =>
         t.id === action.taskId
           ? { ...t, [action.field]: action.value }
           : t
       );
+
+      // If renaming a project or workstream, cascade to descendants
+      if (action.field === 'name' && targetTask && typeof action.value === 'string') {
+        const role = getHierarchyRole(targetTask, taskMap);
+
+        if (role === 'project') {
+          // Update own project field + all descendants' project field
+          const descendantIds = getAllDescendantIds(action.taskId, taskMap);
+          tasks = tasks.map(t => {
+            if (t.id === action.taskId) return { ...t, project: action.value as string };
+            if (descendantIds.has(t.id)) return { ...t, project: action.value as string };
+            return t;
+          });
+        } else if (role === 'workstream') {
+          // Update own workStream field + all child tasks' workStream field
+          const descendantIds = getAllDescendantIds(action.taskId, taskMap);
+          tasks = tasks.map(t => {
+            if (t.id === action.taskId) return { ...t, workStream: action.value as string };
+            if (descendantIds.has(t.id)) return { ...t, workStream: action.value as string };
+            return t;
+          });
+        }
+      }
+
       tasks = recalcSummaryDates(tasks);
       return { ...state, tasks };
     }
@@ -147,6 +177,14 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, showCriticalPath: !state.showCriticalPath };
 
     case 'ADD_DEPENDENCY': {
+      // Validate hierarchy rules
+      const hierarchyError = validateDependencyHierarchy(
+        state.tasks,
+        action.taskId,
+        action.dependency.fromId
+      );
+      if (hierarchyError) return state; // Silently reject — UI filters invalid options
+
       let tasks = state.tasks.map(t =>
         t.id === action.taskId
           ? { ...t, dependencies: [...t.dependencies, action.dependency] }
@@ -193,7 +231,17 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, theme: action.theme };
 
     case 'ADD_TASK': {
-      const newId = `task-${Date.now()}`;
+      const addTaskMap = new Map(state.tasks.map(t => [t.id, t]));
+      const parent = action.parentId ? addTaskMap.get(action.parentId) : undefined;
+
+      // Generate ID: prefixed if parent is summary, otherwise timestamp
+      const newId = parent && parent.isSummary
+        ? generatePrefixedId(parent, state.tasks)
+        : `task-${Date.now()}`;
+
+      // Inherit fields from parent
+      const inherited = computeInheritedFields(action.parentId, addTaskMap);
+
       const today = new Date().toISOString().split('T')[0];
       const endDate = new Date();
       endDate.setDate(endDate.getDate() + 5);
@@ -206,8 +254,8 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         endDate: endDateStr,
         duration: 5,
         owner: '',
-        workStream: '',
-        project: '',
+        workStream: inherited.workStream,
+        project: inherited.project,
         functionalArea: '',
         done: false,
         description: '',
@@ -219,7 +267,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         isExpanded: false,
         isHidden: false,
         notes: '',
-        okrs: [],
+        okrs: inherited.okrs,
       };
 
       let tasks = [...state.tasks];
@@ -261,7 +309,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       }
 
       tasks = recalcSummaryDates(tasks);
-      return { ...state, tasks };
+      return { ...state, tasks, focusNewTaskId: newId };
     }
 
     case 'DELETE_TASK': {
@@ -324,6 +372,141 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         lastCascadeIds: [],
       };
     }
+
+    case 'REPARENT_TASK': {
+      const rTaskMap = new Map(state.tasks.map(t => [t.id, t]));
+      const rTask = rTaskMap.get(action.taskId);
+      if (!rTask) return state;
+
+      // Can't reparent to self
+      if (action.newParentId === action.taskId) return state;
+
+      // Can't reparent to own descendant
+      if (action.newParentId && isDescendantOf(action.newParentId, action.taskId, rTaskMap)) {
+        return state;
+      }
+
+      // Check for dependency conflicts
+      if (action.newParentId) {
+        const conflicts = checkMoveConflicts(state.tasks, action.taskId, action.newParentId);
+        if (conflicts.length > 0) return state;
+      }
+
+      let tasks = [...state.tasks];
+
+      // 1. Remove from old parent's childIds
+      if (rTask.parentId) {
+        tasks = tasks.map(t =>
+          t.id === rTask.parentId
+            ? { ...t, childIds: t.childIds.filter(cid => cid !== action.taskId) }
+            : t
+        );
+      }
+
+      // 2. Determine new ID
+      const newId = action.newId || action.taskId;
+      const oldId = action.taskId;
+
+      // 3. Compute inherited fields from new parent
+      const updatedTaskMap = new Map(tasks.map(t => [t.id, t]));
+      const rInherited = computeInheritedFields(action.newParentId, updatedTaskMap);
+
+      // 4. Update the task itself
+      tasks = tasks.map(t => {
+        if (t.id === oldId) {
+          return {
+            ...t,
+            id: newId,
+            parentId: action.newParentId,
+            project: rInherited.project,
+            workStream: rInherited.workStream,
+          };
+        }
+        return t;
+      });
+
+      // 5. Add to new parent's childIds
+      if (action.newParentId) {
+        tasks = tasks.map(t =>
+          t.id === action.newParentId
+            ? { ...t, childIds: [...t.childIds, newId] }
+            : t
+        );
+      }
+
+      // 6. If ID changed, update all references
+      if (newId !== oldId) {
+        tasks = tasks.map(t => {
+          let updated = t;
+
+          // Update parentId references
+          if (t.parentId === oldId) {
+            updated = { ...updated, parentId: newId };
+          }
+
+          // Update childIds references
+          if (t.childIds.includes(oldId)) {
+            updated = { ...updated, childIds: updated.childIds.map(cid => cid === oldId ? newId : cid) };
+          }
+
+          // Update dependency references (fromId and toId)
+          const newDeps = t.dependencies.map(d => ({
+            ...d,
+            fromId: d.fromId === oldId ? newId : d.fromId,
+            toId: d.toId === oldId ? newId : d.toId,
+          }));
+          if (JSON.stringify(newDeps) !== JSON.stringify(t.dependencies)) {
+            updated = { ...updated, dependencies: newDeps };
+          }
+
+          return updated;
+        });
+      }
+
+      // 7. Also update descendants' inherited fields
+      const rDescendantIds = getAllDescendantIds(newId, new Map(tasks.map(t => [t.id, t])));
+      if (rDescendantIds.size > 0) {
+        tasks = tasks.map(t => {
+          if (rDescendantIds.has(t.id)) {
+            return { ...t, project: rInherited.project, workStream: rInherited.workStream || t.workStream };
+          }
+          return t;
+        });
+      }
+
+      // 8. Reposition task in array after new parent
+      if (action.newParentId) {
+        const taskToMove = tasks.find(t => t.id === newId);
+        if (taskToMove) {
+          tasks = tasks.filter(t => t.id !== newId);
+          const parentIdx = tasks.findIndex(t => t.id === action.newParentId);
+          if (parentIdx !== -1) {
+            // Insert after parent's last descendant
+            let insertIdx = parentIdx + 1;
+            const parentTask = tasks[parentIdx];
+            const parentDescendants = getAllDescendantIds(parentTask.id, new Map(tasks.map(t => [t.id, t])));
+            while (insertIdx < tasks.length && parentDescendants.has(tasks[insertIdx].id)) {
+              insertIdx++;
+            }
+            tasks.splice(insertIdx, 0, taskToMove);
+          } else {
+            tasks.push(taskToMove);
+          }
+        }
+      }
+
+      tasks = recalcSummaryDates(tasks);
+      return { ...state, tasks, reparentPicker: null };
+    }
+
+    case 'SET_REPARENT_PICKER':
+      return { ...state, reparentPicker: action.picker };
+
+    case 'TOGGLE_LEFT_PANE':
+      return { ...state, isLeftPaneCollapsed: !state.isLeftPaneCollapsed };
+
+    case 'CLEAR_FOCUS_NEW_TASK':
+      return { ...state, focusNewTaskId: null };
 
     default:
       return state;

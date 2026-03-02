@@ -57,8 +57,11 @@ function makeState(overrides: Partial<GanttState> = {}): GanttState {
     undoStack: [],
     redoStack: [],
     lastCascadeIds: [],
-    criticalPathScope: { type: 'all' },
+    criticalPathScope: { type: 'project', name: '' },
     collapseWeekends: true,
+    focusNewTaskId: null,
+    isLeftPaneCollapsed: false,
+    reparentPicker: null,
     ...overrides,
   };
 }
@@ -256,6 +259,231 @@ describe('ganttReducer', () => {
       });
       const result = ganttReducer(state, { type: 'DELETE_TASK', taskId: 'parent' });
       expect(result.tasks).toHaveLength(0);
+    });
+  });
+
+  describe('ADD_TASK with hierarchy inheritance', () => {
+    it('inherits project, workStream, okrs from workstream parent and gets prefixed ID', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'root', name: 'Q2 Launch', isSummary: true, parentId: null, childIds: ['pe'] }),
+          makeTask({ id: 'pe', name: 'Platform', isSummary: true, parentId: 'root', project: 'Q2 Launch', okrs: ['KR-1'], childIds: ['pe-1', 'pe-3'] }),
+          makeTask({ id: 'pe-1', parentId: 'pe' }),
+          makeTask({ id: 'pe-3', parentId: 'pe' }),
+        ],
+      });
+      const result = ganttReducer(state, { type: 'ADD_TASK', parentId: 'pe', afterTaskId: null });
+      const newTask = result.tasks.find(t => t.id === 'pe-4');
+      expect(newTask).toBeDefined();
+      expect(newTask!.project).toBe('Q2 Launch');
+      expect(newTask!.workStream).toBe('Platform');
+      expect(newTask!.okrs).toEqual(['KR-1']);
+      expect(newTask!.parentId).toBe('pe');
+    });
+
+    it('sets focusNewTaskId after adding task', () => {
+      const state = makeState({ tasks: [] });
+      const result = ganttReducer(state, { type: 'ADD_TASK', parentId: null, afterTaskId: null });
+      expect(result.focusNewTaskId).toBeTruthy();
+      expect(result.tasks.find(t => t.id === result.focusNewTaskId)).toBeDefined();
+    });
+
+    it('inherits project name from project parent', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'root', name: 'Q2 Launch', isSummary: true, parentId: null, childIds: [] }),
+        ],
+      });
+      const result = ganttReducer(state, { type: 'ADD_TASK', parentId: 'root', afterTaskId: null });
+      const newTask = result.tasks.find(t => t.parentId === 'root' && t.id !== 'root');
+      expect(newTask).toBeDefined();
+      expect(newTask!.project).toBe('Q2 Launch');
+      expect(newTask!.workStream).toBe('');
+    });
+  });
+
+  describe('UPDATE_TASK_FIELD with cascade', () => {
+    it('cascades project name to all descendants when renaming a project', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'root', name: 'Old Project', isSummary: true, parentId: null, project: 'Old Project', childIds: ['ws'] }),
+          makeTask({ id: 'ws', isSummary: true, parentId: 'root', project: 'Old Project', childIds: ['t1'] }),
+          makeTask({ id: 't1', parentId: 'ws', project: 'Old Project' }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'UPDATE_TASK_FIELD',
+        taskId: 'root',
+        field: 'name',
+        value: 'New Project',
+      });
+      expect(result.tasks.find(t => t.id === 'root')!.project).toBe('New Project');
+      expect(result.tasks.find(t => t.id === 'ws')!.project).toBe('New Project');
+      expect(result.tasks.find(t => t.id === 't1')!.project).toBe('New Project');
+    });
+
+    it('cascades workStream name to descendants when renaming a workstream', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws'] }),
+          makeTask({ id: 'ws', name: 'Old WS', isSummary: true, parentId: 'root', workStream: 'Old WS', childIds: ['t1'] }),
+          makeTask({ id: 't1', parentId: 'ws', workStream: 'Old WS' }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'UPDATE_TASK_FIELD',
+        taskId: 'ws',
+        field: 'name',
+        value: 'New WS',
+      });
+      expect(result.tasks.find(t => t.id === 'ws')!.workStream).toBe('New WS');
+      expect(result.tasks.find(t => t.id === 't1')!.workStream).toBe('New WS');
+    });
+  });
+
+  describe('ADD_DEPENDENCY with hierarchy validation', () => {
+    it('rejects dependency where predecessor is ancestor of successor', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['t1'] }),
+          makeTask({ id: 't1', parentId: 'root' }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'ADD_DEPENDENCY',
+        taskId: 't1',
+        dependency: { fromId: 'root', toId: 't1', type: 'FS', lag: 0 },
+      });
+      // Should be silently rejected
+      const t1 = result.tasks.find(t => t.id === 't1')!;
+      expect(t1.dependencies).toHaveLength(0);
+    });
+  });
+
+  describe('REPARENT_TASK', () => {
+    it('updates parentId and childIds correctly', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'p1', isSummary: true, childIds: ['t1'] }),
+          makeTask({ id: 't1', parentId: 'p1' }),
+          makeTask({ id: 'p2', isSummary: true, childIds: [] }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'REPARENT_TASK',
+        taskId: 't1',
+        newParentId: 'p2',
+      });
+      const p1 = result.tasks.find(t => t.id === 'p1')!;
+      const p2 = result.tasks.find(t => t.id === 'p2')!;
+      const t1 = result.tasks.find(t => t.id === 't1')!;
+      expect(p1.childIds).not.toContain('t1');
+      expect(p2.childIds).toContain('t1');
+      expect(t1.parentId).toBe('p2');
+    });
+
+    it('updates inherited fields from new parent', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws1', 'ws2'] }),
+          makeTask({ id: 'ws1', name: 'WS1', isSummary: true, parentId: 'root', project: 'Proj', childIds: ['t1'] }),
+          makeTask({ id: 't1', parentId: 'ws1', project: 'Proj', workStream: 'WS1' }),
+          makeTask({ id: 'ws2', name: 'WS2', isSummary: true, parentId: 'root', project: 'Proj', childIds: [] }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'REPARENT_TASK',
+        taskId: 't1',
+        newParentId: 'ws2',
+      });
+      const t1 = result.tasks.find(t => t.id === 't1')!;
+      expect(t1.workStream).toBe('WS2');
+      expect(t1.project).toBe('Proj');
+    });
+
+    it('updates dependency references when ID changes', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws1', 'ws2'] }),
+          makeTask({ id: 'ws1', isSummary: true, parentId: 'root', project: 'Proj', childIds: ['t1'] }),
+          makeTask({ id: 't1', parentId: 'ws1' }),
+          makeTask({ id: 'ws2', isSummary: true, parentId: 'root', project: 'Proj', childIds: ['t2'] }),
+          makeTask({ id: 't2', parentId: 'ws2', dependencies: [{ fromId: 't1', toId: 't2', type: 'FS', lag: 0 }] }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'REPARENT_TASK',
+        taskId: 't1',
+        newParentId: 'ws2',
+        newId: 't1-new',
+      });
+      const t2 = result.tasks.find(t => t.id === 't2')!;
+      expect(t2.dependencies[0].fromId).toBe('t1-new');
+    });
+
+    it('rejects reparent to own descendant', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'p', isSummary: true, childIds: ['c'] }),
+          makeTask({ id: 'c', parentId: 'p' }),
+        ],
+      });
+      const result = ganttReducer(state, {
+        type: 'REPARENT_TASK',
+        taskId: 'p',
+        newParentId: 'c',
+      });
+      // Should be unchanged
+      expect(result.tasks.find(t => t.id === 'p')!.parentId).toBeNull();
+    });
+
+    it('clears reparentPicker after reparent', () => {
+      const state = makeState({
+        tasks: [
+          makeTask({ id: 'p1', isSummary: true, childIds: ['t1'] }),
+          makeTask({ id: 't1', parentId: 'p1' }),
+          makeTask({ id: 'p2', isSummary: true, childIds: [] }),
+        ],
+        reparentPicker: { taskId: 't1' },
+      });
+      const result = ganttReducer(state, {
+        type: 'REPARENT_TASK',
+        taskId: 't1',
+        newParentId: 'p2',
+      });
+      expect(result.reparentPicker).toBeNull();
+    });
+  });
+
+  describe('TOGGLE_LEFT_PANE', () => {
+    it('toggles isLeftPaneCollapsed', () => {
+      const state = makeState({ isLeftPaneCollapsed: false });
+      const result = ganttReducer(state, { type: 'TOGGLE_LEFT_PANE' });
+      expect(result.isLeftPaneCollapsed).toBe(true);
+      const result2 = ganttReducer(result, { type: 'TOGGLE_LEFT_PANE' });
+      expect(result2.isLeftPaneCollapsed).toBe(false);
+    });
+  });
+
+  describe('CLEAR_FOCUS_NEW_TASK', () => {
+    it('clears focusNewTaskId', () => {
+      const state = makeState({ focusNewTaskId: 'some-id' });
+      const result = ganttReducer(state, { type: 'CLEAR_FOCUS_NEW_TASK' });
+      expect(result.focusNewTaskId).toBeNull();
+    });
+  });
+
+  describe('SET_REPARENT_PICKER', () => {
+    it('sets reparent picker', () => {
+      const state = makeState({ reparentPicker: null });
+      const result = ganttReducer(state, { type: 'SET_REPARENT_PICKER', picker: { taskId: 'x' } });
+      expect(result.reparentPicker).toEqual({ taskId: 'x' });
+    });
+
+    it('clears reparent picker', () => {
+      const state = makeState({ reparentPicker: { taskId: 'x' } });
+      const result = ganttReducer(state, { type: 'SET_REPARENT_PICKER', picker: null });
+      expect(result.reparentPicker).toBeNull();
     });
   });
 });

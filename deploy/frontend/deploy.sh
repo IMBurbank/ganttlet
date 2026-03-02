@@ -1,16 +1,37 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# NOTE: Do not use `set -e` here. These deploy scripts are typically `source`d
+# so that env vars like FRONTEND_URL propagate to the caller. With `set -e`,
+# any command failure would kill the interactive shell session.
+set -uo pipefail
 
-PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID to your GCP project}"
+# If PROJECT_ID is not set, run interactive setup
+if [[ -z "${PROJECT_ID:-}" ]]; then
+  echo "PROJECT_ID not set. Running setup..."
+  # shellcheck source=../setup.sh
+  source "$(dirname "$0")/../setup.sh" --skip-apis
+fi
 REGION="${REGION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-ganttlet-frontend}"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
+# Write .env.production from RELAY_URL if available
+if [[ -n "${RELAY_URL:-}" ]]; then
+  RELAY_WSS="wss://$(echo "${RELAY_URL}" | sed 's|https://||')"
+  echo "VITE_COLLAB_URL=${RELAY_WSS}" > .env.production
+  echo "==> Wrote .env.production (VITE_COLLAB_URL=${RELAY_WSS})"
+elif [[ -f .env.production ]]; then
+  echo "==> Using existing .env.production"
+else
+  echo "WARNING: RELAY_URL not set and .env.production not found."
+  echo "         The frontend will build without a collab server URL."
+  echo "         Set RELAY_URL or create .env.production manually."
+fi
+
 echo "==> Building container image with Cloud Build..."
 gcloud builds submit \
   --project="${PROJECT_ID}" \
-  --tag="${IMAGE_NAME}" \
-  --timeout=600 \
+  --config="deploy/frontend/cloudbuild.yaml" \
+  --substitutions="_IMAGE_NAME=${IMAGE_NAME}" \
   /workspace
 
 echo "==> Deploying to Cloud Run (${REGION})..."
@@ -24,14 +45,19 @@ gcloud run deploy "${SERVICE_NAME}" \
   --memory=128Mi \
   --cpu=1 \
   --min-instances=0 \
-  --max-instances=10 \
-  --startup-probe-path=/healthz
+  --max-instances=10
 
 SERVICE_URL=$(gcloud run services describe "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
   --region="${REGION}" \
   --format='value(status.url)')
 
+# Export the frontend URL so subsequent pipeline steps can use it
+export FRONTEND_URL="${SERVICE_URL}"
+
 echo ""
 echo "==> Frontend deployment complete!"
 echo "    URL: ${SERVICE_URL}"
+echo ""
+echo "    FRONTEND_URL exported. Use it to set ALLOWED_ORIGINS for the relay server."
+echo ""

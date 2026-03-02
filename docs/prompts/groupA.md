@@ -1,4 +1,6 @@
-You are implementing Phase 8 Group A for the Ganttlet project.
+# Phase 9 Group A — UX Polish
+
+You are implementing Phase 9 Group A for the Ganttlet project.
 Read CLAUDE.md and TASKS.md for full context.
 
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
@@ -6,58 +8,52 @@ Execute all tasks sequentially without stopping for approval.
 If you encounter an error, fix it and continue. If you cannot fix it after 3 attempts, commit what you have and move on to the next task.
 
 ## Your files (ONLY modify these):
-- src/components/table/InlineEdit.tsx
-- src/components/table/TaskRow.tsx
-- src/components/table/TaskTable.tsx
-- src/data/fakeData.ts
-- src/components/shared/OKRPickerModal.tsx (new)
+- src/components/layout/Header.tsx
+- src/components/panels/UserPresence.tsx
+- src/state/GanttContext.tsx
 
 ## Tasks — execute in order:
 
-### A1: Fix cell editability bug (P0)
-Most table cells are no longer editable. This is a Phase 7 regression.
+### A1: Add share button to Header.tsx
 
-**Investigation steps:**
-1. Start the dev server: `npx vite --host 0.0.0.0`
-2. Open the app and try double-clicking various cells (name, owner, description, notes, start/end dates, duration)
-3. Check which cells work and which don't
+Add a "Share" button in the header controls area — after `SyncStatusIndicator`, before the Google sign-in section (around line 38 in the `<div className="flex items-center gap-4">` block).
 
-**Likely root causes (investigate all):**
-1. In `InlineEdit.tsx` (line 19-24): the `autoEdit` effect runs whenever `autoEdit` prop changes. If TaskTable rapidly cycles `autoFocusName` (true→false via CLEAR_FOCUS_NEW_TASK), the effect may interfere with editing state on other InlineEdit instances. Fix: guard the effect to only act on `autoEdit === true` transitions, and use a ref to track previous value.
-2. In `TaskTable.tsx` (line 28-33): `CLEAR_FOCUS_NEW_TASK` fires in `requestAnimationFrame`, which triggers a re-render before InlineEdit can settle. Fix: use two nested `requestAnimationFrame` calls or a short `setTimeout` (50ms).
-3. In `TaskRow.tsx` (line 208-228): verify `readOnly` is ONLY applied to:
-   - `workStream` when role === 'task' (correct)
-   - `project` when role === 'task' || role === 'workstream' (correct)
-   - NO other cells should have `readOnly`
-4. Check if the `PresenceCell` wrapper's `onClick` handler is capturing events before `onDoubleClick` on InlineEdit.
+**Implementation:**
+1. Add local state: `const [copied, setCopied] = useState(false);`
+2. Add a click handler that copies the current URL:
+   ```typescript
+   const handleShare = useCallback(() => {
+     navigator.clipboard.writeText(window.location.href).then(() => {
+       setCopied(true);
+       setTimeout(() => setCopied(false), 2000);
+     });
+   }, []);
+   ```
+3. Add the button JSX between `<SyncStatusIndicator />` and the Google sign-in section:
+   ```tsx
+   <button
+     onClick={handleShare}
+     className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-overlay transition-colors"
+   >
+     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+       <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+       <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+     </svg>
+     {copied ? 'Copied!' : 'Share'}
+   </button>
+   ```
+4. Style should match existing header buttons (`text-xs`, `text-text-secondary`, hover patterns).
 
-**Deliverable:** All non-inherited cells are double-click editable. Summary task dates and milestones are read-only (existing behavior). Inherited project/workStream cells remain read-only.
+### A2: Remove fake user presence icons
 
-### A2: Populate OKR seed data
-In `fakeData.ts`, add OKRs to workstream summary tasks (currently `okrs: []`):
-- `pe` (Platform Engineering): `["KR: API p99 latency < 200ms", "KR: Zero-downtime migration", "KR: 99.9% uptime SLA"]`
-- `ux` (User Experience): `["KR: User satisfaction > 4.5/5", "KR: Ship design system v2", "KR: WCAG 2.1 AA compliance"]`
-- `gtm` (Go-to-Market): `["KR: 20% market share increase", "KR: 3x website conversion rate", "KR: 50 published content pieces"]`
+**In `UserPresence.tsx`:**
+- Remove the entire fallback block (lines 48-74) that renders `users` (fake data) when collab is disconnected.
+- Instead, return `null` when `!(isCollabConnected && collabUsers.length > 0)`.
+- The component should ONLY render real collab users (the first return block, lines 9-45).
 
-Verify every leaf task already has at least one OKR from its parent workstream's set. The seed data already has OKRs on leaf tasks; just add them to the three workstream summary tasks.
-
-### A3: Create OKR picker modal + wire into TaskRow
-Create `src/components/shared/OKRPickerModal.tsx`:
-- Multi-select checkbox list showing parent workstream's OKRs
-- Uses `findWorkstreamAncestor()` from `src/utils/hierarchyUtils.ts` to get available OKRs
-- Props: `{ taskId, currentOkrs, availableOkrs, onSave, onClose }`
-- Renders as a portal-based modal (consistent with ReparentPickerModal style)
-- Save button dispatches `UPDATE_TASK_FIELD` with `field: 'okrs'`
-
-In `TaskRow.tsx`:
-- Replace the OKR cell's `InlineEdit` (line 232-247) with a clickable display + modal trigger
-- On click, open OKRPickerModal with the task's current OKRs and the workstream's available OKRs
-- Use local state in TaskRow to manage modal open/close
-
-### A4: Tests
-Add tests in existing test files or new test files:
-1. Editability regression test: create a test that renders TaskRow for each hierarchy role (project, workstream, task) and verifies which cells are editable vs read-only
-2. OKR inheritance test: verify new tasks created under a workstream inherit the workstream's OKRs
+**In `GanttContext.tsx`:**
+- Line 29: change `users: fakeUsers` to `users: []`
+- Line 5: remove `fakeUsers` from the import. Keep `fakeTasks`, `fakeChangeHistory`, `defaultColumns`.
 
 ## Verification
 After all tasks, run:

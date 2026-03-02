@@ -1,0 +1,14 @@
+# Cloud Build config for the Ganttlet relay server.
+# Uses Dockerfile.server (not the dev Dockerfile) to build the production image.
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_IMAGE_NAME}'
+      - '-f'
+      - 'Dockerfile.server'
+      - '.'
+images:
+  - '${_IMAGE_NAME}'
+timeout: 600s

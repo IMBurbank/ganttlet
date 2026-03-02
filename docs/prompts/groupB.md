@@ -1,4 +1,6 @@
-You are implementing Phase 8 Group B for the Ganttlet project.
+# Phase 9 Group B — Cascade Bug Fix
+
+You are implementing Phase 9 Group B for the Ganttlet project.
 Read CLAUDE.md and TASKS.md for full context.
 
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
@@ -6,161 +8,159 @@ Execute all tasks sequentially without stopping for approval.
 If you encounter an error, fix it and continue. If you cannot fix it after 3 attempts, commit what you have and move on to the next task.
 
 ## Your files (ONLY modify these):
-- crates/scheduler/src/cpm.rs
-- crates/scheduler/src/types.rs (if needed)
-- crates/scheduler/src/lib.rs (if needed)
-- src/utils/schedulerWasm.ts
-- src/components/gantt/CascadeHighlight.tsx
-- src/components/gantt/GanttChart.tsx
-- src/state/ganttReducer.ts
-- src/types/index.ts
-- src/state/GanttContext.tsx
-- src/state/actions.ts
+- src/components/table/TaskRow.tsx
+- src/components/gantt/TaskBar.tsx
+- src/components/gantt/TaskBarPopover.tsx
+- src/state/__tests__/ganttReducer.test.ts
 
-## Prerequisites
-Ensure Rust toolchain is available:
-```bash
-source ~/.cargo/env
-which wasm-pack  # should exist
-```
+## Bug Description
 
-If WASM build fails, ensure the symlink exists:
-```bash
-ls -la src/wasm/scheduler  # should point to /workspace/src/wasm/scheduler
-```
+Tasks don't cascade when the duration of their dependencies is increased. Cascade only fires when the start date changes (task move). When the end date changes (via end-date edit or duration change) or when resizing a bar, no `CASCADE_DEPENDENTS` dispatch is made. The Rust cascade engine works fine — the bug is entirely in the TypeScript dispatch call sites.
 
 ## Tasks — execute in order:
 
-### B1: Fix critical path highlighting (P1)
-The critical path only highlights the last milestone instead of the full chain.
+### B1: Fix TaskRow.tsx — cascade on end-date and duration changes
 
-**Root cause:** In `cpm.rs` line 226, the condition `float.abs() < 1 && (has_predecessors || has_successors)` excludes zero-float tasks that don't have dependencies within the scoped subset. When filtering by project/workstream, some critical tasks lose their dependency connections because predecessors/successors are outside the filtered set.
-
-**Fix:**
-1. In `cpm.rs` line 226, change:
-   ```rust
-   if float.abs() < 1 && (has_predecessors || has_successors) {
-   ```
-   to:
-   ```rust
-   if float.abs() < 1 {
-   ```
-2. Update the test `standalone_task_not_critical` — when a single standalone task is the only task, it IS critical (it determines the project end). Change the assertion to `assert!(critical.contains(...))`.
-3. The `standalone_task_alongside_chain` test should still pass — the standalone task "c" has float (shorter than the chain) so it remains non-critical.
-4. Run `cd crates/scheduler && cargo test` to verify.
-
-### B2: Fix workstream critical path crash (P0)
-Selecting workstream critical path crashes the app and tears down the WebSocket.
-
-**Fix:** Wrap ALL WASM wrapper functions in `schedulerWasm.ts` with try-catch:
+**End-date branch** (`handleDateUpdate`, the `else` block around lines 77-87):
+After the existing dispatches (UPDATE_TASK_FIELD for endDate + duration, ADD_CHANGE_RECORD), add a CASCADE_DEPENDENTS dispatch:
 ```typescript
-export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScope): Set<string> {
-  if (!wasmModule) throw new Error('WASM scheduler not initialized');
-  try {
-    const result: string[] = wasmModule.compute_critical_path_scoped(mapTasksToWasm(tasks), scope);
-    return new Set(result);
-  } catch (err) {
-    console.error('computeCriticalPathScoped failed:', err, 'scope:', scope);
-    return new Set<string>();
+const endDelta = daysBetween(oldValue, value);
+if (endDelta !== 0) {
+  dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
+}
+```
+
+**Duration handler** (`handleDurationUpdate`, lines 90-102):
+Save the old end date before computing the new one, then add CASCADE_DEPENDENTS after existing dispatches:
+```typescript
+function handleDurationUpdate(value: string) {
+  const newDuration = parseInt(value, 10);
+  if (isNaN(newDuration) || newDuration < 0) return;
+  const oldEndDate = task.endDate;  // save before recomputing
+  const oldValue = String(task.duration);
+  const newEndDate = addDaysToDate(task.startDate, newDuration);
+  dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
+  dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
+  dispatch({
+    type: 'ADD_CHANGE_RECORD',
+    taskId: task.id, taskName: task.name, field: 'duration',
+    oldValue, newValue: value, user: 'You',
+  });
+  const endDelta = daysBetween(oldEndDate, newEndDate);
+  if (endDelta !== 0) {
+    dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
   }
 }
 ```
 
-Apply the same try-catch pattern to: `computeCriticalPath`, `computeEarliestStart`, `wouldCreateCycle`, `cascadeDependents`, `cascadeDependentsWithIds`.
+### B2: Fix TaskBar.tsx — cascade on resize
 
-Also investigate: the serde attribute `#[serde(tag = "type", rename_all = "camelCase")]` on `CriticalPathScope` maps `Workstream { name }` to `{ type: "workstream", name }` in JSON. Verify the TypeScript side sends exactly this shape. Log the scope object if there's a mismatch.
+In the `onMouseUp` handler (lines 101-114), add an `else` branch for resize mode.
 
-### B3: Rebuild WASM + verify
-After Rust changes in B1:
-```bash
-npm run build:wasm
-cd crates/scheduler && cargo test
-```
+1. Add `lastEndDate: string` to the dragRef type (line 46-52):
+   ```typescript
+   const dragRef = useRef<{
+     startX: number;
+     origStartDate: string;
+     origEndDate: string;
+     mode: 'move' | 'resize';
+     lastStartDate: string;
+     lastEndDate: string;
+   } | null>(null);
+   ```
 
-If you're in a worktree with a symlink, remove the symlink and do a real WASM build:
-```bash
-rm -f src/wasm/scheduler  # remove symlink
-npm run build:wasm         # real build into src/wasm/scheduler/
-```
+2. Initialize `lastEndDate` in `handleMouseDown` (line 63):
+   ```typescript
+   dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode, lastStartDate: startDate, lastEndDate: endDate };
+   ```
 
-Verify in browser: start dev server (`npx vite --host 0.0.0.0`), enable critical path for project scope, confirm full chain is highlighted.
+3. In `onMouseMove` resize path (around line 97, after the RESIZE_TASK dispatch):
+   ```typescript
+   dragRef.current.lastEndDate = newEndStr;
+   ```
 
-### B4: Replace cascade highlight with shadow trail (P2)
-The current cascade highlight is a static amber rectangle that looks jittery.
-Replace it with a shadow trail stretching from original position to current position.
+4. In `onMouseUp`, add the resize cascade:
+   ```typescript
+   if (finalTask.mode === 'move') {
+     const delta = daysBetween(finalTask.origStartDate, finalTask.lastStartDate);
+     if (delta !== 0) {
+       dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
+     }
+   } else {
+     const endDelta = daysBetween(finalTask.origEndDate, finalTask.lastEndDate);
+     if (endDelta !== 0) {
+       dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
+     }
+   }
+   ```
 
-**Step 1 — Types** (`src/types/index.ts`):
+### B3: Fix TaskBarPopover.tsx — cascade on end-date change
+
+In `saveField` (lines 71-80, the `endDate` branch), add CASCADE_DEPENDENTS after the existing dispatches:
 ```typescript
-export interface CascadeShift {
-  taskId: string;
-  fromStartDate: string;
-  fromEndDate: string;
-}
-```
-Add `cascadeShifts: CascadeShift[]` to `GanttState`.
-
-**Step 2 — Actions** (`src/state/actions.ts`):
-Add: `| { type: 'SET_CASCADE_SHIFTS'; shifts: CascadeShift[] }`
-
-**Step 3 — Reducer** (`src/state/ganttReducer.ts`):
-In `CASCADE_DEPENDENTS` handler, capture pre-cascade dates:
-```typescript
-case 'CASCADE_DEPENDENTS': {
-  const preCascadeDates = new Map(state.tasks.map(t => [t.id, { start: t.startDate, end: t.endDate }]));
-  let tasks = cascadeDependents(state.tasks, action.taskId, action.daysDelta);
-  const changedIds: string[] = [];
-  const shifts: CascadeShift[] = [];
-  for (let i = 0; i < tasks.length; i++) {
-    const pre = preCascadeDates.get(tasks[i].id);
-    if (pre && (tasks[i].startDate !== pre.start || tasks[i].endDate !== pre.end)) {
-      changedIds.push(tasks[i].id);
-      shifts.push({ taskId: tasks[i].id, fromStartDate: pre.start, fromEndDate: pre.end });
-    }
+} else if (field === 'endDate') {
+  const newDuration = daysBetween(task!.startDate, value);
+  if (newDuration < 0) return;
+  dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
+  dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });
+  dispatch({
+    type: 'ADD_CHANGE_RECORD',
+    taskId, taskName: task!.name, field: 'endDate',
+    oldValue, newValue: value, user: 'You',
+  });
+  const endDelta = daysBetween(oldValue, value);
+  if (endDelta !== 0) {
+    dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
   }
-  tasks = recalcSummaryDates(tasks);
-  return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: shifts };
 }
 ```
 
-Add `SET_CASCADE_SHIFTS` handler:
+### B4: Add tests for cascade on duration/end-date changes
+
+In `src/state/__tests__/ganttReducer.test.ts`, add a describe block:
+
 ```typescript
-case 'SET_CASCADE_SHIFTS':
-  return { ...state, cascadeShifts: action.shifts };
+describe('CASCADE_DEPENDENTS on end-date/duration changes', () => {
+  it('cascades dependents when end date increases (positive delta)', () => {
+    const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
+    const child = makeTask({
+      id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
+      dependencies: [{ fromId: 'A', toId: 'B', type: 'finish-to-start' }],
+    });
+    let state = makeState({ tasks: [parent, child] });
+
+    // Simulate end date change: A's end date moves from Mar 10 to Mar 15 (5 day delta)
+    state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-15' });
+    state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: 5 });
+
+    const childTask = state.tasks.find(t => t.id === 'B')!;
+    expect(childTask.startDate).toBe('2026-03-16');
+    expect(childTask.endDate).toBe('2026-03-25');
+  });
+
+  it('cascades dependents when duration decreases (negative delta)', () => {
+    const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
+    const child = makeTask({
+      id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
+      dependencies: [{ fromId: 'A', toId: 'B', type: 'finish-to-start' }],
+    });
+    let state = makeState({ tasks: [parent, child] });
+
+    // Simulate duration decrease: A's end date moves from Mar 10 to Mar 7 (-3 day delta)
+    state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-07' });
+    state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'duration', value: 6 });
+    state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: -3 });
+
+    const childTask = state.tasks.find(t => t.id === 'B')!;
+    expect(childTask.startDate).toBe('2026-03-08');
+    expect(childTask.endDate).toBe('2026-03-17');
+  });
+});
 ```
-
-**Step 4 — Context** (`src/state/GanttContext.tsx`):
-Add `cascadeShifts: []` to initial state.
-The existing auto-clear for `lastCascadeIds` in GanttChart.tsx should also clear cascade shifts. Or add a parallel useEffect in GanttChart.
-
-**Step 5 — CascadeHighlight** (`src/components/gantt/CascadeHighlight.tsx`):
-Rewrite to accept both original and current positions:
-```typescript
-interface CascadeHighlightProps {
-  originalX: number;
-  currentX: number;
-  y: number;
-  originalWidth: number;
-  currentWidth: number;
-  height: number;
-}
-```
-Render a gradient-filled rect spanning from min(originalX, currentX) to max(originalX+originalWidth, currentX+currentWidth). Use a linearGradient from amber (opacity 0.4) at the original position to transparent at the current position. Fade out the entire element over 2 seconds using CSS transition on opacity.
-
-**Step 6 — GanttChart** (`src/components/gantt/GanttChart.tsx`):
-Read `cascadeShifts` from state (add to the destructured useGanttState call).
-For each cascade shift, compute `originalX` via `dateToXCollapsed(shift.fromStartDate, ...)` and pass both original and current positions to CascadeHighlight.
-Add auto-clear useEffect for cascadeShifts (dispatch SET_CASCADE_SHIFTS with empty array after 2s).
-
-### B5: Tests
-1. Rust tests: verify critical path marks all zero-float tasks in a chain (already covered by existing tests + B1 fix)
-2. Vitest tests (add to existing or new file):
-   - WASM wrapper returns empty Set (not crash) when called with invalid data
-   - CASCADE_DEPENDENTS populates cascadeShifts with correct pre-cascade dates
 
 ## Verification
 After all tasks, run:
 ```bash
-cd crates/scheduler && cargo test
 npx tsc --noEmit && npm run test
 ```
-All must pass. Commit your changes with descriptive messages.
+Both must pass. Commit your changes with descriptive messages.

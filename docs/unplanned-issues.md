@@ -15,8 +15,8 @@ items from **Backlog**, moves them to **Claimed**, and once planned into
 
 ## Backlog
 <!-- Add new issues here. One per line, prefixed with `- [ ]`. -->
-
-
+- [ ] Bug: Changing duration of a task can sometimes cause the duration of tasks that depend on it to change when making their cascading updates. Dependent task durations shouldn't change, just the start and end dates
+ 
 ## Claimed
 <!-- Agents move items here while planning. Format: `- [AGENT_ID] description` -->
 
@@ -28,6 +28,19 @@ items from **Backlog**, moves them to **Claimed**, and once planned into
 ---
 
 ## Archive
+
+### Phase 9: Deployment Hardening, Cascade Bug Fix & UX Polish
+
+| # | Issue | Group | Task(s) |
+|---|-------|-------|---------|
+| 1 | Replace Firebase Hosting with Go static file server | C | C1 |
+| 2 | Replace reqwest with hyper in relay server | C | C3 |
+| 3 | Add IAP configuration | C | C4 |
+| 4 | Configure Cloud Armor WAF rules | C | C5 |
+| 5 | Add health check / readiness probe endpoints | C | C2 |
+| 6 | Add share button | A | A1 |
+| 7 | Fix cascade on duration/end-date changes | B | B1-B4 |
+| 8 | Remove fake user presence icons | A | A2 |
 
 ### Phase 8: Bug Fixes, OKR Enhancement, Cascade UX & Deployment
 

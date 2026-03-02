@@ -2,7 +2,11 @@
 # Enable Identity-Aware Proxy for Cloud Run services.
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID}"
+# If PROJECT_ID is not set, run interactive setup
+if [[ -z "${PROJECT_ID:-}" ]]; then
+  echo "PROJECT_ID not set. Running setup..."
+  source "$(dirname "$0")/../setup.sh" --skip-apis
+fi
 
 echo "==> Enabling IAP API..."
 gcloud services enable iap.googleapis.com --project="${PROJECT_ID}"

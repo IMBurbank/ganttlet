@@ -39,3 +39,7 @@ credentials.json
 token.json
 *.credentials.json
 tsconfig.tsbuildinfo
+
+# Logs & test artifacts
+logs/
+test-results/

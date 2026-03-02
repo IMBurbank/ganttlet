@@ -1,0 +1,14 @@
+# Cloud Build config for the Ganttlet frontend.
+# Uses deploy/frontend/Dockerfile (not the dev Dockerfile) to build the production image.
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_IMAGE_NAME}'
+      - '-f'
+      - 'deploy/frontend/Dockerfile'
+      - '.'
+images:
+  - '${_IMAGE_NAME}'
+timeout: 600s

@@ -7,6 +7,8 @@ services:
       - .:/workspace                          # Project files (two-way sync with host)
       - ~/.gitconfig:/home/node/.gitconfig:ro    # Share your git identity with the container
       - ~/.ssh:/home/node/.ssh:ro                # Share SSH keys for GitHub push/pull
+      - ~/.config/gcloud:/home/node/.config/gcloud-host:ro  # Host gcloud creds (read-only)
+      - gcloud-config:/home/node/.config/gcloud              # Container-local writable gcloud config
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLAUDE_CLI_FLAGS=${CLAUDE_CLI_FLAGS}
@@ -27,3 +29,6 @@ services:
       - RELAY_PORT=4000
       - RELAY_ALLOWED_ORIGINS=http://localhost:5173
       - RUST_LOG=info
+
+volumes:
+  gcloud-config:

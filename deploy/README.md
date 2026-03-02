@@ -14,77 +14,81 @@ All business logic runs in the browser (React + WASM). The relay server only for
 
 ## Prerequisites
 
-1. **Node.js 18+** and **npm**
+1. **Node.js 18+** and **npm**:
+   ```bash
+   # Install via nvm (recommended): https://github.com/nvm-sh/nvm
+   nvm install 20
+   nvm use 20
+   node --version  # should print v20.x.x
+   npm --version   # should print 10.x.x
+   ```
 2. **Google Cloud SDK (gcloud)**:
    ```bash
    # Install: https://cloud.google.com/sdk/docs/install
    gcloud auth login
-   gcloud config set project YOUR_PROJECT_ID
    ```
-3. **A Google Cloud project** with these APIs enabled:
-   ```bash
-   gcloud services enable run.googleapis.com
-   gcloud services enable cloudbuild.googleapis.com
-   gcloud services enable containerregistry.googleapis.com
-   ```
-4. **wasm-pack** (for building the Rust scheduler):
+3. **wasm-pack** (for building the Rust scheduler):
    ```bash
    curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
    ```
 
-## Environment Variables
+## Initial Setup
 
-### Frontend (Vite)
+Run the setup script to select (or create) your GCP project. This finds the project by name, sets `PROJECT_ID` in your shell, and enables the required APIs:
 
-| Variable | File | Description |
-|----------|------|-------------|
-| `VITE_COLLAB_URL` | `.env.production` | WebSocket URL for the relay server (`wss://...`) |
+```bash
+source deploy/setup.sh
+```
 
-### Frontend Deploy Script
+The script will:
+1. Prompt you for a **project name** (e.g. "Ganttlet Production")
+2. Search your GCP account for a project with that name
+3. If found, select it and export `PROJECT_ID`
+4. If not found, offer to create a new project with that name
+5. Enable Cloud Run, Cloud Build, and Container Registry APIs
 
-| Variable | Description |
-|----------|-------------|
-| `PROJECT_ID` | GCP project ID (required) |
-| `REGION` | Cloud Run region (default: `us-central1`) |
-| `SERVICE_NAME` | Cloud Run service name (default: `ganttlet-frontend`) |
+You can also pass the project name directly:
 
-### Relay Server Deploy Script
+```bash
+source deploy/setup.sh "Ganttlet Production"
+```
 
-| Variable | Description |
-|----------|-------------|
-| `PROJECT_ID` | GCP project ID (required) |
-| `REGION` | Cloud Run region (default: `us-central1`) |
-| `ALLOWED_ORIGINS` | CORS origins (default: `https://{PROJECT_ID}.web.app,...`) |
-| `MIN_INSTANCES` | Minimum instances (default: `0`) |
-| `MAX_INSTANCES` | Maximum instances (default: `10`) |
+To re-source in a new shell without re-enabling APIs:
+
+```bash
+source deploy/setup.sh --skip-apis
+```
+
+> **Note:** All deploy scripts automatically run `setup.sh` interactively if `PROJECT_ID` is not already set, so you can also just run a deploy script directly.
 
 ## Deployment Steps
 
-### 1. Deploy the Relay Server (Cloud Run)
+### 1. Setup
 
-The relay server must be deployed first so you have the WebSocket URL for the frontend.
+If you haven't already run setup (see [Initial Setup](#initial-setup)):
 
 ```bash
-export PROJECT_ID=your-gcp-project
-./deploy/cloudrun/deploy.sh
+source deploy/setup.sh
 ```
 
-Note the service URL from the output — you'll need the WebSocket URL next.
+> **Important:** Use `source` (not `./`) throughout these steps so exported variables (`PROJECT_ID`, `RELAY_URL`, `FRONTEND_URL`) are available to subsequent steps.
+
+### 2. Deploy the Relay Server
+
+The relay server must be deployed first. The script exports `RELAY_URL` so subsequent steps can use it automatically.
+
+```bash
+source deploy/cloudrun/deploy.sh
+```
 
 See `deploy/cloudrun/README.md` for detailed Cloud Run configuration.
 
-### 2. Configure Frontend Environment
+### 3. Deploy the Frontend
 
-Update `.env.production` with the relay server URL from step 1:
-
-```bash
-echo "VITE_COLLAB_URL=wss://ganttlet-relay-xxx-uc.a.run.app" > .env.production
-```
-
-### 3. Deploy the Frontend (Cloud Run)
+The frontend deploy script automatically writes `.env.production` from the `RELAY_URL` exported in step 2, then builds and deploys. It exports `FRONTEND_URL` for step 4.
 
 ```bash
-./deploy/frontend/deploy.sh
+source deploy/frontend/deploy.sh
 ```
 
 This builds the frontend in a multi-stage Docker build (Node → Go → distroless) and deploys to Cloud Run. The Go server provides:
@@ -93,32 +97,34 @@ This builds the frontend in a multi-stage Docker build (Node → Go → distrole
 - Security headers (CSP, X-Frame-Options, etc.)
 - Health check endpoints (`/healthz`, `/readyz`)
 
-### 4. Update Cloud Run CORS
+### 4. Update Relay Server CORS
 
-Update the relay server's allowed origins to include the frontend URL:
+Point the relay server's allowed origins at the frontend. This updates the env var without a full rebuild — `FRONTEND_URL` was exported in step 3:
 
 ```bash
-export ALLOWED_ORIGINS=https://ganttlet-frontend-xxx-uc.a.run.app
-./deploy/cloudrun/deploy.sh
+source deploy/cloudrun/update-cors.sh
 ```
 
 ### 5. Configure OAuth Redirect URIs
 
-Manual step in the Google Cloud Console:
+**Manual step** in the Google Cloud Console:
 
 1. Go to [APIs & Services > Credentials](https://console.cloud.google.com/apis/credentials)
 2. Click your OAuth 2.0 Client ID
-3. Add the frontend Cloud Run URL to **Authorized JavaScript origins** and **Authorized redirect URIs**
+3. Add `${FRONTEND_URL}` to both:
+   - **Authorized JavaScript origins**
+   - **Authorized redirect URIs**
 4. Click **Save**
+
+Without this step, Google Sign-In will fail on the production domain.
 
 ## Security Hardening (Optional)
 
 ### Identity-Aware Proxy (IAP)
 
-Restrict access to authenticated users:
+Restrict access to authenticated Google Workspace users:
 
 ```bash
-export PROJECT_ID=your-gcp-project
 ./deploy/cloudrun/iap-setup.sh
 ```
 
@@ -127,7 +133,6 @@ export PROJECT_ID=your-gcp-project
 Add rate limiting and OWASP protection:
 
 ```bash
-export PROJECT_ID=your-gcp-project
 ./deploy/cloudrun/cloud-armor.sh
 ```
 
@@ -145,53 +150,78 @@ The frontend server exposes two probe endpoints:
 | `GET /healthz` | Liveness | Always returns `200 ok` |
 | `GET /readyz` | Readiness | Returns `200 ok` if `index.html` exists, `503` otherwise |
 
+## Environment Variables Reference
+
+### Pipeline variables (set automatically by deploy scripts)
+
+| Variable | Set by | Used by | Description |
+|----------|--------|---------|-------------|
+| `PROJECT_ID` | `setup.sh` | all scripts | GCP project ID |
+| `RELAY_URL` | `cloudrun/deploy.sh` | `frontend/deploy.sh` | Relay server HTTPS URL |
+| `FRONTEND_URL` | `frontend/deploy.sh` | CORS update step | Frontend HTTPS URL |
+
+### Optional overrides
+
+| Variable | Script | Default | Description |
+|----------|--------|---------|-------------|
+| `REGION` | all | `us-central1` | Cloud Run region |
+| `SERVICE_NAME` | frontend | `ganttlet-frontend` | Frontend Cloud Run service name |
+| `SERVICE_NAME` | cloudrun | `ganttlet-relay` | Relay Cloud Run service name |
+| `ALLOWED_ORIGINS` | cloudrun | (empty — must set) | CORS origins for relay server (frontend Cloud Run URL) |
+| `MIN_INSTANCES` | cloudrun | `0` | Minimum Cloud Run instances |
+| `MAX_INSTANCES` | cloudrun | `10` | Maximum Cloud Run instances |
+
+### Frontend Build (Vite)
+
+| Variable | File | Description |
+|----------|------|-------------|
+| `VITE_COLLAB_URL` | `.env.production` | WebSocket URL for the relay server (written automatically from `RELAY_URL`) |
+
 ## Full End-to-End Pipeline
 
+All URLs are passed between steps automatically — no manual copying required:
+
 ```bash
-# 1. Set project
-export PROJECT_ID=your-gcp-project
+# ── 1. Setup — select project, enable APIs ──
+source deploy/setup.sh
+# Prompts for project name, finds/creates it, exports PROJECT_ID
 
-# 2. Deploy relay server
-./deploy/cloudrun/deploy.sh
-# Note the wss:// URL from the output
+# ── 2. Deploy relay server (exports RELAY_URL) ──
+source deploy/cloudrun/deploy.sh
 
-# 3. Update frontend env
-echo "VITE_COLLAB_URL=wss://ganttlet-relay-xxx-uc.a.run.app" > .env.production
+# ── 3. Deploy frontend (reads RELAY_URL, writes .env.production, exports FRONTEND_URL) ──
+source deploy/frontend/deploy.sh
 
-# 4. Deploy frontend
-./deploy/frontend/deploy.sh
+# ── 4. Update relay CORS with frontend URL (no rebuild) ──
+source deploy/cloudrun/update-cors.sh
 
-# 5. Update relay CORS with frontend URL
-export ALLOWED_ORIGINS=https://ganttlet-frontend-xxx-uc.a.run.app
-./deploy/cloudrun/deploy.sh
+# ── 5. Configure OAuth redirect URIs ──
+# Manual step: add ${FRONTEND_URL} to OAuth redirect URIs in Google Cloud Console
+# See step 5 in Deployment Steps above
 
-# 6. Configure OAuth redirect URIs (manual — see step 5 above)
-
-# 7. (Optional) Enable IAP and Cloud Armor
+# ── 6. (Optional) Enable IAP and Cloud Armor ──
 ./deploy/cloudrun/iap-setup.sh
 ./deploy/cloudrun/cloud-armor.sh
 ```
 
-## Updating
+## Redeployment
 
-To redeploy after code changes:
+For redeployment after code changes, `RELAY_URL` is already known so `.env.production` is not overwritten. If `PROJECT_ID` is no longer in your shell, any script will prompt for it automatically.
 
 ```bash
-# Frontend only
-./deploy/frontend/deploy.sh
-
-# Relay server only
-./deploy/cloudrun/deploy.sh
-
-# Both
-./deploy/cloudrun/deploy.sh && ./deploy/frontend/deploy.sh
+source deploy/frontend/deploy.sh                                    # frontend only
+source deploy/cloudrun/deploy.sh                                    # relay server only
+source deploy/cloudrun/deploy.sh && source deploy/frontend/deploy.sh  # both
 ```
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
-| WebSocket connection fails | Check `VITE_COLLAB_URL` uses `wss://` (not `ws://`) |
+| `PROJECT_ID` not set | Run `source deploy/setup.sh` or any deploy script will prompt |
+| Setup can't find your project | Check the project name matches exactly (case-sensitive) |
+| "Billing account not linked" | Visit the link printed during project creation |
+| WebSocket connection fails | Check `VITE_COLLAB_URL` uses `wss://` (not `ws://` or `https://`) |
 | CORS errors in console | Ensure `ALLOWED_ORIGINS` includes your frontend Cloud Run URL |
 | Google Sign-In fails | Add frontend URL to OAuth redirect URIs (step 5) |
 | Build fails on WASM | Install `wasm-pack` and run `npm run build:wasm` first |

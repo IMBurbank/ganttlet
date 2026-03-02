@@ -4,7 +4,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+# Skip build:wasm (no Rust in this image) — pre-built WASM files are in the
+# build context via .gcloudignore including src/wasm/.
+RUN npx tsc -b && npx vite build
 
 # Stage 2: Build Go binary
 FROM golang:1.22-alpine AS go-build

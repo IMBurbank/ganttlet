@@ -18,6 +18,14 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Google Cloud CLI
+RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+      | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+      > /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && apt-get update && apt-get install -y google-cloud-cli \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Claude Code globally
 RUN npm install -g @anthropic-ai/claude-code
 
@@ -41,6 +49,9 @@ RUN git config --global init.defaultBranch main
 
 WORKDIR /workspace
 
+COPY --chown=node:node scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 RUN echo 'alias cc="claude \${CLAUDE_CLI_FLAGS}"' >> ~/.bashrc
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["bash"]

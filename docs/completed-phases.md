@@ -1,6 +1,6 @@
 # Completed Phases & Architecture Details
 
-This file preserves detailed design notes from Phases 0-4 for reference.
+This file preserves detailed design notes from completed phases for reference.
 See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 
 ---
@@ -75,3 +75,36 @@ See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 - **4A**: Yjs client (yjsProvider, yjsBinding, awareness protocol)
 - **4B**: Relay server (Rust axum + tokio WebSocket, room management, auth)
 - **4C**: Integration testing (build + unit tests pass)
+
+## Phase 5: Rust→WASM Scheduling Engine — DONE
+Replaced the JS CPM utils with a Rust module compiled to WebAssembly (`crates/scheduler/`).
+- CPM: topological sort, forward pass (ES/EF), backward pass (LS/LF), zero-float detection
+- Cycle detection (`would_create_cycle`) via BFS reachability
+- Cascade dependents (`cascade_dependents`) with date arithmetic
+- All functions exposed via `#[wasm_bindgen]`, wired into React via `schedulerWasm.ts`
+- Cloud Run deployment config in `deploy/cloudrun/`
+
+## Phase 6: Gantt Chart UX Improvements — DONE
+Ten UX fixes and features, split into three parallel agent groups with zero file overlap.
+- Scoped critical path, undo/redo, cascade highlights, weekend collapse
+- Drag constraints, slack indicators, collab sync fix, column close buttons, dependency modal fix
+- Three parallel groups: WASM scheduler enhancements, state management + collab sync, UI + visual feedback
+
+## Phase 7: Hierarchy Enforcement, Task Movement & UX Improvements — DONE
+Ten issues completed across three parallel agent groups (A, B, C). All merged to main.
+- Hierarchy enforcement (project > workstream > task), field consistency
+- Task reparenting, dependency validation, auto-focus on new tasks
+- Pane collapse shortcut, task bar popover, workstream critical path scope
+
+## Phase 8: Bug Fixes, OKR Enhancement, Cascade UX & Deployment — DONE
+All three groups completed and merged to main.
+- Bug fixes: cell editability (P0 regression), workstream critical path crash (P0)
+- OKR picker modal, seed data for workstream OKRs
+- Cascade shadow trail (replaced jittery highlight), critical path highlighting fix
+- Playwright E2E tests, Firebase Hosting + Cloud Run deployment
+
+## Phase 9: Deployment Hardening, Cascade Bug Fix & UX Polish — DONE
+Three parallel agent groups — all independent, no sequential stage needed.
+- **Group A (UX Polish)**: Share button (copy URL to clipboard), remove fake user presence icons
+- **Group B (Cascade Bug Fix)**: Dispatch CASCADE_DEPENDENTS on end-date edit, duration change, and bar resize across TaskRow, TaskBar, TaskBarPopover + reducer tests
+- **Group C (Deployment Hardening)**: Go static file server replacing Firebase Hosting, hyper HTTP client replacing reqwest in relay server, IAP setup script, Cloud Armor WAF rules, health check endpoints

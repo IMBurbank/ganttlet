@@ -1,0 +1,39 @@
+# Cloud Build ignore file.
+# Unlike .gitignore, we NEED package-lock.json for reproducible npm ci builds.
+
+# Dependencies (but not lockfile)
+node_modules/
+
+# Build output (rebuilt inside the container)
+dist/
+build/
+.vite/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
+
+# Docker
+docker-compose.override.yml
+
+# Rust build artifacts (rebuilt inside the container)
+crates/scheduler/target/
+server/target/
+
+# Secrets (NEVER upload)
+.env
+.env.local
+.env.*.local
+credentials.json
+token.json
+*.credentials.json
+
+# Git
+.git/

@@ -23,16 +23,17 @@ RETRY_DELAY="${RETRY_DELAY:-5}"
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
-LOG_DIR="${WORKSPACE}/logs/phase8"
+LOG_DIR="${WORKSPACE}/logs/phase9"
 
-# Phase 8 configuration — edit these for each new phase
-PHASE="phase8"
-PARALLEL_GROUPS=("groupA" "groupB")
-PARALLEL_BRANCHES=("feature/phase8-table-okr" "feature/phase8-critpath-cascade")
-SEQUENTIAL_GROUP="groupC"  # runs after merge
+# Phase 9 configuration — edit these for each new phase
+PHASE="phase9"
+PARALLEL_GROUPS=("groupA" "groupB" "groupC")
+PARALLEL_BRANCHES=("feature/phase9-ux-polish" "feature/phase9-cascade-fix" "feature/phase9-deploy-hardening")
+SEQUENTIAL_GROUP=""  # no sequential group
 MERGE_MESSAGES=(
-  "Merge feature/phase8-table-okr: fix cell editability, OKR picker, seed data"
-  "Merge feature/phase8-critpath-cascade: critical path fixes, cascade shadow trail"
+  "Merge feature/phase9-ux-polish: share button, remove fake presence icons"
+  "Merge feature/phase9-cascade-fix: cascade on duration/end-date changes"
+  "Merge feature/phase9-deploy-hardening: Go frontend server, hyper HTTP client, IAP, Cloud Armor"
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -140,17 +141,14 @@ stage1() {
     # Install deps in worktree
     (cd "$worktree" && npm install --silent 2>/dev/null) || true
 
-    # Special setup for groupB (Rust/WASM)
-    if [[ "$group" == "groupB" ]]; then
-      log "Setting up Rust environment for ${group}"
-      (
-        cd "$worktree"
-        # Symlink WASM artifacts until rebuild
-        if [[ ! -d "src/wasm/scheduler" && ! -L "src/wasm/scheduler" ]]; then
-          ln -s /workspace/src/wasm/scheduler src/wasm/scheduler 2>/dev/null || true
-        fi
-      )
-    fi
+    # Symlink WASM artifacts in worktrees (needed for tests/builds)
+    (
+      cd "$worktree"
+      if [[ ! -d "src/wasm/scheduler" && ! -L "src/wasm/scheduler" ]]; then
+        log "Symlinking WASM artifacts for ${group}"
+        ln -s /workspace/src/wasm/scheduler src/wasm/scheduler 2>/dev/null || true
+      fi
+    )
 
     # Launch agent in background
     run_agent "$group" "$worktree" &
@@ -266,6 +264,11 @@ do_merge() {
 # ── Stage 2: Sequential group (depends on merge) ─────────────────────────────
 
 stage2() {
+  if [[ -z "$SEQUENTIAL_GROUP" ]]; then
+    ok "No sequential group configured. Skipping Stage 2."
+    return 0
+  fi
+
   log "=== Stage 2: Launching sequential group (${SEQUENTIAL_GROUP}) ==="
 
   cd "$WORKSPACE"
@@ -294,7 +297,11 @@ run_all() {
   log "=== Full pipeline: stage1 → merge → stage2 ==="
   stage1
   do_merge
-  stage2
+  if [[ -n "$SEQUENTIAL_GROUP" ]]; then
+    stage2
+  else
+    ok "No sequential group — skipping Stage 2."
+  fi
   ok "=== Full pipeline complete ==="
 }
 

@@ -8,6 +8,7 @@ import GanttChart from './components/gantt/GanttChart';
 import ChangeHistoryPanel from './components/panels/ChangeHistoryPanel';
 import ContextMenu from './components/shared/ContextMenu';
 import DependencyEditorModal from './components/shared/DependencyEditorModal';
+import ReparentPickerModal from './components/shared/ReparentPickerModal';
 
 function AppContent() {
   const state = useGanttState();
@@ -92,6 +93,10 @@ function AppContent() {
               label: 'Edit dependencies',
               onClick: () => dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: { taskId: task.id } }),
             },
+            {
+              label: 'Move to workstream...',
+              onClick: () => dispatch({ type: 'SET_REPARENT_PICKER', picker: { taskId: task.id } }),
+            },
           ]),
       {
         label: 'Add task below',
@@ -113,7 +118,9 @@ function AppContent() {
         {/* Task Table - left panel */}
         <div
           ref={tableScrollRef}
-          className="shrink-0 border-r border-border-default overflow-y-auto overflow-x-hidden"
+          className={`shrink-0 border-r border-border-default overflow-y-auto overflow-x-hidden transition-all duration-200 ${
+            state.isLeftPaneCollapsed ? 'w-0 overflow-hidden' : ''
+          }`}
           onScroll={handleTableScroll}
         >
           <TaskTable
@@ -126,6 +133,19 @@ function AppContent() {
             isCollabConnected={state.isCollabConnected}
           />
         </div>
+        {/* Pane divider toggle */}
+        <button
+          onClick={() => dispatch({ type: 'TOGGLE_LEFT_PANE' })}
+          className="shrink-0 w-5 flex items-center justify-center bg-surface-raised hover:bg-surface-overlay border-r border-border-default transition-colors cursor-pointer"
+          title={state.isLeftPaneCollapsed ? 'Show table (Ctrl+B)' : 'Hide table (Ctrl+B)'}
+        >
+          <svg
+            width="10" height="10" viewBox="0 0 10 10" fill="currentColor"
+            className={`text-text-muted transition-transform duration-200 ${state.isLeftPaneCollapsed ? 'rotate-0' : 'rotate-180'}`}
+          >
+            <path d="M3 1 L8 5 L3 9 Z" />
+          </svg>
+        </button>
         {/* Gantt Chart - right panel */}
         <div
           ref={ganttScrollRef}
@@ -161,6 +181,9 @@ function AppContent() {
 
       {/* Dependency Editor Modal */}
       {state.dependencyEditor && <DependencyEditorModal />}
+
+      {/* Reparent Picker Modal */}
+      {state.reparentPicker && <ReparentPickerModal />}
     </div>
   );
 }

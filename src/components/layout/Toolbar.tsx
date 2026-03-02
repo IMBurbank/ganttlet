@@ -49,6 +49,10 @@ export default function Toolbar() {
     () => [...new Set(state.tasks.map(t => t.project).filter(Boolean))],
     [state.tasks]
   );
+  const workstreamNames = useMemo(
+    () => state.tasks.filter(t => t.isSummary && t.parentId !== null).map(t => t.name),
+    [state.tasks]
+  );
   const milestoneTasks = useMemo(
     () => state.tasks.filter(t => t.isMilestone),
     [state.tasks]
@@ -253,6 +257,23 @@ export default function Toolbar() {
                     onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'project', name } }); setShowCpScopeMenu(false); }}
                     className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
                       state.criticalPathScope.type === 'project' && state.criticalPathScope.name === name
+                        ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </>
+            )}
+            {workstreamNames.length > 0 && (
+              <>
+                <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Workstreams</div>
+                {workstreamNames.map(name => (
+                  <button
+                    key={name}
+                    onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'workstream', name } }); setShowCpScopeMenu(false); }}
+                    className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
+                      state.criticalPathScope.type === 'workstream' && state.criticalPathScope.name === name
                         ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
                     }`}
                   >

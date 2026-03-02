@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Task, Dependency, DependencyType } from '../../types';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import { wouldCreateCycle } from '../../utils/schedulerWasm';
+import { validateDependencyHierarchy } from '../../utils/dependencyValidation';
 
 const DEP_TYPE_LABELS: Record<DependencyType, string> = {
   FS: 'Finish \u2192 Start',
@@ -34,10 +35,11 @@ export default function DependencyEditorModal() {
 
   const nonSummaryTasks = state.tasks.filter(t => !t.isSummary && t.id !== task.id);
 
-  // Tasks that can be added as predecessors (not already a predecessor, no cycle)
+  // Tasks that can be added as predecessors (not already a predecessor, no cycle, no hierarchy violation)
   const availablePredecessors = nonSummaryTasks.filter(t => {
     if (task.dependencies.some(d => d.fromId === t.id)) return false;
     if (wouldCreateCycle(state.tasks, task.id, t.id)) return false;
+    if (validateDependencyHierarchy(state.tasks, task.id, t.id)) return false;
     return true;
   });
 
@@ -127,6 +129,7 @@ export default function DependencyEditorModal() {
       if (t.id === currentFromId) return true; // current selection always valid
       if (task!.dependencies.some(d => d.fromId === t.id)) return false; // already used
       if (wouldCreateCycle(state.tasks, task!.id, t.id)) return false;
+      if (validateDependencyHierarchy(state.tasks, task!.id, t.id)) return false;
       return true;
     });
   }

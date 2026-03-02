@@ -1,9 +1,10 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState } from 'react';
 import type { ZoomLevel } from '../../types';
 import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
 import { dateToX, xToDate, dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, getColumnWidth } from '../../utils/dateUtils';
 import { parseISO } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
+import TaskBarPopover from './TaskBarPopover';
 
 interface TaskBarProps {
   taskId: string;
@@ -116,6 +117,13 @@ export default function TaskBar({
     document.addEventListener('mouseup', onMouseUp);
   }, [dispatch, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth, collapseWeekends, earliestStart]);
 
+  const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPopoverPos({ x: e.clientX, y: e.clientY });
+  }, []);
+
   // Build owner/area/okrs subtitle
   const subtitleParts: string[] = [];
   if (showOwner && owner) subtitleParts.push(owner);
@@ -209,6 +217,7 @@ export default function TaskBar({
           opacity={isCritical ? 0.35 : 0.6}
           className="task-bar"
           onMouseDown={e => handleMouseDown(e, 'move')}
+          onDoubleClick={handleDoubleClick}
         />
         {/* Full bar stroke */}
         <rect
@@ -223,6 +232,7 @@ export default function TaskBar({
           opacity={isCritical ? 1 : 0.6}
           className="task-bar"
           onMouseDown={e => handleMouseDown(e, 'move')}
+          onDoubleClick={handleDoubleClick}
         />
         {/* Task name label with clipPath */}
         {width > 30 && (
@@ -285,6 +295,15 @@ export default function TaskBar({
           onMouseDown={e => handleMouseDown(e, 'resize')}
         />
       </g>
+      {popoverPos && (
+        <foreignObject x={0} y={0} width={1} height={1} overflow="visible">
+          <TaskBarPopover
+            taskId={taskId}
+            position={popoverPos}
+            onClose={() => setPopoverPos(null)}
+          />
+        </foreignObject>
+      )}
     </Tooltip>
   );
 }

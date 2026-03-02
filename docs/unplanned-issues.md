@@ -1,9 +1,22 @@
+# Unplanned issues
+
+Tracking for issues that haven't yet been reviewed and added to the project plan. Agents should put their id next to items that they're planning before the begin their plan and remove the items from the list once their respective plan has been added to the appropriate project files. Grab no more than 3 at a time and continue until until they are all gone.
+
+Be mindful that other agents may be working in parallel. And a user may continue adding new items to this list while you work. 
+
+Do not remove text above this line
+---
+
+## Issues below have not yet been planned
+
+[] 
+
+## All issues below have been planned 
+
+### These tasks were assigned for Phase 7: Hierarchy Enforcement, Task Movement & UX Improvements to agent groups (A, B, or C) running in parallel.
+
 Issues that have been reviewed and added to the Phase 7 project plan.
 See `TASKS.md` under "Phase 7" for the full task breakdown and `CLAUDE.md` for interface contracts.
-
-# Issues — Phase 7: Hierarchy Enforcement, Task Movement & UX Improvements
-
-All issues below have been planned and assigned to agent groups (A, B, or C).
 
 | # | Issue | Group | Task(s) |
 |---|-------|-------|---------|

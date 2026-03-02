@@ -1,4 +1,4 @@
-import type { Task } from '../types';
+import type { Task, CriticalPathScope } from '../types';
 
 // Lazily loaded WASM module
 let wasmModule: typeof import('../wasm/scheduler/ganttlet_scheduler') | null = null;
@@ -10,11 +10,6 @@ export async function initScheduler(): Promise<void> {
   if (wasmModule) return;
   wasmModule = await import('../wasm/scheduler/ganttlet_scheduler');
 }
-
-export type CriticalPathScope =
-  | { type: 'all' }
-  | { type: 'project'; name: string }
-  | { type: 'milestone'; id: string };
 
 interface CascadeResult {
   id: string;
@@ -34,6 +29,7 @@ function mapTasksToWasm(tasks: Task[]) {
     isMilestone: t.isMilestone,
     isSummary: t.isSummary,
     project: t.project,
+    workStream: t.workStream,
     dependencies: t.dependencies.map(d => ({
       fromId: d.fromId,
       toId: d.toId,
@@ -48,7 +44,10 @@ function mapTasksToWasm(tasks: Task[]) {
  * Returns a Set of critical task IDs.
  */
 export function computeCriticalPath(tasks: Task[]): Set<string> {
-  return computeCriticalPathScoped(tasks, { type: 'all' });
+  if (!wasmModule) throw new Error('WASM scheduler not initialized');
+  const wasmTasks = mapTasksToWasm(tasks);
+  const result: string[] = wasmModule.compute_critical_path(wasmTasks);
+  return new Set(result);
 }
 
 /**

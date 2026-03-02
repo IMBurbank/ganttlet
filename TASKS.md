@@ -118,17 +118,17 @@ See `CLAUDE.md` for interface contracts and file ownership.
 **Files**: `crates/scheduler/src/cpm.rs`, `crates/scheduler/src/types.rs`, `crates/scheduler/src/lib.rs`, `src/utils/schedulerWasm.ts`
 **Branch**: `feature/phase7-wasm-scheduler`
 
-- [ ] **C1**: Add `work_stream` field to Rust Task
+- [x] **C1**: Add `work_stream` field to Rust Task
   - `crates/scheduler/src/types.rs`: Add `#[serde(default)] pub work_stream: String`
 
-- [ ] **C2**: Update `CriticalPathScope` enum
+- [x] **C2**: Update `CriticalPathScope` enum
   - `crates/scheduler/src/cpm.rs`: Remove `All` variant, add `Workstream { name: String }`
   - Update `compute_critical_path_scoped`: `Workstream` filters by `t.work_stream == name`
 
-- [ ] **C3**: Update WASM TypeScript wrapper
+- [x] **C3**: Update WASM TypeScript wrapper
   - `src/utils/schedulerWasm.ts`: Add `workStream` to task-to-WASM mapping; remove local `CriticalPathScope` type duplicate; update `computeCriticalPathScoped` for new scope variants
 
-- [ ] **C4**: Rust tests
+- [x] **C4**: Rust tests
   - Add tests for workstream-scoped critical path
   - Verify `All` removal doesn't break callers
 

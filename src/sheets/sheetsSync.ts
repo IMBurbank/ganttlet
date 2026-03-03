@@ -1,6 +1,8 @@
 import { readSheet, updateSheet } from './sheetsClient';
 import { tasksToRows, rowsToTasks } from './sheetsMapper';
 import { isSignedIn } from './oauth';
+import { applyTasksToYjs } from '../collab/yjsBinding';
+import { getDoc } from '../collab/yjsProvider';
 import type { Task } from '../types';
 import type { GanttAction } from '../state/actions';
 
@@ -90,6 +92,12 @@ export function startPolling(): void {
           type: 'MERGE_EXTERNAL_TASKS',
           externalTasks: incomingTasks,
         });
+
+        // Propagate Sheets changes to Yjs so other collaborators see them
+        const doc = getDoc();
+        if (doc) {
+          applyTasksToYjs(doc, incomingTasks);
+        }
       }
     } catch (err) {
       console.error('Poll error:', err);

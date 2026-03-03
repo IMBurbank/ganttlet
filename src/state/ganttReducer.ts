@@ -227,6 +227,21 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     case 'SET_TASKS':
       return { ...state, tasks: action.tasks };
 
+    case 'MERGE_EXTERNAL_TASKS': {
+      const { externalTasks } = action;
+      const localMap = new Map(state.tasks.map(t => [t.id, t]));
+
+      // Start with all external tasks (source of truth for additions/deletions)
+      const merged = externalTasks.map(ext => {
+        const local = localMap.get(ext.id);
+        if (!local) return ext; // New task from sheets
+        // If local task exists, keep local version (preserves in-progress edits)
+        return local;
+      });
+
+      return { ...state, tasks: merged };
+    }
+
     case 'SET_DEPENDENCY_EDITOR':
       return { ...state, dependencyEditor: action.editor };
 

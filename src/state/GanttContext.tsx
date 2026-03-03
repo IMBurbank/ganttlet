@@ -107,9 +107,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    startPolling((tasks) => {
-      dispatch({ type: 'SET_TASKS', tasks });
-    });
+    startPolling();
 
     return () => stopPolling();
   }, [dispatch]);

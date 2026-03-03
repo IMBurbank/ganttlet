@@ -587,6 +587,66 @@ describe('ganttReducer', () => {
     });
   });
 
+  describe('MERGE_EXTERNAL_TASKS', () => {
+    it('adds new external tasks that are not in local state', () => {
+      const localTask = makeTask({ id: 'local-1', name: 'Local Task' });
+      const externalNew = makeTask({ id: 'ext-1', name: 'External New' });
+      const state = makeState({ tasks: [localTask] });
+
+      const result = ganttReducer(state, {
+        type: 'MERGE_EXTERNAL_TASKS',
+        externalTasks: [localTask, externalNew],
+      });
+
+      expect(result.tasks).toHaveLength(2);
+      expect(result.tasks.find(t => t.id === 'ext-1')).toBeDefined();
+      expect(result.tasks.find(t => t.id === 'ext-1')!.name).toBe('External New');
+    });
+
+    it('uses external version for tasks not in local state', () => {
+      const externalTask = makeTask({ id: 'new-1', name: 'From Sheets', owner: 'Alice' });
+      const state = makeState({ tasks: [] });
+
+      const result = ganttReducer(state, {
+        type: 'MERGE_EXTERNAL_TASKS',
+        externalTasks: [externalTask],
+      });
+
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].name).toBe('From Sheets');
+      expect(result.tasks[0].owner).toBe('Alice');
+    });
+
+    it('preserves local version when task exists locally', () => {
+      const localTask = makeTask({ id: 't1', name: 'Local Edit', owner: 'Bob' });
+      const externalTask = makeTask({ id: 't1', name: 'Sheet Version', owner: 'Alice' });
+      const state = makeState({ tasks: [localTask] });
+
+      const result = ganttReducer(state, {
+        type: 'MERGE_EXTERNAL_TASKS',
+        externalTasks: [externalTask],
+      });
+
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].name).toBe('Local Edit');
+      expect(result.tasks[0].owner).toBe('Bob');
+    });
+
+    it('removes local tasks not present in external tasks', () => {
+      const localTask1 = makeTask({ id: 't1', name: 'Keep' });
+      const localTask2 = makeTask({ id: 't2', name: 'Deleted in sheets' });
+      const state = makeState({ tasks: [localTask1, localTask2] });
+
+      const result = ganttReducer(state, {
+        type: 'MERGE_EXTERNAL_TASKS',
+        externalTasks: [makeTask({ id: 't1', name: 'Keep' })],
+      });
+
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].id).toBe('t1');
+    });
+  });
+
   describe('UNDO clears cascade state', () => {
     it('clears cascadeShifts on undo', () => {
       // First do an action that creates an undo snapshot

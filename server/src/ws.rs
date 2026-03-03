@@ -1,4 +1,25 @@
-use crate::auth::{self, AuthError, DriveRole};
+// Presence flow diagnosis (Phase 11, Group E):
+//
+// The y-websocket client sends binary messages (SyncStep1 + awareness) immediately
+// on WebSocket connect, BEFORE the "status: connected" event fires (which triggers
+// the auth JSON message). The server's wait_for_auth() buffers these pre-auth binary
+// messages and replays them after the client joins the room.
+//
+// Root causes of broken presence identified:
+// 1. last_awareness in room.rs stores only ONE raw message (the most recent from any
+//    client). Awareness messages encode a single client's state, so late joiners only
+//    see the last client who sent awareness, not all clients.
+// 2. The client never re-announces awareness after auth completes. The only awareness
+//    update is the pre-auth one (buffered and replayed), which contains the default
+//    local state. setLocalAwareness() runs synchronously after connectCollab(), but
+//    the provider may not re-send it once the WS is actually connected and authed.
+// 3. The replay of buffered messages happens before send_task is spawned, which means
+//    any server responses to those replayed messages (e.g., SyncStep2 reply to
+//    SyncStep1) are queued in the mpsc channel. This is fine — they'll be delivered
+//    once send_task starts. However, the awareness relay from replay goes to "other
+//    clients" which is correct (the joining client is already in the room).
+
+use crate::auth::{self, AuthError};
 use crate::room::{ClientInfo, RoomManager};
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Path, State, WebSocketUpgrade};
@@ -72,6 +93,13 @@ async fn wait_for_auth(
             }
             Ok(Message::Binary(data)) => {
                 // Buffer binary messages (Yjs sync/awareness) for replay after auth
+                let msg_tag = data.first().copied().unwrap_or(255);
+                info!(
+                    buffered_count = buffered_messages.len() + 1,
+                    msg_tag = msg_tag,
+                    size = data.len(),
+                    "Buffering pre-auth binary message"
+                );
                 buffered_messages.push(data.to_vec());
             }
             Ok(Message::Close(_)) => {
@@ -204,8 +232,19 @@ async fn handle_websocket(socket: WebSocket, room_id: String, state: Arc<AppStat
             count = buffered_messages.len(),
             "Replaying buffered pre-auth messages"
         );
-        for msg in buffered_messages {
-            state.room_manager.send_message(&room_id, client_id, msg);
+        for (i, msg) in buffered_messages.iter().enumerate() {
+            let msg_tag = msg.first().copied().unwrap_or(255);
+            info!(
+                room_id = %room_id,
+                client_id = client_id,
+                index = i,
+                msg_tag = msg_tag,
+                size = msg.len(),
+                "Replaying buffered message"
+            );
+            state
+                .room_manager
+                .send_message(&room_id, client_id, msg.clone());
         }
     }
 

@@ -83,7 +83,16 @@ fn https_client() -> Client<
 /// Validate a Google access token by calling the userinfo API.
 ///
 /// Returns the authenticated user's information if the token is valid.
+/// In test mode (GANTTLET_TEST_AUTH=1), accepts any non-empty token.
 pub async fn validate_token(token: &str) -> Result<UserInfo, AuthError> {
+    if std::env::var("GANTTLET_TEST_AUTH").as_deref() == Ok("1") {
+        return Ok(UserInfo {
+            email: format!("test-{}@example.com", token),
+            name: format!("Test User {}", token),
+            picture: None,
+        });
+    }
+
     let client = https_client();
 
     let req = Request::get("https://www.googleapis.com/oauth2/v2/userinfo")
@@ -133,7 +142,13 @@ pub async fn validate_token(token: &str) -> Result<UserInfo, AuthError> {
 ///
 /// The `file_id` corresponds to the Google Sheet ID (which is also the room ID).
 /// Returns the user's role (Writer or Reader) based on their Drive permissions.
+/// In test mode (GANTTLET_TEST_AUTH=1), returns Writer for any token/file.
 pub async fn check_drive_permission(token: &str, file_id: &str) -> Result<DriveRole, AuthError> {
+    if std::env::var("GANTTLET_TEST_AUTH").as_deref() == Ok("1") {
+        let _ = (token, file_id);
+        return Ok(DriveRole::Writer);
+    }
+
     let client = https_client();
     let url = format!(
         "https://www.googleapis.com/drive/v3/files/{}?fields=capabilities",

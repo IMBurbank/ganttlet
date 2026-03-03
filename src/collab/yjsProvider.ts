@@ -31,9 +31,24 @@ export function connectCollab(roomId: string, accessToken: string): CollabConnec
 
   // Send auth token as the first WebSocket message after each connection.
   // The status event fires on every (re)connection, so auth is re-sent automatically.
+  // After sending auth, re-announce local awareness state so the server has it
+  // post-auth (the pre-auth awareness was buffered and replayed, but it may only
+  // contain the default state — this ensures the full user identity is broadcast).
   provider.on('status', ({ status }: { status: string }) => {
     if (status === 'connected' && provider?.ws) {
       provider.ws.send(JSON.stringify({ type: 'auth', token: accessToken }));
+
+      // Re-announce awareness after a short delay to ensure auth is processed first.
+      // setLocalState triggers the awareness protocol to encode and send the full
+      // local state over the WebSocket, so the server and other clients receive it.
+      setTimeout(() => {
+        if (provider?.awareness) {
+          const currentState = provider.awareness.getLocalState();
+          if (currentState) {
+            provider.awareness.setLocalState(currentState);
+          }
+        }
+      }, 100);
     }
   });
 

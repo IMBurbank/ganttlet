@@ -16,7 +16,7 @@ export interface CollabConnection {
 /**
  * Connect to the collaboration server for a given room.
  * The room ID is typically a Google Sheet ID.
- * The access token is sent as a URL parameter for auth.
+ * The access token is sent as a WebSocket message after connection.
  */
 export function connectCollab(roomId: string, accessToken: string): CollabConnection {
   disconnectCollab();
@@ -26,8 +26,15 @@ export function connectCollab(roomId: string, accessToken: string): CollabConnec
   const wsUrl = `${COLLAB_URL}/ws`;
 
   provider = new WebsocketProvider(wsUrl, roomId, doc, {
-    params: { token: accessToken },
     connect: true,
+  });
+
+  // Send auth token as the first WebSocket message after each connection.
+  // The status event fires on every (re)connection, so auth is re-sent automatically.
+  provider.on('status', ({ status }: { status: string }) => {
+    if (status === 'connected' && provider?.ws) {
+      provider.ws.send(JSON.stringify({ type: 'auth', token: accessToken }));
+    }
   });
 
   return {

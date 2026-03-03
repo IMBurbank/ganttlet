@@ -136,11 +136,13 @@ echo "PROJECT_ID=${PROJECT_ID} (exported)"
 
 if [[ "$SKIP_APIS" == "false" ]]; then
   echo ""
-  echo "Enabling required APIs (Cloud Run, Cloud Build, Container Registry)..."
+  echo "Enabling required APIs..."
   gcloud services enable \
     run.googleapis.com \
     cloudbuild.googleapis.com \
     containerregistry.googleapis.com \
+    sheets.googleapis.com \
+    drive.googleapis.com \
     --project="$PROJECT_ID"
   echo "APIs enabled."
 fi

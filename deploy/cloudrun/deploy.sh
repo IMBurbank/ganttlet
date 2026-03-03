@@ -29,7 +29,7 @@ if [[ -z "${PROJECT_ID:-}" ]]; then
   source "$(dirname "$0")/../setup.sh" --skip-apis
 fi
 REGION="${REGION:-us-central1}"
-SERVICE_NAME="${SERVICE_NAME:-ganttlet-relay}"
+SERVICE_NAME="ganttlet-relay"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
 # Comma-separated list of allowed CORS origins for the relay server.
@@ -65,7 +65,8 @@ gcloud run deploy "${SERVICE_NAME}" \
   --image="${IMAGE_NAME}" \
   --platform=managed \
   --allow-unauthenticated \
-  --port=4000 \
+  --port=8080 \
+  --no-use-http2 \
   --memory="${MEMORY}" \
   --cpu="${CPU}" \
   --min-instances="${MIN_INSTANCES}" \

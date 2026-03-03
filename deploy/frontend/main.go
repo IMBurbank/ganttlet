@@ -79,7 +79,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; "+
+				"script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://accounts.google.com https://apis.google.com; "+
 				"style-src 'self' 'unsafe-inline'; "+
 				"connect-src 'self' wss: https://www.googleapis.com https://sheets.googleapis.com https://accounts.google.com; "+
 				"img-src 'self' data: https:; "+

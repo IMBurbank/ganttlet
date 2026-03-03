@@ -80,6 +80,9 @@ export function startPolling(onNewTasks: (tasks: Task[]) => void): void {
     try {
       const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
       const tasks = rowsToTasks(rows);
+      // Don't overwrite local data with an empty sheet — the sheet may not
+      // have been populated yet (first deploy, API just enabled, etc.)
+      if (tasks.length === 0) return;
       const newHash = hashTasks(tasks);
       if (newHash !== lastWriteHash) {
         lastWriteHash = newHash;

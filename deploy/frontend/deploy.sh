@@ -11,21 +11,33 @@ if [[ -z "${PROJECT_ID:-}" ]]; then
   source "$(dirname "$0")/../setup.sh" --skip-apis
 fi
 REGION="${REGION:-us-central1}"
-SERVICE_NAME="${SERVICE_NAME:-ganttlet-frontend}"
+SERVICE_NAME="ganttlet-frontend"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
-# Write .env.production from RELAY_URL if available
+# Write .env.production from env vars if available
 if [[ -n "${RELAY_URL:-}" ]]; then
   RELAY_WSS="wss://$(echo "${RELAY_URL}" | sed 's|https://||')"
   echo "VITE_COLLAB_URL=${RELAY_WSS}" > .env.production
-  echo "==> Wrote .env.production (VITE_COLLAB_URL=${RELAY_WSS})"
-elif [[ -f .env.production ]]; then
-  echo "==> Using existing .env.production"
+  echo "==> Wrote VITE_COLLAB_URL=${RELAY_WSS}"
 else
-  echo "WARNING: RELAY_URL not set and .env.production not found."
-  echo "         The frontend will build without a collab server URL."
-  echo "         Set RELAY_URL or create .env.production manually."
+  if [[ ! -f .env.production ]]; then
+    echo "WARNING: RELAY_URL not set and .env.production not found."
+    echo "         The frontend will build without a collab server URL."
+    echo "         Set RELAY_URL or create .env.production manually."
+  fi
 fi
+
+if [[ -n "${GOOGLE_CLIENT_ID:-}" ]]; then
+  echo "VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" >> .env.production
+  echo "==> Wrote VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}"
+elif ! grep -q 'VITE_GOOGLE_CLIENT_ID' .env.production 2>/dev/null; then
+  echo "WARNING: GOOGLE_CLIENT_ID not set and not found in .env.production."
+  echo "         Google Sign-In will be disabled."
+  echo "         Set GOOGLE_CLIENT_ID or add VITE_GOOGLE_CLIENT_ID to .env.production."
+fi
+
+echo "==> .env.production:"
+cat .env.production
 
 echo "==> Building container image with Cloud Build..."
 gcloud builds submit \

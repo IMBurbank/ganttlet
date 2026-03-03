@@ -73,7 +73,28 @@ source deploy/setup.sh
 
 > **Important:** Use `source` (not `./`) throughout these steps so exported variables (`PROJECT_ID`, `RELAY_URL`, `FRONTEND_URL`) are available to subsequent steps.
 
-### 2. Deploy the Relay Server
+### 2. Create Google OAuth Client ID
+
+**Manual step** in the Google Cloud Console. You need the client ID before building the frontend.
+
+1. Go to [APIs & Services > Credentials](https://console.cloud.google.com/apis/credentials)
+2. Click **+ Create Credentials > OAuth client ID**
+3. If you see a warning to configure the consent screen first, click **Configure Consent Screen**:
+   - Choose **External** user type
+   - Fill in the required fields (app name, support email)
+   - Add scopes: `openid`, `email`, `profile`, and `https://www.googleapis.com/auth/spreadsheets` (for Sheets sync)
+   - Click **Save** and return to the Credentials page
+   - Click **+ Create Credentials > OAuth client ID** again
+4. Application type: **Web application**
+5. Name: e.g. "Ganttlet Production"
+6. Leave the redirect URIs empty for now (you'll add them in step 6 after the frontend URL is known)
+7. Click **Create** and copy the **Client ID**
+8. Export it in your shell:
+   ```bash
+   export GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   ```
+
+### 3. Deploy the Relay Server
 
 The relay server must be deployed first. The script exports `RELAY_URL` so subsequent steps can use it automatically.
 
@@ -83,9 +104,9 @@ source deploy/cloudrun/deploy.sh
 
 See `deploy/cloudrun/README.md` for detailed Cloud Run configuration.
 
-### 3. Deploy the Frontend
+### 4. Deploy the Frontend
 
-The frontend deploy script automatically writes `.env.production` from the `RELAY_URL` exported in step 2, then builds and deploys. It exports `FRONTEND_URL` for step 4.
+The frontend deploy script automatically writes `.env.production` from `RELAY_URL` (step 3) and `GOOGLE_CLIENT_ID` (step 2), then builds and deploys. It exports `FRONTEND_URL` for subsequent steps.
 
 ```bash
 source deploy/frontend/deploy.sh
@@ -97,20 +118,20 @@ This builds the frontend in a multi-stage Docker build (Node → Go → distrole
 - Security headers (CSP, X-Frame-Options, etc.)
 - Health check endpoints (`/healthz`, `/readyz`)
 
-### 4. Update Relay Server CORS
+### 5. Update Relay Server CORS
 
-Point the relay server's allowed origins at the frontend. This updates the env var without a full rebuild — `FRONTEND_URL` was exported in step 3:
+Point the relay server's allowed origins at the frontend. This updates the env var without a full rebuild — `FRONTEND_URL` was exported in step 4:
 
 ```bash
 source deploy/cloudrun/update-cors.sh
 ```
 
-### 5. Configure OAuth Redirect URIs
+### 6. Add OAuth Redirect URIs
 
-**Manual step** in the Google Cloud Console:
+Now that you have the frontend URL, go back to the Google Cloud Console and add it to your OAuth client:
 
 1. Go to [APIs & Services > Credentials](https://console.cloud.google.com/apis/credentials)
-2. Click your OAuth 2.0 Client ID
+2. Click your OAuth 2.0 Client ID (created in step 2)
 3. Add `${FRONTEND_URL}` to both:
    - **Authorized JavaScript origins**
    - **Authorized redirect URIs**
@@ -184,22 +205,23 @@ All URLs are passed between steps automatically — no manual copying required:
 ```bash
 # ── 1. Setup — select project, enable APIs ──
 source deploy/setup.sh
-# Prompts for project name, finds/creates it, exports PROJECT_ID
 
-# ── 2. Deploy relay server (exports RELAY_URL) ──
+# ── 2. Create OAuth Client ID (manual — see step 2 above) ──
+export GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+
+# ── 3. Deploy relay server (exports RELAY_URL) ──
 source deploy/cloudrun/deploy.sh
 
-# ── 3. Deploy frontend (reads RELAY_URL, writes .env.production, exports FRONTEND_URL) ──
+# ── 4. Deploy frontend (reads RELAY_URL + GOOGLE_CLIENT_ID, exports FRONTEND_URL) ──
 source deploy/frontend/deploy.sh
 
-# ── 4. Update relay CORS with frontend URL (no rebuild) ──
+# ── 5. Update relay CORS with frontend URL (no rebuild) ──
 source deploy/cloudrun/update-cors.sh
 
-# ── 5. Configure OAuth redirect URIs ──
-# Manual step: add ${FRONTEND_URL} to OAuth redirect URIs in Google Cloud Console
-# See step 5 in Deployment Steps above
+# ── 6. Add OAuth redirect URIs (manual — see step 6 above) ──
+# Add ${FRONTEND_URL} to authorized origins + redirect URIs in Google Cloud Console
 
-# ── 6. (Optional) Enable IAP and Cloud Armor ──
+# ── 7. (Optional) Enable IAP and Cloud Armor ──
 ./deploy/cloudrun/iap-setup.sh
 ./deploy/cloudrun/cloud-armor.sh
 ```
@@ -223,6 +245,6 @@ source deploy/cloudrun/deploy.sh && source deploy/frontend/deploy.sh  # both
 | "Billing account not linked" | Visit the link printed during project creation |
 | WebSocket connection fails | Check `VITE_COLLAB_URL` uses `wss://` (not `ws://` or `https://`) |
 | CORS errors in console | Ensure `ALLOWED_ORIGINS` includes your frontend Cloud Run URL |
-| Google Sign-In fails | Add frontend URL to OAuth redirect URIs (step 5) |
+| Google Sign-In fails | Add frontend URL to OAuth redirect URIs (step 6) |
 | Build fails on WASM | Install `wasm-pack` and run `npm run build:wasm` first |
 | Frontend 503 on startup | Check that the Docker build produced `dist/index.html` |

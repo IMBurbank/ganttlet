@@ -38,13 +38,22 @@ pub async fn ws_handler(
         .into_response()
 }
 
+/// Result of the auth handshake, including any binary messages that arrived
+/// before the auth message (e.g. Yjs SyncStep1, awareness updates).
+struct AuthResult {
+    token: String,
+    buffered_messages: Vec<Vec<u8>>,
+}
+
 /// Wait for the first text message on the WebSocket and parse it as an auth message.
 ///
-/// Skips any binary messages (Yjs messages that arrive before auth).
-/// Returns the token string on success.
+/// Buffers any binary messages (Yjs sync/awareness) that arrive before auth so
+/// they can be replayed after the client joins the room.
 async fn wait_for_auth(
     ws_receiver: &mut (impl StreamExt<Item = Result<Message, axum::Error>> + Unpin),
-) -> Result<String, &'static str> {
+) -> Result<AuthResult, &'static str> {
+    let mut buffered_messages: Vec<Vec<u8>> = Vec::new();
+
     while let Some(msg_result) = ws_receiver.next().await {
         match msg_result {
             Ok(Message::Text(text)) => {
@@ -56,11 +65,14 @@ async fn wait_for_auth(
                 if auth_msg.token.is_empty() {
                     return Err("Empty token");
                 }
-                return Ok(auth_msg.token);
+                return Ok(AuthResult {
+                    token: auth_msg.token,
+                    buffered_messages,
+                });
             }
-            Ok(Message::Binary(_)) => {
-                // Skip binary messages (Yjs messages arriving before auth)
-                continue;
+            Ok(Message::Binary(data)) => {
+                // Buffer binary messages (Yjs sync/awareness) for replay after auth
+                buffered_messages.push(data.to_vec());
             }
             Ok(Message::Close(_)) => {
                 return Err("Connection closed before auth");
@@ -90,8 +102,8 @@ async fn handle_websocket(socket: WebSocket, room_id: String, state: Arc<AppStat
     )
     .await;
 
-    let token = match auth_result {
-        Ok(Ok(token)) => token,
+    let (token, buffered_messages) = match auth_result {
+        Ok(Ok(auth)) => (auth.token, auth.buffered_messages),
         Ok(Err(reason)) => {
             warn!(room_id = %room_id, reason = reason, "Auth message rejected");
             let _ = ws_sender
@@ -180,6 +192,22 @@ async fn handle_websocket(socket: WebSocket, room_id: String, state: Arc<AppStat
     state
         .room_manager
         .join_room(&room_id, client_id, client_info, room_tx);
+
+    // Replay any binary messages (Yjs sync/awareness) that arrived before auth.
+    // y-websocket sends SyncStep1 + awareness immediately on connect, before the
+    // client sends the auth text message. Without replaying these, presence and
+    // initial sync state are lost.
+    if !buffered_messages.is_empty() {
+        info!(
+            room_id = %room_id,
+            client_id = client_id,
+            count = buffered_messages.len(),
+            "Replaying buffered pre-auth messages"
+        );
+        for msg in buffered_messages {
+            state.room_manager.send_message(&room_id, client_id, msg);
+        }
+    }
 
     info!(
         room_id = %room_id,

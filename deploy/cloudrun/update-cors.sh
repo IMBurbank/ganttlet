@@ -5,7 +5,10 @@
 #   ALLOWED_ORIGINS=https://my-frontend.run.app ./deploy/cloudrun/update-cors.sh
 #   # Or with FRONTEND_URL already exported from frontend deploy:
 #   source deploy/cloudrun/update-cors.sh
-set -euo pipefail
+# NOTE: Do not use `set -e` here. This script may be `source`d by the unified
+# deploy script. With `set -e`, the flag leaks into the parent shell and any
+# subsequent command failure would kill the interactive session.
+set -uo pipefail
 
 # If PROJECT_ID is not set, run interactive setup
 if [[ -z "${PROJECT_ID:-}" ]]; then

@@ -24,31 +24,27 @@ RETRY_DELAY="${RETRY_DELAY:-5}"
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
-LOG_DIR="${WORKSPACE}/logs/phase10"
+LOG_DIR="${WORKSPACE}/logs/phase11"
 
-PHASE="phase10"
+PHASE="phase11"
 
-# Stage 1: Security hardening (CORS + token auth)
-STAGE1_GROUPS=("groupA" "groupB")
+# Stage 1: Testing infrastructure (all three groups run in parallel, single stage)
+STAGE1_GROUPS=("groupE" "groupF" "groupG")
 STAGE1_BRANCHES=(
-  "feature/phase10-cors-hardening"
-  "feature/phase10-token-auth"
+  "feature/phase11-server-tests"
+  "feature/phase11-e2e-tests"
+  "feature/phase11-ci-e2e"
 )
 STAGE1_MERGE_MESSAGES=(
-  "Merge feature/phase10-cors-hardening: remove permissive CORS fallback, require explicit origin allowlist"
-  "Merge feature/phase10-token-auth: move OAuth tokens from URL query params to WebSocket auth message"
+  "Merge feature/phase11-server-tests: diagnose and fix presence regression, add WebSocket auth and awareness integration tests"
+  "Merge feature/phase11-e2e-tests: Playwright E2E tests for collaboration, presence, and tooltip"
+  "Merge feature/phase11-ci-e2e: E2E test workflow in CI pipeline"
 )
 
-# Stage 2: Sheets sync hardening + CI/CD (depends on Stage 1 merge)
-STAGE2_GROUPS=("groupC" "groupD")
-STAGE2_BRANCHES=(
-  "feature/phase10-sheets-sync"
-  "feature/phase10-cicd-agent"
-)
-STAGE2_MERGE_MESSAGES=(
-  "Merge feature/phase10-sheets-sync: exponential backoff, batch update, merge by task ID, Yjs hydration from Sheets"
-  "Merge feature/phase10-cicd-agent: GitHub Actions CI/CD, deploy pipeline, agent-work workflow"
-)
+# Stage 2: empty (single-stage phase)
+STAGE2_GROUPS=()
+STAGE2_BRANCHES=()
+STAGE2_MERGE_MESSAGES=()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -314,13 +310,84 @@ merge2() {
 
 # ── Full pipeline ─────────────────────────────────────────────────────────────
 
+validate() {
+  local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/validate.md"
+  local max_attempts="${VALIDATE_MAX_ATTEMPTS:-3}"
+
+  if [[ ! -f "$prompt_file" ]]; then
+    warn "No validation prompt found at $prompt_file — skipping."
+    return 0
+  fi
+
+  log "=== Running validation agent (up to ${max_attempts} attempts) ==="
+
+  for attempt in $(seq 1 "$max_attempts"); do
+    local logfile="${LOG_DIR}/validate-attempt${attempt}.log"
+    local prompt
+    prompt="$(cat "$prompt_file")"
+
+    # On retry, tell the agent about previous failures
+    if [[ $attempt -gt 1 ]]; then
+      local prev_log="${LOG_DIR}/validate-attempt$((attempt - 1)).log"
+      local prev_failures
+      prev_failures="$(grep -A2 'FAIL' "$prev_log" 2>/dev/null | tail -30 || echo "(no previous log)")"
+      prompt="NOTE: This is validation attempt ${attempt}/${max_attempts}. Previous attempt found failures:
+
+${prev_failures}
+
+You MUST fix the issues above before re-running checks. Read the failing test output, diagnose the
+root cause, apply fixes, and then re-run ALL checks to confirm everything passes.
+
+${prompt}"
+    fi
+
+    log "Validation attempt ${attempt}/${max_attempts} (log: ${logfile})"
+    cd "$WORKSPACE"
+    claude --dangerously-skip-permissions -p "$prompt" > "$logfile" 2>&1
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+      warn "Validation agent exited with code ${exit_code} on attempt ${attempt}"
+      if [[ $attempt -lt $max_attempts ]]; then
+        log "Retrying validation..."
+        sleep "$RETRY_DELAY"
+        continue
+      fi
+      err "Validation agent failed after ${max_attempts} attempts"
+      err "Check logs: ${LOG_DIR}/validate-attempt*.log"
+      return 1
+    fi
+
+    # Print the validation report (last 40 lines should contain the summary table)
+    echo ""
+    log "=== Validation Report (attempt ${attempt}) ==="
+    tail -40 "$logfile"
+    echo ""
+
+    # Check if the report contains FAIL
+    if grep -q "OVERALL.*FAIL" "$logfile"; then
+      if [[ $attempt -lt $max_attempts ]]; then
+        warn "Validation found failures on attempt ${attempt} — retrying with fixes..."
+        sleep "$RETRY_DELAY"
+        continue
+      fi
+      err "Validation FAILED after ${max_attempts} attempts — see report above"
+      return 1
+    fi
+
+    ok "Validation PASSED on attempt ${attempt}"
+    return 0
+  done
+}
+
 run_all() {
-  log "=== Full pipeline: stage1 → merge1 → stage2 → merge2 ==="
+  log "=== Full pipeline: stage1 → merge1 → stage2 → merge2 → validate ==="
   stage1
   merge1
   stage2
   merge2
-  ok "=== Full pipeline complete ==="
+  validate
+  ok "=== Full pipeline complete — all checks passed ==="
 }
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -334,13 +401,15 @@ Commands:
   merge1    Merge Stage 1 branches to main + verify
   stage2    Run Stage 2 parallel groups in worktrees
   merge2    Merge Stage 2 branches to main + verify
-  all       Full pipeline: stage1 → merge1 → stage2 → merge2
+  validate  Run validation agent (checks all tests, fixes issues, reports)
+  all       Full pipeline: stage1 → merge1 → stage2 → merge2 → validate
   status    Show current worktree and branch status
   logs      Tail agent logs
 
 Environment variables:
-  MAX_RETRIES=3       Retries per agent on crash
-  RETRY_DELAY=5       Seconds between retries
+  MAX_RETRIES=3              Retries per agent on crash
+  RETRY_DELAY=5              Seconds between retries
+  VALIDATE_MAX_ATTEMPTS=3    Max fix-and-retry cycles for validation
 USAGE
 }
 
@@ -371,6 +440,7 @@ case "${1:-}" in
   merge1)  merge1 ;;
   stage2)  stage2 ;;
   merge2)  merge2 ;;
+  validate) validate ;;
   all)     run_all ;;
   status)  show_status ;;
   logs)    show_logs "$@" ;;

@@ -31,7 +31,7 @@ Go to **APIs & Services > OAuth consent screen**:
 2. Fill in the app name (e.g. "Ganttlet Dev") and your email
 3. Add these scopes:
    - `https://www.googleapis.com/auth/spreadsheets`
-   - `https://www.googleapis.com/auth/drive.readonly`
+   - `https://www.googleapis.com/auth/drive.metadata.readonly`
    - `https://www.googleapis.com/auth/userinfo.email`
    - `https://www.googleapis.com/auth/userinfo.profile`
 4. Add your Google email as a **test user** (required while the app is in "Testing" status)
@@ -65,10 +65,10 @@ The relay server handles real-time collaboration (Yjs CRDT sync over WebSocket).
 ### Option A: Docker (recommended if you don't have Rust)
 
 ```bash
-docker compose up relay
+docker compose up --build relay
 ```
 
-This builds the Rust server in a container and exposes it on `localhost:4000`.
+This builds (or rebuilds) the Rust server and runs it in the foreground on `localhost:4000`. Logs stream to your terminal; Ctrl+C to stop.
 
 ### Option B: Cargo (if you have Rust installed)
 

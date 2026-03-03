@@ -54,13 +54,15 @@ Phases are executed via `scripts/launch-phase.sh`, which handles worktree setup,
 launch, retry-on-crash, merge verification, and sequential stage gating.
 
 ```bash
-# Full pipeline: parallel groups → merge → sequential group
+# Full pipeline: parallel groups → merge → validate
 ./scripts/launch-phase.sh all
 
 # Or run stages individually:
 ./scripts/launch-phase.sh stage1    # launch parallel groups in worktrees
-./scripts/launch-phase.sh merge     # merge to main + verify
-./scripts/launch-phase.sh stage2    # launch sequential group on main
+./scripts/launch-phase.sh merge1    # merge Stage 1 branches to main + verify
+./scripts/launch-phase.sh stage2    # launch Stage 2 groups (if any)
+./scripts/launch-phase.sh merge2    # merge Stage 2 branches to main + verify
+./scripts/launch-phase.sh validate  # run validation agent (fix-and-retry)
 ./scripts/launch-phase.sh status    # show worktree/branch status
 ```
 
@@ -68,6 +70,12 @@ launch, retry-on-crash, merge verification, and sequential stage gating.
 - Lists the exact files the agent may modify (zero overlap between parallel groups)
 - Instructs the agent to skip plan mode and execute without confirmation
 - Includes retry context so restarted agents resume where they left off
+
+**Validation prompt** (`docs/prompts/validate.md`) runs after merge. It:
+- Executes all test suites (Rust, TypeScript, Vitest, Playwright E2E)
+- If anything fails, diagnoses and fixes the issue, then re-runs
+- Retries up to `VALIDATE_MAX_ATTEMPTS` (default 3) fix-and-retry cycles
+- Prints a final pass/fail report table
 
 **Unplanned issues** are triaged in `docs/unplanned-issues.md` using a Backlog → Claimed → Planned
 workflow. Planning agents claim up to 3 items, plan them into `TASKS.md`, then mark them planned.
@@ -79,7 +87,8 @@ workflow. Planning agents claim up to 3 items, plan them into `TASKS.md`, then m
 4. Update the config block at the top of `scripts/launch-phase.sh`:
    - `STAGE1_GROUPS`/`STAGE1_BRANCHES`/`STAGE1_MERGE_MESSAGES` for the first parallel set
    - `STAGE2_GROUPS`/`STAGE2_BRANCHES`/`STAGE2_MERGE_MESSAGES` for the second parallel set (leave empty arrays if single-stage)
-5. Run `./scripts/launch-phase.sh all` (executes: stage1 → merge1 → stage2 → merge2)
+5. Optionally create `docs/prompts/validate.md` for post-merge validation
+6. Run `./scripts/launch-phase.sh all` (executes: stage1 → merge1 → stage2 → merge2 → validate)
 
 ### Single-Agent Issue Work
 When working from a GitHub issue (via the `agent-ready` label workflow or manual assignment):
@@ -93,7 +102,7 @@ When working from a GitHub issue (via the `agent-ready` label workflow or manual
 See `TASKS.md` for claimable tasks and claiming convention.
 
 ## Completed Work
-Phases 0-9 are done. Details in `docs/completed-phases.md`.
+Phases 0-10 are done. Details in `docs/completed-phases.md`.
 
 ## Roadmap (Future)
 - Resource assignment and leveling

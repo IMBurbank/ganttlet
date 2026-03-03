@@ -5,179 +5,136 @@ Claimable tasks for multi-agent development.
 
 ---
 
-## Phase 9: Deployment Hardening, Cascade Bug Fix & UX Polish (DONE)
-Three parallel agent groups (all independent, no sequential stage needed). All merged to main.
+## Phase 11: Testing Infrastructure & Presence Fix (PENDING)
+Single stage, three parallel agent groups, then automated validation.
+Run `./scripts/launch-phase.sh all` for the full pipeline:
+stage1 (E+F+G parallel) → merge → validate (fix-and-retry until all checks pass)
+
+**Context**: Presence/highlighting is broken after Phase 10. An initial server-side fix has been
+applied to ws.rs (buffering binary messages during auth), but it is NOT sufficient — presence
+is still broken. Group E must diagnose the full end-to-end awareness flow and fix all root causes.
 
 ### Agent Groups & File Ownership
 
 ```
-Group A (UX Polish)                    Group B (Cascade Bug Fix)              Group C (Deployment Hardening)
-  src/components/layout/Header.tsx       src/components/table/TaskRow.tsx        deploy/frontend/ (rewrite w/ Go)
-  src/components/panels/UserPresence.tsx src/components/gantt/TaskBar.tsx        deploy/cloudrun/ (IAP + Cloud Armor)
-  src/state/GanttContext.tsx             src/components/gantt/TaskBarPopover.tsx deploy/README.md
-                                         src/state/__tests__/ganttReducer.test.ts firebase.json (delete)
-                                                                                server/src/auth.rs
-                                                                                server/Cargo.toml
+Group E (Presence Diagnosis/Fix + Tests)  Group F (Playwright E2E Tests)           Group G (CI Pipeline for E2E)
+  server/src/ws.rs                         e2e/collab.spec.ts (new)                .github/workflows/ci.yml
+  server/src/room.rs                       e2e/tooltip.spec.ts (new)               .github/workflows/e2e.yml (new)
+  server/tests/ws_auth_test.rs (new)       e2e/helpers/collab-harness.ts (new)
+  server/tests/awareness_test.rs (new)     playwright.config.ts
+  server/Cargo.toml (dev-deps only)        package.json (scripts only)
+  src/collab/yjsProvider.ts
+  src/collab/awareness.ts
 ```
 
 Zero file overlap confirmed. No interface contracts needed between groups.
 
-### Group A: UX Polish
+### Group E: Diagnose & Fix Presence + Server Integration Tests
 
-**A1: Add share button to Header.tsx**
-- [x] Add "Share" button in header controls (after SyncStatusIndicator, before Google sign-in)
-- [x] Use `navigator.clipboard.writeText(window.location.href)` on click
-- [x] Show "Copied!" feedback for ~2s via local state
-- [x] Style consistently with existing header buttons (text-xs, text-text-secondary, hover patterns)
+Presence/highlighting is broken after Phase 10. The initial server-side fix (buffering binary
+messages during auth) is NOT sufficient. This group must diagnose the full awareness flow
+end-to-end (client → server → other clients), fix all root causes, and add integration tests
+that prove awareness works.
 
-**A2: Remove fake user presence icons**
-- [x] In UserPresence.tsx: remove the fallback block that renders fake users when collab is disconnected — return null instead
-- [x] In GanttContext.tsx: change `users: fakeUsers` to `users: []` in initialState
-- [x] Remove `fakeUsers` from import (keep fakeTasks, fakeChangeHistory, defaultColumns)
+**E1: Verify the existing ws.rs fix compiles**
+- [ ] Run `cargo check` and `cargo test` in server/ to confirm AuthResult changes work
+- [ ] Fix any compilation errors
 
-Execution: A1 then A2
+**E2: Diagnose the full presence flow end-to-end**
+- [ ] Add tracing to ws.rs and room.rs to trace awareness message flow
+- [ ] Test locally with two browser tabs, read server logs
+- [ ] Determine: are awareness messages arriving? being stored? relayed to other clients?
+- [ ] Document findings in a code comment
 
-### Group B: Cascade Bug Fix
+**E3: Fix the root cause(s)**
+Likely candidates (investigate all):
+- [ ] Client-side: force awareness re-announce after auth succeeds (yjsProvider.ts)
+- [ ] Server-side: ensure last_awareness is properly stored and relayed to late joiners (room.rs)
+- [ ] Timing: verify replay happens correctly relative to send_task spawn (ws.rs)
+- [ ] Client-side: ensure setLocalAwareness runs when WS is actually connected
 
-Root cause: `CASCADE_DEPENDENTS` is only dispatched when `startDate` changes (task moves). When `endDate` changes (via end-date edit or duration change) or when resizing a bar, no cascade is dispatched. The Rust cascade engine works fine — the bug is entirely in the dispatch call sites.
+**E4: Add integration test for auth flow with pre-auth binary messages**
+- [ ] Create `server/tests/ws_auth_test.rs`
+- [ ] Test: binary messages sent before auth are buffered and replayed (not dropped)
+- [ ] Test: auth timeout after 5 seconds closes connection
+- [ ] Test: empty token is rejected with error
+- [ ] Add `tokio-tungstenite` and `futures-util` to `[dev-dependencies]`
 
-**B1: Fix TaskRow.tsx — cascade on end-date and duration changes**
-- [x] `handleDateUpdate` endDate branch: add CASCADE_DEPENDENTS dispatch after existing dispatches, compute endDelta via daysBetween
-- [x] `handleDurationUpdate`: save task.endDate before computing newEndDate, add CASCADE_DEPENDENTS dispatch if endDelta !== 0
+**E5: Add integration test for awareness relay**
+- [ ] Create `server/tests/awareness_test.rs`
+- [ ] Test: awareness from client A is received by client B
+- [ ] Test: late joiner receives awareness state
+- [ ] Test: presence works with the auth-then-awareness flow (exact production sequence)
 
-**B2: Fix TaskBar.tsx — cascade on resize**
-- [x] Add `lastEndDate: string` to dragRef type
-- [x] In onMouseMove resize path: store `dragRef.current.lastEndDate = newEndStr`
-- [x] In onMouseUp: add else branch for resize mode, dispatch CASCADE_DEPENDENTS if endDelta !== 0
+**E6: Commit and verify**
+- [ ] `cd server && cargo test` — all tests pass
+- [ ] `npx tsc --noEmit` — TypeScript changes compile
 
-**B3: Fix TaskBarPopover.tsx — cascade on end-date change**
-- [x] In saveField endDate branch: add CASCADE_DEPENDENTS dispatch after existing dispatches
+Execution: E1 → E2 → E3 → E4 → E5 → E6
 
-**B4: Add tests for cascade on duration/end-date changes**
-- [x] Test: cascade dependents when end date increases (positive delta)
-- [x] Test: cascade dependents when duration decreases (negative delta)
+### Group F: Playwright E2E Tests for Collaboration & Core UI
 
-Execution: B1 → B2 → B3 → B4
+**F1: Add `test:e2e` npm script and update Playwright config**
+- [ ] Add `"test:e2e": "npx playwright test"` to package.json scripts
+- [ ] Update playwright.config.ts: expect timeout, traces, retries
 
-### Group C: Deployment Hardening
+**F2: Create collaboration test harness**
+- [ ] Create `e2e/helpers/collab-harness.ts` with `createCollabPair()` utility
+- [ ] Handles two browser contexts connecting to same page
+- [ ] Includes `isCollabAvailable()` check for graceful skipping
 
-**C1: Replace Firebase Hosting with Go static file server**
-- [x] Create deploy/frontend/main.go: net/http.FileServer with SPA fallback, security headers, structured logging
-- [x] Create deploy/frontend/go.mod (stdlib only)
-- [x] Create deploy/frontend/Dockerfile: multi-stage (node → golang → distroless)
-- [x] Rewrite deploy/frontend/deploy.sh for Cloud Run deployment
-- [x] Delete firebase.json
+**F3: Create collaboration E2E tests**
+- [ ] Create `e2e/collab.spec.ts`
+- [ ] Test: presence indicators appear for connected users
+- [ ] Test: task edit in one tab propagates to the other
+- [ ] Test: single-user mode works without relay
 
-**C2: Add health check / readiness probe endpoints**
-- [x] GET /healthz → 200 OK (liveness)
-- [x] GET /readyz → check dist/index.html exists, 503 if not (readiness)
+**F4: Create tooltip E2E test**
+- [ ] Create `e2e/tooltip.spec.ts`
+- [ ] Test: hovering over task bar shows tooltip without console errors
+- [ ] Test: moving mouse away hides tooltip
 
-**C3: Replace reqwest with hyper in relay server**
-- [x] In server/Cargo.toml: replace reqwest with hyper, hyper-util, hyper-rustls, http-body-util, bytes
-- [x] In server/src/auth.rs: replace Client::new() + .get() + .bearer_auth() with hyper-util legacy::Client HTTPS calls
+**F5: Run and verify**
+- [ ] `npm run test:e2e` passes (collab tests skip if no relay)
+- [ ] Existing gantt.spec.ts tests still pass
 
-**C4: Add IAP configuration**
-- [x] Create deploy/cloudrun/iap-setup.sh: enable IAP API, document manual OAuth consent steps
+Execution: F1 → F2 → F3 → F4 → F5
 
-**C5: Configure Cloud Armor WAF rules**
-- [x] Create deploy/cloudrun/cloud-armor.sh: security policy with rate limiting, OWASP CRS (SQLi + XSS)
+### Group G: CI Pipeline for E2E Tests
 
-Execution: C1 → C2, then C3 (independent), then C4 → C5
+**G1: Add Playwright E2E workflow**
+- [ ] Create `.github/workflows/e2e.yml` — separate workflow for E2E tests
+- [ ] Install Playwright browsers, build WASM, run tests
+- [ ] Upload report and traces as artifacts
 
----
+**G2: Verify server integration tests run in CI**
+- [ ] Confirm `cd server && cargo test` in ci.yml picks up new integration tests
+- [ ] Update to `cargo test --all-targets` if needed
 
-## Phase 10: Architecture Hardening (PENDING)
-Two stages, four parallel agent groups. Run `./scripts/launch-phase.sh all` for the full pipeline:
-stage1 (A+B parallel) → merge1 → stage2 (C+D parallel) → merge2
+**G3: Commit and verify**
+- [ ] Commit with descriptive message
 
-### Stage 1: Security Hardening
+Execution: G1 → G2 → G3
 
-```
-Group A (CORS Hardening + Bug Fix)      Group B (Token Auth Flow)
-  server/src/main.rs                      server/src/ws.rs
-  server/src/config.rs                    src/collab/yjsProvider.ts
-  src/components/shared/Tooltip.tsx
-```
+### Validation Agent (runs automatically after merge)
 
-Zero file overlap confirmed.
+A dedicated agent runs all checks, fixes any failures, and produces a final report.
+Runs up to 3 fix-and-retry cycles. See `docs/prompts/validate.md` for the full spec.
 
-### Group A: CORS Hardening + Tooltip Bug Fix
+**Checks (V1–V10):**
+- [ ] V1: Server compilation + server tests (including new ws_auth and awareness tests)
+- [ ] V2: TypeScript compilation
+- [ ] V3: Vitest unit tests
+- [ ] V4: WASM build
+- [ ] V5: Rust scheduler tests
+- [ ] V6: E2E tests WITHOUT relay (collab tests skip, tooltip tests pass)
+- [ ] V7: E2E tests WITH relay (presence test MUST pass — this is the key gate)
+- [ ] V8: All new files exist
+- [ ] V9: ws.rs presence fix is in place
+- [ ] V10: yjsProvider has awareness re-announce
 
-**A1: Validate and reject permissive CORS origins**
-- [ ] In `config.rs`: filter out `"*"` from allowed_origins, default to `["http://localhost:5173"]` if empty
-- [ ] In `main.rs`: remove `CorsLayer::permissive()` fallback, always use strict allowlist
-- [ ] Update unit tests: empty defaults to localhost, `"*"` rejected, comma-separated parsing
-
-**A2: Fix Tooltip.tsx getBoundingClientRect crash**
-- [ ] In `Tooltip.tsx`: capture `e.currentTarget.getBoundingClientRect()` synchronously before `setTimeout`, not inside it (React nullifies `e.currentTarget` after the handler returns)
-
-Execution: A1 → A2
-
-### Group B: Token Auth Flow
-
-**B1: Move token from URL query to WebSocket auth message (client)**
-- [ ] In `yjsProvider.ts`: remove `params: { token }`, send token as text message after connect
-
-**B2: Move token validation into WebSocket handler (server)**
-- [ ] In `ws.rs`: remove Query extraction, accept upgrade unconditionally
-- [ ] Read first message as auth JSON, validate token, then join room
-- [ ] Add 5-second timeout for auth message
-
-Execution: B1 → B2
-
-### Stage 2: Sheets Sync Hardening & CI/CD (after Stage 1 merge)
-
-### Agent Groups & File Ownership
-
-```
-Group C (Sheets Sync + Yjs Hydration)    Group D (CI/CD + Agent Workflow)
-  src/sheets/sheetsClient.ts               .github/workflows/ci.yml (new)
-  src/sheets/sheetsSync.ts                 .github/workflows/deploy.yml (new)
-  src/sheets/sheetsMapper.ts               .github/workflows/agent-work.yml (new)
-  src/state/GanttContext.tsx                CLAUDE.md
-  src/collab/yjsBinding.ts
-```
-
-Zero file overlap confirmed.
-
-### Group C: Sheets Sync Hardening + Yjs Hydration
-
-**C1: Add exponential backoff to Sheets API calls**
-- [ ] In `sheetsClient.ts`: add `retryWithBackoff()` helper, wrap all API calls
-- [ ] Config: 1s initial, 60s max, 5 attempts, +/- 20% jitter, respect Retry-After
-
-**C2: Replace clear-then-write with update**
-- [ ] In `sheetsClient.ts`: add `updateSheet()` using Sheets API values.update (PUT)
-- [ ] In `sheetsSync.ts`: change `scheduleSave()` to use `updateSheet()`
-
-**C3: Merge incoming Sheets data by task ID**
-- [ ] In `sheetsSync.ts`: compare incoming tasks by ID instead of full replacement
-- [ ] In `GanttContext.tsx`: add `MERGE_EXTERNAL_TASKS` reducer action
-
-**C4: Propagate Sheets changes to Yjs**
-- [ ] In `sheetsSync.ts`: call `applyTasksToYjs()` after detecting external changes
-
-**C5: Hydrate Yjs from Sheets on init**
-- [ ] In `yjsBinding.ts`: add `hydrateYjsFromTasks(doc, tasks)` function
-- [ ] In `GanttContext.tsx`: load Sheets → connect collab → hydrate Yjs if empty → start polling
-
-Execution: C1 → C2 → C3 → C4 → C5
-
-### Group D: CI/CD Pipeline + Agent Workflow
-
-**D1: CI pipeline**
-- [ ] Create `.github/workflows/ci.yml`: PR checks (tsc, vitest, cargo test)
-
-**D2: Deploy pipeline**
-- [ ] Create `.github/workflows/deploy.yml`: build images, push to Artifact Registry, deploy staging
-
-**D3: Agent workflow**
-- [ ] Create `.github/workflows/agent-work.yml`: trigger on `agent-ready` label, run Claude Code
-
-**D4: Update CLAUDE.md for single-agent work**
-- [ ] Add branch naming, verification command, PR creation instructions
-
-Execution: D1 → D2 → D3 → D4
+**Fix-and-retry**: If any check fails, the validation agent diagnoses the root cause,
+applies a fix, commits it, and re-runs. Up to 3 full cycles.
 
 ---
 

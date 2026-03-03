@@ -110,6 +110,9 @@ else
   read -rp "Project ID [${SUGGESTED_ID}]: " CUSTOM_ID
   PROJECT_ID="${CUSTOM_ID:-$SUGGESTED_ID}"
 
+  # Flag consumed by deploy.sh to skip duplicate manual-setup prompt
+  SETUP_CREATED_PROJECT=true
+
   echo ""
   echo "Creating project '${PROJECT_NAME}' (${PROJECT_ID})..."
   if ! gcloud projects create "$PROJECT_ID" --name="$PROJECT_NAME"; then
@@ -118,10 +121,19 @@ else
   fi
 
   echo ""
-  echo "IMPORTANT: You must link a billing account to this project before deploying."
-  echo "Visit: https://console.cloud.google.com/billing/linkedaccount?project=${PROJECT_ID}"
+  echo "IMPORTANT: Complete the Cloud Console Setup before deploying."
+  echo "See deploy/README.md § 'Cloud Console Setup' for full instructions."
   echo ""
-  read -rp "Press Enter once billing is configured..."
+  echo "  1. Link a billing account:"
+  echo "     https://console.cloud.google.com/billing/linkedaccount?project=${PROJECT_ID}"
+  echo ""
+  echo "  2. Configure the OAuth consent screen:"
+  echo "     https://console.cloud.google.com/apis/credentials/consent?project=${PROJECT_ID}"
+  echo ""
+  echo "  3. Create an OAuth client ID:"
+  echo "     https://console.cloud.google.com/apis/credentials?project=${PROJECT_ID}"
+  echo ""
+  read -rp "Press Enter once you've completed these steps..."
 fi
 
 # ── Set project in gcloud config ─────────────────────────────────────────────

@@ -108,3 +108,11 @@ Three parallel agent groups — all independent, no sequential stage needed.
 - **Group A (UX Polish)**: Share button (copy URL to clipboard), remove fake user presence icons
 - **Group B (Cascade Bug Fix)**: Dispatch CASCADE_DEPENDENTS on end-date edit, duration change, and bar resize across TaskRow, TaskBar, TaskBarPopover + reducer tests
 - **Group C (Deployment Hardening)**: Go static file server replacing Firebase Hosting, hyper HTTP client replacing reqwest in relay server, IAP setup script, Cloud Armor WAF rules, health check endpoints
+- **Post-merge fixes**: SERVICE_NAME leak between deploy scripts, CSP wasm-unsafe-eval, Cloud Run port/h2c config, OAuth setup docs, deploy/setup.sh project-by-name flow
+
+## Phase 10: Architecture Hardening — DONE
+Two-stage pipeline: stage 1 (A+B parallel) → merge → stage 2 (C+D parallel) → merge.
+- **Group A (CORS Hardening)**: Removed `CorsLayer::permissive()` fallback, strict origin allowlist with `"*"` rejection, default to localhost; fixed Tooltip `getBoundingClientRect` crash (capture rect synchronously before setTimeout)
+- **Group B (Token Auth)**: Moved OAuth token from WebSocket URL query param to post-connect auth message; server accepts upgrade unconditionally, reads first message as auth JSON with 5-second timeout
+- **Group C (Sheets Sync)**: Exponential backoff with jitter for Sheets API (1s–60s, 5 attempts, Retry-After); atomic `values.update` replacing clear-then-write; merge incoming Sheets data by task ID instead of full replacement; propagate polling changes to Yjs; hydrate Yjs from Sheets on initialization
+- **Group D (CI/CD)**: GitHub Actions CI workflow (tsc, vitest, cargo test on PRs); deploy pipeline (build images, push to Artifact Registry); agent-work workflow (trigger on `agent-ready` label, run Claude Code); updated CLAUDE.md with single-agent issue workflow

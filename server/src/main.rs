@@ -69,16 +69,13 @@ async fn health_handler() -> &'static str {
 }
 
 /// Build a CORS layer from the list of allowed origins.
+/// Config guarantees a non-empty list with no wildcards.
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
-    if origins.is_empty() || origins.iter().any(|o| o == "*") {
-        CorsLayer::permissive()
-    } else {
-        let parsed: Vec<_> = origins
-            .iter()
-            .filter_map(|o| o.parse().ok())
-            .collect();
-        CorsLayer::new().allow_origin(AllowOrigin::list(parsed))
-    }
+    let parsed: Vec<_> = origins
+        .iter()
+        .filter_map(|o| o.parse().ok())
+        .collect();
+    CorsLayer::new().allow_origin(AllowOrigin::list(parsed))
 }
 
 /// Wait for a shutdown signal (Ctrl+C or SIGTERM).

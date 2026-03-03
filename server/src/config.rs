@@ -31,12 +31,22 @@ impl Config {
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(4000);
 
-        let allowed_origins = env::var("RELAY_ALLOWED_ORIGINS")
-            .unwrap_or_else(|_| "http://localhost:5173".to_string())
+        let mut allowed_origins: Vec<String> = env::var("RELAY_ALLOWED_ORIGINS")
+            .unwrap_or_default()
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
+
+        if allowed_origins.iter().any(|o| o == "*") {
+            tracing::error!("RELAY_ALLOWED_ORIGINS contained '*' — wildcard origins are not allowed, filtering out");
+            allowed_origins.retain(|o| o != "*");
+        }
+
+        if allowed_origins.is_empty() {
+            tracing::warn!("RELAY_ALLOWED_ORIGINS is empty — defaulting to http://localhost:5173 (local dev only)");
+            allowed_origins = vec!["http://localhost:5173".to_string()];
+        }
 
         Config {
             host,
@@ -49,14 +59,22 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
-    #[test]
-    fn test_default_config() {
-        // Clear env vars to test defaults
+    // Env-var tests must run serially to avoid races.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn clear_env() {
         env::remove_var("RELAY_HOST");
         env::remove_var("RELAY_PORT");
         env::remove_var("PORT");
         env::remove_var("RELAY_ALLOWED_ORIGINS");
+    }
+
+    #[test]
+    fn test_default_config() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
 
         let config = Config::from_env();
         assert_eq!(config.host, "0.0.0.0");
@@ -66,26 +84,65 @@ mod tests {
 
     #[test]
     fn test_port_fallback_to_port_env() {
-        // Cloud Run sets PORT, not RELAY_PORT
-        env::remove_var("RELAY_PORT");
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
         env::set_var("PORT", "8080");
 
         let config = Config::from_env();
         assert_eq!(config.port, 8080);
-
-        env::remove_var("PORT");
     }
 
     #[test]
     fn test_relay_port_takes_priority_over_port() {
-        // RELAY_PORT should win over PORT
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
         env::set_var("RELAY_PORT", "4000");
         env::set_var("PORT", "8080");
 
         let config = Config::from_env();
         assert_eq!(config.port, 4000);
+    }
 
-        env::remove_var("RELAY_PORT");
-        env::remove_var("PORT");
+    #[test]
+    fn test_empty_origins_defaults_to_localhost() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        env::set_var("RELAY_ALLOWED_ORIGINS", "");
+
+        let config = Config::from_env();
+        assert_eq!(config.allowed_origins, vec!["http://localhost:5173"]);
+    }
+
+    #[test]
+    fn test_wildcard_origin_is_filtered_out_falls_back_to_default() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        env::set_var("RELAY_ALLOWED_ORIGINS", "*");
+
+        let config = Config::from_env();
+        assert_eq!(config.allowed_origins, vec!["http://localhost:5173"]);
+    }
+
+    #[test]
+    fn test_wildcard_mixed_with_valid_keeps_only_valid() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        env::set_var("RELAY_ALLOWED_ORIGINS", "*,http://example.com");
+
+        let config = Config::from_env();
+        assert_eq!(config.allowed_origins, vec!["http://example.com"]);
+    }
+
+    #[test]
+    fn test_multiple_valid_origins_parsed_correctly() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        env::set_var("RELAY_ALLOWED_ORIGINS", "http://a.com,http://b.com");
+
+        let config = Config::from_env();
+        assert_eq!(
+            config.allowed_origins,
+            vec!["http://a.com", "http://b.com"]
+        );
     }
 }

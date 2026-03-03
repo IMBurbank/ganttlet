@@ -14,9 +14,8 @@ export default function Tooltip({ content, children, delay = 400, svg = false }:
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   function handleMouseEnter(e: React.MouseEvent) {
+    const rect = (e.currentTarget as Element).getBoundingClientRect();
     timeoutRef.current = setTimeout(() => {
-      const target = e.currentTarget as Element;
-      const rect = target.getBoundingClientRect();
       setPos({ x: rect.left + rect.width / 2, y: rect.top - 8 });
       setVisible(true);
     }, delay);

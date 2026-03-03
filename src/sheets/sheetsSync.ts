@@ -1,6 +1,8 @@
-import { readSheet, writeSheet, clearSheet } from './sheetsClient';
+import { readSheet, updateSheet } from './sheetsClient';
 import { tasksToRows, rowsToTasks } from './sheetsMapper';
 import { isSignedIn } from './oauth';
+import { applyTasksToYjs } from '../collab/yjsBinding';
+import { getDoc } from '../collab/yjsProvider';
 import type { Task } from '../types';
 import type { GanttAction } from '../state/actions';
 
@@ -61,8 +63,8 @@ export function scheduleSave(tasks: Task[]): void {
     try {
       dispatch?.({ type: 'START_SYNC' });
       const rows = tasksToRows(tasks);
-      await clearSheet(currentSpreadsheetId!, DATA_RANGE);
-      await writeSheet(currentSpreadsheetId!, `${DATA_RANGE}!A1`, rows);
+      const range = `${DATA_RANGE}!A1:R${rows.length}`;
+      await updateSheet(currentSpreadsheetId!, range, rows);
       lastWriteHash = hashTasks(tasks);
       dispatch?.({ type: 'COMPLETE_SYNC' });
       setTimeout(() => dispatch?.({ type: 'RESET_SYNC' }), 2000);
@@ -73,20 +75,29 @@ export function scheduleSave(tasks: Task[]): void {
   }, WRITE_DEBOUNCE_MS);
 }
 
-export function startPolling(onNewTasks: (tasks: Task[]) => void): void {
+export function startPolling(): void {
   stopPolling();
   pollTimer = setInterval(async () => {
     if (!currentSpreadsheetId || !isSignedIn()) return;
     try {
       const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
-      const tasks = rowsToTasks(rows);
+      const incomingTasks = rowsToTasks(rows);
       // Don't overwrite local data with an empty sheet — the sheet may not
       // have been populated yet (first deploy, API just enabled, etc.)
-      if (tasks.length === 0) return;
-      const newHash = hashTasks(tasks);
+      if (incomingTasks.length === 0) return;
+      const newHash = hashTasks(incomingTasks);
       if (newHash !== lastWriteHash) {
         lastWriteHash = newHash;
-        onNewTasks(tasks);
+        dispatch?.({
+          type: 'MERGE_EXTERNAL_TASKS',
+          externalTasks: incomingTasks,
+        });
+
+        // Propagate Sheets changes to Yjs so other collaborators see them
+        const doc = getDoc();
+        if (doc) {
+          applyTasksToYjs(doc, incomingTasks);
+        }
       }
     } catch (err) {
       console.error('Poll error:', err);

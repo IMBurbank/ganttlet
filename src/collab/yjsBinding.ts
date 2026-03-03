@@ -109,6 +109,16 @@ export function bindYjsToDispatch(doc: Y.Doc, dispatch: Dispatch<GanttAction>): 
 }
 
 /**
+ * Hydrate an empty Yjs document from Sheets data on initialization.
+ * Only writes if the Yjs array is empty to avoid overwriting existing data.
+ */
+export function hydrateYjsFromTasks(doc: Y.Doc, tasks: Task[]): void {
+  const yarray = doc.getArray<Y.Map<unknown>>('tasks');
+  if (yarray.length > 0) return; // Already has data, don't overwrite
+  applyTasksToYjs(doc, tasks);
+}
+
+/**
  * Load an initial set of tasks into the Yjs document.
  */
 export function applyTasksToYjs(doc: Y.Doc, tasks: Task[]): void {

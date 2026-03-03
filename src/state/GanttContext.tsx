@@ -6,7 +6,7 @@ import { fakeTasks, fakeChangeHistory, defaultColumns } from '../data/fakeData';
 import { initSync, loadFromSheet, scheduleSave, startPolling, stopPolling, getSpreadsheetId } from '../sheets/sheetsSync';
 import { isSignedIn, getAccessToken, getAuthState, setAuthChangeCallback, removeAuthChangeCallback, type AuthState } from '../sheets/oauth';
 import { connectCollab, disconnectCollab } from '../collab/yjsProvider';
-import { bindYjsToDispatch, applyTasksToYjs, applyActionToYjs } from '../collab/yjsBinding';
+import { bindYjsToDispatch, applyTasksToYjs, applyActionToYjs, hydrateYjsFromTasks } from '../collab/yjsBinding';
 import { setLocalAwareness, updateViewingTask, getCollabUsers } from '../collab/awareness';
 import type { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
@@ -70,6 +70,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   const yjsDocRef = useRef<Y.Doc | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
   const pendingFullSyncRef = useRef(false);
+  const loadedSheetTasksRef = useRef<import('../types').Task[]>([]);
   const [awareness, setAwareness] = useState<Awareness | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(getAccessToken());
 
@@ -104,6 +105,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     loadFromSheet().then(tasks => {
       if (tasks.length > 0) {
         dispatch({ type: 'SET_TASKS', tasks });
+        loadedSheetTasksRef.current = tasks;
       }
     });
 
@@ -147,10 +149,11 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_COLLAB_CONNECTED', connected });
 
         if (connected) {
-          const yarray = doc.getArray('tasks');
-          if (yarray.length === 0) {
-            applyTasksToYjs(doc, fakeTasks);
-          }
+          // If Yjs is empty, hydrate from Sheets data (or fall back to fake tasks)
+          const tasksToHydrate = loadedSheetTasksRef.current.length > 0
+            ? loadedSheetTasksRef.current
+            : fakeTasks;
+          hydrateYjsFromTasks(doc, tasksToHydrate);
         }
       });
 

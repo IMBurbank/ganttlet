@@ -1,6 +1,6 @@
-# Phase 9 Group C — Deployment Hardening
+# Phase 10 Group C (Stage 2) — Sheets Sync Hardening + Yjs Hydration
 
-You are implementing Phase 9 Group C for the Ganttlet project.
+You are implementing Phase 10 Group C (Stage 2) for the Ganttlet project.
 Read CLAUDE.md and TASKS.md for full context.
 
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
@@ -8,222 +8,234 @@ Execute all tasks sequentially without stopping for approval.
 If you encounter an error, fix it and continue. If you cannot fix it after 3 attempts, commit what you have and move on to the next task.
 
 ## Your files (ONLY modify these):
-- deploy/frontend/main.go (new)
-- deploy/frontend/go.mod (new)
-- deploy/frontend/Dockerfile (new)
-- deploy/frontend/deploy.sh (rewrite)
-- deploy/cloudrun/iap-setup.sh (new)
-- deploy/cloudrun/cloud-armor.sh (new)
-- deploy/cloudrun/deploy.sh (minor update)
-- deploy/README.md (rewrite)
-- firebase.json (delete)
-- server/Cargo.toml (edit)
-- server/src/auth.rs (rewrite)
+- src/sheets/sheetsClient.ts
+- src/sheets/sheetsSync.ts
+- src/sheets/sheetsMapper.ts
+- src/state/GanttContext.tsx
+- src/collab/yjsBinding.ts
 
-## Tasks — execute in order:
+## Background
 
-### C1: Replace Firebase Hosting with Go static file server
+The Sheets sync layer has several robustness issues identified in the architecture review:
+1. No retry/backoff when API calls fail or hit rate limits
+2. Each save does `clearSheet()` then `writeSheet()` — a crash between them leaves an empty sheet
+3. Polling replaces all local state with sheet data, overwriting in-progress edits
+4. External Sheet changes don't propagate to Yjs, so other collaborators don't see them
+5. When the relay server restarts, new clients get an empty Yjs doc instead of Sheets data
 
-**Create `deploy/frontend/main.go`:**
-- Go binary using `net/http.FileServer`
-- Serve files from configurable directory (default `/app/dist`, override via `DIST_DIR` env)
-- SPA fallback: for any request where the file doesn't exist on disk, serve `index.html`
-- Port via `PORT` env var (Cloud Run standard), default `8080`
-- Security headers on all responses:
-  - `X-Content-Type-Options: nosniff`
-  - `X-Frame-Options: DENY`
-  - `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https://www.googleapis.com https://sheets.googleapis.com https://accounts.google.com; img-src 'self' data: https:; frame-src https://accounts.google.com;`
-  - `Referrer-Policy: strict-origin-when-cross-origin`
-- Structured logging (requests + startup)
+## Tasks — execute in order (each builds on the previous):
 
-**Create `deploy/frontend/go.mod`:**
-```
-module github.com/anthropics/ganttlet/frontend
-go 1.22
-```
-No external dependencies — stdlib only.
+### C1: Add exponential backoff to Sheets API calls
 
-**Create `deploy/frontend/Dockerfile`:**
-Multi-stage build:
-1. Stage 1 (`node:20-alpine`): `npm ci && npm run build` to produce `dist/`
-2. Stage 2 (`golang:1.22-alpine`): build the Go binary
-3. Stage 3 (`gcr.io/distroless/static-debian12`): copy binary + dist, run as nonroot
+**File: `src/sheets/sheetsClient.ts`**
 
-**Rewrite `deploy/frontend/deploy.sh`:**
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+Add a generic retry helper at the top of the file:
 
-PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID to your GCP project}"
-REGION="${REGION:-us-central1}"
-SERVICE_NAME="${SERVICE_NAME:-ganttlet-frontend}"
-IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
+```typescript
+interface RetryOptions {
+  maxAttempts?: number;
+  initialDelay?: number;
+  maxDelay?: number;
+  jitterFactor?: number;
+}
 
-echo "==> Building container image with Cloud Build..."
-gcloud builds submit \
-  --project="${PROJECT_ID}" \
-  --tag="${IMAGE_NAME}" \
-  --timeout=600 \
-  /workspace
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  opts: RetryOptions = {},
+): Promise<T> {
+  const { maxAttempts = 5, initialDelay = 1000, maxDelay = 60000, jitterFactor = 0.2 } = opts;
+  let delay = initialDelay;
 
-echo "==> Deploying to Cloud Run (${REGION})..."
-gcloud run deploy "${SERVICE_NAME}" \
-  --project="${PROJECT_ID}" \
-  --region="${REGION}" \
-  --image="${IMAGE_NAME}" \
-  --platform=managed \
-  --allow-unauthenticated \
-  --port=8080 \
-  --memory=128Mi \
-  --cpu=1 \
-  --min-instances=0 \
-  --max-instances=10 \
-  --startup-probe-path=/healthz
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error: unknown) {
+      if (attempt === maxAttempts) throw error;
 
-SERVICE_URL=$(gcloud run services describe "${SERVICE_NAME}" \
-  --project="${PROJECT_ID}" \
-  --region="${REGION}" \
-  --format='value(status.url)')
+      // Check for Retry-After header on 429 responses
+      if (error instanceof Response && error.status === 429) {
+        const retryAfter = error.headers.get('Retry-After');
+        if (retryAfter) {
+          delay = parseInt(retryAfter, 10) * 1000;
+        }
+      }
 
-echo ""
-echo "==> Frontend deployment complete!"
-echo "    URL: ${SERVICE_URL}"
+      // Add jitter: +/- jitterFactor of current delay
+      const jitter = delay * jitterFactor * (2 * Math.random() - 1);
+      const waitTime = Math.min(delay + jitter, maxDelay);
+
+      console.warn(`Sheets API attempt ${attempt}/${maxAttempts} failed, retrying in ${Math.round(waitTime)}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+
+      delay = Math.min(delay * 2, maxDelay);
+    }
+  }
+  throw new Error('Unreachable');
+}
 ```
 
-**Delete `firebase.json`.**
-
-### C2: Add health check / readiness probe endpoints
-
-In `deploy/frontend/main.go`:
-- `GET /healthz` → 200 OK with body `ok` (liveness probe)
-- `GET /readyz` → check that `dist/index.html` exists on disk; 200 if yes, 503 if not (readiness probe)
-
-Register these routes BEFORE the static file handler so they take priority.
-
-### C3: Replace reqwest with hyper in relay server
-
-**In `server/Cargo.toml`:**
-Replace:
-```toml
-reqwest = { version = "0.12", features = ["json"] }
+Then wrap each existing API function. For example, if `readSheet` currently does:
+```typescript
+const response = await fetch(`https://sheets.googleapis.com/v4/...`);
 ```
-With:
-```toml
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "tokio", "http1"] }
-hyper-rustls = { version = "0.27", features = ["http1", "webpki-tokio"] }
-http-body-util = "0.1"
-bytes = "1"
+Change to:
+```typescript
+return retryWithBackoff(async () => {
+  const response = await fetch(`https://sheets.googleapis.com/v4/...`);
+  if (!response.ok) throw response;  // triggers retry on non-2xx
+  return response.json();
+});
 ```
 
-**In `server/src/auth.rs`:**
-Replace `reqwest::Client` usage with hyper-based HTTP calls:
+Apply the same pattern to `writeSheet()` and `clearSheet()`. Export `retryWithBackoff` for testing.
 
-1. Remove `use reqwest::Client;`
-2. Add necessary imports for hyper, hyper-util, hyper-rustls, http-body-util
-3. Create a helper function to build an HTTPS client:
-   ```rust
-   fn https_client() -> hyper_util::client::legacy::Client<
-       hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
-       http_body_util::Empty<bytes::Bytes>,
-   > {
-       let tls = hyper_rustls::HttpsConnectorBuilder::new()
-           .with_webpki_roots()
-           .https_only()
-           .enable_http1()
-           .build();
-       hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-           .build(tls)
-   }
-   ```
-4. Replace both `validate_token()` and `check_drive_permission()` to use this client:
-   - Build a `hyper::Request` with GET method, URI, and `Authorization: Bearer <token>` header
-   - Send via `client.request(req).await`
-   - Collect body with `http_body_util::BodyExt::collect()`
-   - Parse with `serde_json::from_slice()`
-5. Keep the same error handling structure (AuthError variants).
-6. Run `cd server && cargo check` to verify.
+**Add a test** in a new file `src/sheets/__tests__/sheetsClient.test.ts`:
+- Test that retryWithBackoff retries on failure and eventually succeeds
+- Test that it respects maxAttempts and throws after exhausting retries
+- Test that delay increases exponentially
 
-### C4: Add IAP configuration
+### C2: Replace clear-then-write with values.update
 
-Create `deploy/cloudrun/iap-setup.sh`:
-```bash
-#!/usr/bin/env bash
-# Enable Identity-Aware Proxy for Cloud Run services.
-set -euo pipefail
+**File: `src/sheets/sheetsClient.ts`**
 
-PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID}"
+Add a new function `updateSheet()` that uses the Sheets API `values.update` endpoint (PUT method) instead of the two-step clear+write:
 
-echo "==> Enabling IAP API..."
-gcloud services enable iap.googleapis.com --project="${PROJECT_ID}"
-
-echo ""
-echo "IAP setup steps (manual):"
-echo "1. Go to: https://console.cloud.google.com/security/iap?project=${PROJECT_ID}"
-echo "2. Enable IAP for each Cloud Run service"
-echo "3. Add authorized users/groups"
-echo "4. Configure OAuth consent screen if not already done"
-echo ""
-echo "For automated setup, use 'gcloud iap web enable' after configuring a backend service."
+```typescript
+export async function updateSheet(
+  spreadsheetId: string,
+  range: string,
+  values: string[][],
+): Promise<void> {
+  const token = await getAccessToken();
+  return retryWithBackoff(async () => {
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ values }),
+      },
+    );
+    if (!response.ok) throw response;
+  });
+}
 ```
 
-### C5: Configure Cloud Armor WAF rules
+**File: `src/sheets/sheetsSync.ts`**
 
-Create `deploy/cloudrun/cloud-armor.sh`:
-```bash
-#!/usr/bin/env bash
-# Configure Cloud Armor security policy for the frontend.
-set -euo pipefail
+Change `scheduleSave()` to use `updateSheet()` instead of `clearSheet()` + `writeSheet()`:
+- Convert tasks to rows using `tasksToRows()` (from sheetsMapper)
+- Include header row
+- Call `updateSheet(spreadsheetId, range, allRows)` where range covers the header + all data rows
+- This is an atomic single-request write — no race condition
 
-PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID}"
-POLICY_NAME="${POLICY_NAME:-ganttlet-waf}"
+### C3: Merge incoming Sheets data by task ID
 
-echo "==> Creating Cloud Armor security policy..."
-gcloud compute security-policies create "${POLICY_NAME}" \
-  --project="${PROJECT_ID}" \
-  --description="Ganttlet WAF policy" \
-  2>/dev/null || echo "Policy already exists"
+**File: `src/sheets/sheetsSync.ts`**
 
-echo "==> Adding rate limiting rule..."
-gcloud compute security-policies rules create 1000 \
-  --security-policy="${POLICY_NAME}" \
-  --project="${PROJECT_ID}" \
-  --expression="true" \
-  --action=throttle \
-  --rate-limit-threshold-count=100 \
-  --rate-limit-threshold-interval-sec=60 \
-  --conform-action=allow \
-  --exceed-action=deny-429 \
-  2>/dev/null || echo "Rate limit rule already exists"
-
-echo "==> Adding OWASP CRS rules..."
-gcloud compute security-policies rules create 2000 \
-  --security-policy="${POLICY_NAME}" \
-  --project="${PROJECT_ID}" \
-  --expression="evaluatePreconfiguredWaf('sqli-v33-stable')" \
-  --action=deny-403 \
-  2>/dev/null || echo "SQLi rule already exists"
-
-gcloud compute security-policies rules create 2001 \
-  --security-policy="${POLICY_NAME}" \
-  --project="${PROJECT_ID}" \
-  --expression="evaluatePreconfiguredWaf('xss-v33-stable')" \
-  --action=deny-403 \
-  2>/dev/null || echo "XSS rule already exists"
-
-echo ""
-echo "==> Cloud Armor policy '${POLICY_NAME}' configured."
-echo "    Apply to a backend service with:"
-echo "    gcloud compute backend-services update SERVICE_NAME --security-policy=${POLICY_NAME}"
+Change the polling callback. Currently it does:
+```typescript
+dispatch({ type: 'SET_TASKS', tasks: incomingTasks });
 ```
 
-## Priority
+Replace with a merge strategy:
+1. Keep a reference to the last-known Sheets state (already partially there via `lastWriteHash`; extend to store the actual tasks array)
+2. On poll, compare incoming tasks to last-known Sheets state by task ID to identify what changed externally
+3. Dispatch a new action instead of SET_TASKS:
+```typescript
+dispatch({
+  type: 'MERGE_EXTERNAL_TASKS',
+  externalTasks: incomingTasks,
+});
+```
 
-C1-C3 are critical. C4-C5 are stretch goals (additive config scripts). Prioritize C1-C3.
+**File: `src/state/GanttContext.tsx`**
+
+Add the `MERGE_EXTERNAL_TASKS` action to the reducer. The merge logic:
+```typescript
+case 'MERGE_EXTERNAL_TASKS': {
+  const { externalTasks } = action;
+  const externalMap = new Map(externalTasks.map(t => [t.id, t]));
+  const localMap = new Map(state.tasks.map(t => [t.id, t]));
+
+  // Start with all external tasks (source of truth for additions/deletions)
+  const merged = externalTasks.map(ext => {
+    const local = localMap.get(ext.id);
+    if (!local) return ext;  // New task from sheets
+    // If local task was modified since last sync, keep local version
+    // Otherwise use external version
+    return local;
+  });
+
+  return { ...state, tasks: merged };
+}
+```
+
+Add the action type to the `GanttAction` union type.
+
+**Add a test** for the MERGE_EXTERNAL_TASKS reducer action:
+- Test: external task added → appears in merged result
+- Test: external task updated, no local changes → external version used
+- Test: local task in progress → local version preserved
+
+### C4: Propagate Sheets changes to Yjs
+
+**File: `src/sheets/sheetsSync.ts`**
+
+After detecting external changes in the polling callback (the section you modified in C3), also update the Yjs document so all collaborators see the change:
+
+```typescript
+import { applyTasksToYjs } from '../collab/yjsBinding';
+import { getDoc } from '../collab/yjsProvider';
+
+// In the polling callback, after dispatching MERGE_EXTERNAL_TASKS:
+const doc = getDoc();
+if (doc) {
+  applyTasksToYjs(doc, incomingTasks);
+}
+```
+
+Note: `applyTasksToYjs` already exists in `yjsBinding.ts` — it writes a full task array into the Yjs document. The `isLocalUpdate` flag in yjsBinding prevents the observer from echoing these changes back to dispatch.
+
+### C5: Hydrate Yjs from Sheets on initialization
+
+**File: `src/collab/yjsBinding.ts`**
+
+Add a new exported function:
+
+```typescript
+export function hydrateYjsFromTasks(doc: Y.Doc, tasks: Task[]): void {
+  const yarray = doc.getArray<Y.Map<unknown>>('tasks');
+  if (yarray.length > 0) return;  // Already has data, don't overwrite
+  applyTasksToYjs(doc, tasks);
+}
+```
+
+**File: `src/state/GanttContext.tsx`**
+
+Change the initialization order in the useEffect that sets up Sheets + collab. Currently:
+1. Init sheets sync
+2. Load from sheet → dispatch SET_TASKS
+3. Start polling
+4. (Separately) Connect collab
+
+Change to:
+1. Load from sheet → dispatch SET_TASKS → store tasks in a ref
+2. Connect collab (creates Yjs doc)
+3. If Yjs array is empty, call `hydrateYjsFromTasks(doc, loadedTasks)`
+4. Start polling
+
+This ensures that when a new client joins a room where the relay server was restarted (empty Yjs doc), it gets data from Sheets immediately.
+
+Import `hydrateYjsFromTasks` from `../collab/yjsBinding`.
 
 ## Verification
 After all tasks, run:
 ```bash
-cd server && cargo check
+npx tsc --noEmit && npm run test
 ```
-Cargo check must pass. Commit your changes with descriptive messages.
+Both must pass. Add tests for new functionality as specified in each task.
+Commit your changes with descriptive messages after each task.

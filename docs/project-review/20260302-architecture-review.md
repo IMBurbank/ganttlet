@@ -212,21 +212,21 @@ Your current `CLAUDE.md` has good project context but is oriented toward the mul
 
 ### Do First (Security & Deployment Blockers)
 
-1. Fix CORS: remove the permissive fallback; require an explicit origin allowlist
-2. Move OAuth tokens from query parameters to headers
-3. Set up Artifact Registry and a basic CI/CD pipeline with GitHub Actions
-4. Add `.env` to `.gitignore`; use Secret Manager for production
+1. Fix CORS: remove the permissive fallback; require an explicit origin allowlist — **Phase 10, Group A**
+2. Move OAuth tokens from query parameters to headers — **Phase 10, Group B**
+3. Set up Artifact Registry and a basic CI/CD pipeline with GitHub Actions — **Phase 10, Group D**
+4. Add `.env` to `.gitignore`; use Secret Manager for production — **Already done** (`.env` was already gitignored and untracked)
 
 ### Do Next (Sheets Sync Hardening & Production Readiness)
 
-5. Add exponential backoff with jitter to Sheets API calls (read, write, and poll)
-6. Replace clear-then-write with targeted `batchUpdate` for changed rows only
-7. Merge incoming Sheets data with local state by task ID instead of full replacement
-8. Hydrate Yjs document from Sheets on initialization (closes the relay restart gap too)
-9. Make `verify.sh` exit non-zero on failure so agents are forced to fix errors
-10. Set up Claude Code GitHub Actions for automated issue handling
+5. Add exponential backoff with jitter to Sheets API calls (read, write, and poll) — **Phase 10, Group C**
+6. Replace clear-then-write with targeted `batchUpdate` for changed rows only — **Phase 10, Group C**
+7. Merge incoming Sheets data with local state by task ID instead of full replacement — **Phase 10, Group C**
+8. Hydrate Yjs document from Sheets on initialization (closes the relay restart gap too) — **Phase 10, Group C**
+9. Make `verify.sh` exit non-zero on failure so agents are forced to fix errors — **Phase 10, prep** (done)
+10. Set up Claude Code GitHub Actions for automated issue handling — **Phase 10, Group D**
 
-### Do Later (Scale & Polish)
+### Do Later (Scale & Polish) — Future Phase
 
 11. Add rate limiting to the relay server's WebSocket endpoint
 12. Build out E2E test coverage for critical user flows

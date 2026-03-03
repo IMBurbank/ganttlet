@@ -3,10 +3,11 @@
 #
 # Usage:
 #   ./scripts/launch-phase.sh                    # interactive menu
-#   ./scripts/launch-phase.sh stage1             # run parallel groups (A+B)
-#   ./scripts/launch-phase.sh merge              # merge A+B to main
-#   ./scripts/launch-phase.sh stage2             # run sequential group (C)
-#   ./scripts/launch-phase.sh all                # full pipeline: stage1 → merge → stage2
+#   ./scripts/launch-phase.sh stage1             # run Stage 1 parallel groups
+#   ./scripts/launch-phase.sh merge1             # merge Stage 1 branches to main
+#   ./scripts/launch-phase.sh stage2             # run Stage 2 parallel groups
+#   ./scripts/launch-phase.sh merge2             # merge Stage 2 branches to main
+#   ./scripts/launch-phase.sh all                # full pipeline: stage1 → merge1 → stage2 → merge2
 #
 # Environment:
 #   MAX_RETRIES     — retries per agent on crash (default: 3)
@@ -23,17 +24,30 @@ RETRY_DELAY="${RETRY_DELAY:-5}"
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
-LOG_DIR="${WORKSPACE}/logs/phase9"
+LOG_DIR="${WORKSPACE}/logs/phase10"
 
-# Phase 9 configuration — edit these for each new phase
-PHASE="phase9"
-PARALLEL_GROUPS=("groupA" "groupB" "groupC")
-PARALLEL_BRANCHES=("feature/phase9-ux-polish" "feature/phase9-cascade-fix" "feature/phase9-deploy-hardening")
-SEQUENTIAL_GROUP=""  # no sequential group
-MERGE_MESSAGES=(
-  "Merge feature/phase9-ux-polish: share button, remove fake presence icons"
-  "Merge feature/phase9-cascade-fix: cascade on duration/end-date changes"
-  "Merge feature/phase9-deploy-hardening: Go frontend server, hyper HTTP client, IAP, Cloud Armor"
+PHASE="phase10"
+
+# Stage 1: Security hardening (CORS + token auth)
+STAGE1_GROUPS=("groupA" "groupB")
+STAGE1_BRANCHES=(
+  "feature/phase10-cors-hardening"
+  "feature/phase10-token-auth"
+)
+STAGE1_MERGE_MESSAGES=(
+  "Merge feature/phase10-cors-hardening: remove permissive CORS fallback, require explicit origin allowlist"
+  "Merge feature/phase10-token-auth: move OAuth tokens from URL query params to WebSocket auth message"
+)
+
+# Stage 2: Sheets sync hardening + CI/CD (depends on Stage 1 merge)
+STAGE2_GROUPS=("groupC" "groupD")
+STAGE2_BRANCHES=(
+  "feature/phase10-sheets-sync"
+  "feature/phase10-cicd-agent"
+)
+STAGE2_MERGE_MESSAGES=(
+  "Merge feature/phase10-sheets-sync: exponential backoff, batch update, merge by task ID, Yjs hydration from Sheets"
+  "Merge feature/phase10-cicd-agent: GitHub Actions CI/CD, deploy pipeline, agent-work workflow"
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,17 +128,22 @@ ${prompt}"
   return 1
 }
 
-# ── Stage 1: Parallel groups ─────────────────────────────────────────────────
+# ── Generic parallel stage runner ─────────────────────────────────────────────
 
-stage1() {
-  log "=== Stage 1: Launching parallel groups ==="
+# Usage: run_parallel_stage "Stage 1" STAGE1_GROUPS STAGE1_BRANCHES
+run_parallel_stage() {
+  local stage_label="$1"
+  local -n groups_ref="$2"
+  local -n branches_ref="$3"
+
+  log "=== ${stage_label}: Launching parallel groups ==="
 
   local pids=()
   local groups_list=()
 
-  for i in "${!PARALLEL_GROUPS[@]}"; do
-    local group="${PARALLEL_GROUPS[$i]}"
-    local branch="${PARALLEL_BRANCHES[$i]}"
+  for i in "${!groups_ref[@]}"; do
+    local group="${groups_ref[$i]}"
+    local branch="${branches_ref[$i]}"
     local worktree="${WORKTREE_BASE}/${PHASE}-${group}"
 
     # Create worktree if it doesn't exist
@@ -176,17 +195,23 @@ stage1() {
   done
 
   if $all_ok; then
-    ok "=== Stage 1 complete: all parallel groups finished ==="
+    ok "=== ${stage_label} complete: all parallel groups finished ==="
   else
-    err "=== Stage 1 finished with errors. Review logs in ${LOG_DIR} ==="
+    err "=== ${stage_label} finished with errors. Review logs in ${LOG_DIR} ==="
     return 1
   fi
 }
 
-# ── Merge: Combine parallel branches into main ───────────────────────────────
+# ── Generic merge ─────────────────────────────────────────────────────────────
 
-do_merge() {
-  log "=== Merge: Combining parallel branches into main ==="
+# Usage: do_merge_stage "Merge 1" STAGE1_GROUPS STAGE1_BRANCHES STAGE1_MERGE_MESSAGES
+do_merge_stage() {
+  local merge_label="$1"
+  local -n m_groups_ref="$2"
+  local -n m_branches_ref="$3"
+  local -n m_messages_ref="$4"
+
+  log "=== ${merge_label}: Combining parallel branches into main ==="
 
   cd "$WORKSPACE"
 
@@ -199,15 +224,15 @@ do_merge() {
   fi
 
   # Merge each branch
-  for i in "${!PARALLEL_BRANCHES[@]}"; do
-    local branch="${PARALLEL_BRANCHES[$i]}"
-    local msg="${MERGE_MESSAGES[$i]}"
+  for i in "${!m_branches_ref[@]}"; do
+    local branch="${m_branches_ref[$i]}"
+    local msg="${m_messages_ref[$i]}"
 
     log "Merging ${branch}..."
     if git merge "$branch" --no-ff -m "$msg"; then
       ok "Merged ${branch}"
     else
-      err "Merge conflict on ${branch}. Resolve manually, then re-run: $0 merge"
+      err "Merge conflict on ${branch}. Resolve manually, then re-run: $0 ${merge_label,,}"
       return 1
     fi
   done
@@ -240,15 +265,15 @@ do_merge() {
   fi
 
   if ! $verify_ok; then
-    err "=== Merge verification failed. Fix issues before running Stage 2 ==="
+    err "=== ${merge_label} verification failed. Fix issues before proceeding ==="
     return 1
   fi
 
   # Cleanup worktrees
   log "Cleaning up worktrees..."
-  for i in "${!PARALLEL_GROUPS[@]}"; do
-    local group="${PARALLEL_GROUPS[$i]}"
-    local branch="${PARALLEL_BRANCHES[$i]}"
+  for i in "${!m_groups_ref[@]}"; do
+    local group="${m_groups_ref[$i]}"
+    local branch="${m_branches_ref[$i]}"
     local worktree="${WORKTREE_BASE}/${PHASE}-${group}"
     if [[ -d "$worktree" ]]; then
       git worktree remove "$worktree" --force 2>/dev/null || \
@@ -258,50 +283,43 @@ do_merge() {
       warn "Could not delete branch: ${branch}"
   done
 
-  ok "=== Merge complete and verified ==="
+  ok "=== ${merge_label} complete and verified ==="
 }
 
-# ── Stage 2: Sequential group (depends on merge) ─────────────────────────────
+# ── Stage entry points ────────────────────────────────────────────────────────
+
+stage1() {
+  run_parallel_stage "Stage 1" STAGE1_GROUPS STAGE1_BRANCHES
+}
+
+merge1() {
+  do_merge_stage "Merge 1" STAGE1_GROUPS STAGE1_BRANCHES STAGE1_MERGE_MESSAGES
+}
 
 stage2() {
-  if [[ -z "$SEQUENTIAL_GROUP" ]]; then
-    ok "No sequential group configured. Skipping Stage 2."
+  if [[ ${#STAGE2_GROUPS[@]} -eq 0 ]]; then
+    ok "No Stage 2 groups configured. Skipping."
     return 0
   fi
+  run_parallel_stage "Stage 2" STAGE2_GROUPS STAGE2_BRANCHES
+}
 
-  log "=== Stage 2: Launching sequential group (${SEQUENTIAL_GROUP}) ==="
-
-  cd "$WORKSPACE"
-
-  # Verify we're on main with merged code
-  local current_branch
-  current_branch=$(git branch --show-current)
-  if [[ "$current_branch" != "main" ]]; then
-    err "Must be on main branch for Stage 2 (currently on ${current_branch})"
-    return 1
+merge2() {
+  if [[ ${#STAGE2_GROUPS[@]} -eq 0 ]]; then
+    ok "No Stage 2 groups configured. Skipping."
+    return 0
   fi
-
-  run_agent "$SEQUENTIAL_GROUP" "$WORKSPACE"
-
-  if [[ $? -eq 0 ]]; then
-    ok "=== Stage 2 complete ==="
-  else
-    err "=== Stage 2 failed. Check ${LOG_DIR}/${SEQUENTIAL_GROUP}.log ==="
-    return 1
-  fi
+  do_merge_stage "Merge 2" STAGE2_GROUPS STAGE2_BRANCHES STAGE2_MERGE_MESSAGES
 }
 
 # ── Full pipeline ─────────────────────────────────────────────────────────────
 
 run_all() {
-  log "=== Full pipeline: stage1 → merge → stage2 ==="
+  log "=== Full pipeline: stage1 → merge1 → stage2 → merge2 ==="
   stage1
-  do_merge
-  if [[ -n "$SEQUENTIAL_GROUP" ]]; then
-    stage2
-  else
-    ok "No sequential group — skipping Stage 2."
-  fi
+  merge1
+  stage2
+  merge2
   ok "=== Full pipeline complete ==="
 }
 
@@ -312,10 +330,11 @@ usage() {
 Usage: ./scripts/launch-phase.sh <command>
 
 Commands:
-  stage1    Run parallel agent groups (A+B) in worktrees
-  merge     Merge parallel branches to main + verify
-  stage2    Run sequential group (C) on main
-  all       Full pipeline: stage1 → merge → stage2
+  stage1    Run Stage 1 parallel groups in worktrees
+  merge1    Merge Stage 1 branches to main + verify
+  stage2    Run Stage 2 parallel groups in worktrees
+  merge2    Merge Stage 2 branches to main + verify
+  all       Full pipeline: stage1 → merge1 → stage2 → merge2
   status    Show current worktree and branch status
   logs      Tail agent logs
 
@@ -349,8 +368,9 @@ show_logs() {
 
 case "${1:-}" in
   stage1)  stage1 ;;
-  merge)   do_merge ;;
+  merge1)  merge1 ;;
   stage2)  stage2 ;;
+  merge2)  merge2 ;;
   all)     run_all ;;
   status)  show_status ;;
   logs)    show_logs "$@" ;;

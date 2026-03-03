@@ -76,8 +76,10 @@ workflow. Planning agents claim up to 3 items, plan them into `TASKS.md`, then m
 1. Create prompt files in `docs/prompts/` (e.g., `groupA.md`, `groupB.md`, `groupC.md`)
 2. Define file ownership, interface contracts, and execution order in this file
 3. Add tasks to `TASKS.md`
-4. Update the config block at the top of `scripts/launch-phase.sh` (phase name, group→branch map, merge order)
-5. Run `./scripts/launch-phase.sh all`
+4. Update the config block at the top of `scripts/launch-phase.sh`:
+   - `STAGE1_GROUPS`/`STAGE1_BRANCHES`/`STAGE1_MERGE_MESSAGES` for the first parallel set
+   - `STAGE2_GROUPS`/`STAGE2_BRANCHES`/`STAGE2_MERGE_MESSAGES` for the second parallel set (leave empty arrays if single-stage)
+5. Run `./scripts/launch-phase.sh all` (executes: stage1 → merge1 → stage2 → merge2)
 
 ## Task Queue
 See `TASKS.md` for claimable tasks and claiming convention.

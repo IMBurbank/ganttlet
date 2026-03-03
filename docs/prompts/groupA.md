@@ -1,6 +1,6 @@
-# Phase 9 Group A — UX Polish
+# Phase 10 Group A (Stage 1) — CORS Hardening + Tooltip Bug Fix
 
-You are implementing Phase 9 Group A for the Ganttlet project.
+You are implementing Phase 10 Group A (Stage 1) for the Ganttlet project.
 Read CLAUDE.md and TASKS.md for full context.
 
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
@@ -8,56 +8,82 @@ Execute all tasks sequentially without stopping for approval.
 If you encounter an error, fix it and continue. If you cannot fix it after 3 attempts, commit what you have and move on to the next task.
 
 ## Your files (ONLY modify these):
-- src/components/layout/Header.tsx
-- src/components/panels/UserPresence.tsx
-- src/state/GanttContext.tsx
+- server/src/main.rs
+- server/src/config.rs
+- src/components/shared/Tooltip.tsx
+
+## Background
+
+The relay server's CORS configuration currently defaults to `CorsLayer::permissive()` when `RELAY_ALLOWED_ORIGINS` is empty or contains `"*"`. This means production deploys can start wide open if the env var isn't set. We need to enforce a strict allowlist with no permissive fallback.
 
 ## Tasks — execute in order:
 
-### A1: Add share button to Header.tsx
+### A1: Validate CORS origins in config.rs
 
-Add a "Share" button in the header controls area — after `SyncStatusIndicator`, before the Google sign-in section (around line 38 in the `<div className="flex items-center gap-4">` block).
+In `Config::from_env()`, after parsing `RELAY_ALLOWED_ORIGINS`:
 
-**Implementation:**
-1. Add local state: `const [copied, setCopied] = useState(false);`
-2. Add a click handler that copies the current URL:
-   ```typescript
-   const handleShare = useCallback(() => {
-     navigator.clipboard.writeText(window.location.href).then(() => {
-       setCopied(true);
-       setTimeout(() => setCopied(false), 2000);
-     });
-   }, []);
+1. Filter out any entry that is `"*"` — log an error if one was found:
+   ```rust
+   if origins.iter().any(|o| o == "*") {
+       tracing::error!("RELAY_ALLOWED_ORIGINS contained '*' — wildcard origins are not allowed, filtering out");
+       origins.retain(|o| o != "*");
+   }
    ```
-3. Add the button JSX between `<SyncStatusIndicator />` and the Google sign-in section:
-   ```tsx
-   <button
-     onClick={handleShare}
-     className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-overlay transition-colors"
-   >
-     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-       <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
-       <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
-     </svg>
-     {copied ? 'Copied!' : 'Share'}
-   </button>
+
+2. If the resulting list is empty, default to `vec!["http://localhost:5173".to_string()]` and log a warning:
+   ```rust
+   if origins.is_empty() {
+       tracing::warn!("RELAY_ALLOWED_ORIGINS is empty — defaulting to http://localhost:5173 (local dev only)");
+       origins = vec!["http://localhost:5173".to_string()];
+   }
    ```
-4. Style should match existing header buttons (`text-xs`, `text-text-secondary`, hover patterns).
 
-### A2: Remove fake user presence icons
+3. Update the existing unit tests and add new ones:
+   - Test: empty env var defaults to `["http://localhost:5173"]`
+   - Test: `"*"` is filtered out, falls back to default
+   - Test: `"*,http://example.com"` keeps only `http://example.com`
+   - Test: `"http://a.com,http://b.com"` parses both correctly
 
-**In `UserPresence.tsx`:**
-- Remove the entire fallback block (lines 48-74) that renders `users` (fake data) when collab is disconnected.
-- Instead, return `null` when `!(isCollabConnected && collabUsers.length > 0)`.
-- The component should ONLY render real collab users (the first return block, lines 9-45).
+### A2: Remove permissive fallback in main.rs
 
-**In `GanttContext.tsx`:**
-- Line 29: change `users: fakeUsers` to `users: []`
-- Line 5: remove `fakeUsers` from the import. Keep `fakeTasks`, `fakeChangeHistory`, `defaultColumns`.
+In `build_cors_layer()`:
+
+1. Remove the `if origins.is_empty() || origins.contains("*")` branch that returns `CorsLayer::permissive()`.
+
+2. The function should always build a strict CORS layer from the origins list. Since `config.rs` now guarantees a non-empty list without wildcards, this is safe.
+
+3. Keep the existing logic that parses origins into `HeaderValue` and builds the allowlist layer.
+
+### A3: Fix Tooltip.tsx getBoundingClientRect crash
+
+In `src/components/shared/Tooltip.tsx`, the `handleMouseEnter` function captures `e.currentTarget` inside a `setTimeout`. React nullifies `e.currentTarget` after the handler returns, so by the time the timeout fires it's `null`, causing: `TypeError: can't access property "getBoundingClientRect", v.currentTarget is null`.
+
+**Fix:** Capture the rect synchronously before the setTimeout:
+
+```typescript
+// BEFORE (broken):
+function handleMouseEnter(e: React.MouseEvent) {
+  timeoutRef.current = setTimeout(() => {
+    const target = e.currentTarget as Element;
+    const rect = target.getBoundingClientRect();  // currentTarget is null here
+    setPos({ x: rect.left + rect.width / 2, y: rect.top - 8 });
+    setVisible(true);
+  }, delay);
+}
+
+// AFTER (fixed):
+function handleMouseEnter(e: React.MouseEvent) {
+  const rect = (e.currentTarget as Element).getBoundingClientRect();  // capture NOW
+  timeoutRef.current = setTimeout(() => {
+    setPos({ x: rect.left + rect.width / 2, y: rect.top - 8 });
+    setVisible(true);
+  }, delay);
+}
+```
 
 ## Verification
 After all tasks, run:
 ```bash
-npx tsc --noEmit && npm run test
+cd server && cargo test && npx tsc --noEmit
 ```
-Both must pass. Commit your changes with descriptive messages.
+All must pass. Commit your changes with descriptive messages.

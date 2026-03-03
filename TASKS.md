@@ -86,6 +86,101 @@ Execution: C1 → C2, then C3 (independent), then C4 → C5
 
 ---
 
+## Phase 10: Architecture Hardening (PENDING)
+Two stages, four parallel agent groups. Run `./scripts/launch-phase.sh all` for the full pipeline:
+stage1 (A+B parallel) → merge1 → stage2 (C+D parallel) → merge2
+
+### Stage 1: Security Hardening
+
+```
+Group A (CORS Hardening + Bug Fix)      Group B (Token Auth Flow)
+  server/src/main.rs                      server/src/ws.rs
+  server/src/config.rs                    src/collab/yjsProvider.ts
+  src/components/shared/Tooltip.tsx
+```
+
+Zero file overlap confirmed.
+
+### Group A: CORS Hardening + Tooltip Bug Fix
+
+**A1: Validate and reject permissive CORS origins**
+- [ ] In `config.rs`: filter out `"*"` from allowed_origins, default to `["http://localhost:5173"]` if empty
+- [ ] In `main.rs`: remove `CorsLayer::permissive()` fallback, always use strict allowlist
+- [ ] Update unit tests: empty defaults to localhost, `"*"` rejected, comma-separated parsing
+
+**A2: Fix Tooltip.tsx getBoundingClientRect crash**
+- [ ] In `Tooltip.tsx`: capture `e.currentTarget.getBoundingClientRect()` synchronously before `setTimeout`, not inside it (React nullifies `e.currentTarget` after the handler returns)
+
+Execution: A1 → A2
+
+### Group B: Token Auth Flow
+
+**B1: Move token from URL query to WebSocket auth message (client)**
+- [ ] In `yjsProvider.ts`: remove `params: { token }`, send token as text message after connect
+
+**B2: Move token validation into WebSocket handler (server)**
+- [ ] In `ws.rs`: remove Query extraction, accept upgrade unconditionally
+- [ ] Read first message as auth JSON, validate token, then join room
+- [ ] Add 5-second timeout for auth message
+
+Execution: B1 → B2
+
+### Stage 2: Sheets Sync Hardening & CI/CD (after Stage 1 merge)
+
+### Agent Groups & File Ownership
+
+```
+Group C (Sheets Sync + Yjs Hydration)    Group D (CI/CD + Agent Workflow)
+  src/sheets/sheetsClient.ts               .github/workflows/ci.yml (new)
+  src/sheets/sheetsSync.ts                 .github/workflows/deploy.yml (new)
+  src/sheets/sheetsMapper.ts               .github/workflows/agent-work.yml (new)
+  src/state/GanttContext.tsx                CLAUDE.md
+  src/collab/yjsBinding.ts
+```
+
+Zero file overlap confirmed.
+
+### Group C: Sheets Sync Hardening + Yjs Hydration
+
+**C1: Add exponential backoff to Sheets API calls**
+- [ ] In `sheetsClient.ts`: add `retryWithBackoff()` helper, wrap all API calls
+- [ ] Config: 1s initial, 60s max, 5 attempts, +/- 20% jitter, respect Retry-After
+
+**C2: Replace clear-then-write with update**
+- [ ] In `sheetsClient.ts`: add `updateSheet()` using Sheets API values.update (PUT)
+- [ ] In `sheetsSync.ts`: change `scheduleSave()` to use `updateSheet()`
+
+**C3: Merge incoming Sheets data by task ID**
+- [ ] In `sheetsSync.ts`: compare incoming tasks by ID instead of full replacement
+- [ ] In `GanttContext.tsx`: add `MERGE_EXTERNAL_TASKS` reducer action
+
+**C4: Propagate Sheets changes to Yjs**
+- [ ] In `sheetsSync.ts`: call `applyTasksToYjs()` after detecting external changes
+
+**C5: Hydrate Yjs from Sheets on init**
+- [ ] In `yjsBinding.ts`: add `hydrateYjsFromTasks(doc, tasks)` function
+- [ ] In `GanttContext.tsx`: load Sheets → connect collab → hydrate Yjs if empty → start polling
+
+Execution: C1 → C2 → C3 → C4 → C5
+
+### Group D: CI/CD Pipeline + Agent Workflow
+
+**D1: CI pipeline**
+- [ ] Create `.github/workflows/ci.yml`: PR checks (tsc, vitest, cargo test)
+
+**D2: Deploy pipeline**
+- [ ] Create `.github/workflows/deploy.yml`: build images, push to Artifact Registry, deploy staging
+
+**D3: Agent workflow**
+- [ ] Create `.github/workflows/agent-work.yml`: trigger on `agent-ready` label, run Claude Code
+
+**D4: Update CLAUDE.md for single-agent work**
+- [ ] Add branch naming, verification command, PR creation instructions
+
+Execution: D1 → D2 → D3 → D4
+
+---
+
 ## Resource Assignment & Leveling
 Basic resource tracking and overallocation detection.
 

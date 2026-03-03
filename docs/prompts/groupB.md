@@ -1,6 +1,6 @@
-# Phase 9 Group B — Cascade Bug Fix
+# Phase 10 Group B (Stage 1) — Token Auth Flow
 
-You are implementing Phase 9 Group B for the Ganttlet project.
+You are implementing Phase 10 Group B (Stage 1) for the Ganttlet project.
 Read CLAUDE.md and TASKS.md for full context.
 
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
@@ -8,159 +8,99 @@ Execute all tasks sequentially without stopping for approval.
 If you encounter an error, fix it and continue. If you cannot fix it after 3 attempts, commit what you have and move on to the next task.
 
 ## Your files (ONLY modify these):
-- src/components/table/TaskRow.tsx
-- src/components/gantt/TaskBar.tsx
-- src/components/gantt/TaskBarPopover.tsx
-- src/state/__tests__/ganttReducer.test.ts
+- server/src/ws.rs
+- src/collab/yjsProvider.ts
 
-## Bug Description
+## Background
 
-Tasks don't cascade when the duration of their dependencies is increased. Cascade only fires when the start date changes (task move). When the end date changes (via end-date edit or duration change) or when resizing a bar, no `CASCADE_DEPENDENTS` dispatch is made. The Rust cascade engine works fine — the bug is entirely in the TypeScript dispatch call sites.
+The OAuth access token is currently passed as a URL query parameter (`?token=<value>`) on the WebSocket connection. Query parameters appear in server logs, browser history, HTTP Referer headers, and proxy caches. We need to move the token to a WebSocket message sent after the connection upgrades.
+
+The y-websocket library's `params` option appends to the URL as query parameters — there's no built-in way to send an Authorization header. So we use a first-message auth pattern: upgrade the connection without auth, then the client sends the token as the first text message, and the server validates before processing any Yjs binary messages.
 
 ## Tasks — execute in order:
 
-### B1: Fix TaskRow.tsx — cascade on end-date and duration changes
+### B1: Client — send token as WebSocket message (yjsProvider.ts)
 
-**End-date branch** (`handleDateUpdate`, the `else` block around lines 77-87):
-After the existing dispatches (UPDATE_TASK_FIELD for endDate + duration, ADD_CHANGE_RECORD), add a CASCADE_DEPENDENTS dispatch:
-```typescript
-const endDelta = daysBetween(oldValue, value);
-if (endDelta !== 0) {
-  dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
-}
-```
+1. Remove `params: { token: accessToken }` from the WebsocketProvider constructor options (line 29).
 
-**Duration handler** (`handleDurationUpdate`, lines 90-102):
-Save the old end date before computing the new one, then add CASCADE_DEPENDENTS after existing dispatches:
-```typescript
-function handleDurationUpdate(value: string) {
-  const newDuration = parseInt(value, 10);
-  if (isNaN(newDuration) || newDuration < 0) return;
-  const oldEndDate = task.endDate;  // save before recomputing
-  const oldValue = String(task.duration);
-  const newEndDate = addDaysToDate(task.startDate, newDuration);
-  dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
-  dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
-  dispatch({
-    type: 'ADD_CHANGE_RECORD',
-    taskId: task.id, taskName: task.name, field: 'duration',
-    oldValue, newValue: value, user: 'You',
-  });
-  const endDelta = daysBetween(oldEndDate, newEndDate);
-  if (endDelta !== 0) {
-    dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
-  }
-}
-```
-
-### B2: Fix TaskBar.tsx — cascade on resize
-
-In the `onMouseUp` handler (lines 101-114), add an `else` branch for resize mode.
-
-1. Add `lastEndDate: string` to the dragRef type (line 46-52):
+2. After creating the provider, listen for connection status and send the auth message:
    ```typescript
-   const dragRef = useRef<{
-     startX: number;
-     origStartDate: string;
-     origEndDate: string;
-     mode: 'move' | 'resize';
-     lastStartDate: string;
-     lastEndDate: string;
-   } | null>(null);
-   ```
-
-2. Initialize `lastEndDate` in `handleMouseDown` (line 63):
-   ```typescript
-   dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode, lastStartDate: startDate, lastEndDate: endDate };
-   ```
-
-3. In `onMouseMove` resize path (around line 97, after the RESIZE_TASK dispatch):
-   ```typescript
-   dragRef.current.lastEndDate = newEndStr;
-   ```
-
-4. In `onMouseUp`, add the resize cascade:
-   ```typescript
-   if (finalTask.mode === 'move') {
-     const delta = daysBetween(finalTask.origStartDate, finalTask.lastStartDate);
-     if (delta !== 0) {
-       dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
+   provider.on('status', ({ status }: { status: string }) => {
+     if (status === 'connected' && provider?.ws) {
+       provider.ws.send(JSON.stringify({ type: 'auth', token: accessToken }));
      }
-   } else {
-     const endDelta = daysBetween(finalTask.origEndDate, finalTask.lastEndDate);
-     if (endDelta !== 0) {
-       dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
-     }
+   });
+   ```
+
+3. The y-websocket `WebsocketProvider` has a `ws` property that is the underlying WebSocket. When `status === 'connected'`, the socket is ready to send.
+
+4. The provider auto-reconnects on disconnect. The `status` event fires on each reconnection, so the auth message is re-sent automatically.
+
+### B2: Server — validate token from first message (ws.rs)
+
+1. Remove `Query(params): Query<WsParams>` from `ws_handler()` signature. Remove the `WsParams` struct entirely.
+
+2. Change `ws_handler()` to accept the upgrade without pre-auth:
+   ```rust
+   pub async fn ws_handler(
+       ws: WebSocketUpgrade,
+       Path(room_id): Path<String>,
+       State(state): State<Arc<AppState>>,
+   ) -> Response {
+       let room_id_clone = room_id.clone();
+       ws.on_upgrade(move |socket| {
+           handle_websocket(socket, room_id_clone, state)
+       })
+       .into_response()
    }
    ```
 
-### B3: Fix TaskBarPopover.tsx — cascade on end-date change
+3. Rewrite `handle_websocket()` to read the first message as auth before joining the room:
 
-In `saveField` (lines 71-80, the `endDate` branch), add CASCADE_DEPENDENTS after the existing dispatches:
-```typescript
-} else if (field === 'endDate') {
-  const newDuration = daysBetween(task!.startDate, value);
-  if (newDuration < 0) return;
-  dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
-  dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });
-  dispatch({
-    type: 'ADD_CHANGE_RECORD',
-    taskId, taskName: task!.name, field: 'endDate',
-    oldValue, newValue: value, user: 'You',
-  });
-  const endDelta = daysBetween(oldValue, value);
-  if (endDelta !== 0) {
-    dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
-  }
-}
-```
+   a. Split the socket into sender/receiver.
 
-### B4: Add tests for cascade on duration/end-date changes
+   b. Wait for the first text message with a 5-second timeout. Parse it as JSON `{ "type": "auth", "token": "..." }`. Add a helper function `wait_for_auth()` that reads from the receiver stream until it gets a text message:
+      - If `Message::Text` → parse JSON, extract token
+      - If `Message::Binary` → skip (Yjs messages arriving before auth)
+      - If `Message::Close` or error → return error
 
-In `src/state/__tests__/ganttReducer.test.ts`, add a describe block:
+   c. If timeout expires or auth fails, send a text error message and return:
+      ```rust
+      let _ = ws_sender.send(Message::Text(
+          r#"{"type":"error","message":"Authentication failed"}"#.into()
+      )).await;
+      ```
 
-```typescript
-describe('CASCADE_DEPENDENTS on end-date/duration changes', () => {
-  it('cascades dependents when end date increases (positive delta)', () => {
-    const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
-    const child = makeTask({
-      id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
-      dependencies: [{ fromId: 'A', toId: 'B', type: 'finish-to-start' }],
-    });
-    let state = makeState({ tasks: [parent, child] });
+   d. If auth succeeds, proceed with the existing flow: validate token via `auth::validate_token()`, check Drive permissions via `auth::check_drive_permission()`, join room, spawn send/receive tasks.
 
-    // Simulate end date change: A's end date moves from Mar 10 to Mar 15 (5 day delta)
-    state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-15' });
-    state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: 5 });
+4. Use `tokio::time::timeout` for the 5-second auth deadline:
+   ```rust
+   use std::time::Duration;
+   let auth_result = tokio::time::timeout(
+       Duration::from_secs(5),
+       wait_for_auth(&mut ws_receiver),
+   ).await;
+   ```
 
-    const childTask = state.tasks.find(t => t.id === 'B')!;
-    expect(childTask.startDate).toBe('2026-03-16');
-    expect(childTask.endDate).toBe('2026-03-25');
-  });
+5. Add `serde_json` to the imports if not already present (it's already in Cargo.toml).
 
-  it('cascades dependents when duration decreases (negative delta)', () => {
-    const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
-    const child = makeTask({
-      id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
-      dependencies: [{ fromId: 'A', toId: 'B', type: 'finish-to-start' }],
-    });
-    let state = makeState({ tasks: [parent, child] });
+### B3: Clean up error responses
 
-    // Simulate duration decrease: A's end date moves from Mar 10 to Mar 7 (-3 day delta)
-    state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-07' });
-    state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'duration', value: 6 });
-    state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: -3 });
+After auth validation, send only generic error messages to the client — no Google API details:
+- Auth failure: `{"type":"error","message":"Authentication failed"}`
+- Permission denied: `{"type":"error","message":"Access denied"}`
+- Timeout: `{"type":"error","message":"Auth timeout"}`
+- Keep detailed error info in server-side `warn!`/`error!` logs only.
 
-    const childTask = state.tasks.find(t => t.id === 'B')!;
-    expect(childTask.startDate).toBe('2026-03-08');
-    expect(childTask.endDate).toBe('2026-03-17');
-  });
-});
-```
+## Interface Notes
+
+- The `room_id` still comes from the URL path (`/ws/:room_id`) — that doesn't change.
+- The server currently ignores text messages after the initial handshake (line 161). After this change, only the FIRST text message is treated as auth; subsequent text messages remain ignored.
+- All Yjs protocol messages are binary and continue to work exactly as before.
 
 ## Verification
 After all tasks, run:
 ```bash
-npx tsc --noEmit && npm run test
+npx tsc --noEmit && npm run test && cd server && cargo test
 ```
-Both must pass. Commit your changes with descriptive messages.
+All must pass. Commit your changes with descriptive messages.

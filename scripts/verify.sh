@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PostToolUse hook: runs tsc + vitest after edits to .ts/.tsx files.
-# Always exits 0 — this hook provides feedback, not gating.
+# Exits non-zero if either check fails, so agents know to fix errors.
 
 set -euo pipefail
 
@@ -26,10 +26,16 @@ echo "--- verify: $FILE ---"
 
 # Type-check
 echo "[tsc]"
-npx tsc --noEmit 2>&1 | tail -20 || true
+TSC_EXIT=0
+npx tsc --noEmit 2>&1 | tail -20 || TSC_EXIT=$?
 
 # Unit tests
 echo "[vitest]"
-npx vitest run --reporter=dot 2>&1 | tail -30 || true
+VITEST_EXIT=0
+npx vitest run --reporter=dot 2>&1 | tail -30 || VITEST_EXIT=$?
+
+if [[ $TSC_EXIT -ne 0 || $VITEST_EXIT -ne 0 ]]; then
+  exit 1
+fi
 
 exit 0

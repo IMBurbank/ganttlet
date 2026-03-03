@@ -32,7 +32,7 @@ docker-compose.override.yml
 
 # WASM build output
 src/wasm/
-crates/scheduler/target/
+**/target/
 
 # Google Sheets credentials (NEVER commit these)
 credentials.json

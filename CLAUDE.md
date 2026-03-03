@@ -81,6 +81,14 @@ workflow. Planning agents claim up to 3 items, plan them into `TASKS.md`, then m
    - `STAGE2_GROUPS`/`STAGE2_BRANCHES`/`STAGE2_MERGE_MESSAGES` for the second parallel set (leave empty arrays if single-stage)
 5. Run `./scripts/launch-phase.sh all` (executes: stage1 → merge1 → stage2 → merge2)
 
+### Single-Agent Issue Work
+When working from a GitHub issue (via the `agent-ready` label workflow or manual assignment):
+- Branch naming: `agent/issue-{number}`
+- Full verification: `npm run build:wasm && npx tsc --noEmit && npm run test && cd crates/scheduler && cargo test`
+- Open a PR with `gh pr create` — never push directly to main
+- PR body must include `Closes #{issue_number}` for auto-closing
+- Commit often with descriptive messages
+
 ## Task Queue
 See `TASKS.md` for claimable tasks and claiming convention.
 

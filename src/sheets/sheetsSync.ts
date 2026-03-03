@@ -1,4 +1,4 @@
-import { readSheet, writeSheet, clearSheet } from './sheetsClient';
+import { readSheet, updateSheet } from './sheetsClient';
 import { tasksToRows, rowsToTasks } from './sheetsMapper';
 import { isSignedIn } from './oauth';
 import type { Task } from '../types';
@@ -61,8 +61,8 @@ export function scheduleSave(tasks: Task[]): void {
     try {
       dispatch?.({ type: 'START_SYNC' });
       const rows = tasksToRows(tasks);
-      await clearSheet(currentSpreadsheetId!, DATA_RANGE);
-      await writeSheet(currentSpreadsheetId!, `${DATA_RANGE}!A1`, rows);
+      const range = `${DATA_RANGE}!A1:R${rows.length}`;
+      await updateSheet(currentSpreadsheetId!, range, rows);
       lastWriteHash = hashTasks(tasks);
       dispatch?.({ type: 'COMPLETE_SYNC' });
       setTimeout(() => dispatch?.({ type: 'RESET_SYNC' }), 2000);

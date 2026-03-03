@@ -1,19 +1,20 @@
 use crate::auth::{self, AuthError, DriveRole};
 use crate::room::{ClientInfo, RoomManager};
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Path, Query, State, WebSocketUpgrade};
+use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-/// Query parameters for the WebSocket endpoint.
-#[derive(Deserialize)]
-pub struct WsParams {
-    /// Google OAuth2 access token.
-    pub token: String,
+/// JSON payload for the auth message sent by the client.
+#[derive(serde::Deserialize)]
+struct AuthMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    token: String,
 }
 
 /// Shared application state passed to all handlers.
@@ -21,32 +22,111 @@ pub struct AppState {
     pub room_manager: RoomManager,
 }
 
-/// Handler for `GET /ws/:room_id?token=<access_token>`.
+/// Handler for `GET /ws/:room_id`.
 ///
-/// Validates the user's Google access token, checks their Drive permissions
-/// for the sheet (room), and upgrades to a WebSocket connection if authorized.
+/// Upgrades to a WebSocket connection unconditionally. Authentication is
+/// performed inside the WebSocket via a first-message auth pattern: the client
+/// must send a JSON `{"type":"auth","token":"..."}` text message within 5
+/// seconds of connecting.
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Path(room_id): Path<String>,
-    Query(params): Query<WsParams>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let token = params.token.clone();
     let room_id_clone = room_id.clone();
+    ws.on_upgrade(move |socket| handle_websocket(socket, room_id_clone, state))
+        .into_response()
+}
 
-    // Validate token and check permissions before upgrading.
+/// Wait for the first text message on the WebSocket and parse it as an auth message.
+///
+/// Skips any binary messages (Yjs messages that arrive before auth).
+/// Returns the token string on success.
+async fn wait_for_auth(
+    ws_receiver: &mut (impl StreamExt<Item = Result<Message, axum::Error>> + Unpin),
+) -> Result<String, &'static str> {
+    while let Some(msg_result) = ws_receiver.next().await {
+        match msg_result {
+            Ok(Message::Text(text)) => {
+                let auth_msg: AuthMessage = serde_json::from_str(&text)
+                    .map_err(|_| "Invalid auth message format")?;
+                if auth_msg.msg_type != "auth" {
+                    return Err("Expected auth message type");
+                }
+                if auth_msg.token.is_empty() {
+                    return Err("Empty token");
+                }
+                return Ok(auth_msg.token);
+            }
+            Ok(Message::Binary(_)) => {
+                // Skip binary messages (Yjs messages arriving before auth)
+                continue;
+            }
+            Ok(Message::Close(_)) => {
+                return Err("Connection closed before auth");
+            }
+            Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
+                continue;
+            }
+            Err(_) => {
+                return Err("WebSocket error before auth");
+            }
+        }
+    }
+    Err("Connection ended before auth")
+}
+
+/// Handle a single WebSocket connection.
+///
+/// Waits for an auth message, validates the token and Drive permissions,
+/// then joins the room and runs the send/receive loops.
+async fn handle_websocket(socket: WebSocket, room_id: String, state: Arc<AppState>) {
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+
+    // Wait for auth message with a 5-second timeout
+    let auth_result = tokio::time::timeout(
+        Duration::from_secs(5),
+        wait_for_auth(&mut ws_receiver),
+    )
+    .await;
+
+    let token = match auth_result {
+        Ok(Ok(token)) => token,
+        Ok(Err(reason)) => {
+            warn!(room_id = %room_id, reason = reason, "Auth message rejected");
+            let _ = ws_sender
+                .send(Message::Text(
+                    r#"{"type":"error","message":"Authentication failed"}"#.into(),
+                ))
+                .await;
+            return;
+        }
+        Err(_) => {
+            warn!(room_id = %room_id, "Auth timeout — no auth message within 5 seconds");
+            let _ = ws_sender
+                .send(Message::Text(
+                    r#"{"type":"error","message":"Auth timeout"}"#.into(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    // Validate the token with Google
     let user_info = match auth::validate_token(&token).await {
         Ok(info) => info,
         Err(e) => {
             warn!(room_id = %room_id, error = %e, "Auth validation failed");
-            return (
-                axum::http::StatusCode::UNAUTHORIZED,
-                format!("Authentication failed: {}", e),
-            )
-                .into_response();
+            let _ = ws_sender
+                .send(Message::Text(
+                    r#"{"type":"error","message":"Authentication failed"}"#.into(),
+                ))
+                .await;
+            return;
         }
     };
 
+    // Check Drive permissions for the room (sheet)
     let role = match auth::check_drive_permission(&token, &room_id).await {
         Ok(role) => role,
         Err(AuthError::NoAccess(msg)) => {
@@ -56,11 +136,12 @@ pub async fn ws_handler(
                 error = %msg,
                 "Drive permission denied"
             );
-            return (
-                axum::http::StatusCode::FORBIDDEN,
-                format!("Access denied: {}", msg),
-            )
-                .into_response();
+            let _ = ws_sender
+                .send(Message::Text(
+                    r#"{"type":"error","message":"Access denied"}"#.into(),
+                ))
+                .await;
+            return;
         }
         Err(e) => {
             error!(
@@ -69,42 +150,24 @@ pub async fn ws_handler(
                 error = %e,
                 "Drive permission check failed"
             );
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Permission check failed: {}", e),
-            )
-                .into_response();
+            let _ = ws_sender
+                .send(Message::Text(
+                    r#"{"type":"error","message":"Authentication failed"}"#.into(),
+                ))
+                .await;
+            return;
         }
     };
 
     info!(
-        room_id = %room_id_clone,
+        room_id = %room_id,
         user = %user_info.email,
         role = ?role,
-        "WebSocket upgrade authorized"
+        "WebSocket auth succeeded"
     );
 
-    // Upgrade the connection to WebSocket
-    ws.on_upgrade(move |socket| {
-        handle_websocket(socket, room_id_clone, user_info, role, state)
-    })
-    .into_response()
-}
-
-/// Handle a single WebSocket connection after auth has been verified.
-///
-/// Joins the room, then runs two concurrent loops:
-/// 1. Forward messages from the client's WebSocket to the room
-/// 2. Forward messages from the room to the client's WebSocket
-async fn handle_websocket(
-    socket: WebSocket,
-    room_id: String,
-    user_info: auth::UserInfo,
-    role: DriveRole,
-    state: Arc<AppState>,
-) {
+    // Auth passed — join the room and start message forwarding
     let client_id = state.room_manager.next_client_id();
-    let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Channel for room -> client messages
     let (room_tx, mut room_rx) = mpsc::unbounded_channel::<Vec<u8>>();
@@ -114,13 +177,9 @@ async fn handle_websocket(
         role,
     };
 
-    // Join the room
-    state.room_manager.join_room(
-        &room_id,
-        client_id,
-        client_info,
-        room_tx,
-    );
+    state
+        .room_manager
+        .join_room(&room_id, client_id, client_info, room_tx);
 
     info!(
         room_id = %room_id,
@@ -159,12 +218,7 @@ async fn handle_websocket(
                 // axum handles ping/pong automatically
             }
             Ok(Message::Text(_)) => {
-                // Yjs protocol uses binary messages only; ignore text
-                warn!(
-                    room_id = %room_id_recv,
-                    client_id = client_id,
-                    "Received unexpected text message, ignoring"
-                );
+                // Yjs protocol uses binary messages only; ignore text after auth
             }
             Err(e) => {
                 warn!(

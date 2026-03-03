@@ -45,9 +45,10 @@ mod sync_type {
 struct Room {
     doc: Doc,
     clients: HashMap<ClientId, ConnectedClient>,
-    /// Last awareness message received, stored as raw bytes for relay to
-    /// newly joining clients.
-    last_awareness: Option<Vec<u8>>,
+    /// Per-client awareness state stored as raw bytes. When a new client joins,
+    /// all stored awareness messages are sent so the joiner sees every client's
+    /// presence, not just the last one who sent an update.
+    awareness_states: HashMap<ClientId, Vec<u8>>,
 }
 
 impl Room {
@@ -55,7 +56,7 @@ impl Room {
         Room {
             doc: Doc::new(),
             clients: HashMap::new(),
-            last_awareness: None,
+            awareness_states: HashMap::new(),
         }
     }
 }
@@ -241,8 +242,23 @@ fn handle_join(
         }
     }
 
-    // Step 3: Send the latest awareness state if we have one.
-    if let Some(ref awareness_data) = room.last_awareness {
+    // Step 3: Send ALL stored awareness states so the new joiner sees every
+    // connected client's presence, not just the most recent one.
+    let awareness_count = room.awareness_states.len();
+    info!(
+        room_id = %room_id,
+        client_id = client_id,
+        awareness_states = awareness_count,
+        "Sending stored awareness states to new joiner"
+    );
+    for (other_id, awareness_data) in &room.awareness_states {
+        info!(
+            room_id = %room_id,
+            client_id = client_id,
+            from_client = other_id,
+            data_len = awareness_data.len(),
+            "Sending awareness state to new joiner"
+        );
         let _ = sender.send(awareness_data.clone());
     }
 
@@ -253,6 +269,7 @@ fn handle_join(
 /// Handle a client leaving the room.
 fn handle_leave(room_id: &str, room: &mut Room, client_id: ClientId) {
     if let Some(client) = room.clients.remove(&client_id) {
+        room.awareness_states.remove(&client_id);
         info!(
             room_id = %room_id,
             client_id = client_id,
@@ -420,10 +437,16 @@ fn handle_sync_message(
 
 /// Handle an awareness message.
 ///
-/// Awareness messages are stored (most recent only) for new clients and
-/// relayed verbatim to all other connected clients.
+/// Awareness messages are stored per-client and merged for late joiners.
+/// Each message is also relayed verbatim to all other connected clients.
 fn handle_awareness_message(room: &mut Room, client_id: ClientId, data: &[u8]) {
-    room.last_awareness = Some(data.to_vec());
+    info!(
+        client_id = client_id,
+        data_len = data.len(),
+        num_clients = room.clients.len(),
+        "Handling awareness message"
+    );
+    room.awareness_states.insert(client_id, data.to_vec());
     broadcast_to_others(&room.clients, client_id, data);
 }
 

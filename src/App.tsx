@@ -111,7 +111,7 @@ function AppContent() {
   }, [state.contextMenu, taskMap, dispatch]);
 
   return (
-    <div className="flex flex-col h-screen bg-surface-base text-text-primary">
+    <div className="flex flex-col h-screen bg-surface-base text-text-primary" data-collab-status={state.isCollabConnected ? 'connected' : 'disconnected'}>
       <Header />
       <Toolbar />
       <div className="flex flex-1 min-h-0 overflow-hidden">

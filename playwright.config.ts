@@ -18,7 +18,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npx vite --host 0.0.0.0',
+    command: 'npx vite --host 0.0.0.0 --mode e2e',
     port: 5173,
     reuseExistingServer: !process.env.CI,
   },

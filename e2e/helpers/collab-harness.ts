@@ -9,8 +9,9 @@ export interface CollabPair {
 }
 
 /**
- * Creates two independent browser contexts pointing at the same app URL.
- * Both wait for `.task-bar` to appear before returning.
+ * Creates two independent browser contexts pointing at the same app URL
+ * with a shared room for collaboration testing.
+ * Both wait for `.task-bar` to appear and collab to connect before returning.
  */
 export async function createCollabPair(browser: Browser): Promise<CollabPair> {
   const contextA = await browser.newContext();
@@ -18,13 +19,33 @@ export async function createCollabPair(browser: Browser): Promise<CollabPair> {
   const pageA = await contextA.newPage();
   const pageB = await contextB.newPage();
 
-  // Navigate both pages to the app
-  await Promise.all([pageA.goto('/'), pageB.goto('/')]);
+  // Use a shared room ID for both pages
+  const roomId = `e2e-test-${Date.now()}`;
+  const url = `/?room=${roomId}`;
+
+  // Navigate both pages to the app with the room param
+  await Promise.all([pageA.goto(url), pageB.goto(url)]);
 
   // Wait for the app to fully render in both pages
   await Promise.all([
     pageA.locator('.task-bar').first().waitFor({ timeout: 15_000 }),
     pageB.locator('.task-bar').first().waitFor({ timeout: 15_000 }),
+  ]);
+
+  // Inject test auth tokens (dev mode exposes __ganttlet_setTestAuth)
+  await pageA.evaluate(() => {
+    const setter = (window as unknown as Record<string, unknown>).__ganttlet_setTestAuth;
+    if (typeof setter === 'function') setter('userA');
+  });
+  await pageB.evaluate(() => {
+    const setter = (window as unknown as Record<string, unknown>).__ganttlet_setTestAuth;
+    if (typeof setter === 'function') setter('userB');
+  });
+
+  // Wait for collab connections using DOM polling instead of fixed timeout
+  await Promise.all([
+    pageA.locator('[data-collab-status="connected"]').waitFor({ timeout: 10_000 }).catch(() => {}),
+    pageB.locator('[data-collab-status="connected"]').waitFor({ timeout: 10_000 }).catch(() => {}),
   ]);
 
   const cleanup = async () => {
@@ -37,26 +58,13 @@ export async function createCollabPair(browser: Browser): Promise<CollabPair> {
 
 /**
  * Checks whether the collab relay WebSocket is available by looking for
- * a connected status indicator in the page state. Returns false if the
- * relay is not running (single-user mode).
+ * a connected status in the app. Returns false if the relay is not running.
  */
 export async function isCollabAvailable(page: Page): Promise<boolean> {
-  // Give the WebSocket a moment to connect
-  await page.waitForTimeout(2_000);
-
-  // Check if the app has established a collab connection by evaluating
-  // whether the provider status is 'connected'. We look for any sign
-  // that the WebSocket provider successfully connected.
+  // Check the data-collab-status attribute set by the app (no extra wait needed,
+  // createCollabPair already waited for connection)
   return page.evaluate(() => {
-    // The app stores collab state — check if any awareness users exist
-    // beyond the local client, or if there's a connected WebSocket.
-    const wsElements = document.querySelectorAll('[data-collab-status="connected"]');
-    if (wsElements.length > 0) return true;
-
-    // Fallback: check if there are presence indicators rendered
-    const presenceIndicators = document.querySelectorAll('.pulse-dot');
-    if (presenceIndicators.length > 0) return true;
-
-    return false;
+    const el = document.querySelector('[data-collab-status="connected"]');
+    return el !== null;
   });
 }

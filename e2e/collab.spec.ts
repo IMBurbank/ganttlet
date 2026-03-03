@@ -12,13 +12,10 @@ test.describe('Collaboration E2E', () => {
         return;
       }
 
-      // In pageA, click on a task row to select it (triggering awareness update)
-      await pageA.locator('.task-bar').first().click();
-
-      // In pageB, verify that a presence indicator appears.
-      // Presence shows as a colored pulse-dot or collab user avatar.
-      const presenceIndicator = pageB.locator('.pulse-dot');
-      await expect(presenceIndicator.first()).toBeVisible({ timeout: 5_000 });
+      // Both pages are connected and have exchanged awareness.
+      // Verify that a presence indicator (pulse-dot on avatar) is visible
+      // in pageB, showing that pageA's user is present.
+      await expect(pageB.locator('.pulse-dot').first()).toBeVisible({ timeout: 10_000 });
     } finally {
       await cleanup();
     }

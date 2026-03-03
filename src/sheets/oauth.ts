@@ -121,3 +121,17 @@ export function signOut(): void {
     });
   }
 }
+
+// Expose test auth setter in development mode for E2E testing
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__ganttlet_setTestAuth = (token: string) => {
+    authState = {
+      accessToken: token,
+      userEmail: `test-${token}@example.com`,
+      userName: `Test User ${token}`,
+      userPicture: null,
+      expiresAt: Date.now() + 3600000,
+    };
+    notifyAuthChange();
+  };
+}

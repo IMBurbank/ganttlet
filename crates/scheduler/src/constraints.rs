@@ -1,16 +1,12 @@
 use crate::date_utils::add_days;
-use crate::types::{DepType, Task};
-use std::collections::HashMap;
+use crate::types::{ConstraintType, DepType, RecalcResult, Task};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Compute the earliest possible start date for a task given its dependencies.
-/// Returns None if the task has no dependencies (unconstrained).
+/// Compute the earliest possible start date for a task given its dependencies and constraints.
+/// Returns None if the task has no dependencies and no SNET constraint (unconstrained).
 pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
     let task_map: HashMap<&str, &Task> = tasks.iter().map(|t| (t.id.as_str(), t)).collect();
     let task = task_map.get(task_id)?;
-
-    if task.dependencies.is_empty() {
-        return None;
-    }
 
     let mut latest: Option<String> = None;
 
@@ -47,7 +43,192 @@ pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
         });
     }
 
+    // Apply SNET constraint: floor at constraint_date
+    if let Some(ConstraintType::SNET) = &task.constraint_type {
+        if let Some(ref constraint_date) = task.constraint_date {
+            latest = Some(match latest {
+                None => constraint_date.clone(),
+                Some(dep_date) => {
+                    if constraint_date.as_str() > dep_date.as_str() {
+                        constraint_date.clone()
+                    } else {
+                        dep_date
+                    }
+                }
+            });
+        }
+    }
+
+    // If no deps and no SNET, return None (unconstrained)
     latest
+}
+
+/// Recalculate tasks to their earliest possible start dates.
+///
+/// Scoping:
+/// - scope_task_id: recalculate that task + all downstream dependents
+/// - scope_workstream: recalculate all tasks in that workstream
+/// - scope_project: recalculate all tasks in that project
+/// - all None: recalculate everything
+///
+/// Returns a RecalcResult for each task whose dates changed.
+pub fn recalculate_earliest(
+    tasks: &[Task],
+    scope_project: Option<&str>,
+    scope_workstream: Option<&str>,
+    scope_task_id: Option<&str>,
+    today_date: &str,
+) -> Vec<RecalcResult> {
+    let task_map: HashMap<&str, &Task> = tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+
+    // Determine in-scope task IDs
+    let in_scope: HashSet<&str> = if let Some(tid) = scope_task_id {
+        // The task itself + all downstream dependents (transitive)
+        let mut scope = HashSet::new();
+        let mut queue = VecDeque::new();
+        scope.insert(tid);
+        queue.push_back(tid);
+        while let Some(current) = queue.pop_front() {
+            for t in tasks {
+                for dep in &t.dependencies {
+                    if dep.from_id == current && !scope.contains(t.id.as_str()) {
+                        scope.insert(t.id.as_str());
+                        queue.push_back(t.id.as_str());
+                    }
+                }
+            }
+        }
+        scope
+    } else if let Some(ws) = scope_workstream {
+        tasks
+            .iter()
+            .filter(|t| t.work_stream == ws)
+            .map(|t| t.id.as_str())
+            .collect()
+    } else if let Some(proj) = scope_project {
+        tasks
+            .iter()
+            .filter(|t| t.project == proj)
+            .map(|t| t.id.as_str())
+            .collect()
+    } else {
+        tasks.iter().map(|t| t.id.as_str()).collect()
+    };
+
+    // Build adjacency for topological sort (only in-scope tasks)
+    let mut in_degree: HashMap<&str, usize> = HashMap::new();
+    let mut successors: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for &id in &in_scope {
+        in_degree.entry(id).or_insert(0);
+        successors.entry(id).or_default();
+    }
+
+    for &id in &in_scope {
+        if let Some(task) = task_map.get(id) {
+            for dep in &task.dependencies {
+                if in_scope.contains(dep.from_id.as_str()) {
+                    *in_degree.entry(id).or_insert(0) += 1;
+                    successors
+                        .entry(dep.from_id.as_str())
+                        .or_default()
+                        .push(id);
+                }
+            }
+        }
+    }
+
+    // Kahn's algorithm for topological sort
+    let mut queue: VecDeque<&str> = VecDeque::new();
+    for (&id, &deg) in &in_degree {
+        if deg == 0 {
+            queue.push_back(id);
+        }
+    }
+
+    let mut topo_order: Vec<&str> = Vec::new();
+    while let Some(id) = queue.pop_front() {
+        topo_order.push(id);
+        if let Some(succs) = successors.get(id) {
+            for &s in succs {
+                if let Some(deg) = in_degree.get_mut(s) {
+                    *deg -= 1;
+                    if *deg == 0 {
+                        queue.push_back(s);
+                    }
+                }
+            }
+        }
+    }
+
+    // Process in topological order, computing earliest starts on a mutable copy
+    let mut updated_tasks: HashMap<&str, Task> = HashMap::new();
+    for t in tasks {
+        updated_tasks.insert(t.id.as_str(), t.clone());
+    }
+
+    let mut results: Vec<RecalcResult> = Vec::new();
+
+    for &id in &topo_order {
+        // Build a snapshot of tasks with updated dates for dependency calculation
+        let snapshot: Vec<Task> = tasks
+            .iter()
+            .map(|t| {
+                if let Some(updated) = updated_tasks.get(t.id.as_str()) {
+                    updated.clone()
+                } else {
+                    t.clone()
+                }
+            })
+            .collect();
+
+        let dep_earliest = compute_earliest_start(&snapshot, id);
+
+        let task = match updated_tasks.get(id) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        // Determine new_start: floor at today_date, apply SNET, apply dep-driven
+        let mut new_start = match dep_earliest {
+            Some(date) => date,
+            None => task.start_date.clone(),
+        };
+
+        // Floor at today_date (never schedule in the past)
+        if new_start.as_str() < today_date {
+            new_start = today_date.to_string();
+        }
+
+        // Floor at SNET constraint date
+        if let Some(ConstraintType::SNET) = &task.constraint_type {
+            if let Some(ref constraint_date) = task.constraint_date {
+                if new_start.as_str() < constraint_date.as_str() {
+                    new_start = constraint_date.clone();
+                }
+            }
+        }
+
+        // Compute new_end preserving duration
+        let new_end = add_days(&new_start, task.duration - 1);
+
+        // Only include in results if dates changed
+        if new_start != task.start_date || new_end != task.end_date {
+            results.push(RecalcResult {
+                id: id.to_string(),
+                new_start: new_start.clone(),
+                new_end: new_end.clone(),
+            });
+        }
+
+        // Update the task in our working copy so dependents see new dates
+        if let Some(t) = updated_tasks.get_mut(id) {
+            t.start_date = new_start;
+            t.end_date = new_end;
+        }
+    }
+
+    results
 }
 
 #[cfg(test)]
@@ -66,6 +247,8 @@ mod tests {
             dependencies: vec![],
             project: String::new(),
             work_stream: String::new(),
+            constraint_type: None,
+            constraint_date: None,
         }
     }
 
@@ -141,5 +324,216 @@ mod tests {
             compute_earliest_start(&tasks, "b"),
             Some("2026-03-04".to_string())
         );
+    }
+
+    #[test]
+    fn snet_no_deps() {
+        // Task with SNET constraint and no deps: earliest start = constraint date
+        let mut a = make_task("a", "2026-03-01", "2026-03-10", 10);
+        a.constraint_type = Some(ConstraintType::SNET);
+        a.constraint_date = Some("2026-03-15".to_string());
+
+        let tasks = vec![a];
+        assert_eq!(
+            compute_earliest_start(&tasks, "a"),
+            Some("2026-03-15".to_string())
+        );
+    }
+
+    #[test]
+    fn snet_with_fs_dep_constraint_wins() {
+        // A(end 03-10) -> B(FS, lag 0). Dep-driven ES = 03-11. SNET = 03-20. SNET wins.
+        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::SNET);
+        b.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        assert_eq!(
+            compute_earliest_start(&tasks, "b"),
+            Some("2026-03-20".to_string())
+        );
+    }
+
+    #[test]
+    fn snet_with_dep_dep_wins() {
+        // A(end 03-25) -> B(FS, lag 0). Dep-driven ES = 03-26. SNET = 03-15. Dep wins.
+        let mut b = make_task("b", "2026-03-26", "2026-04-04", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::SNET);
+        b.constraint_date = Some("2026-03-15".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-16", "2026-03-25", 10), b];
+        assert_eq!(
+            compute_earliest_start(&tasks, "b"),
+            Some("2026-03-26".to_string())
+        );
+    }
+
+    #[test]
+    fn asap_constraint_no_effect() {
+        // ASAP constraint behaves like no constraint
+        let mut a = make_task("a", "2026-03-01", "2026-03-10", 10);
+        a.constraint_type = Some(ConstraintType::ASAP);
+        a.constraint_date = Some("2026-03-15".to_string());
+
+        let tasks = vec![a];
+        assert_eq!(compute_earliest_start(&tasks, "a"), None);
+    }
+
+    #[test]
+    fn no_constraint_fields_unchanged() {
+        // None constraint fields: same as original behavior
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10)];
+        assert_eq!(compute_earliest_start(&tasks, "a"), None);
+    }
+
+    // --- recalculate_earliest tests ---
+
+    fn make_task_with_project(
+        id: &str,
+        start: &str,
+        end: &str,
+        duration: i32,
+        project: &str,
+        ws: &str,
+    ) -> Task {
+        Task {
+            id: id.to_string(),
+            start_date: start.to_string(),
+            end_date: end.to_string(),
+            duration,
+            is_milestone: false,
+            is_summary: false,
+            dependencies: vec![],
+            project: project.to_string(),
+            work_stream: ws.to_string(),
+            constraint_type: None,
+            constraint_date: None,
+        }
+    }
+
+    #[test]
+    fn recalc_linear_chain() {
+        // A(03-01..03-10, 10d) -> B(03-20..03-29, 10d) -> C(03-30..04-08, 10d)
+        // B has slack (should start 03-11), C has slack (should start 03-21 after B moves)
+        let mut b = make_task("b", "2026-03-20", "2026-03-29", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        let mut c = make_task("c", "2026-03-30", "2026-04-08", 10);
+        c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b, c];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+
+        // B should move to 03-11, C should move to 03-21
+        assert_eq!(results.len(), 2);
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert_eq!(b_result.new_start, "2026-03-11");
+        assert_eq!(b_result.new_end, "2026-03-20");
+        let c_result = results.iter().find(|r| r.id == "c").unwrap();
+        assert_eq!(c_result.new_start, "2026-03-21");
+        assert_eq!(c_result.new_end, "2026-03-30");
+    }
+
+    #[test]
+    fn recalc_removes_slack() {
+        // A(03-01..03-10) -> B(03-25..04-03, 10d). B has 14 days of slack.
+        let mut b = make_task("b", "2026-03-25", "2026-04-03", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "b");
+        assert_eq!(results[0].new_start, "2026-03-11");
+        assert_eq!(results[0].new_end, "2026-03-20");
+    }
+
+    #[test]
+    fn recalc_today_floor() {
+        // Task with no deps, start in the past. Should be floored at today.
+        let tasks = vec![make_task("a", "2025-01-01", "2025-01-10", 10)];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-04");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].new_start, "2026-03-04");
+        assert_eq!(results[0].new_end, "2026-03-13");
+    }
+
+    #[test]
+    fn recalc_snet_constraint() {
+        // Task with SNET constraint. Dep says 03-11 but SNET says 03-20.
+        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::SNET);
+        b.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "b");
+        assert_eq!(results[0].new_start, "2026-03-20");
+        assert_eq!(results[0].new_end, "2026-03-29");
+    }
+
+    #[test]
+    fn recalc_scope_workstream() {
+        // Two workstreams: Eng and Design. Only Eng should be recalculated.
+        let mut e2 = make_task_with_project("e2", "2026-03-25", "2026-04-03", 10, "Alpha", "Eng");
+        e2.dependencies = vec![make_dep("e1", "e2", DepType::FS, 0)];
+
+        let mut d2 = make_task_with_project("d2", "2026-03-25", "2026-04-03", 10, "Alpha", "Design");
+        d2.dependencies = vec![make_dep("d1", "d2", DepType::FS, 0)];
+
+        let tasks = vec![
+            make_task_with_project("e1", "2026-03-01", "2026-03-10", 10, "Alpha", "Eng"),
+            e2,
+            make_task_with_project("d1", "2026-03-01", "2026-03-10", 10, "Alpha", "Design"),
+            d2,
+        ];
+        let results = recalculate_earliest(&tasks, None, Some("Eng"), None, "2026-03-01");
+
+        // Only e2 should be moved (d2 is out of scope)
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "e2");
+        assert_eq!(results[0].new_start, "2026-03-11");
+    }
+
+    #[test]
+    fn recalc_scope_task_id() {
+        // A -> B -> C. Scope by B: should recalculate B and C (downstream), not A.
+        let mut b = make_task("b", "2026-03-25", "2026-04-03", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        let mut c = make_task("c", "2026-04-20", "2026-04-29", 10);
+        c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b, c];
+        let results = recalculate_earliest(&tasks, None, None, Some("b"), "2026-03-01");
+
+        // B should snap to 03-11, C should snap based on B's new end
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert_eq!(b_result.new_start, "2026-03-11");
+        assert_eq!(b_result.new_end, "2026-03-20");
+
+        let c_result = results.iter().find(|r| r.id == "c").unwrap();
+        assert_eq!(c_result.new_start, "2026-03-21");
+        assert_eq!(c_result.new_end, "2026-03-30");
+
+        // A should not be in results
+        assert!(results.iter().all(|r| r.id != "a"));
+    }
+
+    #[test]
+    fn recalc_no_change_returns_empty() {
+        // Task already at earliest position — no results
+        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+
+        assert!(results.is_empty());
     }
 }

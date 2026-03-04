@@ -66,3 +66,25 @@ pub fn cascade_dependents(
     serde_wasm_bindgen::to_value(&results)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
+
+/// Recalculate tasks to their earliest possible start dates.
+#[wasm_bindgen]
+pub fn recalculate_earliest(
+    tasks_js: JsValue,
+    scope_project: Option<String>,
+    scope_workstream: Option<String>,
+    scope_task_id: Option<String>,
+    today_date: &str,
+) -> Result<JsValue, JsValue> {
+    let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
+        .map_err(|e| JsValue::from_str(&format!("Failed to deserialize: {}", e)))?;
+    let results = constraints::recalculate_earliest(
+        &tasks,
+        scope_project.as_deref(),
+        scope_workstream.as_deref(),
+        scope_task_id.as_deref(),
+        today_date,
+    );
+    serde_wasm_bindgen::to_value(&results)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize: {}", e)))
+}

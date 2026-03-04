@@ -195,6 +195,12 @@ See `TASKS.md` for claimable tasks and claiming convention.
 ## Completed Work
 Phases 0-11 are done. Details in `docs/completed-phases.md`.
 
+## Cloud Verification Plan
+See `docs/cloud-verification-plan.md` for the full plan to add cloud-based verification in
+stages: health checks → service account smoke tests → E2E against live Cloud Run → staging
+project with Secret Manager → visual regression baselines. The plan documents motivations,
+GCP project layout, auth strategy, and what's done vs not yet done.
+
 ## Roadmap (Future)
 - Resource assignment and leveling
 - Baseline tracking

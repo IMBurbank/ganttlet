@@ -41,38 +41,55 @@ function mapTasksToWasm(tasks: Task[]) {
   }));
 }
 
+export interface CriticalPathResult {
+  taskIds: Set<string>;
+  edges: Array<{ fromId: string; toId: string }>;
+}
+
+/**
+ * Parse the WASM critical path result into a CriticalPathResult.
+ */
+function parseCriticalPathResult(result: unknown): CriticalPathResult {
+  if (Array.isArray(result)) {
+    // Legacy format: string[]
+    return { taskIds: new Set(result as string[]), edges: [] };
+  }
+  const r = result as { taskIds: string[]; edges?: [string, string][] };
+  return {
+    taskIds: new Set(r.taskIds),
+    edges: (r.edges ?? []).map(([fromId, toId]) => ({ fromId, toId })),
+  };
+}
+
 /**
  * Compute the critical path using the WASM CPM engine.
- * Returns a Set of critical task IDs.
+ * Returns critical task IDs and critical edges.
  */
-export function computeCriticalPath(tasks: Task[]): Set<string> {
+export function computeCriticalPath(tasks: Task[]): CriticalPathResult {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
     const wasmTasks = mapTasksToWasm(tasks);
     const result = wasmModule.compute_critical_path(wasmTasks);
-    // WASM now returns { taskIds: string[], edges: [string, string][] }
-    const taskIds: string[] = Array.isArray(result) ? result : result.taskIds;
-    return new Set(taskIds);
+    return parseCriticalPathResult(result);
   } catch (err) {
     console.error('computeCriticalPath failed:', err);
-    return new Set<string>();
+    return { taskIds: new Set<string>(), edges: [] };
   }
 }
 
 /**
- * Compute the critical path scoped to all tasks, a project, or a milestone's predecessors.
+ * Compute the critical path scoped to all tasks, a project, or a workstream.
+ * Returns critical task IDs and critical edges.
  */
-export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScope): Set<string> {
+export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScope): CriticalPathResult {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
     const wasmTasks = mapTasksToWasm(tasks);
     const result = wasmModule.compute_critical_path_scoped(wasmTasks, scope);
-    // WASM now returns { taskIds: string[], edges: [string, string][] }
-    const taskIds: string[] = Array.isArray(result) ? result : result.taskIds;
-    return new Set(taskIds);
+    return parseCriticalPathResult(result);
   } catch (err) {
     console.error('computeCriticalPathScoped failed:', err, 'scope:', scope);
-    return new Set<string>();
+    return { taskIds: new Set<string>(), edges: [] };
   }
 }
 

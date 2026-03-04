@@ -12,15 +12,21 @@ interface DependencyLayerProps {
   rowHeight: number;
   onArrowClick?: (dep: Dependency, successorId: string) => void;
   criticalPathIds?: Set<string>;
+  criticalEdges?: Array<{ fromId: string; toId: string }>;
   collapseWeekends?: boolean;
 }
 
 export default function DependencyLayer({
-  tasks, allTasks, taskYPositions, timelineStart, zoom, rowHeight, onArrowClick, criticalPathIds, collapseWeekends,
+  tasks, allTasks, taskYPositions, timelineStart, zoom, rowHeight, onArrowClick, criticalPathIds, criticalEdges, collapseWeekends,
 }: DependencyLayerProps) {
   const taskMap = new Map(allTasks.map(t => [t.id, t]));
   const colWidth = getColumnWidth(zoom);
   const visibleIds = new Set(tasks.map(t => t.id));
+
+  // Build a set of critical edge keys for O(1) lookup
+  const criticalEdgeSet = new Set(
+    (criticalEdges ?? []).map(e => `${e.fromId}->${e.toId}`)
+  );
 
   const arrows: React.ReactNode[] = [];
 
@@ -29,7 +35,10 @@ export default function DependencyLayer({
       const fromTask = taskMap.get(dep.fromId);
       if (!fromTask || !visibleIds.has(dep.fromId) || !visibleIds.has(dep.toId)) continue;
 
-      const isCritical = criticalPathIds ? criticalPathIds.has(dep.fromId) && criticalPathIds.has(task.id) : false;
+      // Use explicit edges if available, fall back to both-ends heuristic
+      const isCritical = criticalEdgeSet.size > 0
+        ? criticalEdgeSet.has(`${dep.fromId}->${dep.toId}`)
+        : (criticalPathIds ? criticalPathIds.has(dep.fromId) && criticalPathIds.has(task.id) : false);
       arrows.push(
         <DependencyArrow
           key={`${dep.fromId}-${dep.toId}-${dep.type}`}

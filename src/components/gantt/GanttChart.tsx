@@ -68,10 +68,12 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
     return map;
   }, [users, collabUsers, isCollabConnected]);
 
-  const criticalPathIds = useMemo(
-    () => showCriticalPath ? computeCriticalPathScoped(allTasks, criticalPathScope) : new Set<string>(),
+  const criticalPathResult = useMemo(
+    () => showCriticalPath ? computeCriticalPathScoped(allTasks, criticalPathScope) : { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> },
     [allTasks, showCriticalPath, criticalPathScope]
   );
+  const criticalPathIds = criticalPathResult.taskIds;
+  const criticalEdges = criticalPathResult.edges;
 
   const { start: timelineStart, end: timelineEnd } = useMemo(
     () => getTimelineRange(allTasks),
@@ -234,6 +236,7 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
             rowHeight={ROW_HEIGHT}
             onArrowClick={onDependencyClick}
             criticalPathIds={criticalPathIds}
+            criticalEdges={criticalEdges}
             collapseWeekends={collapseWeekends}
           />
         </svg>

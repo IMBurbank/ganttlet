@@ -9,25 +9,26 @@ pub mod constraints;
 
 use types::Task;
 
-/// Compute the critical path, returning an array of critical task IDs.
+/// Compute the critical path. Returns `{ taskIds: string[], edges: [string, string][] }`.
 #[wasm_bindgen]
 pub fn compute_critical_path(tasks_js: JsValue) -> Result<JsValue, JsValue> {
     let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
-    let critical_ids = cpm::compute_critical_path(&tasks);
-    serde_wasm_bindgen::to_value(&critical_ids)
+    let result = cpm::compute_critical_path(&tasks);
+    serde_wasm_bindgen::to_value(&result)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
 
-/// Compute the critical path scoped to a subset (all, project, or milestone).
+/// Compute the critical path scoped to a project or workstream.
+/// Returns `{ taskIds: string[], edges: [string, string][] }`.
 #[wasm_bindgen]
 pub fn compute_critical_path_scoped(tasks_js: JsValue, scope_js: JsValue) -> Result<JsValue, JsValue> {
     let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
     let scope: cpm::CriticalPathScope = serde_wasm_bindgen::from_value(scope_js)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize scope: {}", e)))?;
-    let critical_ids = cpm::compute_critical_path_scoped(&tasks, &scope);
-    serde_wasm_bindgen::to_value(&critical_ids)
+    let result = cpm::compute_critical_path_scoped(&tasks, &scope);
+    serde_wasm_bindgen::to_value(&result)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
 }
 

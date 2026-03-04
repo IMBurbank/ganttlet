@@ -33,8 +33,13 @@ jobs:
       - name: Build WASM
         run: npm run build:wasm
 
-      - name: Run E2E tests
+      - name: Build relay server
+        run: cd server && cargo build --release
+
+      - name: Run E2E tests (with relay)
         run: npm run test:e2e
+        env:
+          E2E_RELAY: '1'
 
       - name: Upload test results
         if: always()

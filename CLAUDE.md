@@ -10,7 +10,7 @@ Ganttlet is a free, open-source Gantt chart with real-time collaboration and two
 - **Collaboration server**: Rust (axum + tokio-tungstenite) — stateless WebSocket relay
 - **Google Sheets**: API v4, client-side via OAuth2 token
 - **Auth**: Google OAuth2 — permissions derived from Google Drive sharing
-- **Testing**: Vitest + jsdom (unit), Playwright (E2E planned)
+- **Testing**: Vitest + jsdom (unit), Playwright + Chromium (E2E, including collaboration)
 
 ## Architecture
 Browser client + thin relay server. All business logic (scheduling, rendering, Sheets I/O) runs in the browser. The relay server only forwards CRDT updates over WebSocket.
@@ -33,9 +33,13 @@ See `docs/completed-phases.md` for detailed architecture notes (auth, sync, depl
 - `npm run dev` — Build WASM + start Vite dev server
 - `npm run test` — Run unit tests
 - `npm run build` — Build WASM + TypeScript check + production build
+- `npm run e2e` — Run E2E tests (collab tests skip if relay not running)
+- `npm run e2e:collab` — Run E2E tests with relay (builds relay if needed, starts it automatically)
+- `./scripts/full-verify.sh` — **Full verification suite for agents** (tsc + vitest + cargo test + E2E with relay). Run this before declaring work done.
 - `cd crates/scheduler && cargo test` — Run Rust unit tests
 - `docker compose run --service-ports dev` — Enter the dev container
 - `docker compose exec dev bash` — Attach to running container
+- `docker compose up --build relay` — Build and run relay server locally (logs to stdout)
 - `gcloud auth login --no-launch-browser` — Authenticate gcloud inside the container
 - `claude --dangerously-skip-permissions` — Start Claude without permission checks
 
@@ -74,6 +78,7 @@ WATCH=1 ./scripts/launch-phase.sh all
 ./scripts/launch-phase.sh stage3    # launch Stage 3 groups (if any)
 ./scripts/launch-phase.sh merge3    # merge Stage 3 branches to main + verify
 ./scripts/launch-phase.sh validate  # run validation agent (fix-and-retry)
+./scripts/launch-phase.sh resume stage2  # resume pipeline from a specific step
 ./scripts/launch-phase.sh status    # show worktree/branch status
 ```
 
@@ -96,6 +101,42 @@ with `Ctrl-B D`.
 
 **Unplanned issues** are triaged in `docs/unplanned-issues.md` using a Backlog → Claimed → Planned
 workflow. Planning agents claim up to 3 items, plan them into `TASKS.md`, then mark them planned.
+
+### Claude CLI Reference (for launch scripts)
+The `claude` binary in the dev container has specific constraints. When writing or modifying
+`launch-phase.sh` or any script that invokes claude programmatically, follow these rules:
+
+- **`--prompt-file` does not exist.** Never use it. It will cause `error: unknown option`.
+- **WATCH mode** (tmux, auto-exit with streaming output): Use `-p` with a positional argument:
+  ```bash
+  claude --dangerously-skip-permissions -p "$(cat '/path/to/prompt.md')"
+  ```
+  The `-p` flag ensures claude exits after completing the prompt. The tmux window
+  captures the streaming text output and stays open (via `; read`) for scrollback review.
+  Note: `-p` mode shows streaming text, not the full rich TUI (no thinking blocks or
+  tool-use panels), but the agent output is still visible.
+- **Headless/pipe mode** (non-WATCH, logging to file): Pipe via stdin with `-p`:
+  ```bash
+  cat prompt.md | claude --dangerously-skip-permissions -p -
+  ```
+- **Pure interactive mode** (manual use only): Pass prompt as positional arg without `-p`:
+  ```bash
+  claude --dangerously-skip-permissions "$(cat '/path/to/prompt.md')"
+  ```
+  Shows full rich TUI but does NOT auto-exit — claude waits for more input. Do NOT use
+  this in orchestrated pipelines because the exit code file is never written until the
+  user manually types `exit`.
+- **Validation log parsing**: The `script` command logs the entire command (including the
+  prompt text) as its first line. Any `grep` checks on validation logs must exclude the
+  `COMMAND=` header line, otherwise prompt template strings like `OVERALL.*FAIL` will
+  cause false positive failure detection. Use: `grep -v "COMMAND=" "$logfile" | grep -q "PATTERN"`
+- **`setup_worktree()` stdout isolation**: The function returns the worktree path via stdout
+  (`echo "$worktree"`). ALL other output inside the function (log messages, git commands, npm
+  install) MUST be redirected to `/dev/null` or `>&2`. Use `>/dev/null 2>&1` on git and npm
+  commands. If stdout is contaminated, `build_claude_cmd()` generates a broken `cd` path and
+  the agent exits immediately with code 1.
+- **Key flags**: `--dangerously-skip-permissions`, `-p` (print/pipe mode), `-c` (continue),
+  `-r` (resume session), `--system-prompt`, `--model`, `--max-budget-usd`
 
 ### Pre-Phase Checklist
 Before launching any phase, **always commit all planning work** so there is a safe point to
@@ -120,10 +161,30 @@ This prevents `git reset --hard` from destroying planning work if a phase run ne
 ### Single-Agent Issue Work
 When working from a GitHub issue (via the `agent-ready` label workflow or manual assignment):
 - Branch naming: `agent/issue-{number}`
-- Full verification: `npm run build:wasm && npx tsc --noEmit && npm run test && cd crates/scheduler && cargo test`
+- Full verification: `./scripts/full-verify.sh` (runs tsc, vitest, cargo test, and E2E with relay)
 - Open a PR with `gh pr create` — never push directly to main
 - PR body must include `Closes #{issue_number}` for auto-closing
 - Commit often with descriptive messages
+
+## E2E Testing & Relay
+Playwright E2E tests live in `e2e/`. The collaboration tests (`e2e/collab.spec.ts`) require the
+relay server to be running — without it, they silently skip via `test.skip()`.
+
+**How the relay starts:** Setting `E2E_RELAY=1` tells `playwright.config.ts` to add the relay
+as a second `webServer`. Playwright runs `cargo build --release` in `server/` (a no-op if nothing
+changed — Cargo caches aggressively) then starts the binary and waits for port 4000 before
+running tests.
+
+**For agents:** Always use `./scripts/full-verify.sh` for final verification. It sets `E2E_RELAY=1`
+automatically, so collab tests (presence indicators, cross-tab sync) actually run instead of
+skipping. Never use bare `npm run e2e` as the final check — that skips collab tests silently.
+
+**In CI:** The `e2e.yml` GitHub Actions workflow sets `E2E_RELAY=1` and builds the relay binary
+before running Playwright. This is the safety net if an agent forgets locally.
+
+**Docker container requirements:** The Dockerfile includes Playwright's Chromium system libraries
+and pre-installs the Chromium browser binary. The relay server source (`server/`) is volume-mounted,
+so `cargo build --release` uses the host-persisted `server/target/` cache across container restarts.
 
 ## Task Queue
 See `TASKS.md` for claimable tasks and claiming convention.

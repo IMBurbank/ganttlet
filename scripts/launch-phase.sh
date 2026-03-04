@@ -158,20 +158,20 @@ setup_worktree() {
   if [[ ! -d "$worktree" ]]; then
     log "Creating worktree: ${worktree} (branch: ${branch})" >&2
     cd "$WORKSPACE"
-    git worktree add "$worktree" -b "$branch" 2>/dev/null || \
-      git worktree add "$worktree" "$branch" 2>/dev/null || \
+    git worktree add "$worktree" -b "$branch" >/dev/null 2>&1 || \
+      git worktree add "$worktree" "$branch" >/dev/null 2>&1 || \
       { err "Failed to create worktree for ${group}" >&2; return 1; }
   else
     log "Worktree already exists: ${worktree}" >&2
   fi
 
-  (cd "$worktree" && npm install --silent 2>/dev/null) || true
+  (cd "$worktree" && npm install --silent >/dev/null 2>&1) || true
 
   (
     cd "$worktree"
     if [[ ! -d "src/wasm/scheduler" && ! -L "src/wasm/scheduler" ]]; then
       log "Symlinking WASM artifacts for ${group}" >&2
-      ln -s /workspace/src/wasm/scheduler src/wasm/scheduler 2>/dev/null || true
+      ln -s /workspace/src/wasm/scheduler src/wasm/scheduler >/dev/null 2>&1 || true
     fi
   )
 
@@ -189,13 +189,15 @@ build_claude_cmd() {
   local exitcode_file="${LOG_DIR}/${group}.exit"
 
   # The command: cd to worktree, run claude interactively in the tmux pane.
-  # --prompt-file feeds the initial prompt; the TTY allocated by tmux gives
-  # the full interactive experience (thinking, tool use, streaming output).
+  # Pass the prompt as a positional argument (no -p flag = interactive mode).
+  # The TTY allocated by tmux gives the full interactive experience.
+  # We use -p (print mode) to ensure claude exits after completing the prompt.
+  # The tmux TTY still captures the streaming output for review.
   local wrapper="${LOG_DIR}/${group}-run.sh"
   cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
 cd "$workdir"
-claude --dangerously-skip-permissions --prompt-file "$prompt_file"
+claude --dangerously-skip-permissions -p "\$(cat '$prompt_file')"
 echo \$? > "$exitcode_file"
 WRAPPER
   chmod +x "$wrapper"
@@ -335,7 +337,7 @@ watch_validate() {
     cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
 cd "$WORKSPACE"
-script -q -c "claude --dangerously-skip-permissions --prompt-file \"$prompt_to_use\"" "$logfile"
+script -q -c "claude --dangerously-skip-permissions -p \"\$(cat '$prompt_to_use')\"" "$logfile"
 echo \$? > "$exitcode_file"
 WRAPPER
     chmod +x "$wrapper"
@@ -367,7 +369,7 @@ WRAPPER
       return 1
     fi
 
-    if grep -q "OVERALL.*FAIL" "$logfile"; then
+    if grep -v "COMMAND=" "$logfile" | grep -q "OVERALL.*FAIL"; then
       if [[ $attempt -lt $max_attempts ]]; then
         warn "Validation found failures on attempt ${attempt} — retrying..."
         sleep "$RETRY_DELAY"
@@ -486,7 +488,7 @@ Do NOT enter plan mode. Do NOT ask for confirmation. Fix the conflicts and commi
     cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
 cd "$WORKSPACE"
-claude --dangerously-skip-permissions --prompt-file "$fix_prompt_file"
+claude --dangerously-skip-permissions -p "\$(cat '$fix_prompt_file')"
 echo \$? > "$exitcode_file"
 WRAPPER
     chmod +x "$wrapper"
@@ -735,7 +737,7 @@ ${prompt}"
     echo ""
 
     # Check if the report contains FAIL
-    if grep -q "OVERALL.*FAIL" "$logfile"; then
+    if grep -v "COMMAND=" "$logfile" | grep -q "OVERALL.*FAIL"; then
       if [[ $attempt -lt $max_attempts ]]; then
         warn "Validation found failures on attempt ${attempt} — retrying with fixes..."
         sleep "$RETRY_DELAY"
@@ -750,26 +752,41 @@ ${prompt}"
   done
 }
 
-run_all() {
-  log "=== Full pipeline: stage1 → merge1 → stage2 → merge2 → stage3 → merge3 → validate ==="
+run_pipeline() {
+  local start_from="${1:-stage1}"
   local pipeline_ok=true
+  local started=false
 
-  stage1  || { warn "Stage 1 had failures — continuing pipeline"; pipeline_ok=false; }
-  merge1  || { warn "Merge 1 had failures — continuing pipeline"; pipeline_ok=false; }
-  stage2  || { warn "Stage 2 had failures — continuing pipeline"; pipeline_ok=false; }
-  merge2  || { warn "Merge 2 had failures — continuing pipeline"; pipeline_ok=false; }
-  stage3  || { warn "Stage 3 had failures — continuing pipeline"; pipeline_ok=false; }
-  merge3  || { warn "Merge 3 had failures — continuing pipeline"; pipeline_ok=false; }
+  log "=== Pipeline starting from: ${start_from} ==="
 
-  # Validation always runs — it's the cleanup/fix step
-  if validate; then
-    ok "=== Full pipeline complete — validation passed ==="
-  else
-    err "=== Full pipeline complete — validation FAILED ==="
-    pipeline_ok=false
-  fi
+  local steps=("stage1" "merge1" "stage2" "merge2" "stage3" "merge3" "validate")
+  for step in "${steps[@]}"; do
+    if [[ "$step" == "$start_from" ]]; then
+      started=true
+    fi
+    if ! $started; then
+      log "Skipping ${step} (resuming from ${start_from})"
+      continue
+    fi
+
+    if [[ "$step" == "validate" ]]; then
+      # Validation always runs — it's the cleanup/fix step
+      if validate; then
+        ok "=== Pipeline complete — validation passed ==="
+      else
+        err "=== Pipeline complete — validation FAILED ==="
+        pipeline_ok=false
+      fi
+    else
+      $step || { warn "${step} had failures — continuing pipeline"; pipeline_ok=false; }
+    fi
+  done
 
   $pipeline_ok || { err "Pipeline had issues — review logs in ${LOG_DIR}"; return 1; }
+}
+
+run_all() {
+  run_pipeline "stage1"
 }
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -787,6 +804,7 @@ Commands:
   merge3    Merge Stage 3 branches to main + verify
   validate  Run validation agent (checks all tests, fixes issues, reports)
   all       Full pipeline: stage1 → merge1 → ... → merge3 → validate
+  resume <step>  Resume pipeline from a specific step (e.g., resume merge1)
   status    Show current worktree and branch status
   logs      Tail agent logs
 
@@ -830,6 +848,14 @@ case "${1:-}" in
   merge3)   merge3 ;;
   validate) validate ;;
   all)      run_all ;;
+  resume)
+    if [[ -z "${2:-}" ]]; then
+      err "Usage: ./scripts/launch-phase.sh resume <step>"
+      err "Steps: stage1, merge1, stage2, merge2, stage3, merge3, validate"
+      exit 1
+    fi
+    run_pipeline "$2"
+    ;;
   status)   show_status ;;
   logs)     show_logs "$@" ;;
   -h|--help) usage ;;

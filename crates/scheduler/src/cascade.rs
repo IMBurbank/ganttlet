@@ -97,6 +97,8 @@ mod tests {
             dependencies: vec![],
             project: String::new(),
             work_stream: String::new(),
+            constraint_type: None,
+            constraint_date: None,
         }
     }
 

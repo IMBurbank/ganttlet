@@ -1,5 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+/// Constraint type for a task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConstraintType {
+    ASAP,
+    SNET,
+}
+
 /// Dependency type between two tasks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DepType {
@@ -34,6 +41,10 @@ pub struct Task {
     pub project: String,
     #[serde(default)]
     pub work_stream: String,
+    #[serde(default)]
+    pub constraint_type: Option<ConstraintType>,
+    #[serde(default)]
+    pub constraint_date: Option<String>,
 }
 
 /// Result of a cascade operation: which task moved and its new dates.
@@ -43,4 +54,13 @@ pub struct CascadeResult {
     pub id: String,
     pub start_date: String,
     pub end_date: String,
+}
+
+/// Result of a recalculate-to-earliest operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecalcResult {
+    pub id: String,
+    pub new_start: String,
+    pub new_end: String,
 }

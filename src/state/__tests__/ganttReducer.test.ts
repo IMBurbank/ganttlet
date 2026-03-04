@@ -551,7 +551,7 @@ describe('ganttReducer', () => {
       expect(childTask.endDate).toBe('2026-03-25');
     });
 
-    it('cascades dependents when duration decreases (negative delta)', () => {
+    it('does not cascade dependents on backward move (asymmetric cascade)', () => {
       const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
       const child = makeTask({
         id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
@@ -564,9 +564,10 @@ describe('ganttReducer', () => {
       state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'duration', value: 6 });
       state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: -3 });
 
+      // Asymmetric cascade: backward moves do NOT pull dependents — they expose slack instead
       const childTask = state.tasks.find(t => t.id === 'B')!;
-      expect(childTask.startDate).toBe('2026-03-08');
-      expect(childTask.endDate).toBe('2026-03-17');
+      expect(childTask.startDate).toBe('2026-03-11');
+      expect(childTask.endDate).toBe('2026-03-20');
     });
   });
 

@@ -116,3 +116,9 @@ Two-stage pipeline: stage 1 (A+B parallel) → merge → stage 2 (C+D parallel) 
 - **Group B (Token Auth)**: Moved OAuth token from WebSocket URL query param to post-connect auth message; server accepts upgrade unconditionally, reads first message as auth JSON with 5-second timeout
 - **Group C (Sheets Sync)**: Exponential backoff with jitter for Sheets API (1s–60s, 5 attempts, Retry-After); atomic `values.update` replacing clear-then-write; merge incoming Sheets data by task ID instead of full replacement; propagate polling changes to Yjs; hydrate Yjs from Sheets on initialization
 - **Group D (CI/CD)**: GitHub Actions CI workflow (tsc, vitest, cargo test on PRs); deploy pipeline (build images, push to Artifact Registry); agent-work workflow (trigger on `agent-ready` label, run Claude Code); updated CLAUDE.md with single-agent issue workflow
+
+## Phase 11: Testing Infrastructure & Presence Fix — DONE
+Single stage, three parallel agent groups (E+F+G) → merge → validation agent.
+- **Group E (Presence Fix + Server Tests)**: Diagnosed full awareness flow end-to-end; fixed root causes in ws.rs, room.rs, yjsProvider.ts; added integration tests
+- **Group F (Playwright E2E Tests)**: Added collaboration test harness, E2E tests, tooltip tests
+- **Group G (CI Pipeline for E2E)**: Added Playwright E2E workflow, verified server integration tests run in CI

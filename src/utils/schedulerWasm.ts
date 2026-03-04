@@ -47,8 +47,10 @@ export function computeCriticalPath(tasks: Task[]): Set<string> {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
     const wasmTasks = mapTasksToWasm(tasks);
-    const result: string[] = wasmModule.compute_critical_path(wasmTasks);
-    return new Set(result);
+    const result = wasmModule.compute_critical_path(wasmTasks);
+    // WASM now returns { taskIds: string[], edges: [string, string][] }
+    const taskIds: string[] = Array.isArray(result) ? result : result.taskIds;
+    return new Set(taskIds);
   } catch (err) {
     console.error('computeCriticalPath failed:', err);
     return new Set<string>();
@@ -62,8 +64,10 @@ export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScop
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
     const wasmTasks = mapTasksToWasm(tasks);
-    const result: string[] = wasmModule.compute_critical_path_scoped(wasmTasks, scope);
-    return new Set(result);
+    const result = wasmModule.compute_critical_path_scoped(wasmTasks, scope);
+    // WASM now returns { taskIds: string[], edges: [string, string][] }
+    const taskIds: string[] = Array.isArray(result) ? result : result.taskIds;
+    return new Set(taskIds);
   } catch (err) {
     console.error('computeCriticalPathScoped failed:', err, 'scope:', scope);
     return new Set<string>();

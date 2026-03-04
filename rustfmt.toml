@@ -1,0 +1,5 @@
+# Use default rustfmt settings (matches Rust ecosystem conventions)
+# max_width = 100
+# hard_tabs = false
+# tab_spaces = 4
+# edition = inferred from Cargo.toml

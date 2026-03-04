@@ -2,18 +2,25 @@
 # launch-phase.sh — Orchestrates parallel Claude Code agents for a phase.
 #
 # Usage:
-#   ./scripts/launch-phase.sh                    # interactive menu
+#   ./scripts/launch-phase.sh all                # full pipeline: stage1 → merge → ... → validate
+#   WATCH=1 ./scripts/launch-phase.sh all        # same, with live agent output in tmux
 #   ./scripts/launch-phase.sh stage1             # run Stage 1 parallel groups
 #   ./scripts/launch-phase.sh merge1             # merge Stage 1 branches to main
-#   ./scripts/launch-phase.sh stage2             # run Stage 2 parallel groups
+#   ./scripts/launch-phase.sh stage2             # run Stage 2 groups
 #   ./scripts/launch-phase.sh merge2             # merge Stage 2 branches to main
-#   ./scripts/launch-phase.sh all                # full pipeline: stage1 → merge1 → stage2 → merge2
+#   ./scripts/launch-phase.sh stage3             # run Stage 3 groups
+#   ./scripts/launch-phase.sh merge3             # merge Stage 3 branches to main
+#   ./scripts/launch-phase.sh validate           # run validation agent (fix-and-retry)
+#   ./scripts/launch-phase.sh status             # show worktree/branch status
 #
 # Environment:
-#   MAX_RETRIES     — retries per agent on crash (default: 3)
-#   RETRY_DELAY     — seconds between retries (default: 5)
-#   PROMPTS_DIR     — path to prompt files (default: docs/prompts)
-#   WORKTREE_BASE   — worktree root (default: /workspace/.claude/worktrees)
+#   WATCH=1             — live interactive agent output in tmux panes
+#   MAX_RETRIES=3       — retries per agent on crash
+#   RETRY_DELAY=5       — seconds between retries
+#   VALIDATE_MAX_ATTEMPTS=3 — max fix-and-retry cycles for validation
+#   MERGE_FIX_RETRIES=3 — retries for merge conflict resolution
+#   PROMPTS_DIR         — path to prompt files (default: docs/prompts)
+#   WORKTREE_BASE       — worktree root (default: /workspace/.claude/worktrees)
 
 set -euo pipefail
 
@@ -21,30 +28,47 @@ set -euo pipefail
 
 MAX_RETRIES="${MAX_RETRIES:-3}"
 RETRY_DELAY="${RETRY_DELAY:-5}"
+MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
-LOG_DIR="${WORKSPACE}/logs/phase11"
+# Set WATCH=1 to see full live agent output in tmux panes
+WATCH="${WATCH:-0}"
+PHASE="phase12"
 
-PHASE="phase11"
+LOG_DIR="${WORKSPACE}/logs/${PHASE}"
+TMUX_SESSION="${PHASE}-agents"
 
-# Stage 1: Testing infrastructure (all three groups run in parallel, single stage)
-STAGE1_GROUPS=("groupE" "groupF" "groupG")
+# Stage 1: Scheduling engine fixes in Rust (3 groups, parallel)
+STAGE1_GROUPS=("groupH" "groupI" "groupL")
 STAGE1_BRANCHES=(
-  "feature/phase11-server-tests"
-  "feature/phase11-e2e-tests"
-  "feature/phase11-ci-e2e"
+  "feature/phase12-cascade-fixes"
+  "feature/phase12-critical-path"
+  "feature/phase12-constraints-recalc"
 )
 STAGE1_MERGE_MESSAGES=(
-  "Merge feature/phase11-server-tests: diagnose and fix presence regression, add WebSocket auth and awareness integration tests"
-  "Merge feature/phase11-e2e-tests: Playwright E2E tests for collaboration, presence, and tooltip"
-  "Merge feature/phase11-ci-e2e: E2E test workflow in CI pipeline"
+  "Merge feature/phase12-cascade-fixes: fix cascade duration bug, implement asymmetric cascade (forward-only push)"
+  "Merge feature/phase12-critical-path: fix CPM computation and scoped critical path, remove milestone scope, add critical edge identification"
+  "Merge feature/phase12-constraints-recalc: add SNET constraint, implement recalculate-to-earliest"
 )
 
-# Stage 2: empty (single-stage phase)
-STAGE2_GROUPS=()
-STAGE2_BRANCHES=()
-STAGE2_MERGE_MESSAGES=()
+# Stage 2: Cascade UX + Recalculate UI (1 group, sequential before stage 3)
+STAGE2_GROUPS=("groupJ")
+STAGE2_BRANCHES=(
+  "feature/phase12-cascade-ux"
+)
+STAGE2_MERGE_MESSAGES=(
+  "Merge feature/phase12-cascade-ux: asymmetric cascade UX, recalculate-to-earliest UI (context menu + toolbar), 10s cascade highlight"
+)
+
+# Stage 3: Critical Path UI + Float Visualization (1 group, after stage 2 merges)
+STAGE3_GROUPS=("groupK")
+STAGE3_BRANCHES=(
+  "feature/phase12-critical-path-ui"
+)
+STAGE3_MERGE_MESSAGES=(
+  "Merge feature/phase12-critical-path-ui: fix critical path rendering, remove milestone scope from UI, add float/slack visualization"
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -124,6 +148,240 @@ ${prompt}"
   return 1
 }
 
+# ── Worktree setup ───────────────────────────────────────────────────────────
+
+setup_worktree() {
+  local group="$1"
+  local branch="$2"
+  local worktree="${WORKTREE_BASE}/${PHASE}-${group}"
+
+  if [[ ! -d "$worktree" ]]; then
+    log "Creating worktree: ${worktree} (branch: ${branch})" >&2
+    cd "$WORKSPACE"
+    git worktree add "$worktree" -b "$branch" 2>/dev/null || \
+      git worktree add "$worktree" "$branch" 2>/dev/null || \
+      { err "Failed to create worktree for ${group}" >&2; return 1; }
+  else
+    log "Worktree already exists: ${worktree}" >&2
+  fi
+
+  (cd "$worktree" && npm install --silent 2>/dev/null) || true
+
+  (
+    cd "$worktree"
+    if [[ ! -d "src/wasm/scheduler" && ! -L "src/wasm/scheduler" ]]; then
+      log "Symlinking WASM artifacts for ${group}" >&2
+      ln -s /workspace/src/wasm/scheduler src/wasm/scheduler 2>/dev/null || true
+    fi
+  )
+
+  # Only the path goes to stdout — log calls go to stderr
+  echo "$worktree"
+}
+
+# ── WATCH mode: tmux-based interactive output ────────────────────────────────
+
+# Build the claude command string for a group.
+build_claude_cmd() {
+  local group="$1"
+  local workdir="$2"
+  local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/${group}.md"
+  local exitcode_file="${LOG_DIR}/${group}.exit"
+
+  # The command: cd to worktree, run claude interactively in the tmux pane.
+  # --prompt-file feeds the initial prompt; the TTY allocated by tmux gives
+  # the full interactive experience (thinking, tool use, streaming output).
+  local wrapper="${LOG_DIR}/${group}-run.sh"
+  cat > "$wrapper" <<WRAPPER
+#!/usr/bin/env bash
+cd "$workdir"
+claude --dangerously-skip-permissions --prompt-file "$prompt_file"
+echo \$? > "$exitcode_file"
+WRAPPER
+  chmod +x "$wrapper"
+  echo "$wrapper"
+}
+
+# Launch all agents in tmux panes and wait for them to finish.
+watch_parallel_stage() {
+  local stage_label="$1"
+  local -n w_groups_ref="$2"
+  local -n w_branches_ref="$3"
+
+  log "=== ${stage_label} (WATCH mode): Launching agents in tmux ==="
+
+  # Kill any existing session with this name
+  tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+
+  local first=true
+  for i in "${!w_groups_ref[@]}"; do
+    local group="${w_groups_ref[$i]}"
+    local branch="${w_branches_ref[$i]}"
+
+    # Setup worktree
+    local worktree
+    worktree=$(setup_worktree "$group" "$branch") || continue
+
+    # Clean up exit code file from prior runs
+    rm -f "${LOG_DIR}/${group}.exit"
+
+    # Build the wrapper script
+    local wrapper
+    wrapper=$(build_claude_cmd "$group" "$worktree")
+
+    if $first; then
+      # Create the tmux session with the first agent
+      tmux new-session -d -s "$TMUX_SESSION" -n "$group" "$wrapper; echo '── ${group} finished (exit code: '\$(cat ${LOG_DIR}/${group}.exit)')  Press Enter to close ──'; read"
+      first=false
+    else
+      # Add a new window for each additional agent
+      tmux new-window -t "$TMUX_SESSION" -n "$group" "$wrapper; echo '── ${group} finished (exit code: '\$(cat ${LOG_DIR}/${group}.exit)')  Press Enter to close ──'; read"
+    fi
+
+    log "${group} launched in tmux window '${group}'"
+  done
+
+  echo ""
+  log "╔══════════════════════════════════════════════════════════════╗"
+  log "║  Agents running in tmux session: ${TMUX_SESSION}"
+  log "║  Attach to watch:  tmux attach -t ${TMUX_SESSION}          "
+  log "║  Switch windows:   Ctrl-B then N (next) or P (previous)    "
+  log "║  Detach:           Ctrl-B then D                           "
+  log "╚══════════════════════════════════════════════════════════════╝"
+  echo ""
+
+  # Poll for all agents to complete (check for exit code files)
+  log "Waiting for all agents to finish..."
+  while true; do
+    local all_done=true
+    for i in "${!w_groups_ref[@]}"; do
+      local group="${w_groups_ref[$i]}"
+      if [[ ! -f "${LOG_DIR}/${group}.exit" ]]; then
+        all_done=false
+        break
+      fi
+    done
+    if $all_done; then
+      break
+    fi
+    sleep 5
+  done
+
+  # Collect results
+  local all_ok=true
+  for i in "${!w_groups_ref[@]}"; do
+    local group="${w_groups_ref[$i]}"
+    local rc
+    rc=$(cat "${LOG_DIR}/${group}.exit" 2>/dev/null || echo "1")
+    if [[ "$rc" -ne 0 ]]; then
+      err "${group} failed with exit code ${rc}"
+      all_ok=false
+    else
+      ok "${group} finished successfully"
+    fi
+  done
+
+  # Clean up tmux session
+  tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+
+  if $all_ok; then
+    ok "=== ${stage_label} complete: all agents finished ==="
+  else
+    err "=== ${stage_label} finished with errors ==="
+    return 1
+  fi
+}
+
+# Run the validation agent in a tmux window with live output.
+watch_validate() {
+  local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/validate.md"
+  local max_attempts="${VALIDATE_MAX_ATTEMPTS:-3}"
+  local exitcode_file="${LOG_DIR}/validate.exit"
+
+  if [[ ! -f "$prompt_file" ]]; then
+    warn "No validation prompt found at $prompt_file — skipping."
+    return 0
+  fi
+
+  log "=== Validation (WATCH mode) ==="
+
+  for attempt in $(seq 1 "$max_attempts"); do
+    rm -f "$exitcode_file"
+
+    # Build prompt (with retry context if applicable)
+    local prompt_to_use="$prompt_file"
+    if [[ $attempt -gt 1 ]]; then
+      # Write augmented prompt to a temp file
+      local prev_log="${LOG_DIR}/validate-attempt$((attempt - 1)).log"
+      local prev_failures
+      prev_failures="$(grep -A2 'FAIL' "$prev_log" 2>/dev/null | tail -30 || echo "(no previous log)")"
+      prompt_to_use="${LOG_DIR}/validate-prompt-attempt${attempt}.md"
+      {
+        echo "NOTE: This is validation attempt ${attempt}/${max_attempts}. Previous attempt found failures:"
+        echo ""
+        echo "$prev_failures"
+        echo ""
+        echo "You MUST fix the issues above before re-running checks."
+        echo ""
+        cat "$prompt_file"
+      } > "$prompt_to_use"
+    fi
+
+    local logfile="${LOG_DIR}/validate-attempt${attempt}.log"
+
+    # Write a wrapper script for tmux — interactive mode with log capture.
+    # Uses `script` to preserve TTY for full interactive output while logging.
+    local wrapper="${LOG_DIR}/validate-run.sh"
+    cat > "$wrapper" <<WRAPPER
+#!/usr/bin/env bash
+cd "$WORKSPACE"
+script -q -c "claude --dangerously-skip-permissions --prompt-file \"$prompt_to_use\"" "$logfile"
+echo \$? > "$exitcode_file"
+WRAPPER
+    chmod +x "$wrapper"
+
+    # Run in tmux
+    tmux kill-session -t "${TMUX_SESSION}-validate" 2>/dev/null || true
+    tmux new-session -d -s "${TMUX_SESSION}-validate" -n "validate" "$wrapper; echo '── validate finished ──'; read"
+
+    log "Validation attempt ${attempt}/${max_attempts} running in tmux session: ${TMUX_SESSION}-validate"
+    log "Attach to watch:  tmux attach -t ${TMUX_SESSION}-validate"
+
+    # Wait for completion
+    while [[ ! -f "$exitcode_file" ]]; do
+      sleep 5
+    done
+
+    local exit_code
+    exit_code=$(cat "$exitcode_file")
+
+    tmux kill-session -t "${TMUX_SESSION}-validate" 2>/dev/null || true
+
+    if [[ "$exit_code" -ne 0 ]]; then
+      warn "Validation agent exited with code ${exit_code} on attempt ${attempt}"
+      if [[ $attempt -lt $max_attempts ]]; then
+        sleep "$RETRY_DELAY"
+        continue
+      fi
+      err "Validation agent failed after ${max_attempts} attempts"
+      return 1
+    fi
+
+    if grep -q "OVERALL.*FAIL" "$logfile"; then
+      if [[ $attempt -lt $max_attempts ]]; then
+        warn "Validation found failures on attempt ${attempt} — retrying..."
+        sleep "$RETRY_DELAY"
+        continue
+      fi
+      err "Validation FAILED after ${max_attempts} attempts"
+      return 1
+    fi
+
+    ok "Validation PASSED on attempt ${attempt}"
+    return 0
+  done
+}
+
 # ── Generic parallel stage runner ─────────────────────────────────────────────
 
 # Usage: run_parallel_stage "Stage 1" STAGE1_GROUPS STAGE1_BRANCHES
@@ -131,6 +389,12 @@ run_parallel_stage() {
   local stage_label="$1"
   local -n groups_ref="$2"
   local -n branches_ref="$3"
+
+  # Delegate to tmux-based runner in WATCH mode
+  if [[ "$WATCH" == "1" ]]; then
+    watch_parallel_stage "$stage_label" "$2" "$3"
+    return $?
+  fi
 
   log "=== ${stage_label}: Launching parallel groups ==="
 
@@ -140,30 +404,9 @@ run_parallel_stage() {
   for i in "${!groups_ref[@]}"; do
     local group="${groups_ref[$i]}"
     local branch="${branches_ref[$i]}"
-    local worktree="${WORKTREE_BASE}/${PHASE}-${group}"
 
-    # Create worktree if it doesn't exist
-    if [[ ! -d "$worktree" ]]; then
-      log "Creating worktree: ${worktree} (branch: ${branch})"
-      cd "$WORKSPACE"
-      git worktree add "$worktree" -b "$branch" 2>/dev/null || \
-        git worktree add "$worktree" "$branch" 2>/dev/null || \
-        { err "Failed to create worktree for ${group}"; continue; }
-    else
-      log "Worktree already exists: ${worktree}"
-    fi
-
-    # Install deps in worktree
-    (cd "$worktree" && npm install --silent 2>/dev/null) || true
-
-    # Symlink WASM artifacts in worktrees (needed for tests/builds)
-    (
-      cd "$worktree"
-      if [[ ! -d "src/wasm/scheduler" && ! -L "src/wasm/scheduler" ]]; then
-        log "Symlinking WASM artifacts for ${group}"
-        ln -s /workspace/src/wasm/scheduler src/wasm/scheduler 2>/dev/null || true
-      fi
-    )
+    local worktree
+    worktree=$(setup_worktree "$group" "$branch") || continue
 
     # Launch agent in background
     run_agent "$group" "$worktree" &
@@ -200,6 +443,113 @@ run_parallel_stage() {
 
 # ── Generic merge ─────────────────────────────────────────────────────────────
 
+# Resolve merge conflicts by launching a claude agent.
+# Expects to be called while conflicted files exist in the working tree.
+resolve_merge_conflicts() {
+  local branch="$1"
+  local msg="$2"
+  local conflicts
+  conflicts=$(cd "$WORKSPACE" && git diff --name-only --diff-filter=U)
+
+  if [[ -z "$conflicts" ]]; then
+    warn "resolve_merge_conflicts called but no conflicted files found"
+    return 1
+  fi
+
+  log "Conflicted files:"
+  echo "$conflicts" | while read -r f; do log "  $f"; done
+
+  local fix_prompt="You are resolving git merge conflicts in the Ganttlet project.
+The branch '${branch}' is being merged into main. The following files have conflicts:
+
+${conflicts}
+
+Instructions:
+1. Read each conflicted file and resolve the conflict markers (<<<<<<< ======= >>>>>>>).
+   Keep BOTH sides of the changes — the goal is to combine the work from both branches.
+   Use your judgment on how to integrate them correctly.
+2. After resolving each file, run: git add <file>
+3. After all files are resolved, run: git commit --no-edit
+4. Verify the merge is clean: git status should show nothing to commit.
+
+Do NOT enter plan mode. Do NOT ask for confirmation. Fix the conflicts and commit."
+
+  cd "$WORKSPACE"
+
+  if [[ "$WATCH" == "1" ]]; then
+    local fix_prompt_file="${LOG_DIR}/merge-fix-${branch//\//-}.md"
+    echo "$fix_prompt" > "$fix_prompt_file"
+    local exitcode_file="${LOG_DIR}/merge-fix.exit"
+    rm -f "$exitcode_file"
+
+    local wrapper="${LOG_DIR}/merge-fix-run.sh"
+    cat > "$wrapper" <<WRAPPER
+#!/usr/bin/env bash
+cd "$WORKSPACE"
+claude --dangerously-skip-permissions --prompt-file "$fix_prompt_file"
+echo \$? > "$exitcode_file"
+WRAPPER
+    chmod +x "$wrapper"
+
+    tmux kill-session -t "${TMUX_SESSION}-merge-fix" 2>/dev/null || true
+    tmux new-session -d -s "${TMUX_SESSION}-merge-fix" -n "merge-fix" \
+      "$wrapper; echo '── merge-fix finished ──'; read"
+
+    log "Merge-fix agent running in tmux session: ${TMUX_SESSION}-merge-fix"
+    log "Attach to watch:  tmux attach -t ${TMUX_SESSION}-merge-fix"
+
+    while [[ ! -f "$exitcode_file" ]]; do sleep 5; done
+
+    local rc
+    rc=$(cat "$exitcode_file")
+    tmux kill-session -t "${TMUX_SESSION}-merge-fix" 2>/dev/null || true
+    return "$rc"
+  else
+    echo "$fix_prompt" | claude --dangerously-skip-permissions -p - >> "${LOG_DIR}/merge-fix.log" 2>&1
+    return $?
+  fi
+}
+
+# Merge a single branch into main with conflict resolution and retries.
+merge_branch_with_retries() {
+  local branch="$1"
+  local msg="$2"
+
+  for attempt in $(seq 1 "$MERGE_FIX_RETRIES"); do
+    log "Merging ${branch}... (attempt ${attempt}/${MERGE_FIX_RETRIES})"
+
+    if git merge "$branch" --no-ff -m "$msg"; then
+      ok "Merged ${branch}"
+      return 0
+    fi
+
+    warn "Merge conflict on ${branch} (attempt ${attempt}/${MERGE_FIX_RETRIES})"
+
+    # Launch agent to resolve conflicts
+    if resolve_merge_conflicts "$branch" "$msg"; then
+      # Check if the merge was completed
+      if ! git diff --name-only --diff-filter=U | grep -q .; then
+        ok "Merge conflicts resolved for ${branch}"
+        return 0
+      else
+        warn "Conflicts remain after fix attempt ${attempt}"
+      fi
+    else
+      warn "Merge-fix agent failed on attempt ${attempt}"
+    fi
+
+    # Abort the failed merge and retry
+    if [[ $attempt -lt $MERGE_FIX_RETRIES ]]; then
+      git merge --abort 2>/dev/null || true
+      sleep "$RETRY_DELAY"
+    fi
+  done
+
+  err "Could not resolve merge conflicts for ${branch} after ${MERGE_FIX_RETRIES} attempts"
+  git merge --abort 2>/dev/null || true
+  return 1
+}
+
 # Usage: do_merge_stage "Merge 1" STAGE1_GROUPS STAGE1_BRANCHES STAGE1_MERGE_MESSAGES
 do_merge_stage() {
   local merge_label="$1"
@@ -219,16 +569,13 @@ do_merge_stage() {
     git checkout main
   fi
 
-  # Merge each branch
+  # Merge each branch with automatic conflict resolution
   for i in "${!m_branches_ref[@]}"; do
     local branch="${m_branches_ref[$i]}"
     local msg="${m_messages_ref[$i]}"
 
-    log "Merging ${branch}..."
-    if git merge "$branch" --no-ff -m "$msg"; then
-      ok "Merged ${branch}"
-    else
-      err "Merge conflict on ${branch}. Resolve manually, then re-run: $0 ${merge_label,,}"
+    if ! merge_branch_with_retries "$branch" "$msg"; then
+      err "Failed to merge ${branch} — skipping remaining branches"
       return 1
     fi
   done
@@ -261,8 +608,8 @@ do_merge_stage() {
   fi
 
   if ! $verify_ok; then
-    err "=== ${merge_label} verification failed. Fix issues before proceeding ==="
-    return 1
+    warn "=== ${merge_label} verification found issues — continuing to next stage ==="
+    warn "The validation agent will fix remaining issues at the end of the pipeline."
   fi
 
   # Cleanup worktrees
@@ -308,9 +655,31 @@ merge2() {
   do_merge_stage "Merge 2" STAGE2_GROUPS STAGE2_BRANCHES STAGE2_MERGE_MESSAGES
 }
 
+stage3() {
+  if [[ ${#STAGE3_GROUPS[@]} -eq 0 ]]; then
+    ok "No Stage 3 groups configured. Skipping."
+    return 0
+  fi
+  run_parallel_stage "Stage 3" STAGE3_GROUPS STAGE3_BRANCHES
+}
+
+merge3() {
+  if [[ ${#STAGE3_GROUPS[@]} -eq 0 ]]; then
+    ok "No Stage 3 groups configured. Skipping."
+    return 0
+  fi
+  do_merge_stage "Merge 3" STAGE3_GROUPS STAGE3_BRANCHES STAGE3_MERGE_MESSAGES
+}
+
 # ── Full pipeline ─────────────────────────────────────────────────────────────
 
 validate() {
+  # Delegate to tmux-based runner in WATCH mode
+  if [[ "$WATCH" == "1" ]]; then
+    watch_validate
+    return $?
+  fi
+
   local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/validate.md"
   local max_attempts="${VALIDATE_MAX_ATTEMPTS:-3}"
 
@@ -343,6 +712,7 @@ ${prompt}"
 
     log "Validation attempt ${attempt}/${max_attempts} (log: ${logfile})"
     cd "$WORKSPACE"
+
     claude --dangerously-skip-permissions -p "$prompt" > "$logfile" 2>&1
     local exit_code=$?
 
@@ -381,13 +751,25 @@ ${prompt}"
 }
 
 run_all() {
-  log "=== Full pipeline: stage1 → merge1 → stage2 → merge2 → validate ==="
-  stage1
-  merge1
-  stage2
-  merge2
-  validate
-  ok "=== Full pipeline complete — all checks passed ==="
+  log "=== Full pipeline: stage1 → merge1 → stage2 → merge2 → stage3 → merge3 → validate ==="
+  local pipeline_ok=true
+
+  stage1  || { warn "Stage 1 had failures — continuing pipeline"; pipeline_ok=false; }
+  merge1  || { warn "Merge 1 had failures — continuing pipeline"; pipeline_ok=false; }
+  stage2  || { warn "Stage 2 had failures — continuing pipeline"; pipeline_ok=false; }
+  merge2  || { warn "Merge 2 had failures — continuing pipeline"; pipeline_ok=false; }
+  stage3  || { warn "Stage 3 had failures — continuing pipeline"; pipeline_ok=false; }
+  merge3  || { warn "Merge 3 had failures — continuing pipeline"; pipeline_ok=false; }
+
+  # Validation always runs — it's the cleanup/fix step
+  if validate; then
+    ok "=== Full pipeline complete — validation passed ==="
+  else
+    err "=== Full pipeline complete — validation FAILED ==="
+    pipeline_ok=false
+  fi
+
+  $pipeline_ok || { err "Pipeline had issues — review logs in ${LOG_DIR}"; return 1; }
 }
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -399,10 +781,12 @@ Usage: ./scripts/launch-phase.sh <command>
 Commands:
   stage1    Run Stage 1 parallel groups in worktrees
   merge1    Merge Stage 1 branches to main + verify
-  stage2    Run Stage 2 parallel groups in worktrees
+  stage2    Run Stage 2 groups in worktrees
   merge2    Merge Stage 2 branches to main + verify
+  stage3    Run Stage 3 groups in worktrees
+  merge3    Merge Stage 3 branches to main + verify
   validate  Run validation agent (checks all tests, fixes issues, reports)
-  all       Full pipeline: stage1 → merge1 → stage2 → merge2 → validate
+  all       Full pipeline: stage1 → merge1 → ... → merge3 → validate
   status    Show current worktree and branch status
   logs      Tail agent logs
 
@@ -410,6 +794,8 @@ Environment variables:
   MAX_RETRIES=3              Retries per agent on crash
   RETRY_DELAY=5              Seconds between retries
   VALIDATE_MAX_ATTEMPTS=3    Max fix-and-retry cycles for validation
+  MERGE_FIX_RETRIES=3        Retries for merge conflict resolution
+  WATCH=1                    Live interactive agent output in tmux panes
 USAGE
 }
 
@@ -436,14 +822,16 @@ show_logs() {
 }
 
 case "${1:-}" in
-  stage1)  stage1 ;;
-  merge1)  merge1 ;;
-  stage2)  stage2 ;;
-  merge2)  merge2 ;;
+  stage1)   stage1 ;;
+  merge1)   merge1 ;;
+  stage2)   stage2 ;;
+  merge2)   merge2 ;;
+  stage3)   stage3 ;;
+  merge3)   merge3 ;;
   validate) validate ;;
-  all)     run_all ;;
-  status)  show_status ;;
-  logs)    show_logs "$@" ;;
+  all)      run_all ;;
+  status)   show_status ;;
+  logs)     show_logs "$@" ;;
   -h|--help) usage ;;
   *)
     usage

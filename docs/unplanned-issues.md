@@ -15,14 +15,22 @@ items from **Backlog**, moves them to **Claimed**, and once planned into
 
 ## Backlog
 <!-- Add new issues here. One per line, prefixed with `- [ ]`. -->
-- [ ] Bug: Changing duration of a task can sometimes cause the duration of tasks that depend on it to change when making their cascading updates. Dependent task durations shouldn't change, just the start and end dates
- 
+- [ ] Bug: Presence/user icons blink in and out rapidly (~2x/sec) during multi-user sessions on deployed Google Cloud instance. Two accounts in different tabs — presence starts stable then degrades into rapid flicker. Accompanied by console error: `Uncaught Error: Unexpected end of array` in minified bundle (`index-DdRucPbz.js:49`). Likely a Yjs/awareness decode failure causing reconnect loops. May be related to Phase 11 presence fixes (awareness re-announce, per-client storage in room.rs).
+- [ ] Feature: Broadcast cascade highlighting to other collaborators. When a user triggers a cascade, show the shading animation on all connected clients (not just the originating client). Could use Yjs awareness or a transient CRDT field to broadcast affected task IDs + originating user.
+- [ ] Feature: Additional constraint types — ALAP, SNLT, FNET, FNLT, MSO, MFO. Needed for professional scheduling parity with MS Project / P6.
+- [ ] Feature: Negative float / conflict detection — when hard constraints (MSO, MFO) conflict with dependency logic, flag the conflict visually (red indicator on task bar) rather than silently producing an impossible schedule.
+- [ ] Feature: Calendar support — working days vs calendar days, skip weekends, holiday definitions. Duration calculations currently assume all days are workdays. Needs project calendar, task calendar, and resource calendar support.
+- [ ] Feature: SF (Start-to-Finish) dependency type — currently only FS, SS, FF are supported.
+
 ## Claimed
 <!-- Agents move items here while planning. Format: `- [AGENT_ID] description` -->
 
 
 ## Planned
-<!-- Agents move items here after planning into TASKS.md. Format: `- [x] description → Phase X, Group Y, Task Z` -->
+<!-- Agents move items here after planning into docs/TASKS.md. Format: `- [x] description → Phase X, Group Y, Task Z` -->
+- [x] Bug: Cascade duration bug — dependent task durations change during cascade → Phase 12, Group H, Task H1
+- [x] Feature: Resource assignment and leveling → docs/TASKS.md, Resource Assignment & Leveling section
+- [x] Feature: Baseline tracking → docs/TASKS.md, Baseline Tracking section
 
 
 ---

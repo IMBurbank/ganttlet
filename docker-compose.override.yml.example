@@ -1,0 +1,21 @@
+# Local overrides — copy this to docker-compose.override.yml and customize.
+# Docker Compose automatically merges this with docker-compose.yml.
+# This file is gitignored so your local config stays local.
+
+services:
+  dev:
+    # Uncomment to use the gcloud build target (adds Google Cloud CLI for deployment):
+    # build:
+    #   target: gcloud
+    volumes:
+      # Share your git identity with the container
+      - ~/.gitconfig:/home/node/.gitconfig:ro
+      # Share SSH keys for GitHub push/pull
+      - ~/.ssh:/home/node/.ssh:ro
+      # Uncomment the following for Google Cloud auth (requires gcloud target above):
+      # - ~/.config/gcloud:/home/node/.config/gcloud-host:ro
+      # - gcloud-config:/home/node/.config/gcloud
+
+# Uncomment if using gcloud volumes above:
+# volumes:
+#   gcloud-config:

@@ -64,6 +64,12 @@ Ganttlet has two components: a browser client (where all business logic runs) an
 - **Permissions** come from Google Drive — if you can edit the Sheet, you can edit in Ganttlet
 - **If the server goes down**, the app still works — you just lose live collaboration until it's back
 
+### Design Constraints
+- **No application database.** Google Sheets is the durable store.
+- **Thin, stateless server.** The relay server forwards CRDT messages and validates OAuth tokens — nothing else.
+- **Minimal dependency surface.** Every dependency is attack surface.
+- **All logic in the browser.** Scheduling, rendering, Sheets I/O, and data transformation all run client-side.
+
 ### Deployment
 
 The relay server is a single Rust binary configured via environment variables. It stores no data, holds no credentials, and makes no outbound calls except to Google APIs for token validation. Same binary works for public hosting and enterprise (on-prem/VPC) deployment.

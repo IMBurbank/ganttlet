@@ -179,8 +179,11 @@ running tests.
 automatically, so collab tests (presence indicators, cross-tab sync) actually run instead of
 skipping. Never use bare `npm run e2e` as the final check — that skips collab tests silently.
 
-**In CI:** The `e2e.yml` GitHub Actions workflow sets `E2E_RELAY=1` and builds the relay binary
-before running Playwright. This is the safety net if an agent forgets locally.
+**In CI:** The `e2e.yml` GitHub Actions workflow runs on pushes to main, PRs targeting main, and
+manual dispatch. It sets `E2E_RELAY=1` and builds the relay binary before running Playwright.
+Rust build artifacts (Cargo registry + target dirs) are cached across runs via `actions/cache`,
+cutting the relay build step from ~90s to ~5s on cache hits. Artifacts (report + traces) are only
+uploaded on failure. This is the safety net if an agent forgets to verify locally.
 
 **Docker container requirements:** The Dockerfile includes Playwright's Chromium system libraries
 and pre-installs the Chromium browser binary. The relay server source (`server/`) is volume-mounted,

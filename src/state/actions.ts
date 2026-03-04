@@ -43,4 +43,5 @@ export type GanttAction =
   | { type: 'REPARENT_TASK'; taskId: string; newParentId: string | null; newId?: string }
   | { type: 'SET_REPARENT_PICKER'; picker: { taskId: string } | null }
   | { type: 'TOGGLE_LEFT_PANE' }
-  | { type: 'CLEAR_FOCUS_NEW_TASK' };
+  | { type: 'CLEAR_FOCUS_NEW_TASK' }
+  | { type: 'RECALCULATE_EARLIEST'; scope: { taskId?: string; workstream?: string; project?: string } };

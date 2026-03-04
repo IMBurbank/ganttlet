@@ -313,6 +313,15 @@ export default function Toolbar() {
         + Add Task
       </button>
 
+      {/* Recalculate All */}
+      <button
+        onClick={() => dispatch({ type: 'RECALCULATE_EARLIEST', scope: {} })}
+        className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors"
+        title="Recalculate all tasks to their earliest possible dates"
+      >
+        Recalculate All
+      </button>
+
       {/* Undo/Redo */}
       <UndoRedoButtons />
 

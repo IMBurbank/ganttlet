@@ -14,9 +14,11 @@ export default function CascadeHighlight({ originalX, currentX, y, originalWidth
   const gradientId = useId();
 
   useEffect(() => {
-    const timer = setTimeout(() => setOpacity(0), 2000);
+    // Reset opacity when props change (new cascade/recalculate)
+    setOpacity(0.5);
+    const timer = setTimeout(() => setOpacity(0), 10000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [originalX, currentX, originalWidth, currentWidth]);
 
   if (opacity === 0) return null;
 
@@ -44,7 +46,7 @@ export default function CascadeHighlight({ originalX, currentX, y, originalWidth
         rx={4}
         fill={`url(#${CSS.escape(gradientId)})`}
         opacity={opacity}
-        style={{ transition: 'opacity 1.5s ease-out' }}
+        style={{ transition: 'opacity 3s ease-out' }}
       />
     </g>
   );

@@ -30,6 +30,8 @@ function mapTasksToWasm(tasks: Task[]) {
     isSummary: t.isSummary,
     project: t.project,
     workStream: t.workStream,
+    constraintType: t.constraintType ?? null,
+    constraintDate: t.constraintDate ?? null,
     dependencies: t.dependencies.map(d => ({
       fromId: d.fromId,
       toId: d.toId,
@@ -141,6 +143,35 @@ export function cascadeDependents(
     console.error('cascadeDependents failed:', err);
     return tasks;
   }
+}
+
+interface RecalcResult {
+  id: string;
+  newStart: string;
+  newEnd: string;
+}
+
+/**
+ * Recalculate tasks to their earliest possible dates, respecting dependencies,
+ * SNET constraints, and a today-date floor. Optionally scoped to a project,
+ * workstream, or single task.
+ */
+export function recalculateEarliest(
+  tasks: Task[],
+  scopeProject?: string,
+  scopeWorkstream?: string,
+  scopeTaskId?: string,
+): RecalcResult[] {
+  if (!wasmModule) throw new Error('WASM scheduler not initialized');
+  const wasmTasks = mapTasksToWasm(tasks);
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  return wasmModule.recalculate_earliest(
+    wasmTasks,
+    scopeProject ?? null,
+    scopeWorkstream ?? null,
+    scopeTaskId ?? null,
+    today,
+  );
 }
 
 /**

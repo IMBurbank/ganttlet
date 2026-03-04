@@ -1,6 +1,6 @@
 import type { GanttState, Task, CascadeShift } from '../types';
 import type { GanttAction } from './actions';
-import { cascadeDependents } from '../utils/schedulerWasm';
+import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
 import { computeInheritedFields, generatePrefixedId, getHierarchyRole, getAllDescendantIds, isDescendantOf } from '../utils/hierarchyUtils';
 import { validateDependencyHierarchy } from '../utils/dependencyValidation';
@@ -10,6 +10,7 @@ const UNDOABLE_ACTIONS = new Set([
   'MOVE_TASK', 'RESIZE_TASK', 'CASCADE_DEPENDENTS',
   'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
   'ADD_TASK', 'DELETE_TASK', 'REPARENT_TASK',
+  'RECALCULATE_EARLIEST',
 ]);
 
 export function ganttReducer(state: GanttState, action: GanttAction): GanttState {
@@ -164,7 +165,11 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         }
       }
       tasks = recalcSummaryDates(tasks);
-      return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: shifts };
+      // Only set cascade highlight for forward moves (non-empty changedIds)
+      if (changedIds.length > 0) {
+        return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: shifts };
+      }
+      return { ...state, tasks };
     }
 
     case 'TOGGLE_SHOW_OWNER_ON_BAR':
@@ -530,6 +535,29 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
     case 'CLEAR_FOCUS_NEW_TASK':
       return { ...state, focusNewTaskId: null };
+
+    case 'RECALCULATE_EARLIEST': {
+      const { scope } = action;
+      const results = recalculateEarliest(
+        state.tasks,
+        scope.project,
+        scope.workstream,
+        scope.taskId,
+      );
+      if (results.length === 0) return state;
+      const recalcMap = new Map(results.map(r => [r.id, r]));
+      const changedIds: string[] = [];
+      let tasks = state.tasks.map(t => {
+        const r = recalcMap.get(t.id);
+        if (r && (t.startDate !== r.newStart || t.endDate !== r.newEnd)) {
+          changedIds.push(t.id);
+          return { ...t, startDate: r.newStart, endDate: r.newEnd };
+        }
+        return t;
+      });
+      tasks = recalcSummaryDates(tasks);
+      return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: [] };
+    }
 
     default:
       return state;

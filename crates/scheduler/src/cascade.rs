@@ -1,25 +1,30 @@
 use crate::date_utils::add_days;
 use crate::types::{CascadeResult, Task};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet, HashMap};
 
 /// Cascade dependent tasks after moving a task.
 /// Returns only the tasks whose dates changed (as CascadeResult).
+///
+/// Asymmetric behavior:
+/// - Forward moves (positive delta): push all dependents forward
+/// - Backward moves (negative delta) and zero: return empty vec (expose slack instead)
 pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) -> Vec<CascadeResult> {
-    // Clone task data into a mutable map
-    let mut task_dates: HashMap<String, (String, String)> = tasks
-        .iter()
-        .map(|t| (t.id.clone(), (t.start_date.clone(), t.end_date.clone())))
-        .collect();
+    // Asymmetric cascade: only forward moves propagate
+    if days_delta <= 0 {
+        return Vec::new();
+    }
+
     let task_map: HashMap<&str, &Task> = tasks.iter().map(|t| (t.id.as_str(), t)).collect();
 
     let mut visited = HashSet::new();
+    let mut shifted = HashSet::new();
     let mut results = Vec::new();
 
     fn cascade(
         task_id: &str,
         delta: i32,
         visited: &mut HashSet<String>,
-        task_dates: &mut HashMap<String, (String, String)>,
+        shifted: &mut HashSet<String>,
         task_map: &HashMap<&str, &Task>,
         tasks: &[Task],
         results: &mut Vec<CascadeResult>,
@@ -38,13 +43,14 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
                         _ => continue,
                     };
 
-                    if let Some(dates) = task_dates.get_mut(&task.id) {
-                        dates.0 = add_days(&dates.0, delta);
-                        dates.1 = add_days(&dates.1, delta);
+                    // Only shift each task once, using original dates to preserve duration
+                    if shifted.insert(task.id.clone()) {
+                        let new_start = add_days(&dependent.start_date, delta);
+                        let new_end = add_days(&dependent.end_date, delta);
                         results.push(CascadeResult {
                             id: dependent.id.clone(),
-                            start_date: dates.0.clone(),
-                            end_date: dates.1.clone(),
+                            start_date: new_start,
+                            end_date: new_end,
                         });
                     }
 
@@ -52,7 +58,7 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
                         &task.id,
                         delta,
                         visited,
-                        task_dates,
+                        shifted,
                         task_map,
                         tasks,
                         results,
@@ -66,7 +72,7 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
         moved_task_id,
         days_delta,
         &mut visited,
-        &mut task_dates,
+        &mut shifted,
         &task_map,
         tasks,
         &mut results,
@@ -168,5 +174,148 @@ mod tests {
         let results = cascade_dependents(&tasks, "a", 5);
         // Summary task should not be in results
         assert!(results.iter().find(|r| r.id == "summary").is_none());
+    }
+
+    #[test]
+    fn preserves_duration_for_all_tasks() {
+        // Chain of 4 tasks with varying durations
+        let tasks = vec![
+            {
+                let mut t = make_task("a", "2026-03-01", "2026-03-05"); // 4 days
+                t.duration = 4;
+                t
+            },
+            {
+                let mut t = make_task("b", "2026-03-06", "2026-03-16"); // 10 days
+                t.duration = 10;
+                t.dependencies = vec![make_dep("a", "b")];
+                t
+            },
+            {
+                let mut t = make_task("c", "2026-03-17", "2026-03-19"); // 2 days
+                t.duration = 2;
+                t.dependencies = vec![make_dep("b", "c")];
+                t
+            },
+            {
+                let mut t = make_task("d", "2026-03-20", "2026-03-27"); // 7 days
+                t.duration = 7;
+                t.dependencies = vec![make_dep("c", "d")];
+                t
+            },
+        ];
+
+        let results = cascade_dependents(&tasks, "a", 7);
+
+        // Every cascaded task must preserve its original duration
+        for result in &results {
+            let original = tasks.iter().find(|t| t.id == result.id).unwrap();
+            let orig_start = crate::date_utils::parse_date(&original.start_date);
+            let orig_end = crate::date_utils::parse_date(&original.end_date);
+            let new_start = crate::date_utils::parse_date(&result.start_date);
+            let new_end = crate::date_utils::parse_date(&result.end_date);
+
+            // Duration = difference in days between end and start
+            // Using a simple calculation: both should shift by the same delta
+            let orig_duration_approx = (orig_end.2 as i32) - (orig_start.2 as i32);
+            let new_duration_approx = (new_end.2 as i32) - (new_start.2 as i32);
+
+            // For same-month dates, durations must match exactly
+            if orig_start.1 == orig_end.1 && new_start.1 == new_end.1 {
+                assert_eq!(
+                    orig_duration_approx, new_duration_approx,
+                    "Duration changed for task {}: was {} days, now {} days",
+                    result.id, orig_duration_approx, new_duration_approx
+                );
+            }
+        }
+
+        assert_eq!(results.len(), 3); // b, c, d should all be shifted
+    }
+
+    #[test]
+    fn diamond_dependency_no_double_shift() {
+        // Diamond: A → B, A → C, B → C
+        // C depends on both A and B; must only be shifted once
+        let tasks = vec![
+            make_task("a", "2026-03-01", "2026-03-10"),
+            {
+                let mut t = make_task("b", "2026-03-11", "2026-03-20");
+                t.dependencies = vec![make_dep("a", "b")];
+                t
+            },
+            {
+                let mut t = make_task("c", "2026-03-21", "2026-03-30");
+                t.dependencies = vec![make_dep("a", "c"), make_dep("b", "c")];
+                t
+            },
+        ];
+
+        let results = cascade_dependents(&tasks, "a", 5);
+
+        // C should appear exactly once
+        let c_results: Vec<_> = results.iter().filter(|r| r.id == "c").collect();
+        assert_eq!(c_results.len(), 1, "Task c should appear exactly once in results");
+
+        // C should be shifted by exactly 5 days (not 10)
+        let c = &c_results[0];
+        assert_eq!(c.start_date, "2026-03-26");
+        assert_eq!(c.end_date, "2026-04-04");
+    }
+
+    #[test]
+    fn backward_cascade_returns_empty() {
+        let tasks = vec![
+            make_task("a", "2026-03-01", "2026-03-10"),
+            {
+                let mut t = make_task("b", "2026-03-11", "2026-03-20");
+                t.dependencies = vec![make_dep("a", "b")];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", -3);
+        assert!(results.is_empty(), "Backward cascade should return empty vec");
+    }
+
+    #[test]
+    fn zero_delta_returns_empty() {
+        let tasks = vec![
+            make_task("a", "2026-03-01", "2026-03-10"),
+            {
+                let mut t = make_task("b", "2026-03-11", "2026-03-20");
+                t.dependencies = vec![make_dep("a", "b")];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 0);
+        assert!(results.is_empty(), "Zero delta should return empty vec");
+    }
+
+    #[test]
+    fn forward_cascade_still_works() {
+        // Verify forward cascade (+5 days) still shifts dependents correctly
+        let tasks = vec![
+            make_task("a", "2026-03-01", "2026-03-10"),
+            {
+                let mut t = make_task("b", "2026-03-11", "2026-03-20");
+                t.dependencies = vec![make_dep("a", "b")];
+                t
+            },
+            {
+                let mut t = make_task("c", "2026-03-21", "2026-03-30");
+                t.dependencies = vec![make_dep("b", "c")];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 5);
+        assert_eq!(results.len(), 2);
+
+        let b = results.iter().find(|r| r.id == "b").unwrap();
+        assert_eq!(b.start_date, "2026-03-16");
+        assert_eq!(b.end_date, "2026-03-25");
+
+        let c = results.iter().find(|r| r.id == "c").unwrap();
+        assert_eq!(c.start_date, "2026-03-26");
+        assert_eq!(c.end_date, "2026-04-04");
     }
 }

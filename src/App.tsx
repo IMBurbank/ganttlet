@@ -76,6 +76,10 @@ function AppContent() {
     if (!state.contextMenu) return [];
     const task = taskMap.get(state.contextMenu.taskId);
     if (!task) return [];
+    // Determine if this is a project summary (top-level) or workstream summary (has parent)
+    const isProjectSummary = task.isSummary && task.parentId === null;
+    const isWorkstreamSummary = task.isSummary && task.parentId !== null;
+
     return [
       ...(task.isSummary
         ? [
@@ -98,6 +102,25 @@ function AppContent() {
               onClick: () => dispatch({ type: 'SET_REPARENT_PICKER', picker: { taskId: task.id } }),
             },
           ]),
+      // Recalculate options
+      ...(!task.isSummary
+        ? [{
+            label: 'Recalculate to earliest',
+            onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { taskId: task.id } }),
+          }]
+        : []),
+      ...(isWorkstreamSummary
+        ? [{
+            label: 'Recalculate workstream',
+            onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { workstream: task.workStream } }),
+          }]
+        : []),
+      ...(isProjectSummary
+        ? [{
+            label: 'Recalculate project',
+            onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { project: task.project } }),
+          }]
+        : []),
       {
         label: 'Add task below',
         onClick: () => dispatch({ type: 'ADD_TASK', parentId: task.parentId, afterTaskId: task.id }),

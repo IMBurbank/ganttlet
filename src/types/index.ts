@@ -28,6 +28,8 @@ export interface Task {
   isHidden: boolean;
   notes: string;
   okrs: string[];
+  constraintType?: 'ASAP' | 'SNET';
+  constraintDate?: string;
 }
 
 export type ColorByField = 'owner' | 'workStream' | 'project' | 'functionalArea';

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-import type { ColorByField, ZoomLevel, CriticalPathScope } from '../../types';
+import type { ColorByField, ZoomLevel } from '../../types';
 import { getPaletteEntries } from '../../data/colorPalettes';
 import UndoRedoButtons from '../shared/UndoRedoButtons';
 
@@ -53,17 +53,6 @@ export default function Toolbar() {
     () => state.tasks.filter(t => t.isSummary && t.parentId !== null).map(t => t.name),
     [state.tasks]
   );
-  const milestoneTasks = useMemo(
-    () => state.tasks.filter(t => t.isMilestone),
-    [state.tasks]
-  );
-
-  function scopeLabel(scope: CriticalPathScope): string {
-    if (scope.type === 'project') return scope.name;
-    if (scope.type === 'workstream') return scope.name;
-    return milestoneTasks.find(t => t.id === scope.id)?.name ?? scope.id;
-  }
-
   return (
     <div className="flex items-center gap-2 px-4 h-10 bg-surface-raised/50 border-b border-border-subtle shrink-0 text-xs">
       {/* Search */}
@@ -278,23 +267,6 @@ export default function Toolbar() {
                     }`}
                   >
                     {name}
-                  </button>
-                ))}
-              </>
-            )}
-            {milestoneTasks.length > 0 && (
-              <>
-                <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Milestones</div>
-                {milestoneTasks.map(ms => (
-                  <button
-                    key={ms.id}
-                    onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'milestone', id: ms.id } }); setShowCpScopeMenu(false); }}
-                    className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                      state.criticalPathScope.type === 'milestone' && state.criticalPathScope.id === ms.id
-                        ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
-                    }`}
-                  >
-                    {ms.name}
                   </button>
                 ))}
               </>

@@ -75,8 +75,7 @@ export interface ColumnConfig {
 
 export type CriticalPathScope =
   | { type: 'project'; name: string }
-  | { type: 'workstream'; name: string }
-  | { type: 'milestone'; id: string };
+  | { type: 'workstream'; name: string };
 
 export interface CascadeShift {
   taskId: string;

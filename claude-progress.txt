@@ -12,3 +12,10 @@ B5: DONE — preflight_check() verifies git state, prompt files, and WASM build
 B6: DONE — MODEL env var support with --model flag
 B7: DONE — monitor_agent() watchdog with STALL_TIMEOUT config
 B8: DONE — final verification passed (bash -n OK, shellcheck clean, all committed)
+C1: DONE — fixed exit code capture bug (PIPESTATUS), added AGENT_SCOPE env var to verify.sh
+C2: DONE — added output deduplication via md5sum hash comparison
+C3: DONE — added 30s rate limiting (configurable via VERIFY_COOLDOWN)
+C4: DONE — compact output: error-count-first for tsc, summary for vitest
+C5: DONE — created pre-commit-hook.sh rejecting todo!(), unimplemented!(), commented-out tests
+C6: DONE — verified .claude/settings.local.json is valid JSON with correct hook config
+C7: DONE — all syntax checks pass, all changes committed

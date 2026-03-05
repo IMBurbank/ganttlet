@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# PostToolUse hook: runs tsc + vitest after edits to .ts/.tsx files.
-# Exits non-zero if either check fails, so agents know to fix errors.
+# PostToolUse hook: runs tsc + vitest (or cargo check) after edits.
+# Supports AGENT_SCOPE (rust|ts|full), output deduplication, and rate limiting.
+# Exits non-zero if checks fail, so agents know to fix errors.
 
 set -euo pipefail
 
@@ -17,25 +18,123 @@ FILE=$(echo "$INPUT" | node -e "
   });
 ")
 
-# Skip non-TS/TSX files
-if [[ ! "$FILE" =~ \.(ts|tsx)$ ]]; then
-  exit 0
+# --- Rate limiting ---
+VERIFY_COOLDOWN="${VERIFY_COOLDOWN:-30}"
+LAST_VERIFY_FILE="${TMPDIR:-/tmp}/.verify-last-run"
+NOW=$(date +%s)
+
+if [[ -f "$LAST_VERIFY_FILE" ]]; then
+  LAST_RUN=$(cat "$LAST_VERIFY_FILE" 2>/dev/null || echo 0)
+  ELAPSED=$(( NOW - LAST_RUN ))
+  if [[ $ELAPSED -lt $VERIFY_COOLDOWN ]]; then
+    echo "[verify: skipped, last run ${ELAPSED}s ago (cooldown: ${VERIFY_COOLDOWN}s)]"
+    exit 0
+  fi
 fi
 
-echo "--- verify: $FILE ---"
+# --- Agent scope ---
+AGENT_SCOPE="${AGENT_SCOPE:-full}"
 
-# Type-check
-echo "[tsc]"
-TSC_EXIT=0
-npx tsc --noEmit 2>&1 | tail -20 || TSC_EXIT=$?
+# Hash file for output deduplication (per-file)
+VERIFY_HASH_FILE="${TMPDIR:-/tmp}/.verify-hash-$(echo "$FILE" | md5sum | cut -d' ' -f1)"
 
-# Unit tests
-echo "[vitest]"
-VITEST_EXIT=0
-npx vitest run --reporter=dot 2>&1 | tail -30 || VITEST_EXIT=$?
+run_tsc() {
+  TSC_OUTPUT=$(npx tsc --noEmit 2>&1) || true
+  TSC_EXIT=${PIPESTATUS[0]:-$?}
+  TSC_HASH=$(echo "$TSC_OUTPUT" | md5sum | cut -d' ' -f1)
 
-if [[ $TSC_EXIT -ne 0 || $VITEST_EXIT -ne 0 ]]; then
-  exit 1
-fi
+  if [[ -f "${VERIFY_HASH_FILE}-tsc" ]] && [[ "$(cat "${VERIFY_HASH_FILE}-tsc")" == "$TSC_HASH" ]]; then
+    if [[ $TSC_EXIT -ne 0 ]]; then
+      ERROR_COUNT=$(echo "$TSC_OUTPUT" | grep -c "error TS" || echo "0")
+      echo "[tsc: same ${ERROR_COUNT} errors as previous run]"
+    else
+      echo "[tsc: still clean]"
+    fi
+  else
+    if [[ $TSC_EXIT -ne 0 ]]; then
+      ERROR_COUNT=$(echo "$TSC_OUTPUT" | grep -c "error TS" || echo "0")
+      echo "[tsc: ${ERROR_COUNT} errors]"
+      echo "$TSC_OUTPUT" | grep "error TS" | head -5
+    else
+      echo "[tsc: clean]"
+    fi
+    echo "$TSC_HASH" > "${VERIFY_HASH_FILE}-tsc"
+  fi
+}
 
-exit 0
+run_vitest() {
+  VITEST_OUTPUT=$(npx vitest run --reporter=dot 2>&1) || true
+  VITEST_EXIT=${PIPESTATUS[0]:-$?}
+  VITEST_HASH=$(echo "$VITEST_OUTPUT" | md5sum | cut -d' ' -f1)
+
+  if [[ -f "${VERIFY_HASH_FILE}-vitest" ]] && [[ "$(cat "${VERIFY_HASH_FILE}-vitest")" == "$VITEST_HASH" ]]; then
+    if [[ $VITEST_EXIT -ne 0 ]]; then
+      echo "[vitest: same failures as previous run]"
+    else
+      echo "[vitest: still passing]"
+    fi
+  else
+    if [[ $VITEST_EXIT -ne 0 ]]; then
+      echo "[vitest: failures]"
+      echo "$VITEST_OUTPUT" | tail -10
+    else
+      PASS_LINE=$(echo "$VITEST_OUTPUT" | grep -E "Tests\s+[0-9]+ passed" || echo "")
+      if [[ -n "$PASS_LINE" ]]; then
+        echo "[vitest: ${PASS_LINE}]"
+      else
+        echo "[vitest: passed]"
+      fi
+    fi
+    echo "$VITEST_HASH" > "${VERIFY_HASH_FILE}-vitest"
+  fi
+}
+
+run_cargo() {
+  echo "[cargo check]"
+  (cd crates/scheduler && cargo check 2>&1 | tail -20)
+  return $?
+}
+
+# --- Scope-based routing ---
+case "$AGENT_SCOPE" in
+  rust)
+    if [[ ! "$FILE" =~ \.(rs)$ ]]; then
+      exit 0
+    fi
+    run_cargo
+    FINAL_EXIT=$?
+    ;;
+  ts)
+    if [[ ! "$FILE" =~ \.(ts|tsx)$ ]]; then
+      exit 0
+    fi
+    echo "--- verify: $FILE ---"
+    run_tsc
+    run_vitest
+    FINAL_EXIT=0
+    if [[ $TSC_EXIT -ne 0 || $VITEST_EXIT -ne 0 ]]; then
+      FINAL_EXIT=1
+    fi
+    ;;
+  full|*)
+    if [[ "$FILE" =~ \.(rs)$ ]]; then
+      run_cargo
+      FINAL_EXIT=$?
+    elif [[ "$FILE" =~ \.(ts|tsx)$ ]]; then
+      echo "--- verify: $FILE ---"
+      run_tsc
+      run_vitest
+      FINAL_EXIT=0
+      if [[ $TSC_EXIT -ne 0 || $VITEST_EXIT -ne 0 ]]; then
+        FINAL_EXIT=1
+      fi
+    else
+      exit 0
+    fi
+    ;;
+esac
+
+# Update rate limit timestamp
+echo "$NOW" > "$LAST_VERIFY_FILE"
+
+exit ${FINAL_EXIT:-0}

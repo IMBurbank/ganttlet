@@ -31,6 +31,8 @@ RETRY_DELAY="${RETRY_DELAY:-5}"
 MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
 DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
 DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
+# Per-agent model override: MODEL=sonnet run_agent groupH "$workdir"
+# Default: uses Claude's default model. Options: opus, sonnet, haiku
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase13}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
@@ -136,10 +138,13 @@ ${prompt}"
     # Run claude, capturing exit code
     local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
     local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+    local model_flag=""
+    [[ -n "${MODEL:-}" ]] && model_flag="--model $MODEL"
     set +e
     (
       cd "$workdir"
-      echo "$full_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p -
+      # shellcheck disable=SC2086
+      echo "$full_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" $model_flag -p -
     ) >> "$logfile" 2>&1
     local exit_code=$?
     set -e
@@ -218,6 +223,7 @@ MAX_RETRIES="PLACEHOLDER_MAX_RETRIES"
 RETRY_DELAY="PLACEHOLDER_RETRY_DELAY"
 MAX_TURNS_VAL="PLACEHOLDER_MAX_TURNS"
 MAX_BUDGET_VAL="PLACEHOLDER_MAX_BUDGET"
+MODEL_FLAG="PLACEHOLDER_MODEL_FLAG"
 
 PROMPT="$(cat "$PROMPT_FILE")"
 
@@ -256,7 +262,8 @@ ${PROMPT}"
 
   # Run claude, capturing output to log AND showing in tmux
   # PIPESTATUS: [0]=echo [1]=claude [2]=tee — we want claude's exit code
-  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions --max-turns "$MAX_TURNS_VAL" --max-budget-usd "$MAX_BUDGET_VAL" -p - 2>&1 | tee -a "$LOGFILE"
+  # shellcheck disable=SC2086
+  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions --max-turns "$MAX_TURNS_VAL" --max-budget-usd "$MAX_BUDGET_VAL" $MODEL_FLAG -p - 2>&1 | tee -a "$LOGFILE"
   EXIT_CODE=${PIPESTATUS[1]:-$?}
 
   if [[ $EXIT_CODE -eq 0 ]]; then
@@ -288,6 +295,9 @@ WRAPPER_OUTER
   sed -i "s|PLACEHOLDER_RETRY_DELAY|${RETRY_DELAY}|g" "$wrapper"
   sed -i "s|PLACEHOLDER_MAX_TURNS|${MAX_TURNS:-$DEFAULT_MAX_TURNS}|g" "$wrapper"
   sed -i "s|PLACEHOLDER_MAX_BUDGET|${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}|g" "$wrapper"
+  local model_flag_val=""
+  [[ -n "${MODEL:-}" ]] && model_flag_val="--model $MODEL"
+  sed -i "s|PLACEHOLDER_MODEL_FLAG|${model_flag_val}|g" "$wrapper"
 
   chmod +x "$wrapper"
   echo "$wrapper"

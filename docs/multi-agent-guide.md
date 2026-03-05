@@ -29,11 +29,67 @@ WATCH=1 ./scripts/launch-phase.sh all
 ./scripts/launch-phase.sh status    # show worktree/branch status
 ```
 
+## Preflight Checks
+
+Before launching any parallel stage, `launch-phase.sh` runs `preflight_check()` which verifies:
+- **Clean git state** — uncommitted changes cause an immediate abort
+- **Prompt files exist** — all groups in the stage must have a matching `.md` file
+- **WASM builds** — runs `npm run build:wasm` to catch broken builds before agents start
+
+Preflight runs automatically at the start of every `run_parallel_stage()` call.
+
+## Partial Stage Success
+
+If some agents in a parallel stage succeed and others fail, the pipeline continues:
+- Each agent's result is tracked in `succeeded_groups` / `failed_groups` arrays
+- Results are written to `${LOG_DIR}/stage-succeeded.txt` and `stage-failed.txt`
+- The merge stage reads these files and **skips merging branches from failed groups**
+- The pipeline only aborts if ALL groups in a stage fail; partial success continues
+
+## Stall Detection
+
+A watchdog process (`monitor_agent()`) runs alongside each agent in non-WATCH mode:
+- Checks the agent's log file size every 60 seconds
+- If no log output for `STALL_TIMEOUT` minutes (default: 30), emits a warning
+- Does not kill the agent — only warns so a human can investigate
+
+## Model Selection
+
+Set the `MODEL` env var to override the default Claude model for all agents:
+```bash
+MODEL=sonnet ./scripts/launch-phase.sh all
+```
+Options: `opus`, `sonnet`, `haiku`. Passed as `--model $MODEL` to the `claude` CLI.
+
+## Resume Command
+
+Resume a pipeline from any step without re-running earlier stages:
+```bash
+./scripts/launch-phase.sh resume <step>
+```
+Steps: `stage1`, `merge1`, `stage2`, `merge2`, `stage3`, `merge3`, `validate`. The pipeline
+executes from the given step through the end (including validate).
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `WATCH` | `0` | Live agent output in tmux panes |
+| `MAX_RETRIES` | `3` | Retries per agent on crash |
+| `RETRY_DELAY` | `5` | Seconds between retries |
+| `VALIDATE_MAX_ATTEMPTS` | `3` | Max fix-and-retry cycles for validation |
+| `MERGE_FIX_RETRIES` | `3` | Retries for merge conflict resolution |
+| `DEFAULT_MAX_TURNS` | `80` | Max conversation turns per agent |
+| `DEFAULT_MAX_BUDGET` | `10.00` | Max USD budget per agent |
+| `STALL_TIMEOUT` | `30` | Minutes of inactivity before stall warning |
+| `MODEL` | (unset) | Override Claude model (`opus`, `sonnet`, `haiku`) |
+
 ## WATCH Mode
 
-`WATCH=1` runs each agent in its own tmux window with full interactive output (tool calls,
-diffs, thinking — the same as running `claude` directly in a terminal). The orchestrator
-still handles worktree setup, merge gating, and validation automatically.
+`WATCH=1` runs each agent in its own tmux window with streaming text output (not the full
+rich TUI — no thinking blocks or tool-use panels). Agents use `-p` mode, which is required
+for auto-exit and `--max-budget-usd` support. The orchestrator still handles worktree setup,
+merge gating, and validation automatically.
 
 - Attach: `tmux attach -t <phase>-agents`
 - Switch windows: `Ctrl-B N` / `Ctrl-B P`
@@ -94,7 +150,7 @@ The `claude` binary in the dev container has specific constraints. When writing 
   commands. If stdout is contaminated, `build_claude_cmd()` generates a broken `cd` path and
   the agent exits immediately with code 1.
 - **Key flags**: `--dangerously-skip-permissions`, `-p` (print/pipe mode), `-c` (continue),
-  `-r` (resume session), `--system-prompt`, `--model`, `--max-budget-usd`
+  `-r` (resume session), `--system-prompt`, `--model`, `--max-turns`, `--max-budget-usd`
 
 ## Pre-Phase Checklist
 

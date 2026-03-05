@@ -409,18 +409,17 @@ still works.
 
 **Done**:
 - `./scripts/full-verify.sh` — local verification (tsc + vitest + cargo test + E2E with relay)
-- `playwright.config.ts` — relay as conditional second `webServer` via `E2E_RELAY=1`
+- `playwright.config.ts` — relay as conditional second `webServer` via `E2E_RELAY=1`, cloud mode via `E2E_CLOUD=1`
 - `e2e.yml` — CI E2E with relay, Rust cache, relay pre-build
 - `Dockerfile` — Playwright Chromium system libs + browser binary baked in
 - `GANTTLET_TEST_AUTH=1` on relay in Playwright config for local E2E
 - All 9 E2E tests passing locally and in CI (including 3 collab tests)
-- `deploy.yml` — builds, pushes, deploys to staging/production via Cloud Run
+- Prerequisites: Service accounts created, test Sheet shared, GitHub secrets set, dev relay `GANTTLET_TEST_AUTH=1`
+- Step 1: `deploy.yml` `verify-dev` job — health checks relay `/health`, frontend HTML, WebSocket upgrade
+- Step 2: `scripts/cloud-smoke-test.sh` — SA token exchange, relay WebSocket, Sheets API write/read/reject
+- Step 3: `e2e/helpers/cloud-auth.ts` — SA key → access token; collab harness GIS mock via `addInitScript`; `e2e-dev` job in deploy.yml
 
 **Not yet done**:
-- Prerequisites: Service accounts, test Sheet, GitHub secrets, dev relay `GANTTLET_TEST_AUTH`
-- Step 1: Post-deploy health check against dev Cloud Run
-- Step 2: Service account smoke test script + workflow integration
-- Step 3: Playwright E2E against live dev Cloud Run deployment
 - Promotable artifacts migration (must complete before Step 4 — see `docs/unplanned-issues.md`)
 - Single-artifact deployment pipeline (must complete before Step 4 — see `docs/unplanned-issues.md`)
 - Step 4: ganttlet-staging GCP project + Secret Manager config

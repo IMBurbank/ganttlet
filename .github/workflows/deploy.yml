@@ -8,10 +8,10 @@ on:
       environment:
         description: 'Deploy target'
         required: true
-        default: 'staging'
+        default: 'dev'
         type: choice
         options:
-          - staging
+          - dev
           - production
 
 env:
@@ -57,13 +57,16 @@ jobs:
           docker build -f deploy/frontend/Dockerfile -t $IMAGE .
           docker push $IMAGE
 
-  deploy-staging:
+  deploy-dev:
     needs: build-and-push
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    outputs:
+      relay_url: ${{ steps.deploy-relay.outputs.url }}
+      frontend_url: ${{ steps.deploy-frontend.outputs.url }}
     steps:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -74,21 +77,144 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy relay to staging
+      - name: Deploy relay to dev
+        id: deploy-relay
         run: |
-          gcloud run deploy ${{ env.RELAY_SERVICE }} \
+          URL=$(gcloud run deploy ${{ env.RELAY_SERVICE }} \
             --project=${{ env.PROJECT_ID }} \
             --region=${{ env.REGION }} \
             --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/ganttlet/${{ env.RELAY_SERVICE }}:${{ github.sha }} \
-            --platform=managed
+            --platform=managed \
+            --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy frontend to staging
+      - name: Deploy frontend to dev
+        id: deploy-frontend
         run: |
-          gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
+          URL=$(gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
             --project=${{ env.PROJECT_ID }} \
             --region=${{ env.REGION }} \
             --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/ganttlet/${{ env.FRONTEND_SERVICE }}:${{ github.sha }} \
-            --platform=managed
+            --platform=managed \
+            --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+  verify-dev:
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    env:
+      RELAY_URL: ${{ needs.deploy-dev.outputs.relay_url }}
+      FRONTEND_URL: ${{ needs.deploy-dev.outputs.frontend_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Health check — relay
+        run: |
+          echo "Checking relay health at ${RELAY_URL}/health"
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "${RELAY_URL}/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "Relay health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "Relay health check passed (HTTP $STATUS)"
+
+      - name: Health check — frontend
+        run: |
+          echo "Checking frontend at ${FRONTEND_URL}"
+          BODY=$(curl -s "${FRONTEND_URL}")
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "${FRONTEND_URL}")
+          if [ "$STATUS" != "200" ]; then
+            echo "Frontend health check failed with status $STATUS"
+            exit 1
+          fi
+          if ! echo "$BODY" | grep -q '<div id="root"'; then
+            echo "Frontend HTML missing root div"
+            exit 1
+          fi
+          echo "Frontend health check passed (HTTP $STATUS, root div found)"
+
+      - name: Health check — WebSocket upgrade
+        run: |
+          echo "Testing WebSocket upgrade at ${RELAY_URL}/ws/health-check"
+          # curl with --http1.1 to attempt WebSocket upgrade; expect 101 or connection upgrade
+          # Cloud Run may return 101 (upgrade) or close after auth timeout — both confirm routing works
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+            --http1.1 \
+            -H "Connection: Upgrade" \
+            -H "Upgrade: websocket" \
+            -H "Sec-WebSocket-Version: 13" \
+            -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+            "${RELAY_URL}/ws/health-check" || true)
+          echo "WebSocket upgrade returned HTTP $STATUS"
+          # 101 = upgrade succeeded, 400 = server saw request but rejected (still confirms routing)
+          # Only fail on 000 (connection refused) or 5xx
+          if [ "$STATUS" = "000" ] || [[ "$STATUS" =~ ^5 ]]; then
+            echo "WebSocket upgrade failed — relay not reachable"
+            exit 1
+          fi
+          echo "WebSocket routing confirmed"
+
+  smoke-test-dev:
+    needs: [deploy-dev, verify-dev]
+    runs-on: ubuntu-latest
+    env:
+      RELAY_URL: ${{ needs.deploy-dev.outputs.relay_url }}
+      FRONTEND_URL: ${{ needs.deploy-dev.outputs.frontend_url }}
+      GCP_SA_KEY_WRITER1_DEV: ${{ secrets.GCP_SA_KEY_WRITER1_DEV }}
+      GCP_SA_KEY_READER1_DEV: ${{ secrets.GCP_SA_KEY_READER1_DEV }}
+      TEST_SHEET_ID_DEV: ${{ secrets.TEST_SHEET_ID_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cloud smoke tests
+        run: bash scripts/cloud-smoke-test.sh
+
+  e2e-dev:
+    needs: [deploy-dev, smoke-test-dev]
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: ${{ needs.deploy-dev.outputs.frontend_url }}
+      RELAY_URL: ${{ needs.deploy-dev.outputs.relay_url }}
+      GCP_SA_KEY_WRITER1_DEV: ${{ secrets.GCP_SA_KEY_WRITER1_DEV }}
+      GCP_SA_KEY_WRITER2_DEV: ${{ secrets.GCP_SA_KEY_WRITER2_DEV }}
+      GCP_SA_KEY_READER1_DEV: ${{ secrets.GCP_SA_KEY_READER1_DEV }}
+      TEST_SHEET_ID_DEV: ${{ secrets.TEST_SHEET_ID_DEV }}
+      E2E_CLOUD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests against dev Cloud Run
+        run: npx playwright test
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-e2e-report
+          path: playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-e2e-traces
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   deploy-production:
     needs: build-and-push

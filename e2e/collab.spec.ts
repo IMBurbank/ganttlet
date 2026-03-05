@@ -1,9 +1,24 @@
 import { test, expect } from '@playwright/test';
-import { createCollabPair, isCollabAvailable } from './helpers/collab-harness';
+import { createCollabPair, isCollabAvailable, CloudAuthOptions } from './helpers/collab-harness';
+import { getAccessToken } from './helpers/cloud-auth';
+
+const isCloud = !!process.env.E2E_CLOUD;
+
+async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
+  if (!isCloud) return undefined;
+  const keyA = process.env.GCP_SA_KEY_WRITER1_DEV;
+  const keyB = process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV;
+  if (!keyA || !keyB) {
+    throw new Error('E2E_CLOUD requires GCP_SA_KEY_WRITER1_DEV and GCP_SA_KEY_WRITER2_DEV or GCP_SA_KEY_READER1_DEV');
+  }
+  const [tokenA, tokenB] = await Promise.all([getAccessToken(keyA), getAccessToken(keyB)]);
+  return { tokenA, tokenB };
+}
 
 test.describe('Collaboration E2E', () => {
   test('presence indicators appear for connected users', async ({ browser }) => {
-    const { pageA, pageB, cleanup } = await createCollabPair(browser);
+    const cloudAuth = await getCloudAuth();
+    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
 
     try {
       const collabReady = await isCollabAvailable(pageA);
@@ -22,7 +37,8 @@ test.describe('Collaboration E2E', () => {
   });
 
   test('task edit in one tab propagates to the other', async ({ browser }) => {
-    const { pageA, pageB, cleanup } = await createCollabPair(browser);
+    const cloudAuth = await getCloudAuth();
+    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
 
     try {
       const collabReady = await isCollabAvailable(pageA);

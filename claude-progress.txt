@@ -1,0 +1,8 @@
+B1: DONE — structured error extraction in validation retry (both WATCH and non-WATCH)
+B2: DONE — --max-turns and --max-budget-usd on all claude invocations
+B3: DONE — conflict diffs and branch summary injected into merge conflict prompt
+B4: DONE — partial stage success with succeeded/failed tracking, merge skips failed groups
+B5: DONE — preflight_check() verifies git state, prompt files, and WASM build
+B6: DONE — MODEL env var support with --model flag
+B7: DONE — monitor_agent() watchdog with STALL_TIMEOUT config
+B8: DONE — final verification passed (bash -n OK, shellcheck clean, all committed)

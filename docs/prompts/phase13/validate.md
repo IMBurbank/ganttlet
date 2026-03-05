@@ -16,8 +16,10 @@ Run each check below. Record PASS or FAIL. Do not attempt any fixes until all ch
 
 ### V2: Skills Directory
 - Verify `.claude/skills/` directory exists
-- Verify at least 6 skill files exist with proper YAML frontmatter (name + description)
-- Check these skills exist: scheduling-engine, e2e-testing, multi-agent-orchestration, google-sheets-sync, cloud-deployment, issue-workflow, rust-wasm
+- Verify at least 7 skill files exist with proper YAML frontmatter (name + description)
+- Check these skills exist: scheduling-engine, e2e-testing, multi-agent-orchestration, google-sheets-sync, cloud-deployment, issue-workflow, rust-wasm, shell-scripting
+- Verify multi-agent-orchestration and issue-workflow skills contain "Lessons Learned" sections with specific gotchas
+- Verify shell-scripting skill covers: PIPESTATUS, heredoc quoting, pipefail, sed placeholders, stdout pollution
 - PASS/FAIL: ___
 
 ### V3: Reference Docs

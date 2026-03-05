@@ -58,10 +58,23 @@ On restart, read `claude-progress.txt` FIRST to understand where you left off.
 
 ## Tasks — execute in order:
 
-### C1: Add agent-scope awareness to verify.sh
+### C1: Fix exit code capture bug and add agent-scope awareness to verify.sh
 
 Read the current `scripts/verify.sh` (42 lines). It runs tsc + vitest for all .ts/.tsx edits.
 For Rust-focused agents, this is irrelevant noise.
+
+**IMPORTANT — Pre-existing bug to fix first:** The current exit code capture is broken:
+```bash
+npx tsc --noEmit 2>&1 | tail -20 || TSC_EXIT=$?
+```
+In a pipe, `$?` is the exit code of `tail` (the last command), NOT `tsc`. Since `tail` almost
+never fails, `TSC_EXIT` always stays 0. Fix this by using `PIPESTATUS` or running without pipe:
+```bash
+TSC_OUTPUT=$(npx tsc --noEmit 2>&1) || true
+TSC_EXIT=${PIPESTATUS[0]:-$?}
+```
+Apply the same fix to the vitest invocation. This bug means verify.sh currently never reports
+real failures to agents — fix it before adding new features.
 
 1. Add an `AGENT_SCOPE` env var check near the top of the script, after the file path extraction:
 ```bash

@@ -27,8 +27,25 @@ If you encounter an error, fix it and continue. If you cannot fix it after 3 dis
 
 Ganttlet is a collaborative Gantt chart / scheduling tool. The multi-agent orchestrator
 (`scripts/launch-phase.sh`) manages parallel Claude Code agents running in git worktrees.
-This script is ~867 lines and handles worktree setup, agent launch with retry, merge gating,
+This script handles worktree setup, agent launch with retry, merge gating,
 conflict resolution, and validation.
+
+## CRITICAL: Preserve existing retry infrastructure
+
+The current `launch-phase.sh` already has robust retry logic in both `run_agent()` (non-WATCH
+headless mode) and `build_claude_cmd()` (WATCH tmux mode). Both paths include:
+- A retry loop with `MAX_RETRIES` attempts
+- Log capture (via pipe or tee)
+- Crash context injection on retry: recent commits, last 80 lines of log, and progress file
+
+**Do NOT replace or simplify these retry loops.** Your tasks ADD features (flags, enriched
+context, new functions) on top of the existing retry infrastructure. When a task says
+"add flags to the claude invocation", find the EXISTING `claude` command inside the retry
+loop and add the flags there — do not create a new simpler invocation that loses the retry.
+
+This infrastructure also exists in the GitHub Actions workflow (`.github/workflows/agent-work.yml`,
+owned by Group D), which is the path for issue-driven agent work triggered by labels. Group D
+handles that file separately — do not modify it.
 
 ## Your files (ONLY modify these):
 - `scripts/launch-phase.sh`
@@ -57,44 +74,35 @@ On restart, read `claude-progress.txt` FIRST to understand where you left off.
 
 ## Tasks — execute in order:
 
-### B1: Enrich retry context in run_agent()
+### B1: Improve validation retry context
 
-Read the current `run_agent()` function (lines ~90-149). Currently it only injects `git log --oneline -5` on retry. Improve it:
+Read the current `validate()` function. The non-WATCH path (around line 695) injects previous
+failures using a simple `grep -A2 'FAIL'` which is fragile. Improve both the WATCH and
+non-WATCH validation retry to use structured error extraction:
 
-1. Capture the last 80 lines of the previous attempt's log:
+1. In the non-WATCH `validate()` function, replace the `grep -A2 'FAIL'` extraction:
 ```bash
-prev_log_tail=$(tail -100 "$logfile" 2>/dev/null | head -80 || echo "(no previous output)")
-```
+# Replace this:
+prev_failures="$(grep -A2 'FAIL' "$prev_log" 2>/dev/null | tail -30 || echo "(no previous log)")"
 
-2. Read the progress file if it exists:
-```bash
-progress=""
-if [[ -f "${workdir}/claude-progress.txt" ]]; then
-  progress=$(cat "${workdir}/claude-progress.txt")
-fi
-```
-
-3. Inject both into the retry prompt alongside the existing commit context:
-```
-Last output from your previous attempt (may contain the error that caused the crash):
-\`\`\`
-${prev_log_tail}
-\`\`\`
-
-Your progress file (tasks completed so far):
-${progress}
-
-Review what has already been done. Do NOT redo completed work. If the output above shows a specific error, fix that error first.
-```
-
-4. Also inject progress file and error context into the validation retry (in `validate()` and `watch_validate()`). Replace the current `grep -A2 'FAIL'` extraction with:
-```bash
+# With structured extraction:
 prev_report=$(sed -n '/║.*CHECK/,/║.*OVERALL/p' "$prev_log" 2>/dev/null || echo "")
 prev_errors=$(grep -E '(error\[|FAILED|panicked|assertion.*failed)' "$prev_log" 2>/dev/null | tail -20 || echo "")
+prev_failures="Previous validation report:
+${prev_report}
+
+Specific errors from previous attempt:
+${prev_errors}"
 ```
 
-5. Verify: `bash -n scripts/launch-phase.sh` — no syntax errors
-6. Commit: `"feat(orchestrator): enrich retry context with log tails and progress file"`
+2. Do the same for the WATCH `watch_validate()` function (around line 313).
+
+3. NOTE: The `run_agent()` retry context and `build_claude_cmd()` wrapper already include
+   log tails and progress file injection — verify these exist and look correct. Do not
+   duplicate or remove this existing functionality.
+
+4. Verify: `bash -n scripts/launch-phase.sh` — no syntax errors
+5. Commit: `"feat(orchestrator): improve validation retry with structured error extraction"`
 
 ### B2: Add --max-turns and --max-budget-usd to agent invocations
 
@@ -104,14 +112,18 @@ DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
 DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 ```
 
-2. In `run_agent()`, add these flags to the claude invocation:
+2. In `run_agent()`, find the EXISTING claude invocation inside the retry loop and add the flags:
 ```bash
 local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
 local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+# Add --max-turns and --max-budget-usd to the existing claude command:
 echo "$full_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p -
 ```
+**IMPORTANT**: The retry loop, log capture, and crash context injection already exist. Add the
+flags to the existing `claude` command — do NOT replace the retry loop with a simpler invocation.
 
-3. In `build_claude_cmd()` (WATCH mode), add the same flags.
+3. In `build_claude_cmd()` (WATCH mode), find the existing `claude` command inside the wrapper
+   script's retry loop and add the same flags there too.
 
 4. In the validation agent invocations (both `validate()` and `watch_validate()`), add the flags.
 

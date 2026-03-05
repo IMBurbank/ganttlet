@@ -100,16 +100,31 @@ run_agent() {
   for attempt in $(seq 1 "$MAX_RETRIES"); do
     log "${group}: attempt ${attempt}/${MAX_RETRIES}"
 
-    # If retrying, add context about the restart
+    # If retrying, add rich context about the restart
     local full_prompt="$prompt"
     if [[ $attempt -gt 1 ]]; then
       local recent_commits
       recent_commits=$(cd "$workdir" && git log --oneline -5 2>/dev/null || echo "(no commits yet)")
+      local prev_log_tail
+      prev_log_tail=$(tail -100 "$logfile" 2>/dev/null | head -80 || echo "(no previous output)")
+      local progress=""
+      if [[ -f "${workdir}/claude-progress.txt" ]]; then
+        progress=$(cat "${workdir}/claude-progress.txt")
+      fi
       full_prompt="NOTE: You are being restarted after a crash. This is attempt ${attempt}/${MAX_RETRIES}.
+
 Your recent commits in this worktree:
 ${recent_commits}
 
-Review what has already been done and continue from where you left off. Do not redo completed work.
+Last output from your previous attempt (may contain the error that caused the crash):
+\`\`\`
+${prev_log_tail}
+\`\`\`
+
+Your progress file (tasks completed so far):
+${progress}
+
+Review what has already been done. Do NOT redo completed work. If the output above shows a specific error, fix that error first.
 
 ---
 
@@ -176,24 +191,95 @@ setup_worktree() {
 # ── WATCH mode: tmux-based interactive output ────────────────────────────────
 
 # Build the claude command string for a group.
+# Generates a wrapper script with retry loop, log capture, and crash context
+# injection — mirroring the non-WATCH run_agent() behavior.
 build_claude_cmd() {
   local group="$1"
   local workdir="$2"
   local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/${group}.md"
   local exitcode_file="${LOG_DIR}/${group}.exit"
+  local logfile="${LOG_DIR}/${group}.log"
 
-  # The command: cd to worktree, run claude interactively in the tmux pane.
-  # Pass the prompt as a positional argument (no -p flag = interactive mode).
-  # The TTY allocated by tmux gives the full interactive experience.
-  # We use -p (print mode) to ensure claude exits after completing the prompt.
-  # The tmux TTY still captures the streaming output for review.
   local wrapper="${LOG_DIR}/${group}-run.sh"
-  cat > "$wrapper" <<WRAPPER
+  cat > "$wrapper" <<'WRAPPER_OUTER'
 #!/usr/bin/env bash
-cd "$workdir"
-claude --dangerously-skip-permissions -p "\$(cat '$prompt_file')"
-echo \$? > "$exitcode_file"
-WRAPPER
+set -uo pipefail
+
+GROUP="PLACEHOLDER_GROUP"
+WORKDIR="PLACEHOLDER_WORKDIR"
+PROMPT_FILE="PLACEHOLDER_PROMPT_FILE"
+EXITCODE_FILE="PLACEHOLDER_EXITCODE_FILE"
+LOGFILE="PLACEHOLDER_LOGFILE"
+MAX_RETRIES="PLACEHOLDER_MAX_RETRIES"
+RETRY_DELAY="PLACEHOLDER_RETRY_DELAY"
+
+PROMPT="$(cat "$PROMPT_FILE")"
+
+cd "$WORKDIR"
+
+for attempt in $(seq 1 "$MAX_RETRIES"); do
+  echo "=== ${GROUP}: attempt ${attempt}/${MAX_RETRIES} ==="
+
+  FULL_PROMPT="$PROMPT"
+  if [[ $attempt -gt 1 ]]; then
+    RECENT_COMMITS=$(git log --oneline -5 2>/dev/null || echo "(no commits yet)")
+    PREV_LOG_TAIL=$(tail -100 "$LOGFILE" 2>/dev/null | head -80 || echo "(no previous output)")
+    PROGRESS=""
+    if [[ -f "${WORKDIR}/claude-progress.txt" ]]; then
+      PROGRESS=$(cat "${WORKDIR}/claude-progress.txt")
+    fi
+    FULL_PROMPT="NOTE: You are being restarted after a crash. This is attempt ${attempt}/${MAX_RETRIES}.
+
+Your recent commits in this worktree:
+${RECENT_COMMITS}
+
+Last output from your previous attempt (may contain the error that caused the crash):
+\`\`\`
+${PREV_LOG_TAIL}
+\`\`\`
+
+Your progress file (tasks completed so far):
+${PROGRESS}
+
+Review what has already been done. Do NOT redo completed work. If the output above shows a specific error, fix that error first.
+
+---
+
+${PROMPT}"
+  fi
+
+  # Run claude, capturing output to log AND showing in tmux
+  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions -p - 2>&1 | tee -a "$LOGFILE"
+  EXIT_CODE=${PIPESTATUS[1]:-$?}
+
+  if [[ $EXIT_CODE -eq 0 ]]; then
+    echo "=== ${GROUP}: completed successfully ==="
+    echo "0" > "$EXITCODE_FILE"
+    exit 0
+  fi
+
+  echo "=== ${GROUP}: exited with code ${EXIT_CODE} ==="
+
+  if [[ $attempt -lt $MAX_RETRIES ]]; then
+    echo "=== ${GROUP}: retrying in ${RETRY_DELAY}s... ==="
+    sleep "$RETRY_DELAY"
+  fi
+done
+
+echo "=== ${GROUP}: FAILED after ${MAX_RETRIES} attempts ==="
+echo "1" > "$EXITCODE_FILE"
+exit 1
+WRAPPER_OUTER
+
+  # Substitute placeholders with actual values
+  sed -i "s|PLACEHOLDER_GROUP|${group}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_WORKDIR|${workdir}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_PROMPT_FILE|${prompt_file}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_EXITCODE_FILE|${exitcode_file}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_LOGFILE|${logfile}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_MAX_RETRIES|${MAX_RETRIES}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_RETRY_DELAY|${RETRY_DELAY}|g" "$wrapper"
+
   chmod +x "$wrapper"
   echo "$wrapper"
 }
@@ -227,11 +313,13 @@ watch_parallel_stage() {
 
     if $first; then
       # Create the tmux session with the first agent
-      tmux new-session -d -s "$TMUX_SESSION" -n "$group" "$wrapper; echo '── ${group} finished (exit code: '\$(cat ${LOG_DIR}/${group}.exit)')  Press Enter to close ──'; read"
+      tmux new-session -d -s "$TMUX_SESSION" -n "$group" \
+        "$wrapper; echo ''; echo '══════════════════════════════════════════════'; echo \"── ${group} finished (exit code: \$(cat '${LOG_DIR}/${group}.exit' 2>/dev/null || echo '?'))  Press Enter to close ──\"; echo '══════════════════════════════════════════════'; read"
       first=false
     else
       # Add a new window for each additional agent
-      tmux new-window -t "$TMUX_SESSION" -n "$group" "$wrapper; echo '── ${group} finished (exit code: '\$(cat ${LOG_DIR}/${group}.exit)')  Press Enter to close ──'; read"
+      tmux new-window -t "$TMUX_SESSION" -n "$group" \
+        "$wrapper; echo ''; echo '══════════════════════════════════════════════'; echo \"── ${group} finished (exit code: \$(cat '${LOG_DIR}/${group}.exit' 2>/dev/null || echo '?'))  Press Enter to close ──\"; echo '══════════════════════════════════════════════'; read"
     fi
 
     log "${group} launched in tmux window '${group}'"
@@ -325,14 +413,16 @@ watch_validate() {
 
     local logfile="${LOG_DIR}/validate-attempt${attempt}.log"
 
-    # Write a wrapper script for tmux — interactive mode with log capture.
-    # Uses `script` to preserve TTY for full interactive output while logging.
+    # Write a wrapper script for tmux — captures log AND shows in tmux via tee.
     local wrapper="${LOG_DIR}/validate-run.sh"
     cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
+set -uo pipefail
 cd "$WORKSPACE"
-script -q -c "claude --dangerously-skip-permissions -p \"\$(cat '$prompt_to_use')\"" "$logfile"
-echo \$? > "$exitcode_file"
+claude --dangerously-skip-permissions -p "\$(cat '$prompt_to_use')" 2>&1 | tee "$logfile"
+EXIT_CODE=\${PIPESTATUS[0]:-\$?}
+echo "\$EXIT_CODE" > "$exitcode_file"
+exit "\$EXIT_CODE"
 WRAPPER
     chmod +x "$wrapper"
 

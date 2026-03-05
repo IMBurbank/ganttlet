@@ -229,7 +229,17 @@ Commit: `"feat: add agent issue quality gate workflow"`
 
 ### D3: Overhaul agent-work.yml
 
-Read the current `.github/workflows/agent-work.yml` (102 lines). Rewrite it with:
+Read the current `.github/workflows/agent-work.yml` (102 lines).
+
+**Known issues in current file to fix:**
+- Uses `claude --print` which is not a valid flag — the correct flag is `-p` (print/pipe mode)
+- Uses `${{ github.event.issue.body }}` directly in a heredoc, which is a shell injection risk
+- No retry logic — if claude fails, the whole workflow fails
+- No `--max-turns` or `--max-budget-usd` — agents can spin indefinitely
+- PR body is generic boilerplate, not derived from agent output
+
+Keep the existing setup steps (checkout, Node.js, Rust, wasm-pack, npm install, WASM build,
+Claude Code install) and the success/failure comment steps. Rewrite the middle section with:
 
 1. **Rich prompt construction** using environment variables (not `${{ }}` interpolation for security):
 ```yaml

@@ -311,14 +311,15 @@ Restructure project knowledge for optimal agent context usage.
 - [ ] Create `docs/architecture.md` with extracted architecture content
 - [ ] Create `docs/multi-agent-guide.md` with extracted multi-agent content
 
-**A3: Create skill files**
+**A3: Create skill files (8 skills, with "Lessons Learned" sections in orchestration/workflow/shell skills)**
 - [ ] `.claude/skills/scheduling-engine/SKILL.md`
 - [ ] `.claude/skills/e2e-testing/SKILL.md`
-- [ ] `.claude/skills/multi-agent-orchestration/SKILL.md`
+- [ ] `.claude/skills/multi-agent-orchestration/SKILL.md` — must include Lessons Learned (PIPESTATUS, heredoc quoting, stdout pollution, etc.)
 - [ ] `.claude/skills/google-sheets-sync/SKILL.md`
 - [ ] `.claude/skills/cloud-deployment/SKILL.md`
-- [ ] `.claude/skills/issue-workflow/SKILL.md`
+- [ ] `.claude/skills/issue-workflow/SKILL.md` — must include Lessons Learned (shell injection, max-turns, PR body structure)
 - [ ] `.claude/skills/rust-wasm/SKILL.md`
+- [ ] `.claude/skills/shell-scripting/SKILL.md` — cross-cutting bash gotchas (pipe exit codes, heredoc quoting, pipefail, sed placeholders, stdout pollution, tee vs script)
 
 **A4: Rewrite CLAUDE.md to lean core (~110-130 lines)**
 - [ ] Behavioral rules at top, error protocol, commands, constraints, workflow, conservation

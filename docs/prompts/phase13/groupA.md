@@ -116,8 +116,16 @@ Create these skills:
    - launch-phase.sh architecture (stages, merge gating, retry)
    - Prompt file structure and conventions
    - Worktree isolation pattern
-   - WATCH mode
+   - WATCH mode (tmux-based, with retry loop and log capture via `tee`)
    - Claude CLI reference (flags and gotchas)
+   - **"Lessons Learned" section** with specific gotchas discovered in prior phases:
+     - `PIPESTATUS[1]` is required to capture claude's exit code through a `tee` pipe (`$?` gives tee's exit)
+     - WATCH mode wrapper scripts must use single-quoted heredoc (`<<'DELIM'`) with sed placeholder substitution to avoid premature variable expansion
+     - `setup_worktree()` returns the path via stdout — all other output inside it MUST go to `>/dev/null` or `>&2` or downstream `cd` commands break
+     - `script -q -c` for TTY logging is fragile; prefer `tee -a` for simultaneous terminal + file capture
+     - Validation log parsing must exclude the `COMMAND=` header line to avoid false positive failure detection
+     - `--prompt-file` does not exist as a CLI flag; use `-p` with stdin or positional argument
+     - `--print` is not a valid flag — the correct flag is `-p`
 
 4. **`.claude/skills/google-sheets-sync/SKILL.md`** — Use when working on Sheets integration. Include:
    - OAuth2 flow (client-side token handling)
@@ -140,6 +148,11 @@ Create these skills:
    - Error handling levels (L1/L2/L3)
    - `.agent-summary.md` format
    - Context conservation tips
+   - **"Lessons Learned" section** with gotchas from the GitHub Actions agent pipeline:
+     - `${{ github.event.issue.body }}` injected directly into a shell heredoc is a shell injection risk — always sanitize or use environment variables
+     - The workflow's claude invocation needs `--max-turns` and `--max-budget-usd` to prevent runaway agents
+     - PR body should include structured sections (Summary, Test plan, Closes #N) not generic boilerplate
+     - The agent should read CLAUDE.md and relevant skill files before starting work
 
 7. **`.claude/skills/rust-wasm/SKILL.md`** — Use when building WASM, debugging wasm-pack, or modifying Rust→JS bindings. Include:
    - `wasm-pack build` command and options
@@ -148,7 +161,16 @@ Create these skills:
    - Debugging WASM build failures
    - How lib.rs exports work
 
-Commit: `"feat: create .claude/skills/ with 7 domain-specific skill files"`
+8. **`.claude/skills/shell-scripting/SKILL.md`** — Use when writing or modifying any bash scripts in this project (launch-phase.sh, verify.sh, full-verify.sh, CI scripts). Include:
+   - **Pipe exit codes**: `$?` in a pipeline returns the LAST command's exit code. Use `${PIPESTATUS[0]}` for the first command's exit code, `${PIPESTATUS[1]}` for the second, etc. Example: `cmd1 | tee log.txt; echo ${PIPESTATUS[0]}` gets cmd1's exit, not tee's.
+   - **Heredoc quoting**: `<<'DELIM'` (single-quoted) prevents ALL variable expansion inside the heredoc. Use this for wrapper scripts that will be executed later. `<<DELIM` (unquoted) expands variables at write time — use `\$` to escape variables that should expand at runtime.
+   - **`set -uo pipefail`**: Always use in scripts. `pipefail` makes pipes return the first non-zero exit code. `set -u` catches undefined variables. Omit `set -e` in scripts with intentional non-zero exits (like retry loops).
+   - **sed placeholder substitution**: When generating a script file with `cat <<'DELIM'`, use placeholder strings and `sed -i 's|PLACEHOLDER|value|g'` to inject values — avoids quoting hell.
+   - **stdout pollution in functions**: If a function returns a value via `echo`, ALL other output inside it must go to `>/dev/null` or `>&2`. Stray output corrupts the return value.
+   - **`script` vs `tee` for logging**: `script -q -c` wraps a command in a pseudo-TTY for logging but is fragile across platforms. Prefer `cmd 2>&1 | tee -a logfile` with `PIPESTATUS` for exit code capture.
+   - **Always run `bash -n scriptname.sh`** after editing any bash script to catch syntax errors before committing.
+
+Commit: `"feat: create .claude/skills/ with 8 domain-specific skill files"`
 
 ### A4: Rewrite CLAUDE.md to lean core
 

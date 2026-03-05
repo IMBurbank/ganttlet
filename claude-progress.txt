@@ -1,0 +1,6 @@
+A1: DONE — read current CLAUDE.md (210 lines), mapped content to destinations
+A2: DONE — created docs/architecture.md and docs/multi-agent-guide.md
+A3: DONE — created 8 skill files in .claude/skills/ with YAML frontmatter
+A4: DONE — rewrote CLAUDE.md to 112-line lean core
+A5: DONE — verified all content mapped, all skills have frontmatter, line count in range
+A6: DONE — all changes committed, no files outside scope modified

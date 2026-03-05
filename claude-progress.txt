@@ -35,4 +35,6 @@ A3: DONE — Updated agent-work.yml (ANTHROPIC_API_KEY→CLAUDE_CODE_OAUTH_TOKEN
 A4: DONE — All 6 hook tests pass (blocks wasm/env/lockfile/push-main, allows normal/feature-branch)
 A5: DONE — npm run build passes (429 modules, 2.35s)
 A6: DONE — Committed on feature/plugin-adoption branch (2c12b1b)
-Status: WAITING for user manual steps (M1: extract OAuth token from Docker, M2: add GitHub secret) and verification (V1-V4)
+M1: DONE — OAuth token generated via claude setup-token
+M2: DONE — CLAUDE_CODE_OAUTH_TOKEN added to GitHub repo secrets
+Status: WAITING for user verification (V1-V4: Docker build, LSP check, plugin load, CI test)

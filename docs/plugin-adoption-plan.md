@@ -15,8 +15,8 @@
 
 | Step | Owner | Status | Notes |
 |------|-------|--------|-------|
-| M1. Generate OAuth token | USER | [ ] DEFERRED | Extract from `~/.claude/.credentials.json` inside Docker container next session |
-| M2. Add GitHub repo secret | USER | [ ] DEFERRED | `CLAUDE_CODE_OAUTH_TOKEN` in repo settings — do after M1 |
+| M1. Generate OAuth token | USER | [x] DONE | Generated via `claude setup-token` inside Docker container |
+| M2. Add GitHub repo secret | USER | [x] DONE | `CLAUDE_CODE_OAUTH_TOKEN` added to repo settings |
 | M3. Confirm manual steps done | USER | [x] SKIPPED | Deferred manual steps; proceeding with file changes only |
 | A1. Create `.claude/settings.json` | CLAUDE | [x] DONE | Plugins + PreToolUse hooks. Also added `.gitignore` negation for `.claude/settings.json`. |
 | A2. Update `Dockerfile` | CLAUDE | [x] DONE | rust-analyzer (rustup component) + typescript-language-server (npm global) |
@@ -302,4 +302,5 @@ _Space for tracking issues, observations, and follow-ups as implementation proce
 | 2026-03-05 | `.claude/` was fully gitignored. Fixed with `.claude/*` + `!.claude/settings.json` negation pattern. |
 | 2026-03-05 | Plugin install steps in CI use `\|\| true` to avoid blocking agent work if plugin marketplace is unreachable. |
 | 2026-03-05 | A1-A6 complete. Committed on `feature/plugin-adoption` (2c12b1b). Awaiting user V1-V4 verification + M1/M2. |
+| 2026-03-05 | M1/M2 complete. Token generated and GitHub secret added. Added CLAUDE.md rule: never ask users to paste secrets. |
 | | |

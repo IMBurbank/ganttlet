@@ -291,6 +291,11 @@ watch_parallel_stage() {
   local -n w_groups_ref="$2"
   local -n w_branches_ref="$3"
 
+  if ! command -v tmux >/dev/null 2>&1; then
+    err "WATCH mode requires tmux but it's not installed. Run without WATCH=1 or install tmux first."
+    return 1
+  fi
+
   log "=== ${stage_label} (WATCH mode): Launching agents in tmux ==="
 
   # Kill any existing session with this name

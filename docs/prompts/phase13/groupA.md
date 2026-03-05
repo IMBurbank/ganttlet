@@ -119,6 +119,8 @@ Create these skills:
    - WATCH mode (tmux-based, with retry loop and log capture via `tee`)
    - Claude CLI reference (flags and gotchas)
    - **"Lessons Learned" section** with specific gotchas discovered in prior phases:
+     - **Claude output modes matter**: `-p` (pipe/print mode) produces sparse text-only output — no thinking blocks, no tool-use panels. Interactive mode (no `-p`) produces the full rich TUI output but does NOT auto-exit — claude waits for more input, which stalls the orchestrator between stages. The solution: WATCH mode runs claude interactively in tmux for rich output, and the prompt must instruct claude to exit itself when done so the wrapper script can detect completion and proceed to the next stage.
+     - **WATCH mode requires tmux**: The script must check `command -v tmux` and fail fast if missing. Without this guard, tmux commands silently fail, no agents start, and the polling loop hangs forever waiting for `.exit` files that will never be written.
      - `PIPESTATUS[1]` is required to capture claude's exit code through a `tee` pipe (`$?` gives tee's exit)
      - WATCH mode wrapper scripts must use single-quoted heredoc (`<<'DELIM'`) with sed placeholder substitution to avoid premature variable expansion
      - `setup_worktree()` returns the path via stdout — all other output inside it MUST go to `>/dev/null` or `>&2` or downstream `cd` commands break
@@ -126,6 +128,7 @@ Create these skills:
      - Validation log parsing must exclude the `COMMAND=` header line to avoid false positive failure detection
      - `--prompt-file` does not exist as a CLI flag; use `-p` with stdin or positional argument
      - `--print` is not a valid flag — the correct flag is `-p`
+     - **Container dependencies**: tmux must be in the Dockerfile's `apt-get install` line. If it's missing, WATCH mode is completely broken with no useful error unless the fast-fail guard is in place.
 
 4. **`.claude/skills/google-sheets-sync/SKILL.md`** — Use when working on Sheets integration. Include:
    - OAuth2 flow (client-side token handling)

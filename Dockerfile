@@ -2,7 +2,7 @@ FROM node:20-slim AS dev
 
 # Install system dependencies, Playwright Chromium OS-level libs, and fonts
 RUN apt-get update && apt-get install -y \
-    git curl python3 python3-pip sudo jq \
+    git curl python3 python3-pip sudo jq tmux \
     libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
     libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
     libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 \

@@ -29,6 +29,8 @@ set -euo pipefail
 MAX_RETRIES="${MAX_RETRIES:-3}"
 RETRY_DELAY="${RETRY_DELAY:-5}"
 MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
+DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
+DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase13}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
@@ -132,10 +134,12 @@ ${prompt}"
     fi
 
     # Run claude, capturing exit code
+    local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
+    local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
     set +e
     (
       cd "$workdir"
-      echo "$full_prompt" | claude --dangerously-skip-permissions -p -
+      echo "$full_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p -
     ) >> "$logfile" 2>&1
     local exit_code=$?
     set -e
@@ -212,6 +216,8 @@ EXITCODE_FILE="PLACEHOLDER_EXITCODE_FILE"
 LOGFILE="PLACEHOLDER_LOGFILE"
 MAX_RETRIES="PLACEHOLDER_MAX_RETRIES"
 RETRY_DELAY="PLACEHOLDER_RETRY_DELAY"
+MAX_TURNS_VAL="PLACEHOLDER_MAX_TURNS"
+MAX_BUDGET_VAL="PLACEHOLDER_MAX_BUDGET"
 
 PROMPT="$(cat "$PROMPT_FILE")"
 
@@ -250,7 +256,7 @@ ${PROMPT}"
 
   # Run claude, capturing output to log AND showing in tmux
   # PIPESTATUS: [0]=echo [1]=claude [2]=tee — we want claude's exit code
-  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions -p - 2>&1 | tee -a "$LOGFILE"
+  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions --max-turns "$MAX_TURNS_VAL" --max-budget-usd "$MAX_BUDGET_VAL" -p - 2>&1 | tee -a "$LOGFILE"
   EXIT_CODE=${PIPESTATUS[1]:-$?}
 
   if [[ $EXIT_CODE -eq 0 ]]; then
@@ -280,6 +286,8 @@ WRAPPER_OUTER
   sed -i "s|PLACEHOLDER_LOGFILE|${logfile}|g" "$wrapper"
   sed -i "s|PLACEHOLDER_MAX_RETRIES|${MAX_RETRIES}|g" "$wrapper"
   sed -i "s|PLACEHOLDER_RETRY_DELAY|${RETRY_DELAY}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_MAX_TURNS|${MAX_TURNS:-$DEFAULT_MAX_TURNS}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_MAX_BUDGET|${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}|g" "$wrapper"
 
   chmod +x "$wrapper"
   echo "$wrapper"
@@ -428,7 +436,7 @@ ${prev_errors}"
 set -uo pipefail
 cd "$WORKSPACE"
 # PIPESTATUS: [0]=claude [1]=tee — we want claude's exit code
-claude --dangerously-skip-permissions -p "\$(cat '$prompt_to_use')" 2>&1 | tee "$logfile"
+claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p "\$(cat '$prompt_to_use')" 2>&1 | tee "$logfile"
 EXIT_CODE=\${PIPESTATUS[0]:-\$?}
 echo "\$EXIT_CODE" > "$exitcode_file"
 exit "\$EXIT_CODE"
@@ -581,7 +589,7 @@ Do NOT enter plan mode. Do NOT ask for confirmation. Fix the conflicts and commi
     cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
 cd "$WORKSPACE"
-claude --dangerously-skip-permissions -p "\$(cat '$fix_prompt_file')"
+claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p "\$(cat '$fix_prompt_file')"
 echo \$? > "$exitcode_file"
 WRAPPER
     chmod +x "$wrapper"
@@ -600,7 +608,7 @@ WRAPPER
     tmux kill-session -t "${TMUX_SESSION}-merge-fix" 2>/dev/null || true
     return "$rc"
   else
-    echo "$fix_prompt" | claude --dangerously-skip-permissions -p - >> "${LOG_DIR}/merge-fix.log" 2>&1
+    echo "$fix_prompt" | claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p - >> "${LOG_DIR}/merge-fix.log" 2>&1
     return $?
   fi
 }
@@ -815,7 +823,9 @@ ${prompt}"
     log "Validation attempt ${attempt}/${max_attempts} (log: ${logfile})"
     cd "$WORKSPACE"
 
-    echo "$prompt" | claude --dangerously-skip-permissions -p - > "$logfile" 2>&1
+    local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
+    local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+    echo "$prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
     local exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then

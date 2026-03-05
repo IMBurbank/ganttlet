@@ -493,6 +493,37 @@ WRAPPER
   done
 }
 
+# ── Preflight check ──────────────────────────────────────────────────────────
+
+preflight_check() {
+  log "=== Preflight check ==="
+
+  # Clean git state
+  if [[ -n "$(cd "$WORKSPACE" && git status --porcelain)" ]]; then
+    err "Dirty git state — commit or stash changes before launching agents"
+    return 1
+  fi
+
+  # Check that prompt files exist
+  local prompts_exist=true
+  for group in "$@"; do
+    if [[ ! -f "${WORKSPACE}/${PROMPTS_DIR}/${group}.md" ]]; then
+      err "Missing prompt file: ${PROMPTS_DIR}/${group}.md"
+      prompts_exist=false
+    fi
+  done
+  $prompts_exist || return 1
+
+  # Quick build check — verify WASM builds and basic compilation
+  log "Checking WASM build..."
+  if ! (cd "$WORKSPACE" && npm run build:wasm > /dev/null 2>&1); then
+    err "WASM build broken — fix before launching agents"
+    return 1
+  fi
+
+  ok "Preflight check passed"
+}
+
 # ── Generic parallel stage runner ─────────────────────────────────────────────
 
 # Usage: run_parallel_stage "Stage 1" STAGE1_GROUPS STAGE1_BRANCHES
@@ -500,6 +531,9 @@ run_parallel_stage() {
   local stage_label="$1"
   local -n groups_ref="$2"
   local -n branches_ref="$3"
+
+  # Run preflight checks before launching agents
+  preflight_check "${groups_ref[@]}" || return 1
 
   # Delegate to tmux-based runner in WATCH mode
   if [[ "$WATCH" == "1" ]]; then

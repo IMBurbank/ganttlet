@@ -92,7 +92,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 ## Reference Docs & Skills
 - `docs/architecture.md` — Tech stack, architecture principles/constraints, E2E testing, deployment
 - `docs/multi-agent-guide.md` — launch-phase.sh usage, Claude CLI reference, phase setup
-- `docs/completed-phases.md` — Detailed notes on phases 0-12 (auth, sync, deployment)
+- `docs/completed-phases.md` — Detailed notes on phases 0-13 (auth, sync, deployment, agent infra)
 - `docs/cloud-verification-plan.md` — Cloud-based verification stages and GCP layout
 - `docs/TASKS.md` — Claimable task queue and claiming convention
 - `.claude/skills/` — Domain-specific skills (loaded on demand):

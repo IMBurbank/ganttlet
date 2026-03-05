@@ -1,0 +1,7 @@
+C1: DONE — fixed exit code capture bug (PIPESTATUS), added AGENT_SCOPE env var to verify.sh
+C2: DONE — added output deduplication via md5sum hash comparison
+C3: DONE — added 30s rate limiting (configurable via VERIFY_COOLDOWN)
+C4: DONE — compact output: error-count-first for tsc, summary for vitest
+C5: DONE — created pre-commit-hook.sh rejecting todo!(), unimplemented!(), commented-out tests
+C6: DONE — verified .claude/settings.local.json is valid JSON with correct hook config
+C7: DONE — all syntax checks pass, all changes committed

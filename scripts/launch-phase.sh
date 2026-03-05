@@ -31,6 +31,7 @@ RETRY_DELAY="${RETRY_DELAY:-5}"
 MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
 DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
 DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
+STALL_TIMEOUT="${STALL_TIMEOUT:-30}"  # minutes before warning about stalled agent
 # Per-agent model override: MODEL=sonnet run_agent groupH "$workdir"
 # Default: uses Claude's default model. Options: opus, sonnet, haiku
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase13}"
@@ -164,6 +165,39 @@ ${prompt}"
 
   err "${group}: failed after ${MAX_RETRIES} attempts. Check ${logfile}"
   return 1
+}
+
+# ── Stall detection watchdog ─────────────────────────────────────────────────
+
+monitor_agent() {
+  local agent_pid="$1"
+  local workdir="$2"
+  local group="$3"
+  local timeout_minutes="${STALL_TIMEOUT:-30}"
+  local logfile="${LOG_DIR}/${group}.log"
+  local last_size=0
+  local last_activity
+  last_activity=$(date +%s)
+
+  while kill -0 "$agent_pid" 2>/dev/null; do
+    sleep 60
+
+    # Check if the log file is growing
+    local current_size=0
+    [[ -f "$logfile" ]] && current_size=$(stat -c %s "$logfile" 2>/dev/null || echo 0)
+
+    if [[ "$current_size" != "$last_size" ]]; then
+      last_size=$current_size
+      last_activity=$(date +%s)
+    else
+      local now
+      now=$(date +%s)
+      local elapsed_since_activity=$(( (now - last_activity) / 60 ))
+      if [[ $elapsed_since_activity -ge $timeout_minutes ]]; then
+        warn "${group}: no log activity in ${elapsed_since_activity} minutes — may be stuck"
+      fi
+    fi
+  done
 }
 
 # ── Worktree setup ───────────────────────────────────────────────────────────
@@ -554,6 +588,7 @@ run_parallel_stage() {
   log "=== ${stage_label}: Launching parallel groups ==="
 
   local pids=()
+  local monitor_pids=()
   local groups_list=()
 
   for i in "${!groups_ref[@]}"; do
@@ -565,10 +600,15 @@ run_parallel_stage() {
 
     # Launch agent in background
     run_agent "$group" "$worktree" &
-    pids+=($!)
+    local agent_pid=$!
+    pids+=($agent_pid)
     groups_list+=("$group")
 
-    log "${group} launched (PID: ${pids[-1]})"
+    # Launch stall detection watchdog
+    monitor_agent "$agent_pid" "$worktree" "$group" &
+    monitor_pids+=($!)
+
+    log "${group} launched (PID: ${agent_pid})"
   done
 
   # Wait for all parallel agents, tracking success/failure per group
@@ -589,6 +629,11 @@ run_parallel_stage() {
       ok "${group} (PID ${pid}) finished"
       succeeded_groups+=("$group")
     fi
+  done
+
+  # Kill stall detection monitors
+  for mpid in "${monitor_pids[@]}"; do
+    kill "$mpid" 2>/dev/null || true
   done
 
   # Write result files so the merge stage knows which groups to skip

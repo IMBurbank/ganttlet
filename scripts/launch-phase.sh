@@ -360,27 +360,35 @@ watch_parallel_stage() {
     sleep 5
   done
 
-  # Collect results
-  local all_ok=true
+  # Collect results, tracking success/failure per group
+  local succeeded_groups=()
+  local failed_groups=()
   for i in "${!w_groups_ref[@]}"; do
     local group="${w_groups_ref[$i]}"
     local rc
     rc=$(cat "${LOG_DIR}/${group}.exit" 2>/dev/null || echo "1")
     if [[ "$rc" -ne 0 ]]; then
       err "${group} failed with exit code ${rc}"
-      all_ok=false
+      failed_groups+=("$group")
     else
       ok "${group} finished successfully"
+      succeeded_groups+=("$group")
     fi
   done
+
+  # Write result files so the merge stage knows which groups to skip
+  echo "${succeeded_groups[*]}" > "${LOG_DIR}/stage-succeeded.txt"
+  echo "${failed_groups[*]}" > "${LOG_DIR}/stage-failed.txt"
 
   # Clean up tmux session
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 
-  if $all_ok; then
+  if [[ ${#failed_groups[@]} -eq 0 ]]; then
     ok "=== ${stage_label} complete: all agents finished ==="
+  elif [[ ${#succeeded_groups[@]} -gt 0 ]]; then
+    warn "=== ${stage_label} partial success: ${succeeded_groups[*]} succeeded, ${failed_groups[*]} failed ==="
   else
-    err "=== ${stage_label} finished with errors ==="
+    err "=== ${stage_label} ALL groups failed ==="
     return 1
   fi
 }
@@ -519,8 +527,10 @@ run_parallel_stage() {
     log "${group} launched (PID: ${pids[-1]})"
   done
 
-  # Wait for all parallel agents
-  local all_ok=true
+  # Wait for all parallel agents, tracking success/failure per group
+  local succeeded_groups=()
+  local failed_groups=()
+
   for i in "${!pids[@]}"; do
     local pid="${pids[$i]}"
     local group="${groups_list[$i]}"
@@ -530,16 +540,24 @@ run_parallel_stage() {
     set -e
     if [[ $rc -ne 0 ]]; then
       err "${group} (PID ${pid}) failed with exit code ${rc}"
-      all_ok=false
+      failed_groups+=("$group")
     else
       ok "${group} (PID ${pid}) finished"
+      succeeded_groups+=("$group")
     fi
   done
 
-  if $all_ok; then
+  # Write result files so the merge stage knows which groups to skip
+  echo "${succeeded_groups[*]}" > "${LOG_DIR}/stage-succeeded.txt"
+  echo "${failed_groups[*]}" > "${LOG_DIR}/stage-failed.txt"
+
+  if [[ ${#failed_groups[@]} -eq 0 ]]; then
     ok "=== ${stage_label} complete: all parallel groups finished ==="
+  elif [[ ${#succeeded_groups[@]} -gt 0 ]]; then
+    warn "=== ${stage_label} partial success: ${succeeded_groups[*]} succeeded, ${failed_groups[*]} failed ==="
+    warn "Successful groups will still be merged. Review logs in ${LOG_DIR}"
   else
-    err "=== ${stage_label} finished with errors. Review logs in ${LOG_DIR} ==="
+    err "=== ${stage_label} ALL groups failed. Review logs in ${LOG_DIR} ==="
     return 1
   fi
 }
@@ -691,14 +709,26 @@ do_merge_stage() {
     git checkout main
   fi
 
+  # Check which groups succeeded (if stage result files exist)
+  local succeeded=""
+  [[ -f "${LOG_DIR}/stage-succeeded.txt" ]] && succeeded=$(cat "${LOG_DIR}/stage-succeeded.txt")
+
   # Merge each branch with automatic conflict resolution
+  local merge_failures=0
   for i in "${!m_branches_ref[@]}"; do
+    local group="${m_groups_ref[$i]}"
     local branch="${m_branches_ref[$i]}"
     local msg="${m_messages_ref[$i]}"
 
+    # Skip groups that failed in the parallel stage
+    if [[ -n "$succeeded" ]] && ! echo " $succeeded " | grep -q " $group "; then
+      warn "Skipping merge of ${group} (failed in parallel stage)"
+      continue
+    fi
+
     if ! merge_branch_with_retries "$branch" "$msg"; then
-      err "Failed to merge ${branch} — skipping remaining branches"
-      return 1
+      err "Failed to merge ${branch} — continuing with remaining branches"
+      merge_failures=$((merge_failures + 1))
     fi
   done
 

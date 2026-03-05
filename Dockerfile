@@ -20,6 +20,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 # Grant the built-in node user (uid 1000) sudo access
 RUN echo "node ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/node
 
+# Ensure .config is owned by node (gh auth needs to write here)
+RUN mkdir -p /home/node/.config && chown node:node /home/node/.config
+
 # Switch to non-root user
 USER node
 

@@ -129,6 +129,9 @@ Create these skills:
      - `--prompt-file` does not exist as a CLI flag; use `-p` with stdin or positional argument
      - `--print` is not a valid flag — the correct flag is `-p`
      - **Container dependencies**: tmux must be in the Dockerfile's `apt-get install` line. If it's missing, WATCH mode is completely broken with no useful error unless the fast-fail guard is in place.
+     - **Workspace trust dialog blocks interactive mode**: `-p` mode skips the trust dialog automatically, but interactive mode (no `-p`) shows an interactive "Is this a project you trust?" prompt that stalls unattended tmux sessions. Workaround: before launching an interactive agent in a new directory (especially fresh worktrees), run a throwaway `-p` dry run to establish trust: `(cd "$worktree" && claude --dangerously-skip-permissions -p "echo ok" >/dev/null 2>&1)`. This must happen in `build_claude_cmd()` or `setup_worktree()`.
+     - **`--max-budget-usd` only works with `--print`**: The `--help` output confirms this. Switching to interactive mode for rich output means losing budget limits. There is currently no workaround — this is a gap to track.
+     - **`--max-turns` is undocumented**: Not listed in `--help` but accepted without error. May be silently ignored. Test before relying on it for auto-exit behavior.
 
 4. **`.claude/skills/google-sheets-sync/SKILL.md`** — Use when working on Sheets integration. Include:
    - OAuth2 flow (client-side token handling)

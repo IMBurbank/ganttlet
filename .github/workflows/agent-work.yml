@@ -8,7 +8,7 @@ jobs:
   agent:
     if: github.event.label.name == 'agent-ready'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: write
@@ -39,51 +39,209 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Install LSP binaries for Claude Code plugins
+        run: |
+          npm install -g typescript-language-server typescript
+          rustup component add rust-analyzer
+
+      - name: Cache Claude Code plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.claude/plugins
+          key: claude-plugins-v1
+
+      - name: Install Claude Code plugins
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          claude plugin marketplace update claude-plugins-official || true
+          claude plugin install rust-analyzer-lsp@claude-plugins-official --scope local || true
+          claude plugin install typescript-lsp@claude-plugins-official --scope local || true
+          claude plugin install github@claude-plugins-official --scope local || true
+          claude plugin install code-review@claude-plugins-official --scope local || true
+
+      - name: Determine agent configuration
+        id: config
+        run: |
+          LABELS='${{ join(github.event.issue.labels.*.name, ',') }}'
+          if echo "$LABELS" | grep -qi "large\|complex"; then
+            echo "max_turns=80" >> $GITHUB_OUTPUT
+            echo "max_budget=15.00" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -qi "small"; then
+            echo "max_turns=25" >> $GITHUB_OUTPUT
+            echo "max_budget=3.00" >> $GITHUB_OUTPUT
+          else
+            echo "max_turns=50" >> $GITHUB_OUTPUT
+            echo "max_budget=8.00" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create branch
         run: |
           BRANCH="agent/issue-${{ github.event.issue.number }}"
           git checkout -b "$BRANCH"
           echo "BRANCH=$BRANCH" >> $GITHUB_ENV
 
-      - name: Run Claude Code
+      - name: Run Claude Code (with retry)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          claude --print --dangerously-skip-permissions <<'PROMPT'
-          You are working on issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
+          # Build structured prompt
+          cat > /tmp/agent-prompt.md <<'PROMPT_DELIMITER'
+          You are working on a GitHub issue for the Ganttlet project.
 
-          Issue description:
-          ${{ github.event.issue.body }}
+          ## Instructions
 
-          Instructions:
-          1. Read CLAUDE.md for project context
-          2. Implement the changes described in the issue
-          3. Run verification: npm run build:wasm && npx tsc --noEmit && npm run test && cd crates/scheduler && cargo test
-          4. Commit your changes with descriptive messages
-          5. Do NOT open a PR — that will be done in the next step
-          PROMPT
+          1. Read CLAUDE.md for project context, architecture constraints, and behavioral rules.
+          2. Identify the relevant files. If the issue lists them, start there. Otherwise, search.
+          3. Write or update tests FIRST that verify the expected behavior.
+          4. Implement the changes to make the tests pass.
+          5. Run verification: ./scripts/full-verify.sh
+          6. If verification fails, fix the issues. Do not skip tests or weaken assertions.
+          7. Commit with descriptive messages using conventional commits (feat:, fix:, etc.).
+
+          ## Scope Rules
+          - ONLY modify files directly relevant to this issue.
+          - Do NOT refactor unrelated code.
+          - Do NOT modify CI/CD workflows, Dockerfile, or package.json unless the issue requires it.
+          - If you need to change a shared file (lib.rs, types.ts), keep changes minimal.
+
+          ## Error Handling
+          - Level 1 (fixable): Read error, fix code, re-run. Up to 3 distinct approaches.
+          - Level 2 (stuck): Commit WIP with message explaining what's broken.
+          - Level 3 (blocked): Commit, continue with non-dependent tasks.
+
+          ## When Done
+          Write `.agent-summary.md` in the repo root containing:
+          - What you changed and why
+          - What tests you added or modified
+          - What you were unable to complete (if anything) and why
+          - The output of ./scripts/full-verify.sh
+          PROMPT_DELIMITER
+
+          # Prepend issue context (using env vars for security)
+          {
+            echo "# Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
+            echo ""
+            echo "## Issue Description"
+            echo "${ISSUE_BODY}"
+            echo ""
+            echo "---"
+            echo ""
+            cat /tmp/agent-prompt.md
+          } > /tmp/full-prompt.md
+
+          MAX_ATTEMPTS=2
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "=== Agent attempt ${attempt}/${MAX_ATTEMPTS} ==="
+
+            if [[ $attempt -gt 1 ]]; then
+              PREV_LOG=$(tail -80 /tmp/agent-attempt-$((attempt-1)).log 2>/dev/null || echo "(no log)")
+              RECENT_COMMITS=$(git log --oneline -5 2>/dev/null || echo "(none)")
+              {
+                echo "NOTE: Previous attempt failed. This is attempt ${attempt}/${MAX_ATTEMPTS}."
+                echo ""
+                echo "Recent commits (your previous progress):"
+                echo "${RECENT_COMMITS}"
+                echo ""
+                echo "Last output from previous attempt:"
+                echo '```'
+                echo "${PREV_LOG}"
+                echo '```'
+                echo ""
+                echo "Continue from where you left off. Do not redo completed work."
+                echo ""
+                echo "---"
+                echo ""
+                cat /tmp/full-prompt.md
+              } > /tmp/retry-prompt.md
+              PROMPT_FILE=/tmp/retry-prompt.md
+            else
+              PROMPT_FILE=/tmp/full-prompt.md
+            fi
+
+            set +e
+            claude -p "$(cat $PROMPT_FILE)" \
+              --dangerously-skip-permissions \
+              --max-turns ${{ steps.config.outputs.max_turns }} \
+              --max-budget-usd ${{ steps.config.outputs.max_budget }} \
+              > /tmp/agent-attempt-${attempt}.log 2>&1
+            EXIT_CODE=$?
+            set -e
+
+            if [[ $EXIT_CODE -eq 0 ]]; then
+              echo "Agent succeeded on attempt ${attempt}"
+              break
+            fi
+            echo "Attempt ${attempt} failed (exit code ${EXIT_CODE})"
+          done
+
+          # Fail the step if all attempts failed
+          if [[ $EXIT_CODE -ne 0 ]]; then
+            echo "All ${MAX_ATTEMPTS} attempts failed"
+            cat /tmp/agent-attempt-${MAX_ATTEMPTS}.log
+            exit 1
+          fi
+
+      - name: Build PR body from agent summary
+        if: success()
+        run: |
+          if [[ -f .agent-summary.md ]]; then
+            {
+              echo "Closes #${{ github.event.issue.number }}"
+              echo ""
+              cat .agent-summary.md
+            } > /tmp/pr-body.md
+          else
+            {
+              echo "Closes #${{ github.event.issue.number }}"
+              echo ""
+              echo "Agent did not produce a summary. Review the diff carefully."
+              echo ""
+              echo "---"
+              echo "*Automated by [agent-work workflow](.github/workflows/agent-work.yml)*"
+            } > /tmp/pr-body.md
+          fi
 
       - name: Push and create PR
+        if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [[ -z "$(git log origin/main..HEAD --oneline)" ]]; then
+            echo "Agent made no commits — skipping PR creation"
+            gh issue comment ${{ github.event.issue.number }} \
+              --body "Agent completed but made no commits. The issue may need more context or the changes may already be in place."
+            exit 1
+          fi
           git push -u origin "$BRANCH"
           gh pr create \
             --title "Agent: ${{ github.event.issue.title }}" \
-            --body "$(cat <<'EOF'
-          Closes #${{ github.event.issue.number }}
-
-          This PR was generated by Claude Code in response to the issue above.
-          Please review the changes carefully before merging.
-
-          ---
-          *Automated by [agent-work workflow](.github/workflows/agent-work.yml)*
-          EOF
-          )" \
+            --body-file /tmp/pr-body.md \
             --head "$BRANCH" \
             --base main
 
-      - name: Comment on issue
+      - name: Check PR size for code review
+        if: success()
+        id: pr-size
+        run: |
+          DIFF_LINES=$(git diff origin/main...HEAD --stat | tail -1 | grep -oP '\d+(?= insertion)' || echo "0")
+          echo "lines=${DIFF_LINES}" >> $GITHUB_OUTPUT
+
+      - name: Run automated code review
+        if: success() && steps.pr-size.outputs.lines > 50
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          claude -p "/code-review" \
+            --dangerously-skip-permissions \
+            --max-turns 15 \
+            --max-budget-usd 3.00 || true
+
+      - name: Comment on issue (success)
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,7 +250,7 @@ jobs:
           gh issue comment ${{ github.event.issue.number }} \
             --body "Agent has created a PR: ${PR_URL}"
 
-      - name: Comment on failure
+      - name: Comment on issue (failure)
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

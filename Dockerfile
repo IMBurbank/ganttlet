@@ -20,6 +20,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 # Grant the built-in node user (uid 1000) sudo access
 RUN echo "node ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/node
 
+# Ensure .config is owned by node (gh auth needs to write here)
+RUN mkdir -p /home/node/.config && chown node:node /home/node/.config
+
 # Switch to non-root user
 USER node
 
@@ -30,12 +33,16 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
     && . "$HOME/.cargo/env" \
     && rustup target add wasm32-unknown-unknown \
-    && cargo install wasm-pack
+    && cargo install wasm-pack \
+    && rustup component add rust-analyzer
 
 ENV PATH="/home/node/.local/bin:/home/node/.cargo/bin:${PATH}"
 
 # Install Playwright Chromium browser binary (OS deps already installed above)
 RUN npx playwright@1.58.2 install chromium
+
+# TypeScript language server for Claude Code typescript-lsp plugin
+RUN npm install -g typescript-language-server typescript
 
 # Set up git config defaults (will be overridden by volume mount)
 

@@ -26,6 +26,28 @@ Phase 13 had four parallel groups working in isolated git worktrees:
 - **Group D** (GitHub Pipeline): Created issue templates, a quality gate workflow, and overhauled
   `.github/workflows/agent-work.yml` with retry logic, complexity routing, and proper CLI flags.
 
+## Known Regressions to Check
+
+These issues were identified during the Phase 13 run itself:
+
+1. **WATCH mode rich output regression**: In Phase 12, `build_claude_cmd()` was configured to
+   run claude in interactive mode (no `-p` flag) inside tmux, producing full rich TUI output
+   (thinking blocks, tool-use panels). The agent's prompt instructed it to exit when done so
+   the orchestrator could detect completion. During Phase 13 planning, the wrapper was rewritten
+   with `-p` pipe mode for retry robustness, which regressed to sparse text-only output. The
+   review should check whether `build_claude_cmd()` uses `-p` (sparse) or interactive mode
+   (rich), and flag this as a required fix if it's still using `-p`.
+
+2. **tmux container dependency**: tmux was missing from the Dockerfile due to a previous bad
+   merge/reset. A fix was added to the Dockerfile (`tmux` in apt-get install) but Group B may
+   not have the fast-fail guard (`command -v tmux`) in `watch_parallel_stage()`. Check for it.
+
+3. **Skill-before-script timing**: The orchestration skill documents lessons (like the `-p` vs
+   interactive output tradeoff) that Group B's agent never saw — because Group A writes the
+   skills while Group B writes the script, in parallel. This is a fundamental limitation of
+   single-stage parallelism. The review should assess whether the skill content and the actual
+   script implementation are consistent, and flag divergences as follow-on work.
+
 ## Review Process
 
 ### Step 1: Read the source documents

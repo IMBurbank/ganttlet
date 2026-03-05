@@ -264,6 +264,159 @@ Execution: K1 → K2 → K3 → K4 → K5
 
 ---
 
+## Phase 13: Agent Infrastructure Improvements
+
+Improve the multi-agent orchestration system based on recommendations from
+`docs/agent-orchestration-recommendations.md`. Single stage with 4 parallel groups
+(zero file overlap) + validation.
+
+### Context
+
+After 12 phases of multi-agent development, several patterns of agent failure have been
+identified: retry context poverty (agents restart blind after crashes), missing behavioral
+guardrails (agents delete tests or produce stubs under pressure), context window exhaustion
+(oversized CLAUDE.md and verbose hooks), thin GitHub issue pipeline (no templates, no retry,
+generic prompts), and weak progress observability (no progress files, no stall detection).
+
+This phase addresses all of these with infrastructure improvements that benefit all future
+agent work — both orchestrated phases and issue-driven single-agent work.
+
+### Agent Groups & File Ownership
+
+```
+Stage 1 (Infrastructure — 4 groups, parallel, zero file overlap)
+
+Group A (CLAUDE.md + Skills)           Group B (Orchestrator)
+  CLAUDE.md                              scripts/launch-phase.sh
+  .claude/skills/*/SKILL.md
+  docs/architecture.md (new)
+  docs/multi-agent-guide.md (new)
+
+Group C (Hooks & Guardrails)           Group D (GitHub Pipeline)
+  scripts/verify.sh                      .github/workflows/agent-work.yml
+  scripts/pre-commit-hook.sh (new)       .github/workflows/agent-gate.yml (new)
+  .claude/settings.local.json            .github/ISSUE_TEMPLATE/agent-task.yml (new)
+```
+
+No file overlap between any groups. All 4 run in parallel.
+
+### Group A: CLAUDE.md Restructure + Skills Pattern
+
+Restructure project knowledge for optimal agent context usage.
+
+**A1: Audit current CLAUDE.md and plan content mapping**
+- [ ] Read current CLAUDE.md (210 lines), map each section to destination
+
+**A2: Create reference docs**
+- [ ] Create `docs/architecture.md` with extracted architecture content
+- [ ] Create `docs/multi-agent-guide.md` with extracted multi-agent content
+
+**A3: Create skill files**
+- [ ] `.claude/skills/scheduling-engine/SKILL.md`
+- [ ] `.claude/skills/e2e-testing/SKILL.md`
+- [ ] `.claude/skills/multi-agent-orchestration/SKILL.md`
+- [ ] `.claude/skills/google-sheets-sync/SKILL.md`
+- [ ] `.claude/skills/cloud-deployment/SKILL.md`
+- [ ] `.claude/skills/issue-workflow/SKILL.md`
+- [ ] `.claude/skills/rust-wasm/SKILL.md`
+
+**A4: Rewrite CLAUDE.md to lean core (~110-130 lines)**
+- [ ] Behavioral rules at top, error protocol, commands, constraints, workflow, conservation
+
+**A5: Verify completeness**
+- [ ] No content lost — everything exists in lean core, skill, or reference doc
+
+Execution: A1 → A2 → A3 → A4 → A5
+
+### Group B: Orchestrator Improvements (launch-phase.sh)
+
+Harden the multi-agent orchestrator with better retry, observability, and resilience.
+
+**B1: Enrich retry context**
+- [ ] Inject last 80 lines of log + progress file into retry prompt
+- [ ] Improve validation retry with structured error extraction
+
+**B2: Add --max-turns and --max-budget-usd**
+- [ ] Add flags to all claude invocations (run_agent, build_claude_cmd, validate)
+
+**B3: Enrich merge conflict context**
+- [ ] Inject conflict diffs and branch commit summaries into merge-fix prompt
+
+**B4: Partial stage success**
+- [ ] Track succeeded/failed groups; merge successful groups, skip failed
+
+**B5: Preflight checks**
+- [ ] Clean git state, prompt files exist, WASM builds
+
+**B6: Model selection**
+- [ ] Support MODEL env var passed through to --model flag
+
+**B7: Stall detection watchdog**
+- [ ] Monitor log file growth; warn if no activity for 30 minutes
+
+Execution: B1 → B2 → B3 → B4 → B5 → B6 → B7
+
+### Group C: Hooks & Guardrails
+
+Reduce hook noise and enforce code quality deterministically.
+
+**C1: Agent-scope awareness in verify.sh**
+- [ ] AGENT_SCOPE env var (rust, ts, full) routes verification appropriately
+
+**C2: Output deduplication**
+- [ ] Same result as previous run → 1-line summary instead of full output
+
+**C3: Rate limiting**
+- [ ] 30-second cooldown between verify.sh runs
+
+**C4: Compact output format**
+- [ ] Error count + first 5 errors for tsc; pass count or failure list for vitest
+
+**C5: Pre-commit hook**
+- [ ] `scripts/pre-commit-hook.sh` rejects todo!(), unimplemented!(), commented-out tests
+
+**C6: Validate settings**
+- [ ] Verify .claude/settings.local.json still works after verify.sh changes
+
+Execution: C1 → C2 → C3 → C4 → C5 → C6
+
+### Group D: GitHub Pipeline
+
+Build a robust issue-to-PR pipeline for single-agent work.
+
+**D1: Issue template**
+- [ ] `.github/ISSUE_TEMPLATE/agent-task.yml` with summary, acceptance criteria, scope, files, complexity
+
+**D2: Issue quality gate**
+- [ ] `.github/workflows/agent-gate.yml` validates issues before agent launch
+
+**D3: Overhaul agent-work.yml**
+- [ ] Rich prompt construction with env vars (not template interpolation)
+- [ ] Retry loop (2 attempts with error context)
+- [ ] --max-turns and --max-budget-usd
+- [ ] .agent-summary.md for PR body
+- [ ] Complexity-based config from labels
+
+Execution: D1 → D2 → D3
+
+### Validation Agent (runs automatically after final merge)
+
+**Checks:**
+- [ ] V1: CLAUDE.md structure (100-150 lines, correct sections)
+- [ ] V2: Skills directory (≥6 skills with YAML frontmatter)
+- [ ] V3: Reference docs exist (architecture.md, multi-agent-guide.md)
+- [ ] V4: Content completeness (nothing lost from original CLAUDE.md)
+- [ ] V5: launch-phase.sh syntax (`bash -n`)
+- [ ] V6: launch-phase.sh features (retry context, --max-turns, merge context, partial success, preflight, model, watchdog)
+- [ ] V7: verify.sh syntax + features (scope, dedup, rate limit, compact output)
+- [ ] V8: Pre-commit hook syntax + logic
+- [ ] V9: Issue template (all required fields)
+- [ ] V10: GitHub workflows (gate + overhauled agent-work)
+- [ ] V11: Build verification (WASM, tsc, vitest, cargo test)
+- [ ] V12: Settings JSON valid
+
+---
+
 ## Resource Assignment & Leveling
 Basic resource tracking and overallocation detection.
 

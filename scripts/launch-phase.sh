@@ -19,7 +19,7 @@
 #   RETRY_DELAY=5       — seconds between retries
 #   VALIDATE_MAX_ATTEMPTS=3 — max fix-and-retry cycles for validation
 #   MERGE_FIX_RETRIES=3 — retries for merge conflict resolution
-#   PROMPTS_DIR         — path to prompt files (default: docs/prompts/phase12)
+#   PROMPTS_DIR         — path to prompt files (default: docs/prompts/phase13)
 #   WORKTREE_BASE       — worktree root (default: /workspace/.claude/worktrees)
 
 set -euo pipefail
@@ -29,46 +29,40 @@ set -euo pipefail
 MAX_RETRIES="${MAX_RETRIES:-3}"
 RETRY_DELAY="${RETRY_DELAY:-5}"
 MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
-PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase12}"
+PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase13}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
 # Set WATCH=1 to see full live agent output in tmux panes
 WATCH="${WATCH:-0}"
-PHASE="phase12"
+PHASE="phase13"
 
 LOG_DIR="${WORKSPACE}/logs/${PHASE}"
 TMUX_SESSION="${PHASE}-agents"
 
-# Stage 1: Scheduling engine fixes in Rust (3 groups, parallel)
-STAGE1_GROUPS=("groupH" "groupI" "groupL")
+# Stage 1: Agent infrastructure improvements (4 groups, parallel, zero file overlap)
+STAGE1_GROUPS=("groupA" "groupB" "groupC" "groupD")
 STAGE1_BRANCHES=(
-  "feature/phase12-cascade-fixes"
-  "feature/phase12-critical-path"
-  "feature/phase12-constraints-recalc"
+  "feature/phase13-claude-skills"
+  "feature/phase13-orchestrator"
+  "feature/phase13-hooks-guardrails"
+  "feature/phase13-github-pipeline"
 )
 STAGE1_MERGE_MESSAGES=(
-  "Merge feature/phase12-cascade-fixes: fix cascade duration bug, implement asymmetric cascade (forward-only push)"
-  "Merge feature/phase12-critical-path: fix CPM computation and scoped critical path, remove milestone scope, add critical edge identification"
-  "Merge feature/phase12-constraints-recalc: add SNET constraint, implement recalculate-to-earliest"
+  "Merge feature/phase13-claude-skills: restructure CLAUDE.md to lean core, create .claude/skills/ with 7 domain skills, extract reference docs"
+  "Merge feature/phase13-orchestrator: enrich retry context, add --max-turns/budget, improve merge conflict context, partial stage success, preflight, model selection, stall detection"
+  "Merge feature/phase13-hooks-guardrails: scope-aware verify.sh, output dedup, rate limiting, compact output, pre-commit hook"
+  "Merge feature/phase13-github-pipeline: issue template, quality gate workflow, overhaul agent-work.yml with retry and complexity routing"
 )
 
-# Stage 2: Cascade UX + Recalculate UI (1 group, sequential before stage 3)
-STAGE2_GROUPS=("groupJ")
-STAGE2_BRANCHES=(
-  "feature/phase12-cascade-ux"
-)
-STAGE2_MERGE_MESSAGES=(
-  "Merge feature/phase12-cascade-ux: asymmetric cascade UX, recalculate-to-earliest UI (context menu + toolbar), 10s cascade highlight"
-)
+# No Stage 2 or 3 needed — single parallel stage
+STAGE2_GROUPS=()
+STAGE2_BRANCHES=()
+STAGE2_MERGE_MESSAGES=()
 
-# Stage 3: Critical Path UI + Float Visualization (1 group, after stage 2 merges)
-STAGE3_GROUPS=("groupK")
-STAGE3_BRANCHES=(
-  "feature/phase12-critical-path-ui"
-)
-STAGE3_MERGE_MESSAGES=(
-  "Merge feature/phase12-critical-path-ui: fix critical path rendering, remove milestone scope from UI, add float/slack visualization"
-)
+# Stage 3: empty
+STAGE3_GROUPS=()
+STAGE3_BRANCHES=()
+STAGE3_MERGE_MESSAGES=()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

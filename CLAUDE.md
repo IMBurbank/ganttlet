@@ -16,6 +16,7 @@ via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
 - Use conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
 - If you encounter test-specific code paths in production builds, remove them.
 - Keep dependencies minimal — every added dependency is attack surface.
+- NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).
 
 ## Error Handling Protocol
 - **Level 1** (fixable): Read the error, fix the code, re-run. Try up to 3 distinct approaches.

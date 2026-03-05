@@ -86,9 +86,10 @@ executes from the given step through the end (including validate).
 
 ## WATCH Mode
 
-`WATCH=1` runs each agent in its own tmux window with full interactive output (tool calls,
-diffs, thinking — the same as running `claude` directly in a terminal). The orchestrator
-still handles worktree setup, merge gating, and validation automatically.
+`WATCH=1` runs each agent in its own tmux window with streaming text output (not the full
+rich TUI — no thinking blocks or tool-use panels). Agents use `-p` mode, which is required
+for auto-exit and `--max-budget-usd` support. The orchestrator still handles worktree setup,
+merge gating, and validation automatically.
 
 - Attach: `tmux attach -t <phase>-agents`
 - Switch windows: `Ctrl-B N` / `Ctrl-B P`

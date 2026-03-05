@@ -10,7 +10,7 @@ See `docs/completed-phases.md` for details.
 
 ---
 
-## Phase 12: Scheduling Engine Overhaul (PENDING)
+## Phase 12: Scheduling Engine Overhaul — DONE
 Three stages. Stage 1: engine fixes in Rust (3 groups, parallel). Stage 2: cascade UX + recalculate
 UI (1 group). Stage 3: critical path UI + float visualization (1 group). Stages 2 and 3 run
 sequentially to avoid shared-file merge conflicts.
@@ -87,19 +87,19 @@ Both Group I and Group L add WASM bindings to `lib.rs`. To avoid conflicts:
 Smallest group — just two fixes to cascade.rs. Agent should be fast.
 
 **H1: Fix cascade duration bug**
-- [ ] In `cascade.rs`, ensure cascade only shifts start_date and end_date by the delta
-- [ ] Duration must NEVER change — verify by computing duration before and after
-- [ ] Add test: cascade preserves duration for all downstream tasks
+- [x] In `cascade.rs`, ensure cascade only shifts start_date and end_date by the delta
+- [x] Duration must NEVER change — verify by computing duration before and after
+- [x] Add test: cascade preserves duration for all downstream tasks
 
 **H2: Implement asymmetric cascade**
-- [ ] Forward moves (positive delta): push dependents forward (current behavior, keep)
-- [ ] Backward moves (negative delta): return empty results — do NOT cascade to dependents
-- [ ] The frontend will handle slack visualization separately using `compute_earliest_start()`
-- [ ] Add tests: forward cascade pushes; backward move returns empty vec
+- [x] Forward moves (positive delta): push dependents forward (current behavior, keep)
+- [x] Backward moves (negative delta): return empty results — do NOT cascade to dependents
+- [x] The frontend will handle slack visualization separately using `compute_earliest_start()`
+- [x] Add tests: forward cascade pushes; backward move returns empty vec
 
 **H3: Commit and verify**
-- [ ] `cd crates/scheduler && cargo test` — all tests pass
-- [ ] `cd crates/scheduler && cargo clippy` — no warnings
+- [x] `cd crates/scheduler && cargo test` — all tests pass
+- [x] `cd crates/scheduler && cargo clippy` — no warnings
 
 Execution: H1 → H2 → H3
 
@@ -108,40 +108,40 @@ Execution: H1 → H2 → H3
 All work in cpm.rs and graph.rs. CriticalPathScope is defined in cpm.rs (not types.rs).
 
 **I1: Debug and fix critical path computation**
-- [ ] Write failing test: linear chain A→B→C→D, verify all 4 are critical
-- [ ] Write failing test: diamond A→B, A→C, B→D, C→D with different durations, verify correct path
-- [ ] Debug forward/backward passes — trace ES/EF/LS/LF for test cases
-- [ ] Fix float calculation: ensure tasks on the longest path have float ≈ 0
-- [ ] Verify fix: all failing tests now pass
+- [x] Write failing test: linear chain A→B→C→D, verify all 4 are critical
+- [x] Write failing test: diamond A→B, A→C, B→D, C→D with different durations, verify correct path
+- [x] Debug forward/backward passes — trace ES/EF/LS/LF for test cases
+- [x] Fix float calculation: ensure tasks on the longest path have float ≈ 0
+- [x] Verify fix: all failing tests now pass
 
 **I2: Fix scoped critical path for project and workstream**
-- [ ] Diagnose why scoped computation drops the chain — likely cross-scope dependency filtering
-- [ ] Fix: when filtering tasks by project/workstream, include all dependencies between filtered tasks
-- [ ] Test: project-scoped CP returns correct chain within that project
-- [ ] Test: workstream-scoped CP returns correct chain within that workstream
+- [x] Diagnose why scoped computation drops the chain — likely cross-scope dependency filtering
+- [x] Fix: when filtering tasks by project/workstream, include all dependencies between filtered tasks
+- [x] Test: project-scoped CP returns correct chain within that project
+- [x] Test: workstream-scoped CP returns correct chain within that workstream
 
 **I3: Remove milestone scope option**
-- [ ] Remove `Milestone` variant from `CriticalPathScope` enum in `cpm.rs`
-- [ ] Remove milestone BFS-backward logic from `compute_critical_path_scoped()`
-- [ ] Update `compute_critical_path_scoped()` to handle only Project and Workstream
-- [ ] Update WASM binding in `lib.rs` if return type changes
+- [x] Remove `Milestone` variant from `CriticalPathScope` enum in `cpm.rs`
+- [x] Remove milestone BFS-backward logic from `compute_critical_path_scoped()`
+- [x] Update `compute_critical_path_scoped()` to handle only Project and Workstream
+- [x] Update WASM binding in `lib.rs` if return type changes
 
 **I4: Add critical dependency identification**
-- [ ] Extend `compute_critical_path()` to also return critical edges (dependency arrows)
-- [ ] Critical dependency = both from_task and to_task are on the critical path
-- [ ] Return as `Vec<(String, String)>` (from_id, to_id) alongside critical task IDs
-- [ ] Update the `compute_critical_path_scoped` WASM binding in `lib.rs` to return edges
+- [x] Extend `compute_critical_path()` to also return critical edges (dependency arrows)
+- [x] Critical dependency = both from_task and to_task are on the critical path
+- [x] Return as `Vec<(String, String)>` (from_id, to_id) alongside critical task IDs
+- [x] Update the `compute_critical_path_scoped` WASM binding in `lib.rs` to return edges
 
 **I5: Comprehensive test suite + verify**
-- [ ] Test: empty project returns empty critical path
-- [ ] Test: single task is always critical
-- [ ] Test: parallel paths — only longest is critical
-- [ ] Test: task with slack is NOT critical
-- [ ] Test: adding lag to a dependency can change the critical path
-- [ ] Test: scoped CP for project with internal dependencies only
-- [ ] Test: scoped CP for workstream
-- [ ] `cd crates/scheduler && cargo test` — all pass
-- [ ] `cd crates/scheduler && cargo clippy` — no warnings
+- [x] Test: empty project returns empty critical path
+- [x] Test: single task is always critical
+- [x] Test: parallel paths — only longest is critical
+- [x] Test: task with slack is NOT critical
+- [x] Test: adding lag to a dependency can change the critical path
+- [x] Test: scoped CP for project with internal dependencies only
+- [x] Test: scoped CP for workstream
+- [x] `cd crates/scheduler && cargo test` — all pass
+- [x] `cd crates/scheduler && cargo clippy` — no warnings
 
 Execution: I1 → I2 → I3 → I4 → I5
 
@@ -150,25 +150,25 @@ Execution: I1 → I2 → I3 → I4 → I5
 New scheduling features in types.rs, constraints.rs, lib.rs, and date_utils.rs.
 
 **L1: Add SNET (Start No Earlier Than) constraint**
-- [ ] Add `constraint_type` and `constraint_date` optional fields to Task in `types.rs`
-- [ ] Define `ConstraintType` enum with only two variants: `ASAP` (default) and `SNET`
-- [ ] Update `compute_earliest_start()` in `constraints.rs` to respect SNET — floor ES at constraint date
-- [ ] Add tests: task with SNET constraint returns correct earliest start
+- [x] Add `constraint_type` and `constraint_date` optional fields to Task in `types.rs`
+- [x] Define `ConstraintType` enum with only two variants: `ASAP` (default) and `SNET`
+- [x] Update `compute_earliest_start()` in `constraints.rs` to respect SNET — floor ES at constraint date
+- [x] Add tests: task with SNET constraint returns correct earliest start
 
 **L2: Implement recalculate-to-earliest**
-- [ ] New function `recalculate_earliest(tasks, scope, today_date) -> Vec<RecalcResult>` in `constraints.rs`
-- [ ] Add `RecalcResult` struct to `types.rs`: `{ id, new_start, new_end }`
-- [ ] Scope: single task (+ all dependents), workstream, or project
-- [ ] Runs forward pass to compute ES for each task in scope
-- [ ] Snaps each task to its ES, but floors at `today_date` (never schedule in the past)
-- [ ] Preserves task durations — only start/end dates change
-- [ ] Respects SNET constraints — task won't move earlier than its constraint date
-- [ ] Add tests: recalculate snaps to earliest; respects today floor; respects SNET
+- [x] New function `recalculate_earliest(tasks, scope, today_date) -> Vec<RecalcResult>` in `constraints.rs`
+- [x] Add `RecalcResult` struct to `types.rs`: `{ id, new_start, new_end }`
+- [x] Scope: single task (+ all dependents), workstream, or project
+- [x] Runs forward pass to compute ES for each task in scope
+- [x] Snaps each task to its ES, but floors at `today_date` (never schedule in the past)
+- [x] Preserves task durations — only start/end dates change
+- [x] Respects SNET constraints — task won't move earlier than its constraint date
+- [x] Add tests: recalculate snaps to earliest; respects today floor; respects SNET
 
 **L3: WASM binding + verify**
-- [ ] Add `recalculate_earliest` WASM binding at end of `lib.rs`
-- [ ] `cd crates/scheduler && cargo test` — all tests pass
-- [ ] `cd crates/scheduler && cargo clippy` — no warnings
+- [x] Add `recalculate_earliest` WASM binding at end of `lib.rs`
+- [x] `cd crates/scheduler && cargo test` — all tests pass
+- [x] `cd crates/scheduler && cargo clippy` — no warnings
 
 Execution: L1 → L2 → L3
 
@@ -177,39 +177,39 @@ Execution: L1 → L2 → L3
 Runs after Stage 1 merges. Has full ownership of all frontend files — no parallel conflicts.
 
 **J1: Update cascade behavior in reducer**
-- [ ] Update CASCADE_DEPENDENTS in `ganttReducer.ts` to check delta direction
-- [ ] Forward cascade (positive delta): apply shifted dates + show cascade highlight (existing behavior)
-- [ ] Backward move (negative delta): do NOT apply shifts to dependents (WASM returns empty)
-- [ ] Update `CascadeHighlight` to show the cascade animation for forward moves only
+- [x] Update CASCADE_DEPENDENTS in `ganttReducer.ts` to check delta direction
+- [x] Forward cascade (positive delta): apply shifted dates + show cascade highlight (existing behavior)
+- [x] Backward move (negative delta): do NOT apply shifts to dependents (WASM returns empty)
+- [x] Update `CascadeHighlight` to show the cascade animation for forward moves only
 
 **J2: Add recalculate action to reducer**
-- [ ] New action: `RECALCULATE_EARLIEST` with scope (task ID, workstream, project, or all)
-- [ ] Add `recalculateEarliest()` wrapper to `schedulerWasm.ts`
-- [ ] Call WASM `recalculate_earliest()` with today's date
-- [ ] Apply returned date changes to all affected tasks
-- [ ] Trigger summary date recalculation after
-- [ ] Add to undo stack
+- [x] New action: `RECALCULATE_EARLIEST` with scope (task ID, workstream, project, or all)
+- [x] Add `recalculateEarliest()` wrapper to `schedulerWasm.ts`
+- [x] Call WASM `recalculate_earliest()` with today's date
+- [x] Apply returned date changes to all affected tasks
+- [x] Trigger summary date recalculation after
+- [x] Add to undo stack
 
 **J3: Add recalculate to context menu**
-- [ ] Right-click task → "Recalculate to earliest"
-- [ ] Right-click workstream row → "Recalculate workstream"
-- [ ] Right-click project row → "Recalculate project"
-- [ ] Each dispatches `RECALCULATE_EARLIEST` with appropriate scope
+- [x] Right-click task → "Recalculate to earliest"
+- [x] Right-click workstream row → "Recalculate workstream"
+- [x] Right-click project row → "Recalculate project"
+- [x] Each dispatches `RECALCULATE_EARLIEST` with appropriate scope
 
 **J4: Add recalculate button to toolbar**
-- [ ] Add "Recalculate All" button to toolbar (next to existing controls)
-- [ ] Dispatches `RECALCULATE_EARLIEST` with project-wide scope
-- [ ] Brief animation or toast confirming the recalculation ran
+- [x] Add "Recalculate All" button to toolbar (next to existing controls)
+- [x] Dispatches `RECALCULATE_EARLIEST` with project-wide scope
+- [x] Brief animation or toast confirming the recalculation ran
 
 **J5: Extend cascade highlight duration**
-- [ ] Increase cascade highlight from 2 seconds to 10 seconds
-- [ ] Clear highlight early if the same user makes another edit
-- [ ] Ensure recalculate also shows highlight on affected tasks
+- [x] Increase cascade highlight from 2 seconds to 10 seconds
+- [x] Clear highlight early if the same user makes another edit
+- [x] Ensure recalculate also shows highlight on affected tasks
 
 **J6: Commit and verify**
-- [ ] `npx tsc --noEmit` — compiles
-- [ ] `npm run test` — all unit tests pass
-- [ ] `npm run format:check && npm run lint` — clean
+- [x] `npx tsc --noEmit` — compiles
+- [x] `npm run test` — all unit tests pass
+- [x] `npm run format:check && npm run lint` — clean
 
 Execution: J1 → J2 → J3 → J4 → J5 → J6
 
@@ -219,48 +219,48 @@ Runs after J merges. Has full ownership of all frontend files — no parallel co
 Builds on J's changes to ganttReducer.ts, schedulerWasm.ts, Toolbar.tsx, and types/index.ts.
 
 **K1: Update critical path rendering**
-- [ ] Add `computeCriticalPathScoped()` wrapper update to `schedulerWasm.ts` — returns task IDs + edges
-- [ ] Update `GanttChart.tsx` to pass critical dependency edges to `DependencyLayer`
-- [ ] Update `DependencyLayer.tsx` to highlight critical dependency arrows (red, thicker)
-- [ ] Ensure the full chain from first task to last task is visually connected
+- [x] Add `computeCriticalPathScoped()` wrapper update to `schedulerWasm.ts` — returns task IDs + edges
+- [x] Update `GanttChart.tsx` to pass critical dependency edges to `DependencyLayer`
+- [x] Update `DependencyLayer.tsx` to highlight critical dependency arrows (red, thicker)
+- [x] Ensure the full chain from first task to last task is visually connected
 
 **K2: Remove milestone from critical path scope**
-- [ ] Remove milestone option from scope dropdown in Toolbar.tsx
-- [ ] Update `CriticalPathScope` type in `types/index.ts` — remove milestone variant
-- [ ] Update reducer `SET_CRITICAL_PATH_SCOPE` if needed
+- [x] Remove milestone option from scope dropdown in Toolbar.tsx
+- [x] Update `CriticalPathScope` type in `types/index.ts` — remove milestone variant
+- [x] Update reducer `SET_CRITICAL_PATH_SCOPE` if needed
 
 **K3: Implement float/slack visualization**
-- [ ] After a backward move exposes slack, show a lighter-shaded ghost bar on each dependent
+- [x] After a backward move exposes slack, show a lighter-shaded ghost bar on each dependent
       extending from its new earliest possible start to its current start
-- [ ] Create or update `SlackIndicator.tsx` to render the slack window on affected task bars
-- [ ] Slack indicator appears after backward moves and clears on next edit
-- [ ] Use `computeEarliestStart()` WASM call to determine the slack window size
+- [x] Create or update `SlackIndicator.tsx` to render the slack window on affected task bars
+- [x] Slack indicator appears after backward moves and clears on next edit
+- [x] Use `computeEarliestStart()` WASM call to determine the slack window size
 
 **K4: Ensure critical path highlights full chain**
-- [ ] Verify TaskBar renders red highlight for all critical tasks (not just some)
-- [ ] Verify DependencyLayer renders red arrows for all critical edges
-- [ ] Test with multi-level hierarchies — critical path should flow through leaf tasks only
-- [ ] Remove any MilestoneMarker critical path rendering that depends on removed milestone scope
+- [x] Verify TaskBar renders red highlight for all critical tasks (not just some)
+- [x] Verify DependencyLayer renders red arrows for all critical edges
+- [x] Test with multi-level hierarchies — critical path should flow through leaf tasks only
+- [x] Remove any MilestoneMarker critical path rendering that depends on removed milestone scope
 
 **K5: Commit and verify**
-- [ ] `npx tsc --noEmit` — compiles
-- [ ] `npm run test` — all unit tests pass
-- [ ] `npm run format:check && npm run lint` — clean
+- [x] `npx tsc --noEmit` — compiles
+- [x] `npm run test` — all unit tests pass
+- [x] `npm run format:check && npm run lint` — clean
 
 Execution: K1 → K2 → K3 → K4 → K5
 
 ### Validation Agent (runs automatically after final merge)
 
 **Checks:**
-- [ ] V1: WASM build (`npm run build:wasm`)
-- [ ] V2: Rust scheduler tests (`cd crates/scheduler && cargo test`)
-- [ ] V3: TypeScript compilation (`npx tsc --noEmit`)
-- [ ] V4: Unit tests (`npm run test`)
-- [ ] V5: Format + lint (`npm run format:check && npm run lint`)
-- [ ] V6: Critical path test — create a linear chain, verify all tasks highlighted as critical
-- [ ] V7: Cascade test — move task forward, verify dependents shift; move task back, verify dependents stay
-- [ ] V8: Recalculate test — scatter tasks with slack, recalculate, verify they snap to earliest
-- [ ] V9: Milestone scope removed — verify dropdown only shows project and workstream options
+- [x] V1: WASM build (`npm run build:wasm`)
+- [x] V2: Rust scheduler tests (`cd crates/scheduler && cargo test`)
+- [x] V3: TypeScript compilation (`npx tsc --noEmit`)
+- [x] V4: Unit tests (`npm run test`)
+- [x] V5: Format + lint (`npm run format:check && npm run lint`)
+- [x] V6: Critical path test — create a linear chain, verify all tasks highlighted as critical
+- [x] V7: Cascade test — move task forward, verify dependents shift; move task back, verify dependents stay
+- [x] V8: Recalculate test — scatter tasks with slack, recalculate, verify they snap to earliest
+- [x] V9: Milestone scope removed — verify dropdown only shows project and workstream options
 
 ---
 

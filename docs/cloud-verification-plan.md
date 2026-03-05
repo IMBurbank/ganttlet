@@ -35,7 +35,73 @@ This plan adds cloud-based verification in stages, each building on the previous
 
 ---
 
-## Step 1: Deploy to Dev + Health Check
+## Prerequisites: One-Time Manual Setup
+
+These tasks require human intervention (GCP Console, GitHub UI) and must be completed before
+Steps 1–3 can run autonomously. An agent can create the service accounts via `gcloud`; the
+human must create the test Sheet, set sharing permissions, and add GitHub secrets.
+
+### Service Accounts
+
+Create three service accounts in the ganttlet-dev GCP project. The collab tests run two
+browsers simultaneously, and having two writers plus a reader enables a wider range of
+verification scenarios: writer-to-writer collab (simultaneous editing), writer-to-reader
+(permission asymmetry and read-only enforcement), and a spare writer for Sheets API smoke
+tests that don't overlap with the collab test pair. The relay distinguishes
+`DriveRole::Writer` vs `DriveRole::Reader` in `server/src/auth.rs`.
+
+| Account | Example Email | Sheet Access | Purpose |
+|---------|--------------|-------------|---------|
+| `ci-writer-1` | `ci-writer-1@ganttlet-dev-XXXX.iam.gserviceaccount.com` | **Editor** | Primary writer in collab tests. Creates/edits tasks, triggers sync. Also used for Sheets API write smoke tests. |
+| `ci-writer-2` | `ci-writer-2@ganttlet-dev-XXXX.iam.gserviceaccount.com` | **Editor** | Second writer for writer-to-writer collab tests (simultaneous editing, conflict resolution). |
+| `ci-reader-1` | `ci-reader-1@ganttlet-dev-XXXX.iam.gserviceaccount.com` | **Viewer** | Read-only user. Verifies presence indicators appear, edits propagate, and write operations are correctly rejected. |
+
+**Agent creates** (via `gcloud` in the dev container):
+```bash
+gcloud iam service-accounts create ci-writer-1 --display-name="CI Writer 1" --project=PROJECT_ID
+gcloud iam service-accounts create ci-writer-2 --display-name="CI Writer 2" --project=PROJECT_ID
+gcloud iam service-accounts create ci-reader-1 --display-name="CI Reader 1" --project=PROJECT_ID
+gcloud iam service-accounts keys create ci-writer-1-key.json --iam-account=ci-writer-1@PROJECT_ID.iam.gserviceaccount.com
+gcloud iam service-accounts keys create ci-writer-2-key.json --iam-account=ci-writer-2@PROJECT_ID.iam.gserviceaccount.com
+gcloud iam service-accounts keys create ci-reader-1-key.json --iam-account=ci-reader-1@PROJECT_ID.iam.gserviceaccount.com
+```
+
+**Human does**:
+1. Create a test Google Sheet (or designate an existing one) in the dev project.
+2. Share it with `ci-writer-1@...` as **Editor**.
+3. Share it with `ci-writer-2@...` as **Editor**.
+4. Share it with `ci-reader-1@...` as **Viewer**.
+5. Note the Sheet ID (from the URL: `docs.google.com/spreadsheets/d/{SHEET_ID}/...`).
+
+### GitHub Secrets
+
+**Human adds** these secrets to the GitHub repo (Settings → Secrets and variables → Actions):
+
+| Secret Name | Value | Source |
+|-------------|-------|--------|
+| `GCP_SA_KEY_WRITER1_DEV` | Contents of `ci-writer-1-key.json` | Agent-generated key file |
+| `GCP_SA_KEY_WRITER2_DEV` | Contents of `ci-writer-2-key.json` | Agent-generated key file |
+| `GCP_SA_KEY_READER1_DEV` | Contents of `ci-reader-1-key.json` | Agent-generated key file |
+| `TEST_SHEET_ID_DEV` | The test Sheet ID | From the Sheet URL |
+
+### Dev Relay Configuration
+
+**Human does** (or agent via `gcloud` if authenticated):
+
+Deploy the dev relay with `GANTTLET_TEST_AUTH=1` so service account JWTs are accepted without
+real Google token validation. This is acceptable for dev only — staging and production must
+validate real tokens.
+
+```bash
+gcloud run services update ganttlet-relay \
+  --update-env-vars="GANTTLET_TEST_AUTH=1" \
+  --project=PROJECT_ID \
+  --region=us-central1
+```
+
+---
+
+## Step 1: Deploy to Dev + Health Check (no manual intervention)
 
 **Target**: ganttlet-dev (existing Cloud Run project)
 
@@ -48,8 +114,9 @@ these immediately.
 
 **What to do**:
 
-1. Add a `verify-dev` job to `deploy.yml` that runs after `deploy-staging` (the current
-   staging job deploys to the dev project — see GCP Project Layout).
+1. Add a `verify-dev` job to `deploy.yml` that runs after the dev deploy job. (Note: as of
+   this writing, the workflow job is named `deploy-staging` but actually deploys to the
+   ganttlet-dev project — this naming should be fixed as part of the pipeline rework.)
 2. The job should:
    - Curl the relay health endpoint (`/health`) and assert 200.
    - Curl the frontend URL and assert 200 + check that the HTML contains expected markers
@@ -68,51 +135,54 @@ these immediately.
 
 ---
 
-## Step 2: Service Account for Dev CI
+## Step 2: Service Account Smoke Tests (no manual intervention)
 
 **Target**: ganttlet-dev
 
-**Goal**: Enable automated Sheets API and relay auth testing without real user accounts.
+**Prerequisite**: One-time manual setup (above) must be complete — service accounts created,
+test Sheet shared, GitHub secrets added, dev relay configured with `GANTTLET_TEST_AUTH=1`.
+
+**Goal**: Verify Sheets API integration and relay WebSocket connectivity using service accounts.
 
 **Motivation**: The app's core value prop is real-time collaboration on Google Sheets. Testing
 only the UI without Sheets integration misses a huge category of bugs (schema mismatches,
-API rate limits, permission errors). A service account lets CI authenticate to Sheets and the
-relay without interactive OAuth sign-in or token babysitting.
+API rate limits, permission errors). Service accounts let CI authenticate without interactive
+OAuth sign-in or token babysitting.
 
 **What to do**:
 
-1. In the ganttlet-dev GCP project, create a service account (e.g.,
-   `ci-test@ganttlet-dev-XXXX.iam.gserviceaccount.com`).
-2. Create a test Google Sheet in the dev project. Share it with the service account email
-   (Editor access).
-3. Download the service account key JSON. Store it as a GitHub Actions secret
-   (`GCP_SA_KEY_DEV`).
-4. In the relay server, add a service-account auth path: if the token is a JWT signed by a
-   Google service account (instead of a user access token), validate it via Google's public
-   keys. Alternatively, for dev/CI only, the relay can accept service account tokens through
-   the existing `GANTTLET_TEST_AUTH=1` bypass.
-5. Write a script (`scripts/cloud-smoke-test.sh`) that:
-   - Uses the service account key to obtain an access token.
-   - Opens a WebSocket to the relay, sends the auth message, and verifies the connection
-     stays open (not rejected).
-   - Calls the Sheets API to read/write the test sheet, verifying round-trip data integrity.
-6. Add this script as a post-deploy step in the workflow after the Step 1 health check.
+1. Write a script (`scripts/cloud-smoke-test.sh`) that:
+   - Reads `GCP_SA_KEY_WRITER1_DEV`, `GCP_SA_KEY_WRITER2_DEV`, and `GCP_SA_KEY_READER1_DEV`
+     from environment (provided by GitHub Actions secrets).
+   - Uses each key to obtain an access token via Google's OAuth2 token endpoint.
+   - For `ci-writer-1`:
+     - Opens a WebSocket to the relay, sends the auth message, verifies the connection
+       stays open (not rejected).
+     - Calls the Sheets API to write a test value to the test sheet.
+   - For `ci-reader-1`:
+     - Opens a WebSocket to the relay, verifies connection with reader permissions.
+     - Calls the Sheets API to read the test value back, verifying round-trip integrity.
+     - Attempts a write and verifies it is rejected (read-only enforcement).
+   - `ci-writer-2` is reserved for collab E2E tests in Step 3 (not used in smoke tests).
+2. Add this script as a post-deploy step in the workflow after the Step 1 health check.
 
-**Auth approach for the relay**: For the dev environment specifically, deploying with
-`GANTTLET_TEST_AUTH=1` is acceptable — it bypasses Google token validation so the service
-account's self-signed JWT is accepted. This tests the WebSocket infrastructure without
-requiring changes to the relay's auth code. For staging/prod, the relay should validate
-real tokens (user or service account).
+**Auth approach for the relay**: The dev relay runs with `GANTTLET_TEST_AUTH=1`, which
+accepts any non-empty token. This tests the WebSocket infrastructure (TLS, connection
+lifecycle, message relay) without requiring the relay to validate real Google tokens. The
+service account tokens are still real — they authenticate to the Sheets API directly. For
+staging/prod, the relay will validate tokens for real.
 
-**Secrets to add to GitHub**:
-- `GCP_SA_KEY_DEV` — service account key JSON
-- `TEST_SHEET_ID_DEV` — ID of the test Google Sheet
+**Files to modify**:
+- `scripts/cloud-smoke-test.sh` — new script
+- `.github/workflows/deploy.yml` — add smoke test job after verify-dev
 
 ---
 
-## Step 3: Full E2E Against Live Dev Deployment
+## Step 3: Full E2E Against Live Dev Deployment (no manual intervention)
 
 **Target**: ganttlet-dev
+
+**Prerequisite**: Steps 1 and 2 passing. Service accounts and test Sheet already configured.
 
 **Goal**: Run the complete Playwright E2E suite (including collaboration tests) against the
 live dev Cloud Run services, not localhost.
@@ -122,38 +192,78 @@ TLS, real load balancer, real WebSocket through Cloud Run's proxy, real network 
 the collab tests pass against the live dev deployment, we have high confidence that the same
 code will work in staging and production.
 
+**Auth approach**: Use real service account tokens (Option C). The frontend is a standard
+production build — identical across dev, staging, and prod. No build flags, no special modes.
+The same artifact can be promoted between environments without rebuilding.
+
+The `__ganttlet_setTestAuth` hook in `src/sheets/oauth.ts` only exists in dev-mode builds
+(`import.meta.env.DEV`), so Cloud Run's production build doesn't expose it. Instead, the
+E2E harness uses Playwright's `page.addInitScript()` to inject auth externally before the
+app loads. This works by intercepting the Google Identity Services (GIS) library: the init
+script replaces `google.accounts.oauth2.initTokenClient` with a stub that immediately calls
+the app's token callback with the service account access token. From the app's perspective,
+the normal OAuth flow completed — `handleTokenResponse` processes the token, sets `authState`,
+calls `notifyAuthChange()`, and everything downstream works normally.
+
+This means:
+- The frontend code has zero test-specific paths in production builds
+- Auth injection is purely a test infrastructure concern
+- The same frontend image is promotable from dev → staging → prod
+
 **What to do**:
 
-1. Add a Playwright config variant (or env-var override) that points `baseURL` at the dev
-   frontend URL and `VITE_COLLAB_URL` at the dev relay URL, instead of localhost.
-2. The collab test harness (`e2e/helpers/collab-harness.ts`) injects test auth via
-   `__ganttlet_setTestAuth`. For cloud testing, the frontend needs to be built with
-   `VITE_TEST_AUTH=1` (or the dev deployment needs `GANTTLET_TEST_AUTH=1` on the relay) so
-   that fake tokens are accepted.
-3. Run the E2E suite in the deploy workflow after the service account smoke test passes.
-   This confirms both infrastructure (Step 1) and application behavior (Step 3) in one
-   pipeline.
-4. Capture Playwright traces and screenshots on failure, upload as workflow artifacts.
+1. Add env-var overrides to `playwright.config.ts` so that `baseURL` can point at the dev
+   Cloud Run frontend URL instead of localhost. The relay URL does not need overriding —
+   it's already baked into the production frontend build via `.env.production`. Playwright
+   should NOT start its own webServers when running against cloud deployments (both Vite
+   and relay are already running on Cloud Run).
+2. Create a helper (e.g., `e2e/helpers/cloud-auth.ts`) that:
+   - Reads service account key JSON from environment variables.
+   - Exchanges the key for a Google access token via the OAuth2 token endpoint
+     (`https://oauth2.googleapis.com/token`) using a JWT assertion.
+   - Returns the access token string.
+3. Update the collab harness to accept an optional auth mode. In cloud mode:
+   - Call the cloud-auth helper to obtain real access tokens for each service account.
+   - Use `page.addInitScript(token => { ... }, token)` to define a GIS mock before the app
+     loads. The mock replaces `google.accounts.oauth2.initTokenClient` so that when the app
+     calls it, the callback fires immediately with the service account token.
+   - The app's `handleTokenResponse` processes the token normally — sets `authState`, fetches
+     userinfo, calls `notifyAuthChange()`.
+4. The collab tests use different account pairings depending on the scenario:
+   - **Writer-to-reader** (default): `ci-writer-1` for pageA (editor), `ci-reader-1` for
+     pageB (observer). Tests permission asymmetry — edits propagate from writer to reader,
+     reader sees presence but cannot edit.
+   - **Writer-to-writer**: `ci-writer-1` for pageA, `ci-writer-2` for pageB. Tests
+     simultaneous editing, conflict resolution, and bidirectional sync.
+5. Run the E2E suite in the deploy workflow after the smoke test passes.
+6. Capture Playwright traces and screenshots on failure, upload as workflow artifacts.
 
-**Key consideration**: The dev Cloud Run frontend is built with production env vars
-(`VITE_COLLAB_URL=wss://...`), so it will connect to the real relay, not localhost. The
-`__ganttlet_setTestAuth` hook is only available when `import.meta.env.DEV` is true — but
-Cloud Run serves a production build. Solutions:
-- Build the dev frontend with `--mode e2e` instead of production mode (exposes test hooks).
-- Or add a `VITE_TEST_AUTH` build flag that's set for dev deployments only.
-- Or skip client-side test auth and use the service account token from Step 2 directly.
+**Environments and auth summary**:
+
+| Environment | Frontend Build | Relay Auth | E2E Token Injection |
+|-------------|---------------|------------|---------------------|
+| Local E2E | `vite --mode e2e` (dev) | `GANTTLET_TEST_AUTH=1` | `__ganttlet_setTestAuth` hook (exists in dev builds) |
+| Dev Cloud Run | `vite build` (production) | `GANTTLET_TEST_AUTH=1` | `page.addInitScript()` GIS mock with real SA tokens |
+| Staging Cloud Run | `vite build` (production) | Real Google token validation | `page.addInitScript()` GIS mock with real SA tokens |
+| Prod | `vite build` (production) | Real Google token validation | No E2E — manual QA only |
 
 **Files to modify**:
-- `playwright.config.ts` — support `BASE_URL` env var override
-- `.github/workflows/deploy.yml` — add E2E job after deploy
-- `e2e/helpers/collab-harness.ts` — support cloud auth (service account token or test mode)
-- Possibly `deploy/frontend/Dockerfile` or build args — for dev-mode builds
+- `e2e/helpers/cloud-auth.ts` — new helper: SA key → access token exchange
+- `e2e/helpers/collab-harness.ts` — support cloud auth mode via `addInitScript` GIS mock
+- `playwright.config.ts` — support `BASE_URL` env var override, skip webServers for cloud
+- `.github/workflows/deploy.yml` — add E2E job after smoke test
 
 ---
 
-## Step 4: Staging Project + Secret Manager
+## Step 4: Staging Project + Secret Manager (requires manual GCP Console work)
 
 **Target**: ganttlet-staging (new project)
+
+**Prerequisite**: The promotable artifacts migration must be complete before this step.
+The frontend must read `GANTTLET_GOOGLE_CLIENT_ID` and `GANTTLET_COLLAB_URL` from runtime
+config (served by the Go static server from Cloud Run env vars), not from compile-time
+`VITE_*` vars. Without this, staging would require a separate frontend build, defeating
+the single-artifact principle. See `docs/unplanned-issues.md` for the migration task.
 
 **Goal**: Create a dedicated staging environment with config stored in the cloud, not in the
 repo.
@@ -163,7 +273,7 @@ repo.
 staging config to a specific commit and exposes infrastructure details in the repo. Secret
 Manager (or Cloud Run env vars set via `gcloud`) keeps config out of the codebase.
 
-**What to do**:
+**Manual steps required**:
 
 1. Create the `ganttlet-staging` GCP project using `deploy/setup.sh`.
    - Link billing account.
@@ -174,23 +284,37 @@ Manager (or Cloud Run env vars set via `gcloud`) keeps config out of the codebas
    - Add test users (your accounts + any QA accounts) on the consent screen.
    - Enable APIs: Cloud Run, Sheets, Drive, Artifact Registry, Secret Manager.
 2. Set up Workload Identity Federation for the staging project (same pattern as dev).
-3. Store staging config in Secret Manager (or as Cloud Run env vars):
-   - `VITE_GOOGLE_CLIENT_ID` (staging OAuth client ID)
-   - `VITE_COLLAB_URL` (staging relay URL — known after first relay deploy)
-   - `RELAY_ALLOWED_ORIGINS` (staging frontend URL)
-   - `GOOGLE_CLIENT_ID` (same as VITE_GOOGLE_CLIENT_ID, used by deploy scripts)
-4. Add staging-specific secrets to GitHub:
+3. Create `ci-writer-1`, `ci-writer-2`, and `ci-reader-1` service accounts (same pattern as
+   dev prerequisites).
+4. Create a test Google Sheet, share with all three service accounts (Editors/Viewer).
+5. Store staging config as Cloud Run env vars (or Secret Manager):
+   - **Frontend service env vars** (read by the Go static server, served to browser at
+     runtime after the promotable artifacts migration — see `docs/unplanned-issues.md`):
+     - `GANTTLET_GOOGLE_CLIENT_ID` (staging OAuth client ID)
+     - `GANTTLET_COLLAB_URL` (staging relay WebSocket URL)
+   - **Relay service env vars** (already runtime-configured):
+     - `RELAY_ALLOWED_ORIGINS` (staging frontend URL)
+   - Note: Until the promotable artifacts migration is complete, the frontend still uses
+     `VITE_GOOGLE_CLIENT_ID` and `VITE_COLLAB_URL` as compile-time vars via `.env.production`.
+     The `GANTTLET_*` names above are the target runtime equivalents that the Go server will
+     read. The migration replaces `import.meta.env.VITE_*` references in source code with
+     reads from `window.__ganttlet_config`, populated by the Go server from these env vars.
+6. Add staging-specific secrets to GitHub:
    - `GCP_PROJECT_ID_STAGING`
    - `WIF_PROVIDER_STAGING`
    - `WIF_SERVICE_ACCOUNT_STAGING`
-   - `GCP_SA_KEY_STAGING` (service account for CI smoke tests)
+   - `GCP_SA_KEY_WRITER1_STAGING`
+   - `GCP_SA_KEY_WRITER2_STAGING`
+   - `GCP_SA_KEY_READER1_STAGING`
    - `TEST_SHEET_ID_STAGING`
-5. Update `deploy.yml` to use per-environment secrets:
+7. Update `deploy.yml` to use per-environment secrets:
    - `deploy-staging` job reads `*_STAGING` secrets.
    - `deploy-production` job reads `*_PRODUCTION` secrets.
    - `build-and-push` pushes images to both projects' Artifact Registries (or a shared one).
-6. The staging frontend build uses the staging OAuth client ID and relay URL, pulled from
-   Secret Manager or passed as build args.
+8. The staging frontend uses the same image as dev. The Go static server reads
+   `GANTTLET_GOOGLE_CLIENT_ID` and `GANTTLET_COLLAB_URL` from Cloud Run env vars and serves
+   them to the browser at runtime (no rebuild needed). This requires the promotable artifacts
+   migration to be complete first — see `docs/unplanned-issues.md`.
 
 **Config that does NOT go in the repo**:
 - OAuth client IDs (per-project)
@@ -206,7 +330,7 @@ Manager (or Cloud Run env vars set via `gcloud`) keeps config out of the codebas
 
 ---
 
-## Step 5: Staging Smoke Tests + E2E Verification
+## Step 5: Staging Smoke Tests + E2E Verification (no manual intervention)
 
 **Target**: ganttlet-staging
 
@@ -222,17 +346,21 @@ environment specifically is working (not just dev).
 
 1. Run the same health check from Step 1 against staging URLs.
 2. Run the service account smoke test from Step 2 against staging (using staging service
-   account and test sheet).
-3. Run the Playwright E2E suite from Step 3 against staging Cloud Run services.
+   accounts and test sheet).
+3. Run the Playwright E2E suite from Step 3 against staging Cloud Run services. The same
+   `page.addInitScript()` GIS mock injects service account tokens — no frontend changes
+   needed since staging uses the same production build as dev and prod.
 4. Capture Playwright traces and screenshots on failure, upload as workflow artifacts.
 
-**Auth**: The staging relay should validate real tokens (not `GANTTLET_TEST_AUTH=1`). The
-service account from Step 4 authenticates via a real JWT, so this also validates that staging
-auth is correctly configured.
+**Auth**: The staging relay validates real Google tokens (no `GANTTLET_TEST_AUTH=1`). The
+service account access tokens are real Google-issued JWTs, so they pass validation. This is
+a strictly stronger test than dev — it validates the full auth chain (token issuance → relay
+validation → Drive permission check) in addition to the UI and sync tests. The same frontend
+artifact from dev can be promoted to staging without rebuilding.
 
 ---
 
-## Step 6: Visual Regression + Periodic OAuth Verification
+## Step 6: Visual Regression + Periodic OAuth Verification (partially manual)
 
 **Target**: ganttlet-staging
 
@@ -244,7 +372,7 @@ Separately, all automated tests use service accounts, which bypass the user-faci
 consent flow. A periodic test with a real Google account ensures the sign-in experience
 still works.
 
-**What to do (visual regression)**:
+**What to do (visual regression — no manual intervention)**:
 
 1. Add `expect(page).toHaveScreenshot()` assertions to E2E tests for key views:
    - Gantt chart with task bars and dependency arrows
@@ -255,7 +383,7 @@ still works.
 3. Set a `maxDiffPixels` threshold in `playwright.config.ts`.
 4. Screenshot diffs are uploaded as workflow artifacts on failure.
 
-**What to do (periodic OAuth verification)**:
+**What to do (periodic OAuth verification — one-time manual setup)**:
 
 1. Move the dev project's OAuth consent screen to **External (unverified)** so refresh tokens
    last months instead of 7 days.
@@ -289,9 +417,12 @@ still works.
 - `deploy.yml` — builds, pushes, deploys to staging/production via Cloud Run
 
 **Not yet done**:
+- Prerequisites: Service accounts, test Sheet, GitHub secrets, dev relay `GANTTLET_TEST_AUTH`
 - Step 1: Post-deploy health check against dev Cloud Run
-- Step 2: Service account setup in dev project + cloud smoke test script
+- Step 2: Service account smoke test script + workflow integration
 - Step 3: Playwright E2E against live dev Cloud Run deployment
+- Promotable artifacts migration (must complete before Step 4 — see `docs/unplanned-issues.md`)
+- Single-artifact deployment pipeline (must complete before Step 4 — see `docs/unplanned-issues.md`)
 - Step 4: ganttlet-staging GCP project + Secret Manager config
 - Step 5: Staging smoke tests + E2E verification
 - Step 6: Visual regression baselines + periodic OAuth flow test
@@ -315,5 +446,7 @@ still works.
 | `server/src/auth.rs` | Relay auth — has `GANTTLET_TEST_AUTH` bypass |
 | `server/src/config.rs` | Relay config from env vars |
 | `e2e/helpers/collab-harness.ts` | Two-browser test harness with test auth injection |
+| `e2e/helpers/cloud-auth.ts` | (Step 3) SA key → Google access token exchange |
+| `scripts/cloud-smoke-test.sh` | (Step 2) Headless Sheets API + relay smoke test |
 | `src/collab/yjsProvider.ts` | WebSocket provider, reads `VITE_COLLAB_URL` |
 | `src/sheets/oauth.ts` | OAuth + `__ganttlet_setTestAuth` dev hook |

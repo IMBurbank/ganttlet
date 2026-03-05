@@ -1,7 +1,7 @@
 # Phase 11 Group F — Playwright E2E Tests for Collaboration & Core UI
 
 You are implementing Phase 11 Group F for the Ganttlet project.
-Read CLAUDE.md and TASKS.md for full context.
+Read CLAUDE.md and docs/TASKS.md for full context.
 
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
 Execute all tasks sequentially without stopping for approval.

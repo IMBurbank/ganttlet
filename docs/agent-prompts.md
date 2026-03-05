@@ -1,9 +1,18 @@
 # Agent Prompts
 
-Agent prompts now live in `docs/prompts/` as standalone files (one per group).
+Agent prompts are organized by phase in `docs/prompts/<phaseN>/` subdirectories.
 
-See:
-- `docs/prompts/groupA.md` — Phase 9 Group A (UX Polish)
-- `docs/prompts/groupB.md` — Phase 9 Group B (Cascade Bug Fix)
-- `docs/prompts/groupC.md` — Phase 9 Group C (Deployment Hardening)
-- `docs/prompts/merge.md` — Phase 9 Merge Instructions
+Current prompt directories:
+
+- `docs/prompts/phase11/` — Phase 11 (Testing Infrastructure & Presence Fix)
+  - `groupE.md` — Group E (Presence Fix + Server Tests)
+  - `groupF.md` — Group F (Playwright E2E Tests)
+  - `groupG.md` — Group G (CI Pipeline for E2E)
+
+- `docs/prompts/phase12/` — Phase 12 (Scheduling Engine Overhaul)
+  - `groupH.md` — Group H (Cascade Fixes)
+  - `groupI.md` — Group I (Critical Path)
+  - `groupJ.md` — Group J (Cascade UX + Recalculate UI)
+  - `groupK.md` — Group K (Critical Path UI + Float Viz)
+  - `groupL.md` — Group L (Constraints + Recalc)
+  - `validate.md` — Post-merge validation

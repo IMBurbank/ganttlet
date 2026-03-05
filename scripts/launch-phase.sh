@@ -19,7 +19,7 @@
 #   RETRY_DELAY=5       — seconds between retries
 #   VALIDATE_MAX_ATTEMPTS=3 — max fix-and-retry cycles for validation
 #   MERGE_FIX_RETRIES=3 — retries for merge conflict resolution
-#   PROMPTS_DIR         — path to prompt files (default: docs/prompts)
+#   PROMPTS_DIR         — path to prompt files (default: docs/prompts/phase12)
 #   WORKTREE_BASE       — worktree root (default: /workspace/.claude/worktrees)
 
 set -euo pipefail
@@ -29,7 +29,7 @@ set -euo pipefail
 MAX_RETRIES="${MAX_RETRIES:-3}"
 RETRY_DELAY="${RETRY_DELAY:-5}"
 MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
-PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts}"
+PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase12}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
 # Set WATCH=1 to see full live agent output in tmux panes

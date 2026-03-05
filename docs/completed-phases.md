@@ -122,3 +122,11 @@ Single stage, three parallel agent groups (E+F+G) → merge → validation agent
 - **Group E (Presence Fix + Server Tests)**: Diagnosed full awareness flow end-to-end; fixed root causes in ws.rs, room.rs, yjsProvider.ts; added integration tests
 - **Group F (Playwright E2E Tests)**: Added collaboration test harness, E2E tests, tooltip tests
 - **Group G (CI Pipeline for E2E)**: Added Playwright E2E workflow, verified server integration tests run in CI
+
+## Phase 12: Scheduling Engine Overhaul — DONE
+Three-stage pipeline: stage 1 (H+I+L parallel) → merge → stage 2 (J) → merge → stage 3 (K) → merge → validation.
+- **Group H (Cascade Fixes)**: Fixed cascade duration corruption bug; implemented asymmetric cascade (forward-only push, backward moves expose slack instead of cascading)
+- **Group I (Critical Path)**: Debugged and fixed CPM forward/backward passes; fixed scoped critical path for project/workstream; removed milestone scope; added critical edge identification
+- **Group L (Constraints + Recalc)**: Added SNET (Start No Earlier Than) constraint type; implemented recalculate-to-earliest with today-floor and constraint respect
+- **Group J (Cascade UX + Recalculate UI)**: Updated cascade behavior for asymmetric cascade in reducer; added RECALCULATE_EARLIEST action with context menu and toolbar button; extended cascade highlight to 10 seconds
+- **Group K (Critical Path UI + Float Viz)**: Updated critical path rendering with critical edge highlighting; removed milestone scope from UI; added float/slack visualization for backward moves

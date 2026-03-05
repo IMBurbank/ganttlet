@@ -27,6 +27,7 @@ See `docs/completed-phases.md` for detailed architecture notes (auth, sync, depl
 - **Google Sheets as durable store**: Google Sheets is the single source of truth for project data. There is no application database.
 - **Minimal dependencies, high security posture**: Keep the dependency tree small on both client and server — every added dependency is attack surface.
 - **Browser-first business logic**: All scheduling, rendering, Sheets I/O, and data transformation runs in the browser.
+- **Promotable artifacts**: Frontend and relay images must be identical across environments (dev → staging → prod). Environment-specific config (OAuth client IDs, relay URLs, allowed origins) is injected at deploy time via Cloud Run env vars or Secret Manager — never baked into the build. Test-specific code paths (e.g., `__ganttlet_setTestAuth`) must not exist in production builds. E2E tests against cloud environments inject auth externally via Playwright's `page.addInitScript()`, not via compile-time flags. See `docs/cloud-verification-plan.md` Step 3 for details.
 
 ## Commands
 - `npm run build:wasm` — Build Rust scheduler to WASM
@@ -88,19 +89,19 @@ The orchestrator still handles worktree setup, merge gating, and validation auto
 Attach with `tmux attach -t <phase>-agents`, switch windows with `Ctrl-B N`/`P`, detach
 with `Ctrl-B D`.
 
-**Agent prompts** live in `docs/prompts/` as standalone files (one per group). Each prompt:
+**Agent prompts** live in `docs/prompts/<phaseN>/` as standalone files (one per group). Each prompt:
 - Lists the exact files the agent may modify (zero overlap between parallel groups)
 - Instructs the agent to skip plan mode and execute without confirmation
 - Includes retry context so restarted agents resume where they left off
 
-**Validation prompt** (`docs/prompts/validate.md`) runs after merge. It:
+**Validation prompt** (e.g., `docs/prompts/phase12/validate.md`) runs after merge. It:
 - Executes all test suites (Rust, TypeScript, Vitest, Playwright E2E)
 - If anything fails, diagnoses and fixes the issue, then re-runs
 - Retries up to `VALIDATE_MAX_ATTEMPTS` (default 3) fix-and-retry cycles
 - Prints a final pass/fail report table
 
 **Unplanned issues** are triaged in `docs/unplanned-issues.md` using a Backlog → Claimed → Planned
-workflow. Planning agents claim up to 3 items, plan them into `TASKS.md`, then mark them planned.
+workflow. Planning agents claim up to 3 items, plan them into `docs/TASKS.md`, then mark them planned.
 
 ### Claude CLI Reference (for launch scripts)
 The `claude` binary in the dev container has specific constraints. When writing or modifying
@@ -141,21 +142,22 @@ The `claude` binary in the dev container has specific constraints. When writing 
 ### Pre-Phase Checklist
 Before launching any phase, **always commit all planning work** so there is a safe point to
 revert to if something goes wrong:
-1. Track any new untracked files (`git add` prompt files, TASKS.md, config files, etc.)
+1. Track any new untracked files (`git add` prompt files, docs/TASKS.md, config files, etc.)
 2. Commit with a descriptive message (e.g., "prep: phase 12 planning — prompts, tasks, launch config")
 3. Verify `git status` is clean before running `launch-phase.sh`
 
 This prevents `git reset --hard` from destroying planning work if a phase run needs to be reverted.
 
 ### Adding a New Phase
-1. Create prompt files in `docs/prompts/` (e.g., `groupA.md`, `groupB.md`, `groupC.md`)
+1. Create a phase subdirectory `docs/prompts/phase<N>/` with prompt files (e.g., `groupA.md`, `groupB.md`, `groupC.md`)
 2. Define file ownership, interface contracts, and execution order in this file
-3. Add tasks to `TASKS.md`
+3. Add tasks to `docs/TASKS.md`
 4. Update the config block at the top of `scripts/launch-phase.sh`:
+   - `PROMPTS_DIR` to point to `docs/prompts/phase<N>`
    - `STAGE1_GROUPS`/`STAGE1_BRANCHES`/`STAGE1_MERGE_MESSAGES` for the first parallel set
    - `STAGE2_GROUPS`/`STAGE2_BRANCHES`/`STAGE2_MERGE_MESSAGES` for the second parallel set (leave empty arrays if single-stage)
    - `STAGE3_GROUPS`/`STAGE3_BRANCHES`/`STAGE3_MERGE_MESSAGES` for a third parallel set (leave empty arrays if not needed)
-5. Optionally create `docs/prompts/validate.md` for post-merge validation
+5. Optionally create `docs/prompts/phase<N>/validate.md` for post-merge validation
 6. Run `./scripts/launch-phase.sh all` (executes: stage1 → merge1 → ... → merge3 → validate)
 
 ### Single-Agent Issue Work
@@ -190,10 +192,10 @@ and pre-installs the Chromium browser binary. The relay server source (`server/`
 so `cargo build --release` uses the host-persisted `server/target/` cache across container restarts.
 
 ## Task Queue
-See `TASKS.md` for claimable tasks and claiming convention.
+See `docs/TASKS.md` for claimable tasks and claiming convention.
 
 ## Completed Work
-Phases 0-11 are done. Details in `docs/completed-phases.md`.
+Phases 0-12 are done. Details in `docs/completed-phases.md`.
 
 ## Cloud Verification Plan
 See `docs/cloud-verification-plan.md` for the full plan to add cloud-based verification in

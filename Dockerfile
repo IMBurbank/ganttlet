@@ -30,12 +30,16 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
     && . "$HOME/.cargo/env" \
     && rustup target add wasm32-unknown-unknown \
-    && cargo install wasm-pack
+    && cargo install wasm-pack \
+    && rustup component add rust-analyzer
 
 ENV PATH="/home/node/.local/bin:/home/node/.cargo/bin:${PATH}"
 
 # Install Playwright Chromium browser binary (OS deps already installed above)
 RUN npx playwright@1.58.2 install chromium
+
+# TypeScript language server for Claude Code typescript-lsp plugin
+RUN npm install -g typescript-language-server typescript
 
 # Set up git config defaults (will be overridden by volume mount)
 

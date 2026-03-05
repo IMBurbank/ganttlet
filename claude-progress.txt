@@ -24,3 +24,14 @@ D2: DONE — created quality gate workflow with 4 validation checks
 D3: DONE — overhauled agent-work.yml with rich prompts, retry loop, complexity config, agent summary PR body
 D4: DONE — all YAML files validated, only target files modified
 D5: DONE — all success criteria verified
+
+=== Plugin Adoption Plan ===
+Runbook: docs/plugin-adoption-plan.md
+Status: WAITING for user manual steps (M1: OAuth token, M2: GitHub secret)
+Next: After user confirms "manual steps done", execute A1-A6 from the runbook.
+A1: PENDING — Create .claude/settings.json (plugins + PreToolUse hooks)
+A2: PENDING — Update Dockerfile (rust-analyzer + typescript-language-server)
+A3: PENDING — Update agent-work.yml (auth migration + plugins + code-review)
+A4: PENDING — Verify PreToolUse hooks block correctly
+A5: PENDING — Verify npm run build passes
+A6: PENDING — Commit on feature/plugin-adoption branch

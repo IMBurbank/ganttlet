@@ -39,6 +39,27 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Install LSP binaries for Claude Code plugins
+        run: |
+          npm install -g typescript-language-server typescript
+          rustup component add rust-analyzer
+
+      - name: Cache Claude Code plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.claude/plugins
+          key: claude-plugins-v1
+
+      - name: Install Claude Code plugins
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          claude plugin marketplace update claude-plugins-official || true
+          claude plugin install rust-analyzer-lsp@claude-plugins-official --scope local || true
+          claude plugin install typescript-lsp@claude-plugins-official --scope local || true
+          claude plugin install github@claude-plugins-official --scope local || true
+          claude plugin install code-review@claude-plugins-official --scope local || true
+
       - name: Determine agent configuration
         id: config
         run: |
@@ -62,7 +83,7 @@ jobs:
 
       - name: Run Claude Code (with retry)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
@@ -201,6 +222,24 @@ jobs:
             --body-file /tmp/pr-body.md \
             --head "$BRANCH" \
             --base main
+
+      - name: Check PR size for code review
+        if: success()
+        id: pr-size
+        run: |
+          DIFF_LINES=$(git diff origin/main...HEAD --stat | tail -1 | grep -oP '\d+(?= insertion)' || echo "0")
+          echo "lines=${DIFF_LINES}" >> $GITHUB_OUTPUT
+
+      - name: Run automated code review
+        if: success() && steps.pr-size.outputs.lines > 50
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          claude -p "/code-review" \
+            --dangerously-skip-permissions \
+            --max-turns 15 \
+            --max-budget-usd 3.00 || true
 
       - name: Comment on issue (success)
         if: success()

@@ -1,0 +1,30 @@
+{
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "github@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const f=d.tool_input?.file_path||''; if(/package-lock\\.json|src\\/wasm\\/scheduler\\/|\\.env/.test(f)){console.log(JSON.stringify({decision:'block',reason:'Protected file: '+f}))}\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const c=d.tool_input?.command||''; if(/git\\s+push/.test(c)&&/\\bmain\\b/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Cannot push directly to main. Use a feature branch and PR.'}))}\""
+          }
+        ]
+      }
+    ]
+  }
+}

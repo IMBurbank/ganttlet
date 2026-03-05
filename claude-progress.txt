@@ -29,9 +29,10 @@ D5: DONE — all success criteria verified
 Runbook: docs/plugin-adoption-plan.md
 Status: WAITING for user manual steps (M1: OAuth token, M2: GitHub secret)
 Next: After user confirms "manual steps done", execute A1-A6 from the runbook.
-A1: PENDING — Create .claude/settings.json (plugins + PreToolUse hooks)
-A2: PENDING — Update Dockerfile (rust-analyzer + typescript-language-server)
-A3: PENDING — Update agent-work.yml (auth migration + plugins + code-review)
-A4: PENDING — Verify PreToolUse hooks block correctly
-A5: PENDING — Verify npm run build passes
-A6: PENDING — Commit on feature/plugin-adoption branch
+A1: DONE — Created .claude/settings.json (4 plugins + 2 PreToolUse hooks). Fixed .gitignore negation.
+A2: DONE — Updated Dockerfile (rust-analyzer via rustup, typescript-language-server via npm global)
+A3: DONE — Updated agent-work.yml (ANTHROPIC_API_KEY→CLAUDE_CODE_OAUTH_TOKEN, plugin install+cache, code-review gated >50 lines)
+A4: DONE — All 6 hook tests pass (blocks wasm/env/lockfile/push-main, allows normal/feature-branch)
+A5: DONE — npm run build passes (429 modules, 2.35s)
+A6: DONE — Committed on feature/plugin-adoption branch (2c12b1b)
+Status: WAITING for user manual steps (M1: extract OAuth token from Docker, M2: add GitHub secret) and verification (V1-V4)

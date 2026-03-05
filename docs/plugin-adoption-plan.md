@@ -18,12 +18,12 @@
 | M1. Generate OAuth token | USER | [ ] DEFERRED | Extract from `~/.claude/.credentials.json` inside Docker container next session |
 | M2. Add GitHub repo secret | USER | [ ] DEFERRED | `CLAUDE_CODE_OAUTH_TOKEN` in repo settings — do after M1 |
 | M3. Confirm manual steps done | USER | [x] SKIPPED | Deferred manual steps; proceeding with file changes only |
-| A1. Create `.claude/settings.json` | CLAUDE | [ ] | Plugins + PreToolUse hooks |
-| A2. Update `Dockerfile` | CLAUDE | [ ] | Add rust-analyzer + typescript-language-server |
-| A3. Update `agent-work.yml` | CLAUDE | [ ] | Auth migration + plugin install + code-review step |
-| A4. Verify hooks work | CLAUDE | [ ] | Test PreToolUse blocks locally |
-| A5. Verify build | CLAUDE | [ ] | `npm run build` still passes |
-| A6. Commit all changes | CLAUDE | [ ] | Single commit, feature branch |
+| A1. Create `.claude/settings.json` | CLAUDE | [x] DONE | Plugins + PreToolUse hooks. Also added `.gitignore` negation for `.claude/settings.json`. |
+| A2. Update `Dockerfile` | CLAUDE | [x] DONE | rust-analyzer (rustup component) + typescript-language-server (npm global) |
+| A3. Update `agent-work.yml` | CLAUDE | [x] DONE | Auth migration + plugin install + code-review step (gated >50 lines). Plugin installs use `\|\| true` for resilience. |
+| A4. Verify hooks work | CLAUDE | [x] DONE | All 6 test cases pass: blocks wasm/env/lockfile/push-main, allows normal files/feature branches |
+| A5. Verify build | CLAUDE | [x] DONE | `npm run build` passes (429 modules, 2.35s) |
+| A6. Commit all changes | CLAUDE | [x] DONE | `feature/plugin-adoption` branch, commit `2c12b1b` |
 | V1. Docker build test | USER | [ ] | `docker compose build dev` on host |
 | V2. Container LSP check | USER | [ ] | `rust-analyzer --version` + `typescript-language-server --version` |
 | V3. Plugin load check | USER | [ ] | `claude` shows plugins in `/plugin` > Installed |
@@ -299,5 +299,7 @@ _Space for tracking issues, observations, and follow-ups as implementation proce
 | 2026-03-05 | Plan created. Codebase audit completed via `claude-code-setup` skill. |
 | 2026-03-05 | Tier 2 removed, protective hooks added, Docker volume rejected. |
 | 2026-03-05 | M1/M2 deferred: no Claude Code on laptop. Will extract token from Docker `~/.claude/.credentials.json` next session. |
-| | |
+| 2026-03-05 | `.claude/` was fully gitignored. Fixed with `.claude/*` + `!.claude/settings.json` negation pattern. |
+| 2026-03-05 | Plugin install steps in CI use `\|\| true` to avoid blocking agent work if plugin marketplace is unreachable. |
+| 2026-03-05 | A1-A6 complete. Committed on `feature/plugin-adoption` (2c12b1b). Awaiting user V1-V4 verification + M1/M2. |
 | | |

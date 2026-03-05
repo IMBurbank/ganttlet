@@ -108,5 +108,5 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 See `docs/TASKS.md` for claimable tasks and claiming convention.
 
 ## Project Status
-- **Completed**: Phases 0-12. See `docs/completed-phases.md`.
+- **Completed**: Phases 0-13. See `docs/completed-phases.md`.
 - **Roadmap**: Resource assignment/leveling, baseline tracking, export (PDF/PNG/CSV).

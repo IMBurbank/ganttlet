@@ -1,0 +1,5 @@
+D1: DONE — created issue template with all required fields (summary, acceptance-criteria, scope, files, complexity, context)
+D2: DONE — created quality gate workflow with 4 validation checks
+D3: DONE — overhauled agent-work.yml with rich prompts, retry loop, complexity config, agent summary PR body
+D4: DONE — all YAML files validated, only target files modified
+D5: DONE — all success criteria verified

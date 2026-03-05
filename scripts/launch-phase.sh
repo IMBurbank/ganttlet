@@ -29,6 +29,11 @@ set -euo pipefail
 MAX_RETRIES="${MAX_RETRIES:-3}"
 RETRY_DELAY="${RETRY_DELAY:-5}"
 MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
+DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
+DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
+STALL_TIMEOUT="${STALL_TIMEOUT:-30}"  # minutes before warning about stalled agent
+# Per-agent model override: MODEL=sonnet run_agent groupH "$workdir"
+# Default: uses Claude's default model. Options: opus, sonnet, haiku
 PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase13}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
@@ -132,10 +137,15 @@ ${prompt}"
     fi
 
     # Run claude, capturing exit code
+    local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
+    local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+    local model_flag=""
+    [[ -n "${MODEL:-}" ]] && model_flag="--model $MODEL"
     set +e
     (
       cd "$workdir"
-      echo "$full_prompt" | claude --dangerously-skip-permissions -p -
+      # shellcheck disable=SC2086
+      echo "$full_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" $model_flag -p -
     ) >> "$logfile" 2>&1
     local exit_code=$?
     set -e
@@ -155,6 +165,39 @@ ${prompt}"
 
   err "${group}: failed after ${MAX_RETRIES} attempts. Check ${logfile}"
   return 1
+}
+
+# ── Stall detection watchdog ─────────────────────────────────────────────────
+
+monitor_agent() {
+  local agent_pid="$1"
+  local workdir="$2"
+  local group="$3"
+  local timeout_minutes="${STALL_TIMEOUT:-30}"
+  local logfile="${LOG_DIR}/${group}.log"
+  local last_size=0
+  local last_activity
+  last_activity=$(date +%s)
+
+  while kill -0 "$agent_pid" 2>/dev/null; do
+    sleep 60
+
+    # Check if the log file is growing
+    local current_size=0
+    [[ -f "$logfile" ]] && current_size=$(stat -c %s "$logfile" 2>/dev/null || echo 0)
+
+    if [[ "$current_size" != "$last_size" ]]; then
+      last_size=$current_size
+      last_activity=$(date +%s)
+    else
+      local now
+      now=$(date +%s)
+      local elapsed_since_activity=$(( (now - last_activity) / 60 ))
+      if [[ $elapsed_since_activity -ge $timeout_minutes ]]; then
+        warn "${group}: no log activity in ${elapsed_since_activity} minutes — may be stuck"
+      fi
+    fi
+  done
 }
 
 # ── Worktree setup ───────────────────────────────────────────────────────────
@@ -212,6 +255,9 @@ EXITCODE_FILE="PLACEHOLDER_EXITCODE_FILE"
 LOGFILE="PLACEHOLDER_LOGFILE"
 MAX_RETRIES="PLACEHOLDER_MAX_RETRIES"
 RETRY_DELAY="PLACEHOLDER_RETRY_DELAY"
+MAX_TURNS_VAL="PLACEHOLDER_MAX_TURNS"
+MAX_BUDGET_VAL="PLACEHOLDER_MAX_BUDGET"
+MODEL_FLAG="PLACEHOLDER_MODEL_FLAG"
 
 PROMPT="$(cat "$PROMPT_FILE")"
 
@@ -250,7 +296,8 @@ ${PROMPT}"
 
   # Run claude, capturing output to log AND showing in tmux
   # PIPESTATUS: [0]=echo [1]=claude [2]=tee — we want claude's exit code
-  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions -p - 2>&1 | tee -a "$LOGFILE"
+  # shellcheck disable=SC2086
+  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions --max-turns "$MAX_TURNS_VAL" --max-budget-usd "$MAX_BUDGET_VAL" $MODEL_FLAG -p - 2>&1 | tee -a "$LOGFILE"
   EXIT_CODE=${PIPESTATUS[1]:-$?}
 
   if [[ $EXIT_CODE -eq 0 ]]; then
@@ -280,6 +327,11 @@ WRAPPER_OUTER
   sed -i "s|PLACEHOLDER_LOGFILE|${logfile}|g" "$wrapper"
   sed -i "s|PLACEHOLDER_MAX_RETRIES|${MAX_RETRIES}|g" "$wrapper"
   sed -i "s|PLACEHOLDER_RETRY_DELAY|${RETRY_DELAY}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_MAX_TURNS|${MAX_TURNS:-$DEFAULT_MAX_TURNS}|g" "$wrapper"
+  sed -i "s|PLACEHOLDER_MAX_BUDGET|${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}|g" "$wrapper"
+  local model_flag_val=""
+  [[ -n "${MODEL:-}" ]] && model_flag_val="--model $MODEL"
+  sed -i "s|PLACEHOLDER_MODEL_FLAG|${model_flag_val}|g" "$wrapper"
 
   chmod +x "$wrapper"
   echo "$wrapper"
@@ -357,27 +409,35 @@ watch_parallel_stage() {
     sleep 5
   done
 
-  # Collect results
-  local all_ok=true
+  # Collect results, tracking success/failure per group
+  local succeeded_groups=()
+  local failed_groups=()
   for i in "${!w_groups_ref[@]}"; do
     local group="${w_groups_ref[$i]}"
     local rc
     rc=$(cat "${LOG_DIR}/${group}.exit" 2>/dev/null || echo "1")
     if [[ "$rc" -ne 0 ]]; then
       err "${group} failed with exit code ${rc}"
-      all_ok=false
+      failed_groups+=("$group")
     else
       ok "${group} finished successfully"
+      succeeded_groups+=("$group")
     fi
   done
+
+  # Write result files so the merge stage knows which groups to skip
+  echo "${succeeded_groups[*]}" > "${LOG_DIR}/stage-succeeded.txt"
+  echo "${failed_groups[*]}" > "${LOG_DIR}/stage-failed.txt"
 
   # Clean up tmux session
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 
-  if $all_ok; then
+  if [[ ${#failed_groups[@]} -eq 0 ]]; then
     ok "=== ${stage_label} complete: all agents finished ==="
+  elif [[ ${#succeeded_groups[@]} -gt 0 ]]; then
+    warn "=== ${stage_label} partial success: ${succeeded_groups[*]} succeeded, ${failed_groups[*]} failed ==="
   else
-    err "=== ${stage_label} finished with errors ==="
+    err "=== ${stage_label} ALL groups failed ==="
     return 1
   fi
 }
@@ -403,8 +463,15 @@ watch_validate() {
     if [[ $attempt -gt 1 ]]; then
       # Write augmented prompt to a temp file
       local prev_log="${LOG_DIR}/validate-attempt$((attempt - 1)).log"
-      local prev_failures
-      prev_failures="$(grep -A2 'FAIL' "$prev_log" 2>/dev/null | tail -30 || echo "(no previous log)")"
+      local prev_report
+      prev_report=$(sed -n '/║.*CHECK/,/║.*OVERALL/p' "$prev_log" 2>/dev/null || echo "")
+      local prev_errors
+      prev_errors=$(grep -E '(error\[|FAILED|panicked|assertion.*failed)' "$prev_log" 2>/dev/null | tail -20 || echo "")
+      local prev_failures="Previous validation report:
+${prev_report}
+
+Specific errors from previous attempt:
+${prev_errors}"
       prompt_to_use="${LOG_DIR}/validate-prompt-attempt${attempt}.md"
       {
         echo "NOTE: This is validation attempt ${attempt}/${max_attempts}. Previous attempt found failures:"
@@ -426,7 +493,7 @@ watch_validate() {
 set -uo pipefail
 cd "$WORKSPACE"
 # PIPESTATUS: [0]=claude [1]=tee — we want claude's exit code
-claude --dangerously-skip-permissions -p "\$(cat '$prompt_to_use')" 2>&1 | tee "$logfile"
+claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p "\$(cat '$prompt_to_use')" 2>&1 | tee "$logfile"
 EXIT_CODE=\${PIPESTATUS[0]:-\$?}
 echo "\$EXIT_CODE" > "$exitcode_file"
 exit "\$EXIT_CODE"
@@ -475,6 +542,37 @@ WRAPPER
   done
 }
 
+# ── Preflight check ──────────────────────────────────────────────────────────
+
+preflight_check() {
+  log "=== Preflight check ==="
+
+  # Clean git state
+  if [[ -n "$(cd "$WORKSPACE" && git status --porcelain)" ]]; then
+    err "Dirty git state — commit or stash changes before launching agents"
+    return 1
+  fi
+
+  # Check that prompt files exist
+  local prompts_exist=true
+  for group in "$@"; do
+    if [[ ! -f "${WORKSPACE}/${PROMPTS_DIR}/${group}.md" ]]; then
+      err "Missing prompt file: ${PROMPTS_DIR}/${group}.md"
+      prompts_exist=false
+    fi
+  done
+  $prompts_exist || return 1
+
+  # Quick build check — verify WASM builds and basic compilation
+  log "Checking WASM build..."
+  if ! (cd "$WORKSPACE" && npm run build:wasm > /dev/null 2>&1); then
+    err "WASM build broken — fix before launching agents"
+    return 1
+  fi
+
+  ok "Preflight check passed"
+}
+
 # ── Generic parallel stage runner ─────────────────────────────────────────────
 
 # Usage: run_parallel_stage "Stage 1" STAGE1_GROUPS STAGE1_BRANCHES
@@ -482,6 +580,9 @@ run_parallel_stage() {
   local stage_label="$1"
   local -n groups_ref="$2"
   local -n branches_ref="$3"
+
+  # Run preflight checks before launching agents
+  preflight_check "${groups_ref[@]}" || return 1
 
   # Delegate to tmux-based runner in WATCH mode
   if [[ "$WATCH" == "1" ]]; then
@@ -492,6 +593,7 @@ run_parallel_stage() {
   log "=== ${stage_label}: Launching parallel groups ==="
 
   local pids=()
+  local monitor_pids=()
   local groups_list=()
 
   for i in "${!groups_ref[@]}"; do
@@ -503,14 +605,21 @@ run_parallel_stage() {
 
     # Launch agent in background
     run_agent "$group" "$worktree" &
-    pids+=($!)
+    local agent_pid=$!
+    pids+=($agent_pid)
     groups_list+=("$group")
 
-    log "${group} launched (PID: ${pids[-1]})"
+    # Launch stall detection watchdog
+    monitor_agent "$agent_pid" "$worktree" "$group" &
+    monitor_pids+=($!)
+
+    log "${group} launched (PID: ${agent_pid})"
   done
 
-  # Wait for all parallel agents
-  local all_ok=true
+  # Wait for all parallel agents, tracking success/failure per group
+  local succeeded_groups=()
+  local failed_groups=()
+
   for i in "${!pids[@]}"; do
     local pid="${pids[$i]}"
     local group="${groups_list[$i]}"
@@ -520,16 +629,29 @@ run_parallel_stage() {
     set -e
     if [[ $rc -ne 0 ]]; then
       err "${group} (PID ${pid}) failed with exit code ${rc}"
-      all_ok=false
+      failed_groups+=("$group")
     else
       ok "${group} (PID ${pid}) finished"
+      succeeded_groups+=("$group")
     fi
   done
 
-  if $all_ok; then
+  # Kill stall detection monitors
+  for mpid in "${monitor_pids[@]}"; do
+    kill "$mpid" 2>/dev/null || true
+  done
+
+  # Write result files so the merge stage knows which groups to skip
+  echo "${succeeded_groups[*]}" > "${LOG_DIR}/stage-succeeded.txt"
+  echo "${failed_groups[*]}" > "${LOG_DIR}/stage-failed.txt"
+
+  if [[ ${#failed_groups[@]} -eq 0 ]]; then
     ok "=== ${stage_label} complete: all parallel groups finished ==="
+  elif [[ ${#succeeded_groups[@]} -gt 0 ]]; then
+    warn "=== ${stage_label} partial success: ${succeeded_groups[*]} succeeded, ${failed_groups[*]} failed ==="
+    warn "Successful groups will still be merged. Review logs in ${LOG_DIR}"
   else
-    err "=== ${stage_label} finished with errors. Review logs in ${LOG_DIR} ==="
+    err "=== ${stage_label} ALL groups failed. Review logs in ${LOG_DIR} ==="
     return 1
   fi
 }
@@ -552,10 +674,29 @@ resolve_merge_conflicts() {
   log "Conflicted files:"
   echo "$conflicts" | while read -r f; do log "  $f"; done
 
+  # Capture conflict markers from each file (first 200 lines)
+  local conflict_diffs=""
+  while IFS= read -r f; do
+    conflict_diffs+="
+=== $f ===
+$(head -200 "$f")
+"
+  done <<< "$conflicts"
+
+  # Get branch commit summary
+  local branch_summary
+  branch_summary=$(git log --oneline main.."$branch" 2>/dev/null | head -10 || echo "(no commits)")
+
   local fix_prompt="You are resolving git merge conflicts in the Ganttlet project.
 The branch '${branch}' is being merged into main. The following files have conflicts:
 
 ${conflicts}
+
+What the branch did (recent commits):
+${branch_summary}
+
+Conflicted files and their current state (showing conflict markers):
+${conflict_diffs}
 
 Instructions:
 1. Read each conflicted file and resolve the conflict markers (<<<<<<< ======= >>>>>>>).
@@ -579,7 +720,7 @@ Do NOT enter plan mode. Do NOT ask for confirmation. Fix the conflicts and commi
     cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
 cd "$WORKSPACE"
-claude --dangerously-skip-permissions -p "\$(cat '$fix_prompt_file')"
+claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p "\$(cat '$fix_prompt_file')"
 echo \$? > "$exitcode_file"
 WRAPPER
     chmod +x "$wrapper"
@@ -598,7 +739,7 @@ WRAPPER
     tmux kill-session -t "${TMUX_SESSION}-merge-fix" 2>/dev/null || true
     return "$rc"
   else
-    echo "$fix_prompt" | claude --dangerously-skip-permissions -p - >> "${LOG_DIR}/merge-fix.log" 2>&1
+    echo "$fix_prompt" | claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p - >> "${LOG_DIR}/merge-fix.log" 2>&1
     return $?
   fi
 }
@@ -662,14 +803,26 @@ do_merge_stage() {
     git checkout main
   fi
 
+  # Check which groups succeeded (if stage result files exist)
+  local succeeded=""
+  [[ -f "${LOG_DIR}/stage-succeeded.txt" ]] && succeeded=$(cat "${LOG_DIR}/stage-succeeded.txt")
+
   # Merge each branch with automatic conflict resolution
+  local merge_failures=0
   for i in "${!m_branches_ref[@]}"; do
+    local group="${m_groups_ref[$i]}"
     local branch="${m_branches_ref[$i]}"
     local msg="${m_messages_ref[$i]}"
 
+    # Skip groups that failed in the parallel stage
+    if [[ -n "$succeeded" ]] && ! echo " $succeeded " | grep -q " $group "; then
+      warn "Skipping merge of ${group} (failed in parallel stage)"
+      continue
+    fi
+
     if ! merge_branch_with_retries "$branch" "$msg"; then
-      err "Failed to merge ${branch} — skipping remaining branches"
-      return 1
+      err "Failed to merge ${branch} — continuing with remaining branches"
+      merge_failures=$((merge_failures + 1))
     fi
   done
 
@@ -791,8 +944,15 @@ validate() {
     # On retry, tell the agent about previous failures
     if [[ $attempt -gt 1 ]]; then
       local prev_log="${LOG_DIR}/validate-attempt$((attempt - 1)).log"
-      local prev_failures
-      prev_failures="$(grep -A2 'FAIL' "$prev_log" 2>/dev/null | tail -30 || echo "(no previous log)")"
+      local prev_report
+      prev_report=$(sed -n '/║.*CHECK/,/║.*OVERALL/p' "$prev_log" 2>/dev/null || echo "")
+      local prev_errors
+      prev_errors=$(grep -E '(error\[|FAILED|panicked|assertion.*failed)' "$prev_log" 2>/dev/null | tail -20 || echo "")
+      local prev_failures="Previous validation report:
+${prev_report}
+
+Specific errors from previous attempt:
+${prev_errors}"
       prompt="NOTE: This is validation attempt ${attempt}/${max_attempts}. Previous attempt found failures:
 
 ${prev_failures}
@@ -806,7 +966,9 @@ ${prompt}"
     log "Validation attempt ${attempt}/${max_attempts} (log: ${logfile})"
     cd "$WORKSPACE"
 
-    echo "$prompt" | claude --dangerously-skip-permissions -p - > "$logfile" 2>&1
+    local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
+    local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+    echo "$prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
     local exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then

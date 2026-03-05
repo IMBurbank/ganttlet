@@ -1,0 +1,88 @@
+name: Agent Issue Quality Gate
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  validate-issue:
+    if: github.event.label.name == 'agent-ready'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const warnings = [];
+
+            // Check for acceptance criteria (checklist)
+            if (!body.includes('- [ ]') && !body.includes('- [x]')) {
+              warnings.push('**Missing acceptance criteria.** Add a checklist of testable outcomes so the agent knows when it is done.');
+            }
+
+            // Check for scope boundaries
+            const hasScope = body.toLowerCase().includes('scope') ||
+                             body.toLowerCase().includes('do not modify') ||
+                             body.toLowerCase().includes('do not change') ||
+                             body.toLowerCase().includes('only modify');
+            if (!hasScope) {
+              warnings.push('**No scope boundaries specified.** Without boundaries, the agent may modify unrelated files. Add a "Do NOT modify..." section.');
+            }
+
+            // Check minimum detail
+            if (body.length < 200) {
+              warnings.push('**Issue body is very short** (< 200 chars). The agent needs enough context to work autonomously. Add more detail about what needs to change and why.');
+            }
+
+            // Check for relevant files
+            const hasFiles = body.toLowerCase().includes('.ts') ||
+                             body.toLowerCase().includes('.tsx') ||
+                             body.toLowerCase().includes('.rs') ||
+                             body.toLowerCase().includes('src/') ||
+                             body.toLowerCase().includes('crates/');
+            if (!hasFiles) {
+              warnings.push('**No relevant files mentioned.** Listing specific files helps the agent start faster and stay focused.');
+            }
+
+            if (warnings.length > 0) {
+              const comment = [
+                '⚠️ **Agent readiness check found issues:**',
+                '',
+                ...warnings.map(w => `- ${w}`),
+                '',
+                'Please update the issue with the missing information, then remove and re-add the `agent-ready` label.',
+                '',
+                '---',
+                '*This check runs automatically when the `agent-ready` label is added. See `.github/ISSUE_TEMPLATE/agent-task.yml` for the recommended issue format.*'
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+
+              // Remove the label to prevent premature agent launch
+              try {
+                await github.rest.issues.removeLabel({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'agent-ready'
+                });
+              } catch (e) {
+                // Label might already be removed
+                console.log('Could not remove label:', e.message);
+              }
+            } else {
+              // Issue passes quality gate — add a confirmation comment
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '✅ **Agent readiness check passed.** The agent workflow will begin shortly.'
+              });
+            }

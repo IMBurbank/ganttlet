@@ -1,0 +1,65 @@
+name: Agent Task
+description: Task for Claude Code to implement autonomously
+labels: ["needs-review"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Task Summary
+      description: One paragraph — what needs to be built or fixed. Be specific about the expected behavior change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Checklist of testable outcomes. The agent uses this to know when it's done.
+      placeholder: |
+        - [ ] Tests pass for the new behavior
+        - [ ] Existing tests still pass
+        - [ ] No clippy/tsc warnings
+      value: |
+        - [ ] All existing tests still pass (`./scripts/full-verify.sh`)
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope Boundaries
+      description: What should NOT be changed. Prevents agent scope creep.
+      placeholder: |
+        - Do NOT modify the relay server
+        - Do NOT change public WASM bindings
+        - Do NOT refactor unrelated code
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant Files
+      description: Files the agent should focus on (optional but highly recommended — helps the agent start faster)
+      placeholder: |
+        - src/components/gantt/TaskBar.tsx (main component)
+        - crates/scheduler/src/cascade.rs (if scheduling related)
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Estimated Complexity
+      description: Controls agent resource allocation (turns, budget)
+      options:
+        - Small (1-2 files, straightforward fix)
+        - Medium (3-5 files, some design decisions)
+        - Large (5+ files, architectural impact)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any extra information that would help the agent (links, screenshots, error messages, related issues)

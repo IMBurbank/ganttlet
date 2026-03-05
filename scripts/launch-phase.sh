@@ -398,8 +398,15 @@ watch_validate() {
     if [[ $attempt -gt 1 ]]; then
       # Write augmented prompt to a temp file
       local prev_log="${LOG_DIR}/validate-attempt$((attempt - 1)).log"
-      local prev_failures
-      prev_failures="$(grep -A2 'FAIL' "$prev_log" 2>/dev/null | tail -30 || echo "(no previous log)")"
+      local prev_report
+      prev_report=$(sed -n '/║.*CHECK/,/║.*OVERALL/p' "$prev_log" 2>/dev/null || echo "")
+      local prev_errors
+      prev_errors=$(grep -E '(error\[|FAILED|panicked|assertion.*failed)' "$prev_log" 2>/dev/null | tail -20 || echo "")
+      local prev_failures="Previous validation report:
+${prev_report}
+
+Specific errors from previous attempt:
+${prev_errors}"
       prompt_to_use="${LOG_DIR}/validate-prompt-attempt${attempt}.md"
       {
         echo "NOTE: This is validation attempt ${attempt}/${max_attempts}. Previous attempt found failures:"
@@ -786,8 +793,15 @@ validate() {
     # On retry, tell the agent about previous failures
     if [[ $attempt -gt 1 ]]; then
       local prev_log="${LOG_DIR}/validate-attempt$((attempt - 1)).log"
-      local prev_failures
-      prev_failures="$(grep -A2 'FAIL' "$prev_log" 2>/dev/null | tail -30 || echo "(no previous log)")"
+      local prev_report
+      prev_report=$(sed -n '/║.*CHECK/,/║.*OVERALL/p' "$prev_log" 2>/dev/null || echo "")
+      local prev_errors
+      prev_errors=$(grep -E '(error\[|FAILED|panicked|assertion.*failed)' "$prev_log" 2>/dev/null | tail -20 || echo "")
+      local prev_failures="Previous validation report:
+${prev_report}
+
+Specific errors from previous attempt:
+${prev_errors}"
       prompt="NOTE: This is validation attempt ${attempt}/${max_attempts}. Previous attempt found failures:
 
 ${prev_failures}

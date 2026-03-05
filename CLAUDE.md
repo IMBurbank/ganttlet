@@ -50,6 +50,7 @@ After each major task, append status to `claude-progress.txt` in the worktree ro
 - Docker-based: `docker compose run --service-ports dev` to enter container
 - Vite on port 5173 (localhost:5173)
 - PostToolUse hook (`scripts/verify.sh`) auto-runs `tsc` + `vitest` after `.ts/.tsx` edits
+- Pre-commit hook: `ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit` (rejects todo!(), stubs, commented-out tests)
 - Git workflow: `main` always deployable, feature branches, PRs before merge
 
 ## Single-Agent Issue Workflow

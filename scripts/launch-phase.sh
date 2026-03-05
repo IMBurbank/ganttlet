@@ -48,7 +48,7 @@ STAGE1_BRANCHES=(
   "feature/phase13-github-pipeline"
 )
 STAGE1_MERGE_MESSAGES=(
-  "Merge feature/phase13-claude-skills: restructure CLAUDE.md to lean core, create .claude/skills/ with 7 domain skills, extract reference docs"
+  "Merge feature/phase13-claude-skills: restructure CLAUDE.md to lean core, create .claude/skills/ with 8 domain skills, extract reference docs"
   "Merge feature/phase13-orchestrator: enrich retry context, add --max-turns/budget, improve merge conflict context, partial stage success, preflight, model selection, stall detection"
   "Merge feature/phase13-hooks-guardrails: scope-aware verify.sh, output dedup, rate limiting, compact output, pre-commit hook"
   "Merge feature/phase13-github-pipeline: issue template, quality gate workflow, overhaul agent-work.yml with retry and complexity routing"
@@ -249,6 +249,7 @@ ${PROMPT}"
   fi
 
   # Run claude, capturing output to log AND showing in tmux
+  # PIPESTATUS: [0]=echo [1]=claude [2]=tee — we want claude's exit code
   echo "$FULL_PROMPT" | claude --dangerously-skip-permissions -p - 2>&1 | tee -a "$LOGFILE"
   EXIT_CODE=${PIPESTATUS[1]:-$?}
 
@@ -419,6 +420,7 @@ watch_validate() {
 #!/usr/bin/env bash
 set -uo pipefail
 cd "$WORKSPACE"
+# PIPESTATUS: [0]=claude [1]=tee — we want claude's exit code
 claude --dangerously-skip-permissions -p "\$(cat '$prompt_to_use')" 2>&1 | tee "$logfile"
 EXIT_CODE=\${PIPESTATUS[0]:-\$?}
 echo "\$EXIT_CODE" > "$exitcode_file"
@@ -799,7 +801,7 @@ ${prompt}"
     log "Validation attempt ${attempt}/${max_attempts} (log: ${logfile})"
     cd "$WORKSPACE"
 
-    claude --dangerously-skip-permissions -p "$prompt" > "$logfile" 2>&1
+    echo "$prompt" | claude --dangerously-skip-permissions -p - > "$logfile" 2>&1
     local exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then

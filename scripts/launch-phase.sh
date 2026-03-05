@@ -562,10 +562,29 @@ resolve_merge_conflicts() {
   log "Conflicted files:"
   echo "$conflicts" | while read -r f; do log "  $f"; done
 
+  # Capture conflict markers from each file (first 200 lines)
+  local conflict_diffs=""
+  while IFS= read -r f; do
+    conflict_diffs+="
+=== $f ===
+$(head -200 "$f")
+"
+  done <<< "$conflicts"
+
+  # Get branch commit summary
+  local branch_summary
+  branch_summary=$(git log --oneline main.."$branch" 2>/dev/null | head -10 || echo "(no commits)")
+
   local fix_prompt="You are resolving git merge conflicts in the Ganttlet project.
 The branch '${branch}' is being merged into main. The following files have conflicts:
 
 ${conflicts}
+
+What the branch did (recent commits):
+${branch_summary}
+
+Conflicted files and their current state (showing conflict markers):
+${conflict_diffs}
 
 Instructions:
 1. Read each conflicted file and resolve the conflict markers (<<<<<<< ======= >>>>>>>).

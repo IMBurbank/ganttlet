@@ -133,8 +133,6 @@ load_yaml_config() {
   TMUX_SESSION="${PHASE}-agents"
 }
 
-load_yaml_config
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -147,6 +145,8 @@ log()  { echo -e "${BLUE}[$(date +%H:%M:%S)]${NC} $*"; }
 ok()   { echo -e "${GREEN}[$(date +%H:%M:%S)] OK:${NC} $*"; }
 warn() { echo -e "${YELLOW}[$(date +%H:%M:%S)] WARN:${NC} $*"; }
 err()  { echo -e "${RED}[$(date +%H:%M:%S)] ERROR:${NC} $*"; }
+
+load_yaml_config
 
 mkdir -p "$LOG_DIR"
 

@@ -25,8 +25,8 @@ via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
 - NEVER do any arithmetic, date/time calculation, or duration math in your head — even for "simple" operations. LLMs get these wrong routinely. Always use a tool:
   - **Any arithmetic**: `python3 -c "print(17 * 3 + 42)"` or `node -e "console.log(...)"`
   - **Date/time math**: `date -d '2026-03-06 + 17 days' +%Y-%m-%d` or `node -e "..."` with `date-fns`
-  - **Business days / weekends**: `node -e "const d=require('date-fns'); console.log(d.differenceInBusinessDays(d.parseISO('2026-03-20'), d.parseISO('2026-03-06')))"` — or use `businessDaysBetween()`, `addBusinessDaysToDate()`, `isWeekendDay()` from `src/utils/dateUtils.ts`
-  - **In code**: use `daysBetween()`, `addDaysToDate()` from `src/utils/dateUtils.ts` or `add_days()` from `crates/scheduler/src/date_utils.rs` — never hand-compute dates in code
+  - **Business days / weekends**: `node -e "const d=require('date-fns'); console.log(d.differenceInBusinessDays(d.parseISO('2026-03-20'), d.parseISO('2026-03-06')))"` — prefer `date-fns` functions (`differenceInBusinessDays`, `addBusinessDays`, `isWeekend`) over project wrappers
+  - **In code**: prefer `date-fns` directly (`differenceInCalendarDays`, `addDays`, `addBusinessDays`, `format`, `parseISO`) — project helpers in `src/utils/dateUtils.ts` and `crates/scheduler/src/date_utils.rs` exist but are thin wrappers; use the standard library when writing new code to minimize bug surface
 
 ## Error Handling Protocol
 - **Level 1** (fixable): Read the error, fix the code, re-run. Try up to 3 distinct approaches.

@@ -47,7 +47,7 @@ Each agent MUST run in its own git worktree. `/workspace` stays on `main` always
 
 ## Prompt Boilerplate Patterns
 Every group prompt should include in its Error Handling section:
-- The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `node -e`, `python3 -c`, `date -d`, or the project's `dateUtils.ts`/`date_utils.rs` helpers
+- The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `node -e`, `python3 -c`, `date -d` with standard libraries (`date-fns`, Python stdlib). Prefer standard library functions over project wrappers.
 - Progress tracking in pipe-delimited format: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`
 
 ## Lessons Learned

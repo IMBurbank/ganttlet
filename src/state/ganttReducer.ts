@@ -565,6 +565,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         if (changedIds.length > 0) {
           return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: shifts };
         }
+        return { ...state, tasks };
       }
       tasks = recalcSummaryDates(tasks);
       return { ...state, tasks };

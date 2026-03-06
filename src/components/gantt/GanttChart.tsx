@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
+import { parseISO, isValid } from 'date-fns';
 import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import { dateToX, dateToXCollapsed, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineDaysFiltered, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
@@ -229,7 +230,7 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
           {/* Ghost bars for remote drags */}
           {collabUsers?.filter(u => u.dragging).map(u => {
             const drag = u.dragging!;
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(drag.startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(drag.endDate)) return null;
+            if (!isValid(parseISO(drag.startDate)) || !isValid(parseISO(drag.endDate))) return null;
             const yPos = taskYPositions.get(drag.taskId);
             if (yPos === undefined) return null;
             const gx = dateToXCollapsed(drag.startDate, timelineStart, colWidth, zoom, collapseWeekends);

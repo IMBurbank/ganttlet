@@ -169,8 +169,8 @@ jobs:
               --dangerously-skip-permissions \
               --max-turns ${{ steps.config.outputs.max_turns }} \
               --max-budget-usd ${{ steps.config.outputs.max_budget }} \
-              > /tmp/agent-attempt-${attempt}.log 2>&1
-            EXIT_CODE=$?
+              2>&1 | tee /tmp/agent-attempt-${attempt}.log
+            EXIT_CODE=${PIPESTATUS[0]}
             set -e
 
             if [[ $EXIT_CODE -eq 0 ]]; then

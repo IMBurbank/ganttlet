@@ -1415,7 +1415,14 @@ run_pipeline() {
       else
         warn "Skipping PR creation — pipeline had failures"
       fi
+    elif [[ "$step" == stage* ]]; then
+      # Stage failures are fatal — no point merging or running later stages
+      if ! $step; then
+        err "${step} FAILED — aborting pipeline (no agents ran successfully)"
+        return 1
+      fi
     else
+      # Merge steps: warn and continue to let validation attempt fixes
       $step || { warn "${step} had failures — continuing pipeline"; pipeline_ok=false; }
     fi
   done

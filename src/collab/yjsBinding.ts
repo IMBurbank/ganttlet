@@ -314,7 +314,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             const depsRaw = ymap.get('dependencies') as string;
             let deps: Dependency[] = [];
-            try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
+            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
             deps.push(action.dependency);
             ymap.set('dependencies', JSON.stringify(deps));
           }
@@ -325,6 +325,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
       break;
     }
 
+    // Note: fromId uniquely identifies a dep within a task's array since toId == taskId
     case 'UPDATE_DEPENDENCY': {
       isLocalUpdate = true;
       try {
@@ -334,7 +335,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             const depsRaw = ymap.get('dependencies') as string;
             let deps: Dependency[] = [];
-            try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
+            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
             deps = deps.map(d =>
               d.fromId === action.fromId ? { ...d, type: action.newType, lag: action.newLag } : d
             );
@@ -356,7 +357,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             const depsRaw = ymap.get('dependencies') as string;
             let deps: Dependency[] = [];
-            try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
+            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
             deps = deps.filter(d => d.fromId !== action.fromId);
             ymap.set('dependencies', JSON.stringify(deps));
           }

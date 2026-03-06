@@ -110,7 +110,7 @@ export default function TaskBar({
         const now = performance.now();
         if (now - lastCrdtBroadcast.current >= 100) {
           lastCrdtBroadcast.current = now;
-          // Cancel pending RAF — collabDispatch already updates React state
+          // Cancel pending RAF to avoid double render — dispatch() updates React state directly
           if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
           dispatch(moveAction);
           if (awareness) setDragIntent(awareness, { taskId, startDate: newStartStr, endDate: newEndStr });
@@ -153,6 +153,8 @@ export default function TaskBar({
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      // Clear drag guard before COMPLETE_DRAG dispatch. Safe because applyActionToYjs
+      // sets isLocalUpdate=true, so the Yjs observer won't echo back a SET_TASKS.
       activeDragRef.current = null;
       if (awareness) setDragIntent(awareness, null);
       if (dragRef.current) {

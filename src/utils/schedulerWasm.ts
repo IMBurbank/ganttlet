@@ -150,6 +150,7 @@ export function cascadeDependents(
       performance.measure('cascadeDependents', 'cascade-start', 'cascade-end');
       performance.clearMarks('cascade-start');
       performance.clearMarks('cascade-end');
+      performance.clearMeasures('cascadeDependents');
     }
 
     // Build a map of changed tasks

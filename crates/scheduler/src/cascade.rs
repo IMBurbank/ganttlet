@@ -315,6 +315,8 @@ mod tests {
         }
         let results = cascade_dependents(&tasks, "t0", 2);
         assert_eq!(results.len(), 49);
+        // Moved task itself must not appear in results
+        assert!(results.iter().all(|r| r.id != "t0"), "Moved task t0 should not be in results");
         // Verify every result was shifted by exactly +2: new_start == add_days(orig_start, 2)
         for r in &results {
             let orig = tasks.iter().find(|t| t.id == r.id).unwrap();

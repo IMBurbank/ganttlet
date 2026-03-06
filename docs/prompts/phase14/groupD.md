@@ -173,9 +173,24 @@ case 'COMPLETE_DRAG': {
 
 Commit: `"feat: COMPLETE_DRAG reducer handler — atomic position + cascade (R4)"`
 
-### D4: Add COMPLETE_DRAG to Yjs binding
+### D4: Fix RESIZE_TASK Yjs case + Add COMPLETE_DRAG to Yjs binding
 
-In `src/collab/yjsBinding.ts`, add a case for `COMPLETE_DRAG` in `applyActionToYjs`:
+In `src/collab/yjsBinding.ts`:
+
+**First**, fix the existing `RESIZE_TASK` case. Group B made `newDuration` optional — the Yjs binding currently does `ymap.set('duration', action.newDuration)` which would write `undefined` if the field is missing. Change it to compute duration from dates:
+```typescript
+case 'RESIZE_TASK': {
+  // ...existing code...
+  ymap.set('endDate', action.newEndDate);
+  // Compute duration from dates (newDuration is now optional)
+  const duration = daysBetween(ymap.get('startDate') as string, action.newEndDate);
+  ymap.set('duration', duration);
+  // ...
+}
+```
+Import `daysBetween` from `../utils/dateUtils` if not already imported.
+
+**Then**, add a case for `COMPLETE_DRAG` in `applyActionToYjs`:
 
 ```typescript
 case 'COMPLETE_DRAG': {

@@ -9,7 +9,7 @@ If you encounter an error, fix it and continue. If you cannot fix it after 3 dis
 
 ## Success Criteria (you're done when ALL of these are true):
 1. `duration` on Task type is documented as "calendar days, always derived from daysBetween(startDate, endDate)"
-2. `RESIZE_TASK` action no longer carries `newDuration` in its payload — duration is computed in the reducer from dates
+2. `RESIZE_TASK` action makes `newDuration` optional in its payload — duration is computed in the reducer from dates (other files still send it; the reducer ignores it)
 3. `ganttReducer.ts` recomputes duration from dates after MOVE_TASK, RESIZE_TASK, and any action that changes dates
 4. `sheetsMapper.ts:taskToRow` computes duration from dates using `daysBetween(startDate, endDate)` instead of reading `task.duration`
 5. `sheetsMapper.ts:rowToTask` computes duration from dates instead of parsing column 4 (column 4 still exists for readability but is not used as input)
@@ -19,7 +19,7 @@ If you encounter an error, fix it and continue. If you cannot fix it after 3 dis
 
 ## Failure Criteria (keep working if any of these are true):
 - `task.duration` is still synced as an independent field that can diverge from dates
-- `RESIZE_TASK` action still has `newDuration` in its payload type
+- `RESIZE_TASK` action still has `newDuration` as required in its payload type (it should be optional)
 - Sheets mapper reads duration from the sheet row as a data input
 - Uncommitted changes
 
@@ -31,7 +31,7 @@ Rust→WASM module in each user's browser.
 
 ## Your files (ONLY modify these):
 - `src/state/ganttReducer.ts` — recompute duration from dates
-- `src/state/actions.ts` — remove `newDuration` from RESIZE_TASK payload
+- `src/state/actions.ts` — make `newDuration` optional on RESIZE_TASK payload (do NOT remove it — other files still send it)
 - `src/types/index.ts` — add documentation comment to `duration` field
 - `src/utils/dateUtils.ts` — add documentation comment to `daysBetween`
 - `src/sheets/sheetsMapper.ts` — compute duration on write, ignore on read
@@ -44,7 +44,7 @@ Do NOT modify `src/components/gantt/TaskBar.tsx`, `src/state/GanttContext.tsx`, 
 ```typescript
 | { type: 'RESIZE_TASK'; taskId: string; newEndDate: string; newDuration: number }
 ```
-This carries `newDuration` which should be computed, not passed.
+Make `newDuration` optional (`newDuration?: number`). Other files (TaskBar.tsx, tests) still pass it — the reducer will just ignore it and compute from dates instead.
 
 ### ganttReducer.ts RESIZE_TASK (lines 39-47):
 ```typescript

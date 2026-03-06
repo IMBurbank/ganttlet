@@ -39,6 +39,10 @@ Run each check below. Record PASS or FAIL. Do not attempt any fixes until all ch
 - Read `src/sheets/sheetsMapper.ts`:
   - Verify `taskToRow` computes duration from dates, not `task.duration`
   - Verify `rowToTask` computes duration from dates, not column 4
+- Read `src/collab/yjsBinding.ts`:
+  - Verify RESIZE_TASK case computes duration from dates (NOT `action.newDuration` which is now optional)
+- Read `src/state/actions.ts`:
+  - Verify `newDuration` is optional (not required) on RESIZE_TASK payload
 - PASS/FAIL: ___
 
 ### V5: SET_TASKS Guard (R3)

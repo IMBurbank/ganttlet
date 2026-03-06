@@ -315,10 +315,6 @@ mod tests {
         }
         let results = cascade_dependents(&tasks, "t0", 2);
         assert_eq!(results.len(), 49);
-        // Verify first dependent (t1) was shifted by exactly +2 days
-        let t1 = results.iter().find(|r| r.id == "t1").unwrap();
-        assert_eq!(t1.start_date, "2026-01-08"); // was 2026-01-06, shifted +2
-        assert_eq!(t1.end_date, "2026-01-12"); // was 2026-01-10, shifted +2
         // Verify every result was shifted by exactly +2: new_start == add_days(orig_start, 2)
         for r in &results {
             let orig = tasks.iter().find(|t| t.id == r.id).unwrap();

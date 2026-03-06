@@ -53,7 +53,8 @@ const initialState: GanttState = {
 const GanttStateContext = createContext<GanttState>(initialState);
 const GanttDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
 const LocalDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
-const ActiveDragContext = createContext<React.RefObject<string | null>>({ current: null });
+const activeDragDefault: React.RefObject<string | null> = { current: null };
+const ActiveDragContext = createContext<React.RefObject<string | null>>(activeDragDefault);
 const AwarenessContext = createContext<Awareness | null>(null);
 
 /** Action types that modify task data and should be synced to Yjs */
@@ -109,7 +110,8 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       }
     }
     dispatch(action);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch]);
 
   // Wrap dispatch to also apply task-modifying actions to Yjs
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {

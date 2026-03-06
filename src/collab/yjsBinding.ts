@@ -293,6 +293,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
                   const cmap = yarray.get(ci) as Y.Map<unknown>;
                   cmap.set('startDate', task.startDate);
                   cmap.set('endDate', task.endDate);
+                  cmap.set('duration', daysBetween(task.startDate, task.endDate));
                 }
               }
             }

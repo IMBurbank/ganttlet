@@ -250,8 +250,12 @@ jobs:
           FIXES_APPLIED=0
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
+          # Post initial status on the PR
+          gh pr comment "$PR_NUMBER" --body "Review agent started: [Run #${{ github.run_id }}](${RUN_URL})"
+
           for iteration in $(seq 1 $MAX_REVIEW_ITERATIONS); do
             echo "=== Review iteration ${iteration}/${MAX_REVIEW_ITERATIONS} ==="
+            gh pr comment "$PR_NUMBER" --body "Review iteration ${iteration}/${MAX_REVIEW_ITERATIONS}: running code review..."
 
             # Run code review and capture output
             set +e
@@ -290,7 +294,7 @@ jobs:
               break
             fi
 
-            echo "Issues found. Running fix agent (attempt ${iteration})..."
+            gh pr comment "$PR_NUMBER" --body "Review iteration ${iteration}: issues found. Running fix agent..."
 
             # Get the latest review comment
             REVIEW_COMMENT=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments | map(select(.body | test("Code review"))) | last | .body' 2>/dev/null || echo "")
@@ -340,22 +344,21 @@ jobs:
             fi
             git push origin "$BRANCH"
 
-            echo "Fixes pushed. Re-reviewing..."
+            gh pr comment "$PR_NUMBER" --body "Review iteration ${iteration}: fixes pushed. Re-reviewing..."
           done
 
-          # Post review summary on the PR
+          # Post final review summary on the PR
           if [[ "$REVIEW_STATUS" == "clean" && $FIXES_APPLIED -eq 0 ]]; then
             SUMMARY="Automated code review passed — no issues found."
           elif [[ "$REVIEW_STATUS" == "clean" && $FIXES_APPLIED -gt 0 ]]; then
-            SUMMARY="Automated code review found issues and fixed them in ${FIXES_APPLIED} iteration(s). Final review is clean."
+            SUMMARY="Automated code review complete. Fixed issues in ${FIXES_APPLIED} iteration(s). Final review is clean."
           elif [[ "$REVIEW_STATUS" == "issues_remaining" ]]; then
-            SUMMARY="Automated code review found issues. Fix agent attempted ${FIXES_APPLIED} fix(es) but some issues remain. Please review manually."
+            SUMMARY="Automated code review complete. Fix agent attempted ${FIXES_APPLIED} fix(es) but some issues remain. Please review manually."
           else
             SUMMARY="Automated code review encountered an error. Please review manually."
           fi
 
-          PR_BODY=$(printf "### Automated Review Summary\n\n%s\n\n[View workflow run](%s)" "$SUMMARY" "$RUN_URL")
-          gh pr comment "$PR_NUMBER" --body "$PR_BODY"
+          gh pr comment "$PR_NUMBER" --body "$(printf "### Review Summary\n\n%s\n\n[View workflow run](%s)" "$SUMMARY" "$RUN_URL")"
 
       - name: Comment on issue (success)
         if: success()

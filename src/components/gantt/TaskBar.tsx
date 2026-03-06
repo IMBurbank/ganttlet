@@ -82,14 +82,18 @@ export default function TaskBar({
         let newStartStr = formatDate(newStart);
 
         // Clamp to earliest start constraint
+        let clampedDx = dx;
         if (earliestStart && newStartStr < earliestStart) {
           newStartStr = earliestStart;
           newStart = parseISO(earliestStart);
+          // Recompute the effective dx so end shifts by the same clamped amount
+          clampedDx = dateToXCollapsed(earliestStart, timelineStart, colWidth, zoom, collapseWeekends)
+            - dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends);
         }
 
-        // Shift end by same pixel delta as start to preserve visual width
+        // Shift end by same (possibly clamped) pixel delta as start to preserve visual width
         const newEnd = xToDateCollapsed(
-          dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + dx,
+          dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + clampedDx,
           timelineStart, colWidth, zoom, collapseWeekends
         );
         const newEndStr = formatDate(newEnd);

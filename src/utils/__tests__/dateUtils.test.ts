@@ -109,6 +109,97 @@ describe('dateUtils', () => {
     });
   });
 
+  describe('earliestStart clamp must preserve task duration', () => {
+    const timelineStart = new Date('2026-03-02'); // Monday
+    const colWidth = 36;
+    const zoom = 'day' as const;
+    const collapseWeekends = false;
+
+    /**
+     * Simulates the buggy move handler: start is clamped to earliestStart,
+     * but end uses the unclamped dx, causing the task to shrink.
+     */
+    function simulateBuggyDrag(
+      origStart: string, origEnd: string, dxColumns: number, earliestStart: string
+    ) {
+      const dx = dxColumns * colWidth;
+      const origStartX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
+
+      // Compute new start, then clamp
+      let newStart = formatDate(xToDateCollapsed(origStartX + dx, timelineStart, colWidth, zoom, collapseWeekends));
+      if (newStart < earliestStart) {
+        newStart = earliestStart;
+      }
+
+      // Bug: end uses unclamped dx
+      const newEnd = formatDate(xToDateCollapsed(origEndX + dx, timelineStart, colWidth, zoom, collapseWeekends));
+
+      return { newStart, newEnd };
+    }
+
+    /**
+     * Simulates the fixed move handler: when start is clamped, the clamped dx
+     * is applied to end as well, preserving task duration.
+     */
+    function simulateFixedDrag(
+      origStart: string, origEnd: string, dxColumns: number, earliestStart: string
+    ) {
+      const dx = dxColumns * colWidth;
+      const origStartX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
+
+      // Compute new start, then clamp
+      let newStartX = origStartX + dx;
+      let newStart = formatDate(xToDateCollapsed(newStartX, timelineStart, colWidth, zoom, collapseWeekends));
+      if (newStart < earliestStart) {
+        newStart = earliestStart;
+        newStartX = dateToXCollapsed(earliestStart, timelineStart, colWidth, zoom, collapseWeekends);
+      }
+
+      // Fixed: use clamped dx for end
+      const clampedDx = newStartX - origStartX;
+      const newEnd = formatDate(xToDateCollapsed(origEndX + clampedDx, timelineStart, colWidth, zoom, collapseWeekends));
+
+      return { newStart, newEnd };
+    }
+
+    it('buggy handler shrinks task when dragged before earliestStart', () => {
+      // Task: Mar 10 (Tue) - Mar 13 (Fri), duration = 3 days
+      // earliestStart: Mar 9 (Mon)
+      // Drag left by 3 columns (trying to move to Mar 7)
+      // Start clamps to Mar 9, but end moves to Mar 10 with unclamped dx
+      // Duration shrinks from 3 to 1 -- this is the bug
+      const { newStart, newEnd } = simulateBuggyDrag('2026-03-10', '2026-03-13', -3, '2026-03-09');
+      expect(newStart).toBe('2026-03-09');
+      // Bug: end moved by -3 days instead of the clamped -1 day
+      const origDuration = daysBetween('2026-03-10', '2026-03-13');
+      const newDuration = daysBetween(newStart, newEnd);
+      expect(newDuration).toBeLessThan(origDuration); // confirms the bug
+    });
+
+    it('fixed handler preserves duration when dragged before earliestStart', () => {
+      // Same scenario: task Mar 10-13, earliestStart Mar 9, drag -3 cols
+      const { newStart, newEnd } = simulateFixedDrag('2026-03-10', '2026-03-13', -3, '2026-03-09');
+      expect(newStart).toBe('2026-03-09');
+      // Fixed: duration is preserved
+      const origDuration = daysBetween('2026-03-10', '2026-03-13');
+      const newDuration = daysBetween(newStart, newEnd);
+      expect(newDuration).toBe(origDuration);
+    });
+
+    it('fixed handler allows normal drag when not hitting earliestStart', () => {
+      // Task: Mar 12 - Mar 15, earliestStart: Mar 9, drag left by 1
+      // No clamping needed, should work normally
+      const { newStart, newEnd } = simulateFixedDrag('2026-03-12', '2026-03-15', -1, '2026-03-09');
+      expect(newStart).toBe('2026-03-11');
+      expect(newEnd).toBe('2026-03-14');
+      const origDuration = daysBetween('2026-03-12', '2026-03-15');
+      const newDuration = daysBetween(newStart, newEnd);
+      expect(newDuration).toBe(origDuration);
+    });
+  });
+
   describe('move-drag must preserve visual width with collapsed weekends', () => {
     const timelineStart = new Date('2026-03-02'); // Monday
     const colWidth = 36;

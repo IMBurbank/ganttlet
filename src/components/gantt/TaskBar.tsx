@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useState } from 'react';
 import type { ZoomLevel } from '../../types';
-import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
+import { useGanttDispatch, useLocalDispatch, useActiveDrag, useSetViewingTask } from '../../state/GanttContext';
 import { dateToX, xToDate, dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, getColumnWidth } from '../../utils/dateUtils';
 import { parseISO } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
@@ -42,6 +42,8 @@ export default function TaskBar({
   viewerName, viewerColor, collapseWeekends = false, earliestStart,
 }: TaskBarProps) {
   const dispatch = useGanttDispatch();
+  const localDispatch = useLocalDispatch();
+  const activeDragRef = useActiveDrag();
   const setViewingTask = useSetViewingTask();
   const dragRef = useRef<{
     startX: number;
@@ -51,6 +53,8 @@ export default function TaskBar({
     lastStartDate: string;
     lastEndDate: string;
   } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const lastCrdtBroadcast = useRef<number>(0);
   const clipId = useRef(`task-clip-${++clipIdCounter}`);
 
   const barHeight = 28;
@@ -62,6 +66,7 @@ export default function TaskBar({
     e.preventDefault();
     e.stopPropagation();
     dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode, lastStartDate: startDate, lastEndDate: endDate };
+    activeDragRef.current = taskId;
 
     function onMouseMove(ev: MouseEvent) {
       if (!dragRef.current) return;
@@ -85,8 +90,26 @@ export default function TaskBar({
         newEnd.setDate(newEnd.getDate() + duration);
         const newEndStr = formatDate(newEnd);
 
+        // Skip if dates haven't changed
+        if (newStartStr === dragRef.current.lastStartDate && newEndStr === dragRef.current.lastEndDate) return;
         dragRef.current.lastStartDate = newStartStr;
-        dispatch({ type: 'MOVE_TASK', taskId, newStartDate: newStartStr, newEndDate: newEndStr });
+        dragRef.current.lastEndDate = newEndStr;
+
+        const moveAction = { type: 'MOVE_TASK' as const, taskId, newStartDate: newStartStr, newEndDate: newEndStr };
+
+        // RAF-throttled local render
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(() => {
+          localDispatch(moveAction);
+          rafRef.current = null;
+        });
+
+        // 100ms-throttled CRDT broadcast
+        const now = performance.now();
+        if (now - lastCrdtBroadcast.current >= 100) {
+          lastCrdtBroadcast.current = now;
+          dispatch(moveAction);
+        }
       } else {
         const newEndX = dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + dx;
         const origStartX = dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends);
@@ -95,12 +118,35 @@ export default function TaskBar({
         const newEndStr = formatDate(newEnd);
         const newDuration = daysBetween(dragRef.current.origStartDate, newEndStr);
         if (newDuration < 1) return;
-        dispatch({ type: 'RESIZE_TASK', taskId, newEndDate: newEndStr, newDuration });
+
+        // Skip if end date hasn't changed
+        if (newEndStr === dragRef.current.lastEndDate) return;
         dragRef.current.lastEndDate = newEndStr;
+
+        const resizeAction = { type: 'RESIZE_TASK' as const, taskId, newEndDate: newEndStr, newDuration };
+
+        // RAF-throttled local render
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(() => {
+          localDispatch(resizeAction);
+          rafRef.current = null;
+        });
+
+        // 100ms-throttled CRDT broadcast
+        const now = performance.now();
+        if (now - lastCrdtBroadcast.current >= 100) {
+          lastCrdtBroadcast.current = now;
+          dispatch(resizeAction);
+        }
       }
     }
 
     function onMouseUp() {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      activeDragRef.current = null;
       if (dragRef.current) {
         const finalTask = dragRef.current;
         dragRef.current = null;
@@ -115,6 +161,8 @@ export default function TaskBar({
             dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
           }
         }
+        // Final authoritative CRDT write
+        dispatch({ type: 'MOVE_TASK', taskId, newStartDate: finalTask.lastStartDate, newEndDate: finalTask.lastEndDate });
       }
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
@@ -122,7 +170,7 @@ export default function TaskBar({
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [dispatch, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth, collapseWeekends, earliestStart]);
+  }, [dispatch, localDispatch, activeDragRef, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth, collapseWeekends, earliestStart]);
 
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
 

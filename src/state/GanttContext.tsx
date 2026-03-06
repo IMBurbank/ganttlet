@@ -52,6 +52,8 @@ const initialState: GanttState = {
 
 const GanttStateContext = createContext<GanttState>(initialState);
 const GanttDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
+const LocalDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
+const ActiveDragContext = createContext<React.RefObject<string | null>>({ current: null });
 const AwarenessContext = createContext<Awareness | null>(null);
 
 /** Action types that modify task data and should be synced to Yjs */
@@ -74,6 +76,12 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   const [awareness, setAwareness] = useState<Awareness | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(getAccessToken());
 
+  /** Track which task is currently being dragged (for SET_TASKS guard) */
+  const activeDragRef = useRef<string | null>(null);
+  /** State ref for SET_TASKS guard to access current tasks */
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   // Track auth state changes so collab can reconnect after sign-in
   useEffect(() => {
     const handleAuthChange = (authState: AuthState) => {
@@ -81,6 +89,22 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     };
     setAuthChangeCallback(handleAuthChange);
     return () => removeAuthChangeCallback(handleAuthChange);
+  }, []);
+
+  // Guarded dispatch: preserves dragged task's dates when SET_TASKS arrives during drag (R3)
+  const guardedDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
+    if (action.type === 'SET_TASKS' && activeDragRef.current) {
+      const dragId = activeDragRef.current;
+      const currentTask = stateRef.current.tasks.find(t => t.id === dragId);
+      if (currentTask) {
+        const preserved = action.tasks.map(t =>
+          t.id === dragId ? { ...t, startDate: currentTask.startDate, endDate: currentTask.endDate, duration: currentTask.duration } : t
+        );
+        dispatch({ type: 'SET_TASKS', tasks: preserved });
+        return;
+      }
+    }
+    dispatch(action);
   }, []);
 
   // Wrap dispatch to also apply task-modifying actions to Yjs
@@ -136,7 +160,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       awarenessRef.current = aw;
       setAwareness(aw);
 
-      cleanup = bindYjsToDispatch(doc, dispatch);
+      cleanup = bindYjsToDispatch(doc, guardedDispatch);
 
       const auth = getAuthState();
       setLocalAwareness(aw, {
@@ -207,9 +231,13 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   return (
     <GanttStateContext.Provider value={state}>
       <GanttDispatchContext.Provider value={collabDispatch}>
-        <AwarenessContext.Provider value={awareness}>
-          {children}
-        </AwarenessContext.Provider>
+        <LocalDispatchContext.Provider value={dispatch}>
+          <ActiveDragContext.Provider value={activeDragRef}>
+            <AwarenessContext.Provider value={awareness}>
+              {children}
+            </AwarenessContext.Provider>
+          </ActiveDragContext.Provider>
+        </LocalDispatchContext.Provider>
       </GanttDispatchContext.Provider>
     </GanttStateContext.Provider>
   );
@@ -221,6 +249,21 @@ export function useGanttState() {
 
 export function useGanttDispatch() {
   return useContext(GanttDispatchContext);
+}
+
+/** Local-only dispatch (React state update, no Yjs sync). Use for drag previews. */
+export function useLocalDispatch() {
+  return useContext(LocalDispatchContext);
+}
+
+/** Ref to set/clear the active drag task ID (for SET_TASKS guard). */
+export function useActiveDrag() {
+  return useContext(ActiveDragContext);
+}
+
+/** Access the Yjs awareness instance for presence features. */
+export function useAwareness() {
+  return useContext(AwarenessContext);
 }
 
 /**

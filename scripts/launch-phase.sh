@@ -2,15 +2,16 @@
 # launch-phase.sh — Orchestrates parallel Claude Code agents for a phase.
 #
 # Usage:
-#   ./scripts/launch-phase.sh all                # full pipeline: stage1 → merge → ... → validate
+#   ./scripts/launch-phase.sh all                # full pipeline: stage1 → merge → ... → validate → create-pr
 #   WATCH=1 ./scripts/launch-phase.sh all        # same, with live agent output in tmux
 #   ./scripts/launch-phase.sh stage1             # run Stage 1 parallel groups
-#   ./scripts/launch-phase.sh merge1             # merge Stage 1 branches to main
+#   ./scripts/launch-phase.sh merge1             # merge Stage 1 branches to implementation branch
 #   ./scripts/launch-phase.sh stage2             # run Stage 2 groups
-#   ./scripts/launch-phase.sh merge2             # merge Stage 2 branches to main
+#   ./scripts/launch-phase.sh merge2             # merge Stage 2 branches to implementation branch
 #   ./scripts/launch-phase.sh stage3             # run Stage 3 groups
-#   ./scripts/launch-phase.sh merge3             # merge Stage 3 branches to main
+#   ./scripts/launch-phase.sh merge3             # merge Stage 3 branches to implementation branch
 #   ./scripts/launch-phase.sh validate           # run validation agent (fix-and-retry)
+#   ./scripts/launch-phase.sh create-pr          # create PR to main + trigger code review
 #   ./scripts/launch-phase.sh status             # show worktree/branch status
 #
 # Environment:
@@ -19,7 +20,8 @@
 #   RETRY_DELAY=5       — seconds between retries
 #   VALIDATE_MAX_ATTEMPTS=3 — max fix-and-retry cycles for validation
 #   MERGE_FIX_RETRIES=3 — retries for merge conflict resolution
-#   PROMPTS_DIR         — path to prompt files (default: docs/prompts/phase13)
+#   PROMPTS_DIR         — path to prompt files (default: docs/prompts/phase14)
+#   MERGE_TARGET        — implementation branch (default: feature/<phase>)
 #   WORKTREE_BASE       — worktree root (default: /workspace/.claude/worktrees)
 
 set -euo pipefail
@@ -34,40 +36,50 @@ DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 STALL_TIMEOUT="${STALL_TIMEOUT:-30}"  # minutes before warning about stalled agent
 # Per-agent model override: MODEL=sonnet run_agent groupH "$workdir"
 # Default: uses Claude's default model. Options: opus, sonnet, haiku
-PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase13}"
+PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase14}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
 # Set WATCH=1 to see full live agent output in tmux panes
 WATCH="${WATCH:-0}"
-PHASE="phase13"
+PHASE="phase14"
+# Implementation branch — all stage merges target this branch, then a PR is created to main
+MERGE_TARGET="${MERGE_TARGET:-feature/${PHASE}}"
 
 LOG_DIR="${WORKSPACE}/logs/${PHASE}"
 TMUX_SESSION="${PHASE}-agents"
 
-# Stage 1: Agent infrastructure improvements (4 groups, parallel, zero file overlap)
-STAGE1_GROUPS=("groupA" "groupB" "groupC" "groupD")
+# Stage 1: Core Fixes — drag throttle, duration derivation, cascade optimization (3 groups, parallel, zero file overlap)
+STAGE1_GROUPS=("groupA" "groupB" "groupC")
 STAGE1_BRANCHES=(
-  "feature/phase13-claude-skills"
-  "feature/phase13-orchestrator"
-  "feature/phase13-hooks-guardrails"
-  "feature/phase13-github-pipeline"
+  "feature/phase14-drag-throttle"
+  "feature/phase14-duration-derive"
+  "feature/phase14-cascade-optimize"
 )
 STAGE1_MERGE_MESSAGES=(
-  "Merge feature/phase13-claude-skills: restructure CLAUDE.md to lean core, create .claude/skills/ with 8 domain skills, extract reference docs"
-  "Merge feature/phase13-orchestrator: enrich retry context, add --max-turns/budget, improve merge conflict context, partial stage success, preflight, model selection, stall detection"
-  "Merge feature/phase13-hooks-guardrails: scope-aware verify.sh, output dedup, rate limiting, compact output, pre-commit hook"
-  "Merge feature/phase13-github-pipeline: issue template, quality gate workflow, overhaul agent-work.yml with retry and complexity routing"
+  "Merge feature/phase14-drag-throttle: RAF throttle + CRDT broadcast throttle + dispatch split + SET_TASKS guard (R1, R3)"
+  "Merge feature/phase14-duration-derive: duration computed from dates in reducer + Sheets + standardized semantics (R2, R7, R9)"
+  "Merge feature/phase14-cascade-optimize: adjacency list O(e*d) cascade + performance instrumentation (R8)"
 )
 
-# No Stage 2 or 3 needed — single parallel stage
-STAGE2_GROUPS=()
-STAGE2_BRANCHES=()
-STAGE2_MERGE_MESSAGES=()
+# Stage 2: Sync Resilience + Rendering — atomic drag + structural sync + arrow fixes (2 groups, parallel, zero file overlap)
+STAGE2_GROUPS=("groupD" "groupE")
+STAGE2_BRANCHES=(
+  "feature/phase14-atomic-drag-sync"
+  "feature/phase14-arrow-render"
+)
+STAGE2_MERGE_MESSAGES=(
+  "Merge feature/phase14-atomic-drag-sync: COMPLETE_DRAG action + dependency/add/delete CRDT sync (R4, R10)"
+  "Merge feature/phase14-arrow-render: arrow consistency guards + memoization (R5)"
+)
 
-# Stage 3: empty
-STAGE3_GROUPS=()
-STAGE3_BRANCHES=()
-STAGE3_MERGE_MESSAGES=()
+# Stage 3: Multi-User UX — awareness ghost bar (1 group)
+STAGE3_GROUPS=("groupF")
+STAGE3_BRANCHES=(
+  "feature/phase14-ghost-bar"
+)
+STAGE3_MERGE_MESSAGES=(
+  "Merge feature/phase14-ghost-bar: drag intent via awareness + ghost bar rendering (R6)"
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -208,9 +220,10 @@ setup_worktree() {
   local worktree="${WORKTREE_BASE}/${PHASE}-${group}"
 
   if [[ ! -d "$worktree" ]]; then
-    log "Creating worktree: ${worktree} (branch: ${branch})" >&2
+    log "Creating worktree: ${worktree} (branch: ${branch}) from ${MERGE_TARGET}" >&2
     cd "$WORKSPACE"
-    git worktree add "$worktree" -b "$branch" >/dev/null 2>&1 || \
+    # Branch from MERGE_TARGET so each stage sees prior stage merges
+    git worktree add "$worktree" -b "$branch" "$MERGE_TARGET" >/dev/null 2>&1 || \
       git worktree add "$worktree" "$branch" >/dev/null 2>&1 || \
       { err "Failed to create worktree for ${group}" >&2; return 1; }
   else
@@ -685,10 +698,10 @@ $(head -200 "$f")
 
   # Get branch commit summary
   local branch_summary
-  branch_summary=$(git log --oneline main.."$branch" 2>/dev/null | head -10 || echo "(no commits)")
+  branch_summary=$(git log --oneline "${MERGE_TARGET}".."$branch" 2>/dev/null | head -10 || echo "(no commits)")
 
   local fix_prompt="You are resolving git merge conflicts in the Ganttlet project.
-The branch '${branch}' is being merged into main. The following files have conflicts:
+The branch '${branch}' is being merged into ${MERGE_TARGET}. The following files have conflicts:
 
 ${conflicts}
 
@@ -744,7 +757,7 @@ WRAPPER
   fi
 }
 
-# Merge a single branch into main with conflict resolution and retries.
+# Merge a single branch into the current branch with conflict resolution and retries.
 merge_branch_with_retries() {
   local branch="$1"
   local msg="$2"
@@ -784,6 +797,70 @@ merge_branch_with_retries() {
   return 1
 }
 
+# Ensure the implementation branch exists (created from main).
+setup_merge_target() {
+  cd "$WORKSPACE"
+  if ! git rev-parse --verify "$MERGE_TARGET" >/dev/null 2>&1; then
+    log "Creating implementation branch: ${MERGE_TARGET} (from main)"
+    git branch "$MERGE_TARGET" main
+  fi
+}
+
+# Launch a fix agent that keeps running until tsc + vitest + cargo test all pass.
+run_merge_fix_agent() {
+  local merge_label="$1"
+  local max_fix_attempts="${MERGE_FIX_RETRIES:-3}"
+
+  log "Launching merge-fix agent to resolve verification failures..."
+
+  local fix_prompt="You are fixing build/test failures after merging parallel branches for ${merge_label} in the Ganttlet project.
+Read CLAUDE.md for project context.
+
+IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation. Fix issues and keep going.
+
+Steps:
+1. Run \`npx tsc --noEmit\` — fix any TypeScript errors
+2. Run \`npm run test\` — fix any test failures
+3. Run \`cd crates/scheduler && cargo test\` — fix any Rust test failures
+4. Repeat until ALL pass
+5. Commit all fixes with: \`fix: resolve merge verification failures for ${merge_label}\`
+
+Do NOT modify files unnecessarily. Only fix actual errors. Read the error output carefully."
+
+  for attempt in $(seq 1 "$max_fix_attempts"); do
+    log "Merge-fix attempt ${attempt}/${max_fix_attempts}"
+    local logfile="${LOG_DIR}/merge-fix-${merge_label// /-}-attempt${attempt}.log"
+
+    cd "$WORKSPACE"
+    local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
+    local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+
+    set +e
+    echo "$fix_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
+    local exit_code=$?
+    set -e
+
+    # Verify all checks pass now
+    local all_ok=true
+    npx tsc --noEmit >/dev/null 2>&1 || all_ok=false
+    npm run test >/dev/null 2>&1 || all_ok=false
+    (source "$HOME/.cargo/env" 2>/dev/null; cd crates/scheduler && cargo test >/dev/null 2>&1) || all_ok=false
+
+    if $all_ok; then
+      ok "Merge-fix agent resolved all issues on attempt ${attempt}"
+      return 0
+    fi
+
+    if [[ $attempt -lt $max_fix_attempts ]]; then
+      warn "Merge-fix: issues remain after attempt ${attempt} — retrying..."
+      sleep "$RETRY_DELAY"
+    fi
+  done
+
+  err "Merge-fix agent could not resolve all issues after ${max_fix_attempts} attempts"
+  return 1
+}
+
 # Usage: do_merge_stage "Merge 1" STAGE1_GROUPS STAGE1_BRANCHES STAGE1_MERGE_MESSAGES
 do_merge_stage() {
   local merge_label="$1"
@@ -791,16 +868,17 @@ do_merge_stage() {
   local -n m_branches_ref="$3"
   local -n m_messages_ref="$4"
 
-  log "=== ${merge_label}: Combining parallel branches into main ==="
+  log "=== ${merge_label}: Combining parallel branches into ${MERGE_TARGET} ==="
 
   cd "$WORKSPACE"
+  setup_merge_target
 
-  # Ensure we're on main
+  # Ensure we're on the implementation branch
   local current_branch
   current_branch=$(git branch --show-current)
-  if [[ "$current_branch" != "main" ]]; then
-    warn "Not on main (on ${current_branch}). Switching..."
-    git checkout main
+  if [[ "$current_branch" != "$MERGE_TARGET" ]]; then
+    log "Switching to ${MERGE_TARGET}..."
+    git checkout "$MERGE_TARGET"
   fi
 
   # Check which groups succeeded (if stage result files exist)
@@ -831,7 +909,7 @@ do_merge_stage() {
   source "$HOME/.cargo/env" 2>/dev/null || true
   npm run build:wasm || warn "WASM build failed (may not have Rust changes)"
 
-  # Verify build
+  # Verify build — if failures, launch fix agent
   log "Verifying merged code..."
   local verify_ok=true
 
@@ -854,8 +932,12 @@ do_merge_stage() {
   fi
 
   if ! $verify_ok; then
-    warn "=== ${merge_label} verification found issues — continuing to next stage ==="
-    warn "The validation agent will fix remaining issues at the end of the pipeline."
+    warn "=== ${merge_label} verification found issues — launching fix agent ==="
+    if run_merge_fix_agent "$merge_label"; then
+      ok "=== ${merge_label} verification issues resolved by fix agent ==="
+    else
+      warn "=== ${merge_label} fix agent could not resolve all issues — validation agent will handle remaining ==="
+    fi
   fi
 
   # Cleanup worktrees
@@ -872,7 +954,7 @@ do_merge_stage() {
       warn "Could not delete branch: ${branch}"
   done
 
-  ok "=== ${merge_label} complete and verified ==="
+  ok "=== ${merge_label} complete ==="
 }
 
 # ── Stage entry points ────────────────────────────────────────────────────────
@@ -966,6 +1048,14 @@ ${prompt}"
     log "Validation attempt ${attempt}/${max_attempts} (log: ${logfile})"
     cd "$WORKSPACE"
 
+    # Ensure we're on the implementation branch
+    local current_branch
+    current_branch=$(git branch --show-current)
+    if [[ "$current_branch" != "$MERGE_TARGET" ]]; then
+      log "Switching to ${MERGE_TARGET} for validation..."
+      git checkout "$MERGE_TARGET"
+    fi
+
     local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
     local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
     echo "$prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
@@ -1005,6 +1095,101 @@ ${prompt}"
   done
 }
 
+# ── PR creation + code review ─────────────────────────────────────────────────
+
+create_pr() {
+  cd "$WORKSPACE"
+
+  # Ensure we're on the implementation branch
+  local current_branch
+  current_branch=$(git branch --show-current)
+  if [[ "$current_branch" != "$MERGE_TARGET" ]]; then
+    git checkout "$MERGE_TARGET"
+  fi
+
+  # Push the implementation branch
+  log "Pushing ${MERGE_TARGET} to origin..."
+  git push -u origin "$MERGE_TARGET"
+
+  # Build PR body from commit log
+  local commit_log
+  commit_log=$(git log --oneline main.."$MERGE_TARGET" 2>/dev/null || echo "(no commits)")
+  local commit_count
+  commit_count=$(echo "$commit_log" | wc -l)
+
+  # Check if validation passed
+  local validation_status="PASSED"
+  local latest_validate_log
+  latest_validate_log=$(ls -t "${LOG_DIR}"/validate-attempt*.log 2>/dev/null | head -1 || echo "")
+  if [[ -n "$latest_validate_log" ]] && grep -v "COMMAND=" "$latest_validate_log" | grep -q "OVERALL.*FAIL"; then
+    validation_status="FAILED — see validation logs"
+  fi
+
+  log "Creating PR: ${MERGE_TARGET} → main"
+
+  local pr_url
+  pr_url=$(gh pr create \
+    --base main \
+    --head "$MERGE_TARGET" \
+    --title "Phase 14: Drag reliability & sync integrity (R1-R10)" \
+    --body "$(cat <<EOF
+## Summary
+Phase 14 implementation — drag reliability and CRDT sync integrity improvements.
+
+- **R1**: RAF-throttled drag dispatch (~60fps local, ~10fps CRDT broadcast)
+- **R2/R7/R9**: Duration derived from dates (never stored independently)
+- **R3**: SET_TASKS guard prevents snap-back during active drag
+- **R4**: Atomic COMPLETE_DRAG action (single undo entry per drag)
+- **R5**: Arrow render consistency for collapsed/hidden tasks
+- **R6**: Awareness-based ghost bars for remote drag intent
+- **R8**: Adjacency-list cascade optimization O(n*d) → O(e*d)
+- **R10**: Structural CRDT sync for add/delete/dependency operations
+
+### Implementation
+- 6 agent groups across 3 stages (zero file overlap per stage)
+- ${commit_count} commits merged to implementation branch
+- Validation status: **${validation_status}**
+
+### Commits
+\`\`\`
+${commit_log}
+\`\`\`
+
+## Test plan
+- [ ] \`npx tsc --noEmit\` passes
+- [ ] \`npm run test\` passes
+- [ ] \`cd crates/scheduler && cargo test\` passes
+- [ ] Manual drag test: drag a task, verify no snap-back
+- [ ] Manual drag test: drag while remote user edits, verify no snap-back
+- [ ] Undo after drag: single Ctrl-Z undoes entire drag
+- [ ] Arrow rendering with collapsed tasks
+- [ ] Ghost bar visible for remote drag
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)" 2>&1)
+
+  ok "PR created: ${pr_url}"
+
+  # Trigger code-review agent on the PR
+  log "Triggering code review..."
+  local pr_number
+  pr_number=$(echo "$pr_url" | grep -o '[0-9]*$')
+
+  if [[ -n "$pr_number" ]]; then
+    # Use the code-review skill via claude
+    local review_prompt="Review PR #${pr_number} for the Ganttlet project. Use /code-review to review the PR at ${pr_url}"
+    echo "$review_prompt" | claude --dangerously-skip-permissions --max-turns 40 --max-budget-usd 5.00 -p - >> "${LOG_DIR}/code-review.log" 2>&1 &
+    local review_pid=$!
+    log "Code review agent launched (PID: ${review_pid}, log: ${LOG_DIR}/code-review.log)"
+    log "Review running in background — check log or PR comments for results."
+  else
+    warn "Could not extract PR number from: ${pr_url} — skipping code review"
+  fi
+
+  ok "=== PR created and code review triggered ==="
+}
+
 run_pipeline() {
   local start_from="${1:-stage1}"
   local pipeline_ok=true
@@ -1012,7 +1197,7 @@ run_pipeline() {
 
   log "=== Pipeline starting from: ${start_from} ==="
 
-  local steps=("stage1" "merge1" "stage2" "merge2" "stage3" "merge3" "validate")
+  local steps=("stage1" "merge1" "stage2" "merge2" "stage3" "merge3" "validate" "create-pr")
   for step in "${steps[@]}"; do
     if [[ "$step" == "$start_from" ]]; then
       started=true
@@ -1025,17 +1210,28 @@ run_pipeline() {
     if [[ "$step" == "validate" ]]; then
       # Validation always runs — it's the cleanup/fix step
       if validate; then
-        ok "=== Pipeline complete — validation passed ==="
+        ok "=== Validation passed ==="
       else
-        err "=== Pipeline complete — validation FAILED ==="
+        err "=== Validation FAILED ==="
         pipeline_ok=false
+      fi
+    elif [[ "$step" == "create-pr" ]]; then
+      if $pipeline_ok; then
+        create_pr || warn "PR creation had issues"
+      else
+        warn "Skipping PR creation — pipeline had failures"
       fi
     else
       $step || { warn "${step} had failures — continuing pipeline"; pipeline_ok=false; }
     fi
   done
 
-  $pipeline_ok || { err "Pipeline had issues — review logs in ${LOG_DIR}"; return 1; }
+  if $pipeline_ok; then
+    ok "=== Pipeline complete — all stages passed, PR created ==="
+  else
+    err "Pipeline had issues — review logs in ${LOG_DIR}"
+    return 1
+  fi
 }
 
 run_all() {
@@ -1049,23 +1245,25 @@ usage() {
 Usage: ./scripts/launch-phase.sh <command>
 
 Commands:
-  stage1    Run Stage 1 parallel groups in worktrees
-  merge1    Merge Stage 1 branches to main + verify
-  stage2    Run Stage 2 groups in worktrees
-  merge2    Merge Stage 2 branches to main + verify
-  stage3    Run Stage 3 groups in worktrees
-  merge3    Merge Stage 3 branches to main + verify
-  validate  Run validation agent (checks all tests, fixes issues, reports)
-  all       Full pipeline: stage1 → merge1 → ... → merge3 → validate
+  stage1      Run Stage 1 parallel groups in worktrees
+  merge1      Merge Stage 1 branches to implementation branch + verify
+  stage2      Run Stage 2 groups in worktrees
+  merge2      Merge Stage 2 branches to implementation branch + verify
+  stage3      Run Stage 3 groups in worktrees
+  merge3      Merge Stage 3 branches to implementation branch + verify
+  validate    Run validation agent (checks all tests, fixes issues, reports)
+  create-pr   Create PR from implementation branch to main + trigger code review
+  all         Full pipeline: stage1 → merge1 → ... → validate → create-pr
   resume <step>  Resume pipeline from a specific step (e.g., resume merge1)
-  status    Show current worktree and branch status
-  logs      Tail agent logs
+  status      Show current worktree and branch status
+  logs        Tail agent logs
 
 Environment variables:
   MAX_RETRIES=3              Retries per agent on crash
   RETRY_DELAY=5              Seconds between retries
   VALIDATE_MAX_ATTEMPTS=3    Max fix-and-retry cycles for validation
   MERGE_FIX_RETRIES=3        Retries for merge conflict resolution
+  MERGE_TARGET               Implementation branch (default: feature/<phase>)
   WATCH=1                    Live interactive agent output in tmux panes
 USAGE
 }
@@ -1093,18 +1291,19 @@ show_logs() {
 }
 
 case "${1:-}" in
-  stage1)   stage1 ;;
-  merge1)   merge1 ;;
-  stage2)   stage2 ;;
-  merge2)   merge2 ;;
-  stage3)   stage3 ;;
-  merge3)   merge3 ;;
-  validate) validate ;;
-  all)      run_all ;;
+  stage1)    stage1 ;;
+  merge1)    merge1 ;;
+  stage2)    stage2 ;;
+  merge2)    merge2 ;;
+  stage3)    stage3 ;;
+  merge3)    merge3 ;;
+  validate)  validate ;;
+  create-pr) create_pr ;;
+  all)       run_all ;;
   resume)
     if [[ -z "${2:-}" ]]; then
       err "Usage: ./scripts/launch-phase.sh resume <step>"
-      err "Steps: stage1, merge1, stage2, merge2, stage3, merge3, validate"
+      err "Steps: stage1, merge1, stage2, merge2, stage3, merge3, validate, create-pr"
       exit 1
     fi
     run_pipeline "$2"

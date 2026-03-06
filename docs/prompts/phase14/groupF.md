@@ -36,6 +36,7 @@ R6 adds drag intent so remote users see where a task is being dragged to in real
 
 ## Your files (ONLY modify these):
 - `src/collab/awareness.ts` — add drag intent to awareness state
+- `src/types/index.ts` — extend CollabUser type with dragging field
 - `src/components/gantt/TaskBar.tsx` — broadcast drag intent during drag
 - `src/components/gantt/GanttChart.tsx` — render ghost bars for remote drags
 

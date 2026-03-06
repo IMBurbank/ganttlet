@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -128,8 +129,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 func buildConfigJS() string {
 	googleClientID := os.Getenv("GANTTLET_GOOGLE_CLIENT_ID")
 	collabURL := os.Getenv("GANTTLET_COLLAB_URL")
-	return fmt.Sprintf(
-		`window.__ganttlet_config={googleClientId:%q,collabUrl:%q};`,
-		googleClientID, collabURL,
-	)
+	id, _ := json.Marshal(googleClientID)
+	url, _ := json.Marshal(collabURL)
+	return fmt.Sprintf(`window.__ganttlet_config={googleClientId:%s,collabUrl:%s};`, id, url)
 }

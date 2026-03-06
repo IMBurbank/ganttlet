@@ -15,6 +15,7 @@ via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
   - `/workspace` must always stay on `main` — it is the shared base for all worktrees
   - **Clean up when done** (mandatory): `cd /workspace && git worktree remove /workspace/.claude/worktrees/<name>` — stale worktrees leak disk and block branch deletion
 - Do NOT add features, refactoring, or "improvements" beyond what was requested.
+- Write failing tests before implementation when feasible (unit, integration — not E2E requiring deployment). Let the test define the expected behavior, then make it pass.
 - Do NOT skip verification. Run `./scripts/full-verify.sh` before declaring work done.
 - Do NOT enter plan mode or ask for confirmation when executing from a prompt file.
 - Commit after each logical change, not just at the end.

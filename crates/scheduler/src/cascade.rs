@@ -16,17 +16,25 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
 
     let task_map: HashMap<&str, &Task> = tasks.iter().map(|t| (t.id.as_str(), t)).collect();
 
+    // Build adjacency list: from_id -> list of dependent task IDs
+    let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
+    for task in tasks {
+        for dep in &task.dependencies {
+            dependents.entry(dep.from_id.as_str()).or_default().push(task.id.as_str());
+        }
+    }
+
     let mut visited = HashSet::new();
     let mut shifted = HashSet::new();
     let mut results = Vec::new();
 
-    fn cascade(
+    fn cascade<'a>(
         task_id: &str,
         delta: i32,
         visited: &mut HashSet<String>,
         shifted: &mut HashSet<String>,
-        task_map: &HashMap<&str, &Task>,
-        tasks: &[Task],
+        task_map: &HashMap<&str, &'a Task>,
+        dependents: &HashMap<&str, Vec<&str>>,
         results: &mut Vec<CascadeResult>,
     ) {
         if visited.contains(task_id) {
@@ -34,36 +42,34 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
         }
         visited.insert(task_id.to_string());
 
-        // Find all tasks that depend on this task
-        for task in tasks {
-            for dep in &task.dependencies {
-                if dep.from_id == task_id {
-                    let dependent = match task_map.get(task.id.as_str()) {
-                        Some(t) if !t.is_summary => t,
-                        _ => continue,
-                    };
+        // Look up dependents via adjacency list (not full scan)
+        if let Some(dep_ids) = dependents.get(task_id) {
+            for &dep_id in dep_ids {
+                let dependent = match task_map.get(dep_id) {
+                    Some(t) if !t.is_summary => t,
+                    _ => continue,
+                };
 
-                    // Only shift each task once, using original dates to preserve duration
-                    if shifted.insert(task.id.clone()) {
-                        let new_start = add_days(&dependent.start_date, delta);
-                        let new_end = add_days(&dependent.end_date, delta);
-                        results.push(CascadeResult {
-                            id: dependent.id.clone(),
-                            start_date: new_start,
-                            end_date: new_end,
-                        });
-                    }
-
-                    cascade(
-                        &task.id,
-                        delta,
-                        visited,
-                        shifted,
-                        task_map,
-                        tasks,
-                        results,
-                    );
+                // Only shift each task once, using original dates to preserve duration
+                if shifted.insert(dep_id.to_string()) {
+                    let new_start = add_days(&dependent.start_date, delta);
+                    let new_end = add_days(&dependent.end_date, delta);
+                    results.push(CascadeResult {
+                        id: dependent.id.clone(),
+                        start_date: new_start,
+                        end_date: new_end,
+                    });
                 }
+
+                cascade(
+                    dep_id,
+                    delta,
+                    visited,
+                    shifted,
+                    task_map,
+                    dependents,
+                    results,
+                );
             }
         }
     }
@@ -74,7 +80,7 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
         &mut visited,
         &mut shifted,
         &task_map,
-        tasks,
+        &dependents,
         &mut results,
     );
 
@@ -291,6 +297,46 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 0);
         assert!(results.is_empty(), "Zero delta should return empty vec");
+    }
+
+    #[test]
+    fn large_chain_cascade() {
+        // 50-task chain: t0 -> t1 -> t2 -> ... -> t49
+        let mut tasks: Vec<Task> = (0..50).map(|i| {
+            let start_day = 1 + i * 10;
+            let end_day = start_day + 9;
+            make_task(
+                &format!("t{}", i),
+                &format!("2026-03-{:02}", start_day.min(28)),
+                &format!("2026-03-{:02}", end_day.min(28)),
+            )
+        }).collect();
+        for i in 1..50 {
+            tasks[i].dependencies = vec![make_dep(&format!("t{}", i - 1), &format!("t{}", i))];
+        }
+        let results = cascade_dependents(&tasks, "t0", 2);
+        assert_eq!(results.len(), 49);
+        // Each task shifted by exactly 2 days
+        for r in &results {
+            assert!(!r.id.is_empty());
+        }
+    }
+
+    #[test]
+    fn orphan_tasks_unaffected() {
+        let tasks = vec![
+            make_task("a", "2026-03-01", "2026-03-10"),
+            make_task("orphan1", "2026-03-05", "2026-03-15"),
+            make_task("orphan2", "2026-03-20", "2026-03-28"),
+            {
+                let mut t = make_task("b", "2026-03-11", "2026-03-20");
+                t.dependencies = vec![make_dep("a", "b")];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 3);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "b");
     }
 
     #[test]

@@ -54,6 +54,23 @@ export function updateViewingTask(
 }
 
 /**
+ * Broadcast drag intent to other users via awareness.
+ * Pass null to clear (on mouseup).
+ */
+export function setDragIntent(
+  awareness: Awareness,
+  dragging: { taskId: string; startDate: string; endDate: string } | null
+): void {
+  const current = awareness.getLocalState();
+  if (!current?.user) return;
+
+  awareness.setLocalStateField('user', {
+    ...current.user,
+    dragging,
+  });
+}
+
+/**
  * Get all connected collaboration users, excluding the local client.
  */
 export function getCollabUsers(awareness: Awareness): CollabUser[] {
@@ -71,6 +88,7 @@ export function getCollabUsers(awareness: Awareness): CollabUser[] {
       color: state.user.color ?? pickColor(clientId),
       viewingTaskId: state.user.viewingTaskId ?? null,
       viewingCellColumn: state.user.viewingCellColumn ?? null,
+      dragging: state.user.dragging ?? null,
     });
   });
 

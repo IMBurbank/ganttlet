@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useState } from 'react';
 import type { ZoomLevel } from '../../types';
-import { useGanttDispatch, useLocalDispatch, useActiveDrag, useSetViewingTask } from '../../state/GanttContext';
+import { useGanttDispatch, useLocalDispatch, useActiveDrag, useAwareness, useSetViewingTask } from '../../state/GanttContext';
+import { setDragIntent } from '../../collab/awareness';
 import { dateToX, xToDate, dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, getColumnWidth } from '../../utils/dateUtils';
 import { parseISO } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
@@ -44,6 +45,7 @@ export default function TaskBar({
   const dispatch = useGanttDispatch();
   const localDispatch = useLocalDispatch();
   const activeDragRef = useActiveDrag();
+  const awareness = useAwareness();
   const setViewingTask = useSetViewingTask();
   const dragRef = useRef<{
     startX: number;
@@ -104,11 +106,12 @@ export default function TaskBar({
           rafRef.current = null;
         });
 
-        // 100ms-throttled CRDT broadcast
+        // 100ms-throttled CRDT broadcast + drag intent
         const now = performance.now();
         if (now - lastCrdtBroadcast.current >= 100) {
           lastCrdtBroadcast.current = now;
           dispatch(moveAction);
+          if (awareness) setDragIntent(awareness, { taskId, startDate: newStartStr, endDate: newEndStr });
         }
       } else {
         const newEndX = dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + dx;
@@ -132,11 +135,12 @@ export default function TaskBar({
           rafRef.current = null;
         });
 
-        // 100ms-throttled CRDT broadcast
+        // 100ms-throttled CRDT broadcast + drag intent
         const now = performance.now();
         if (now - lastCrdtBroadcast.current >= 100) {
           lastCrdtBroadcast.current = now;
           dispatch(resizeAction);
+          if (awareness) setDragIntent(awareness, { taskId, startDate: dragRef.current!.origStartDate, endDate: newEndStr });
         }
       }
     }
@@ -147,6 +151,7 @@ export default function TaskBar({
         rafRef.current = null;
       }
       activeDragRef.current = null;
+      if (awareness) setDragIntent(awareness, null);
       if (dragRef.current) {
         const finalTask = dragRef.current;
         dragRef.current = null;

@@ -226,6 +226,24 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
               />
             );
           })}
+          {/* Ghost bars for remote drags */}
+          {collabUsers?.filter(u => u.dragging).map(u => {
+            const drag = u.dragging!;
+            const yPos = taskYPositions.get(drag.taskId);
+            if (yPos === undefined) return null;
+            const gx = dateToXCollapsed(drag.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const gEndX = dateToXCollapsed(drag.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const gw = Math.max(gEndX - gx, 0);
+            const barH = 28;
+            const barY = yPos + (ROW_HEIGHT - barH) / 2;
+            return (
+              <g key={`ghost-${u.clientId}`} opacity={0.4}>
+                <rect x={gx} y={barY} width={gw} height={barH} rx={4}
+                  fill={u.color} stroke={u.color} strokeWidth={1.5} strokeDasharray="4 2" />
+                <text x={gx + 4} y={barY - 4} fontSize={9} fill={u.color}>{u.name}</text>
+              </g>
+            );
+          })}
           {/* Dependencies */}
           <DependencyLayer
             tasks={visibleTasks}

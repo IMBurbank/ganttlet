@@ -65,6 +65,7 @@ export interface CollabUser {
   color: string;
   viewingTaskId: string | null;
   viewingCellColumn: string | null;
+  dragging: { taskId: string; startDate: string; endDate: string } | null;
 }
 
 export interface ColumnConfig {

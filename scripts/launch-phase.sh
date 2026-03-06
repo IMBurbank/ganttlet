@@ -43,6 +43,7 @@ WORKSPACE="/workspace"
 WATCH="${WATCH:-0}"
 PHASE="phase14"
 # Implementation branch — all stage merges target this branch, then a PR is created to main
+_USER_MERGE_TARGET="${MERGE_TARGET:-}"  # Preserve user's explicit env var (empty if unset)
 MERGE_TARGET="${MERGE_TARGET:-feature/${PHASE}}"
 
 LOG_DIR="${WORKSPACE}/logs/${PHASE}"
@@ -92,10 +93,11 @@ load_yaml_config() {
   log "Loading config from ${config_file}"
 
   PHASE=$(yq -r '.phase' "$config_file")
+  # YAML merge_target overrides hardcoded default, but user's env var wins
   local merge_target_yaml
   merge_target_yaml=$(yq -r '.merge_target // empty' "$config_file")
-  if [[ -n "$merge_target_yaml" ]]; then
-    MERGE_TARGET="${MERGE_TARGET:-$merge_target_yaml}"
+  if [[ -n "$merge_target_yaml" && -z "$_USER_MERGE_TARGET" ]]; then
+    MERGE_TARGET="$merge_target_yaml"
   fi
 
   local num_stages
@@ -123,8 +125,10 @@ load_yaml_config() {
     esac
   done
 
-  # Update derived values
-  MERGE_TARGET="${MERGE_TARGET:-feature/${PHASE}}"
+  # Update derived values (PHASE may have changed from YAML)
+  if [[ -z "$_USER_MERGE_TARGET" && -z "$merge_target_yaml" ]]; then
+    MERGE_TARGET="feature/${PHASE}"  # Derive from new PHASE if neither user nor YAML set it
+  fi
   LOG_DIR="${WORKSPACE}/logs/${PHASE}"
   TMUX_SESSION="${PHASE}-agents"
 }

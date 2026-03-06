@@ -149,6 +149,18 @@ body {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
 }
 
+.inline-edit-error {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3) !important;
+}
+
+.inline-edit-error-message {
+  color: #ef4444;
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
 .dependency-arrow {
   pointer-events: auto;
   cursor: pointer;

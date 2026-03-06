@@ -10,6 +10,7 @@ import InlineEdit from './InlineEdit';
 import PredecessorsCell from './PredecessorsCell';
 import OKRPickerModal from '../shared/OKRPickerModal';
 import { formatDisplayDate, addDaysToDate, daysBetween } from '../../utils/dateUtils';
+import { validateTaskName, validateDuration, validateEndDate } from '../../utils/taskFieldValidation';
 
 interface TaskRowProps {
   task: Task;
@@ -140,6 +141,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
               value={task.name}
               onSave={v => handleFieldUpdate('name', v)}
               autoEdit={autoFocusName}
+              validate={validateTaskName}
             />
           </div>
         );
@@ -172,6 +174,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
             displayValue={formatDisplayDate(task.endDate)}
             type="date"
             onSave={v => handleDateUpdate('endDate', v)}
+            validate={v => validateEndDate(task.startDate, v)}
           />
         );
       case 'duration':
@@ -187,6 +190,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
             type="number"
             min={1}
             onSave={handleDurationUpdate}
+            validate={validateDuration}
           />
         );
       case 'done':

@@ -138,3 +138,12 @@ Single stage with 4 parallel groups (zero file overlap) + validation. Implemente
 - **Group C (Hooks & Guardrails)**: Made `scripts/verify.sh` scope-aware via `AGENT_SCOPE` env var (rust/ts/full), added hash-based output deduplication, 30s rate limiting cooldown, compact output format; fixed pre-existing PIPESTATUS exit code bug; created `scripts/pre-commit-hook.sh` rejecting todo!()/unimplemented!()/commented-out tests
 - **Group D (GitHub Pipeline)**: Created `.github/ISSUE_TEMPLATE/agent-task.yml` with structured fields; added `.github/workflows/agent-gate.yml` quality gate; overhauled `.github/workflows/agent-work.yml` with env-var-based prompt construction (shell injection protection), 2-attempt retry loop, complexity-based `--max-turns`/`--max-budget-usd`, `.agent-summary.md` PR body
 - **Known issues**: WATCH mode uses `-p` (sparse text output) instead of interactive mode (rich TUI) — a regression from Phase 12. `docs/multi-agent-guide.md` doesn't reflect Group B's new features (written in parallel). See `docs/phase13-review.md` for full review.
+
+## Plugin Adoption — DONE
+Added Claude Code plugins, protective hooks, and automated code review to the CI pipeline. See `docs/plugin-adoption-plan.md` for the full plan and decision log.
+- **Plugins**: `github`, `rust-analyzer-lsp`, `typescript-lsp`, `code-review` — configured in `.claude/settings.json`
+- **Protective hooks**: PreToolUse hooks block edits to `package-lock.json`, `src/wasm/scheduler/`, `.env`; block `git push` to `main`
+- **Dockerfile**: Added `rust-analyzer` (rustup component) and `typescript-language-server` (npm global) to dev stage
+- **agent-work.yml**: OAuth token auth, plugin install steps (cached), review-fix loop (max 3 iterations with progress comments on PR), complexity-based budgets, stale branch cleanup, workflow run link on issue
+- **pr-review.yml**: New workflow for non-agent PRs — runs `/code-review` on open/synchronize, skips agent branches and drafts
+- **Validated**: Docker build, LSP binaries, plugin loading, full CI pipeline (issues #2, #7, #9 → PRs created, reviewed, merged)

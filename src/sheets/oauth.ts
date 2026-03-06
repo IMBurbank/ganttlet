@@ -48,9 +48,9 @@ export function isSignedIn(): boolean {
 }
 
 export function initOAuth(): void {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const clientId = window.__ganttlet_config?.googleClientId || import.meta.env.VITE_GOOGLE_CLIENT_ID;
   if (!clientId) {
-    console.warn('VITE_GOOGLE_CLIENT_ID not set, Google OAuth disabled');
+    console.warn('Google OAuth client ID not configured');
     return;
   }
 

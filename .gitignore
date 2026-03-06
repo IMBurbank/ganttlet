@@ -2,7 +2,6 @@
 .env
 .env.local
 .env.*.local
-.env.production
 
 # Local configurations
 settings.local*

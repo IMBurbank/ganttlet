@@ -110,12 +110,17 @@ jobs:
 
       - name: Deploy frontend to dev
         id: deploy-frontend
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID_DEV }}
+          RELAY_URL: ${{ steps.deploy-relay.outputs.url }}
         run: |
+          COLLAB_URL="${RELAY_URL/https:/wss:}"
           URL=$(gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
             --project=${{ env.PROJECT_ID }} \
             --region=${{ env.REGION }} \
             --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/ganttlet/${{ env.FRONTEND_SERVICE }}:${{ github.sha }} \
             --platform=managed \
+            --set-env-vars="GANTTLET_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID},GANTTLET_COLLAB_URL=${COLLAB_URL}" \
             --format='value(status.url)')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
@@ -152,6 +157,20 @@ jobs:
             exit 1
           fi
           echo "Frontend health check passed (HTTP $STATUS, root div found)"
+
+      - name: Health check — runtime config
+        run: |
+          echo "Checking runtime config at ${FRONTEND_URL}/config.js"
+          BODY=$(curl -s "${FRONTEND_URL}/config.js")
+          if ! echo "$BODY" | grep -q '__ganttlet_config'; then
+            echo "Runtime config missing __ganttlet_config"
+            echo "Got: $BODY"
+            exit 1
+          fi
+          if echo "$BODY" | grep -q 'googleClientId:""'; then
+            echo "WARNING: GANTTLET_GOOGLE_CLIENT_ID is empty — OAuth will be disabled"
+          fi
+          echo "Runtime config OK"
 
       - name: Health check — WebSocket upgrade
         run: |
@@ -255,17 +274,25 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Deploy relay to production
+        id: deploy-relay-prod
         run: |
-          gcloud run deploy ${{ env.RELAY_SERVICE }} \
+          URL=$(gcloud run deploy ${{ env.RELAY_SERVICE }} \
             --project=${{ env.PROJECT_ID }} \
             --region=${{ env.REGION }} \
             --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/ganttlet/${{ env.RELAY_SERVICE }}:${{ github.sha }} \
-            --platform=managed
+            --platform=managed \
+            --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Deploy frontend to production
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID_PROD }}
+          RELAY_URL: ${{ steps.deploy-relay-prod.outputs.url }}
         run: |
+          COLLAB_URL="${RELAY_URL/https:/wss:}"
           gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
             --project=${{ env.PROJECT_ID }} \
             --region=${{ env.REGION }} \
             --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/ganttlet/${{ env.FRONTEND_SERVICE }}:${{ github.sha }} \
-            --platform=managed
+            --platform=managed \
+            --set-env-vars="GANTTLET_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID},GANTTLET_COLLAB_URL=${COLLAB_URL}"

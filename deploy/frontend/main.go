@@ -20,7 +20,19 @@ func main() {
 		distDir = "/app/dist"
 	}
 
+	// Build runtime config JS from environment variables (once at startup)
+	configJS := buildConfigJS()
+
 	mux := http.NewServeMux()
+
+	// Runtime config endpoint — serves environment-specific config to the browser.
+	// This enables promotable artifacts: one image, config injected at deploy time.
+	mux.HandleFunc("/config.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, configJS)
+	})
 
 	// Health check endpoints (registered before file server)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -109,4 +121,15 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// buildConfigJS generates a JS snippet that sets window.__ganttlet_config
+// from environment variables. Called once at startup.
+func buildConfigJS() string {
+	googleClientID := os.Getenv("GANTTLET_GOOGLE_CLIENT_ID")
+	collabURL := os.Getenv("GANTTLET_COLLAB_URL")
+	return fmt.Sprintf(
+		`window.__ganttlet_config={googleClientId:%q,collabUrl:%q};`,
+		googleClientID, collabURL,
+	)
 }

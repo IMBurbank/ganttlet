@@ -97,8 +97,8 @@ describe('ganttReducer', () => {
       });
       const task = result.tasks.find(t => t.id === 'a')!;
       expect(task.endDate).toBe('2026-03-20');
-      // Duration is computed from dates: daysBetween('2026-03-01', '2026-03-20') = 19
-      expect(task.duration).toBe(19);
+      // Duration is business days: workingDaysBetween('2026-03-01', '2026-03-20') = 14
+      expect(task.duration).toBe(14);
     });
   });
 

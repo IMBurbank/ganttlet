@@ -1,4 +1,4 @@
-use crate::date_utils::add_days;
+use crate::date_utils::{add_days, add_business_days};
 use crate::types::{ConstraintType, DepType, RecalcResult, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -26,8 +26,9 @@ pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
                 add_days(&pred.start_date, dep.lag)
             }
             DepType::FF => {
-                // Finish together: predecessor end_date + lag - task duration + 1 day
-                add_days(&pred.end_date, dep.lag - task.duration + 1)
+                // Finish together: predecessor end_date + lag, then back up by duration business days
+                let finish = add_days(&pred.end_date, dep.lag);
+                add_business_days(&finish, -(task.duration - 1))
             }
         };
 
@@ -209,8 +210,8 @@ pub fn recalculate_earliest(
             }
         }
 
-        // Compute new_end preserving duration
-        let new_end = add_days(&new_start, task.duration - 1);
+        // Compute new_end preserving duration (business days)
+        let new_end = add_business_days(&new_start, task.duration);
 
         // Only include in results if dates changed
         if new_start != task.start_date || new_end != task.end_date {
@@ -415,111 +416,117 @@ mod tests {
 
     #[test]
     fn recalc_linear_chain() {
-        // A(03-01..03-10, 10d) -> B(03-20..03-29, 10d) -> C(03-30..04-08, 10d)
-        // B has slack (should start 03-11), C has slack (should start 03-21 after B moves)
-        let mut b = make_task("b", "2026-03-20", "2026-03-29", 10);
+        // A(03-02 Mon..03-09 Mon, 5d) -> B(03-20..03-27, 5d) -> C(04-01..04-08, 5d)
+        // B has slack (should start 03-10), C has slack (moves after B)
+        // add_business_days("2026-03-02", 5) = "2026-03-09"
+        let mut b = make_task("b", "2026-03-20", "2026-03-27", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-30", "2026-04-08", 10);
+        let mut c = make_task("c", "2026-04-01", "2026-04-08", 5);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b, c];
-        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b, c];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
-        // B should move to 03-11, C should move to 03-21
+        // A.end=03-09, so B earliest=03-10 (Tue), B.end=add_biz(03-10,5)=03-17
+        // C earliest=03-18 (Wed), C.end=add_biz(03-18,5)=03-25
         assert_eq!(results.len(), 2);
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b_result.new_start, "2026-03-11");
-        assert_eq!(b_result.new_end, "2026-03-20");
+        assert_eq!(b_result.new_start, "2026-03-10");
+        assert_eq!(b_result.new_end, "2026-03-17");
         let c_result = results.iter().find(|r| r.id == "c").unwrap();
-        assert_eq!(c_result.new_start, "2026-03-21");
-        assert_eq!(c_result.new_end, "2026-03-30");
+        assert_eq!(c_result.new_start, "2026-03-18");
+        assert_eq!(c_result.new_end, "2026-03-25");
     }
 
     #[test]
     fn recalc_removes_slack() {
-        // A(03-01..03-10) -> B(03-25..04-03, 10d). B has 14 days of slack.
-        let mut b = make_task("b", "2026-03-25", "2026-04-03", 10);
+        // A(03-02 Mon..03-09 Mon, 5d) -> B(03-25..04-01, 5d). B has slack.
+        let mut b = make_task("b", "2026-03-25", "2026-04-01", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
-        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
+        // B snaps to earliest: 03-10 (Tue), end=add_biz(03-10,5)=03-17
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
-        assert_eq!(results[0].new_start, "2026-03-11");
-        assert_eq!(results[0].new_end, "2026-03-20");
+        assert_eq!(results[0].new_start, "2026-03-10");
+        assert_eq!(results[0].new_end, "2026-03-17");
     }
 
     #[test]
     fn recalc_today_floor() {
-        // Task with no deps, start in the past. Should be floored at today.
-        let tasks = vec![make_task("a", "2025-01-01", "2025-01-10", 10)];
+        // Task with no deps, start in the past. Should be floored at today (Wed).
+        // add_business_days("2026-03-04", 5) = 2026-03-11
+        let tasks = vec![make_task("a", "2025-01-01", "2025-01-08", 5)];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-04");
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].new_start, "2026-03-04");
-        assert_eq!(results[0].new_end, "2026-03-13");
+        assert_eq!(results[0].new_end, "2026-03-11");
     }
 
     #[test]
     fn recalc_snet_constraint() {
-        // Task with SNET constraint. Dep says 03-11 but SNET says 03-20.
-        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        // Task with SNET constraint. Dep says 03-10 but SNET says 03-20 (Fri).
+        // add_business_days("2026-03-20", 5) = 2026-03-27
+        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::SNET);
         b.constraint_date = Some("2026-03-20".to_string());
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
-        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
         assert_eq!(results[0].new_start, "2026-03-20");
-        assert_eq!(results[0].new_end, "2026-03-29");
+        assert_eq!(results[0].new_end, "2026-03-27");
     }
 
     #[test]
     fn recalc_scope_workstream() {
         // Two workstreams: Eng and Design. Only Eng should be recalculated.
-        let mut e2 = make_task_with_project("e2", "2026-03-25", "2026-04-03", 10, "Alpha", "Eng");
+        // A(03-02 Mon..03-09, 5d) -> e2/d2 (slack at 03-25)
+        let mut e2 = make_task_with_project("e2", "2026-03-25", "2026-04-01", 5, "Alpha", "Eng");
         e2.dependencies = vec![make_dep("e1", "e2", DepType::FS, 0)];
 
-        let mut d2 = make_task_with_project("d2", "2026-03-25", "2026-04-03", 10, "Alpha", "Design");
+        let mut d2 = make_task_with_project("d2", "2026-03-25", "2026-04-01", 5, "Alpha", "Design");
         d2.dependencies = vec![make_dep("d1", "d2", DepType::FS, 0)];
 
         let tasks = vec![
-            make_task_with_project("e1", "2026-03-01", "2026-03-10", 10, "Alpha", "Eng"),
+            make_task_with_project("e1", "2026-03-02", "2026-03-09", 5, "Alpha", "Eng"),
             e2,
-            make_task_with_project("d1", "2026-03-01", "2026-03-10", 10, "Alpha", "Design"),
+            make_task_with_project("d1", "2026-03-02", "2026-03-09", 5, "Alpha", "Design"),
             d2,
         ];
-        let results = recalculate_earliest(&tasks, None, Some("Eng"), None, "2026-03-01");
+        let results = recalculate_earliest(&tasks, None, Some("Eng"), None, "2026-03-02");
 
         // Only e2 should be moved (d2 is out of scope)
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "e2");
-        assert_eq!(results[0].new_start, "2026-03-11");
+        assert_eq!(results[0].new_start, "2026-03-10");
     }
 
     #[test]
     fn recalc_scope_task_id() {
         // A -> B -> C. Scope by B: should recalculate B and C (downstream), not A.
-        let mut b = make_task("b", "2026-03-25", "2026-04-03", 10);
+        let mut b = make_task("b", "2026-03-25", "2026-04-01", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-04-20", "2026-04-29", 10);
+        let mut c = make_task("c", "2026-04-20", "2026-04-27", 5);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b, c];
-        let results = recalculate_earliest(&tasks, None, None, Some("b"), "2026-03-01");
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b, c];
+        let results = recalculate_earliest(&tasks, None, None, Some("b"), "2026-03-02");
 
-        // B should snap to 03-11, C should snap based on B's new end
+        // B snaps to 03-10, B.end=03-17, C snaps to 03-18, C.end=03-25
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b_result.new_start, "2026-03-11");
-        assert_eq!(b_result.new_end, "2026-03-20");
+        assert_eq!(b_result.new_start, "2026-03-10");
+        assert_eq!(b_result.new_end, "2026-03-17");
 
         let c_result = results.iter().find(|r| r.id == "c").unwrap();
-        assert_eq!(c_result.new_start, "2026-03-21");
-        assert_eq!(c_result.new_end, "2026-03-30");
+        assert_eq!(c_result.new_start, "2026-03-18");
+        assert_eq!(c_result.new_end, "2026-03-25");
 
         // A should not be in results
         assert!(results.iter().all(|r| r.id != "a"));
@@ -528,11 +535,12 @@ mod tests {
     #[test]
     fn recalc_no_change_returns_empty() {
         // Task already at earliest position — no results
-        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        // A.end=03-09, B earliest=03-10, B.end=add_biz(03-10,5)=03-17
+        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
-        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-01");
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         assert!(results.is_empty());
     }

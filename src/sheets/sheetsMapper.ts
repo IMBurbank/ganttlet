@@ -1,5 +1,5 @@
 import type { Task, Dependency, DependencyType } from '../types';
-import { daysBetween } from '../utils/dateUtils';
+import { workingDaysBetween } from '../utils/dateUtils';
 
 // Column order in the Google Sheet (row 1 = headers)
 export const SHEET_COLUMNS = [
@@ -17,7 +17,7 @@ export function taskToRow(task: Task): string[] {
     task.name,
     task.startDate,
     task.endDate,
-    String(daysBetween(task.startDate, task.endDate)),
+    String(workingDaysBetween(task.startDate, task.endDate)),
     task.owner,
     task.workStream,
     task.project,
@@ -46,7 +46,7 @@ export function rowToTask(row: string[]): Task | null {
     endDate: get(3),
     duration: (() => {
       const s = get(2), e = get(3);
-      if (s && e) return daysBetween(s, e);
+      if (s && e) return workingDaysBetween(s, e);
       return parseInt(get(4)) || 0; // Fallback for legacy data without dates
     })(),
     owner: get(5),

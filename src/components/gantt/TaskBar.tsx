@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useState } from 'react';
 import type { ZoomLevel } from '../../types';
 import { useGanttDispatch, useLocalDispatch, useActiveDrag, useAwareness, useSetViewingTask } from '../../state/GanttContext';
 import { setDragIntent } from '../../collab/awareness';
-import { dateToX, xToDate, dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, getColumnWidth } from '../../utils/dateUtils';
+import { dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, workingDaysBetween, getColumnWidth } from '../../utils/dateUtils';
 import { parseISO } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
 import TaskBarPopover from './TaskBarPopover';
@@ -87,9 +87,11 @@ export default function TaskBar({
           newStart = parseISO(earliestStart);
         }
 
-        const duration = daysBetween(dragRef.current.origStartDate, dragRef.current.origEndDate);
-        const newEnd = new Date(newStart);
-        newEnd.setDate(newEnd.getDate() + duration);
+        // Shift end by same pixel delta as start to preserve visual width
+        const newEnd = xToDateCollapsed(
+          dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + dx,
+          timelineStart, colWidth, zoom, collapseWeekends
+        );
         const newEndStr = formatDate(newEnd);
 
         // Skip if dates haven't changed
@@ -121,7 +123,7 @@ export default function TaskBar({
         if (newEndX - origStartX < minWidth) return;
         const newEnd = xToDateCollapsed(newEndX, timelineStart, colWidth, zoom, collapseWeekends);
         const newEndStr = formatDate(newEnd);
-        const newDuration = daysBetween(dragRef.current.origStartDate, newEndStr);
+        const newDuration = workingDaysBetween(dragRef.current.origStartDate, newEndStr);
         if (newDuration < 1) return;
 
         // Skip if end date hasn't changed

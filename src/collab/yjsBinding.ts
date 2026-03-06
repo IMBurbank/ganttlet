@@ -3,7 +3,7 @@ import type { Dispatch } from 'react';
 import type { Task, Dependency } from '../types';
 import type { GanttAction } from '../state/actions';
 import { cascadeDependents } from '../utils/schedulerWasm';
-import { daysBetween } from '../utils/dateUtils';
+import { workingDaysBetween } from '../utils/dateUtils';
 
 /**
  * Flag to prevent echoing local changes back through the observer.
@@ -172,7 +172,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set('endDate', action.newEndDate);
             // Compute duration from dates, not action payload
-            const duration = daysBetween(ymap.get('startDate') as string, action.newEndDate);
+            const duration = workingDaysBetween(ymap.get('startDate') as string, action.newEndDate);
             ymap.set('duration', duration);
           }
         });
@@ -279,7 +279,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set('startDate', action.newStartDate);
             ymap.set('endDate', action.newEndDate);
-            ymap.set('duration', daysBetween(action.newStartDate, action.newEndDate));
+            ymap.set('duration', workingDaysBetween(action.newStartDate, action.newEndDate));
           }
           // Also cascade dependents in the CRDT
           if (action.daysDelta !== 0) {
@@ -293,7 +293,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
                   const cmap = yarray.get(ci) as Y.Map<unknown>;
                   cmap.set('startDate', task.startDate);
                   cmap.set('endDate', task.endDate);
-                  cmap.set('duration', daysBetween(task.startDate, task.endDate));
+                  cmap.set('duration', workingDaysBetween(task.startDate, task.endDate));
                 }
               }
             }

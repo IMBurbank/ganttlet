@@ -14,6 +14,13 @@ jobs:
       pull-requests: write
       issues: write
     steps:
+      - name: Link workflow run to issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "🤖 Agent workflow started: [Run #${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
       - uses: actions/checkout@v4
 
       - name: Setup Node.js

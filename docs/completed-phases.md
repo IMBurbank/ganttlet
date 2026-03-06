@@ -23,6 +23,7 @@ See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 | 13 | Agent Infrastructure | 4 (A-D) | Skills, orchestrator, hooks, GitHub pipeline |
 | 13a | Post-Implementation Cleanup | 2 (E-F) | Doc alignment, skill enrichment |
 | Plugin | Plugin Adoption | — | LSP plugins, code review, protective hooks |
+| 14 | Drag Reliability & Sync Integrity | 6 (A-F) | Dispatch split, atomic drag, CRDT structural sync |
 
 ---
 
@@ -173,3 +174,12 @@ Added Claude Code plugins, protective hooks, and automated code review to the CI
 - **agent-work.yml**: OAuth token auth, plugin install steps (cached), review-fix loop (max 3 iterations with progress comments on PR), complexity-based budgets, stale branch cleanup, workflow run link on issue
 - **pr-review.yml**: New workflow for non-agent PRs — runs `/code-review` on open/synchronize, skips agent branches and drafts
 - **Validated**: Docker build, LSP binaries, plugin loading, full CI pipeline (issues #2, #7, #9 → PRs created, reviewed, merged)
+
+## Phase 14: Drag Reliability & Sync Integrity — DONE
+Addressed 10 recommendations (R1-R10) for drag interaction reliability and CRDT sync integrity. All 6 agent groups (A-F) implemented sequentially in one session to avoid merge conflicts. Four rounds of automated code review, all issues resolved. PR #14, squash-merged.
+- **Group A (Drag Throttle + SET_TASKS Guard)**: Split dispatch into `localDispatch` (React-only, ~60fps via RAF) and `collabDispatch` (React + Yjs CRDT, 100ms throttle). Added `activeDragRef` + `guardedDispatch` to preserve dragged task dates when remote `SET_TASKS` arrives during drag.
+- **Group B (Duration Derivation + Semantics)**: Made `duration` always derived from `daysBetween(startDate, endDate)` — never trusted from action payloads. Updated `MOVE_TASK`, `RESIZE_TASK`, `UPDATE_TASK_FIELD`, `ADD_TASK` reducer handlers. Sheets mapper computes duration on write, derives on read with legacy fallback.
+- **Group C (Cascade Optimization)**: Replaced O(n) full-scan per cascade step with HashMap adjacency list in `crates/scheduler/src/cascade.rs`. Added `large_chain_cascade` (50-task chain) and `orphan_tasks_unaffected` Rust tests. Added `performance.mark/measure` instrumentation (dev-only).
+- **Group D (Atomic Drag + Structural Sync)**: Added `COMPLETE_DRAG` action — atomic position set + cascade in one reducer pass with cascade highlight tracking. Replaced separate `MOVE_TASK` + `CASCADE_DEPENDENTS` on mouseup. Added `ADD_DEPENDENCY`, `UPDATE_DEPENDENCY`, `REMOVE_DEPENDENCY` to Yjs binding. Added `ADD_TASK`/`DELETE_TASK` full-sync triggers.
+- **Group E (Arrow Render Consistency)**: Memoized `taskMap`, `visibleIds`, `criticalEdgeSet`, `arrows` in DependencyLayer. Added guard clauses for missing Y positions and missing from/to tasks.
+- **Group F (Drag Intent / Ghost Bar)**: Extended Yjs awareness with drag intent (`setDragIntent`). Extended `CollabUser` type with `dragging` field. Ghost bars render as dashed outlines with collaborator name for remote drags. Date validation via `parseISO` + `isValid`.

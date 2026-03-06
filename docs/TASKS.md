@@ -3,11 +3,15 @@
 Claimable tasks for multi-agent development.
 **Convention**: write your agent/branch name next to claimed tasks.
 
-Prior phases (0-13, 13a, Plugin Adoption) are complete. See `docs/completed-phases.md`.
+Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phases.md`.
 
 ## Active Phase
 
-- **Phase 14**: Drag Interaction Reliability & Sync Integrity — [`docs/tasks/phase14.yaml`](tasks/phase14.yaml)
+No active phase.
+
+## Completed
+
+- **Phase 14**: Drag Interaction Reliability & Sync Integrity — [`docs/tasks/phase14.yaml`](tasks/phase14.yaml) — DONE
 
 ## Backlog (unstructured)
 

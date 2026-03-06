@@ -106,7 +106,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 ## Reference Docs & Skills
 - `docs/architecture.md` — Tech stack, architecture principles/constraints, E2E testing, deployment
 - `docs/multi-agent-guide.md` — launch-phase.sh usage, Claude CLI reference, phase setup
-- `docs/completed-phases.md` — Detailed notes on phases 0-13 (auth, sync, deployment, agent infra)
+- `docs/completed-phases.md` — Detailed notes on phases 0-14 (auth, sync, deployment, agent infra, drag reliability)
 - `docs/cloud-verification-plan.md` — Cloud-based verification stages and GCP layout
 - `docs/TASKS.md` — Task queue index; structured data in `docs/tasks/phaseN.yaml`
 - `.claude/skills/` — Domain-specific skills (loaded on demand):
@@ -123,5 +123,5 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.
 
 ## Project Status
-- **Completed**: Phases 0-13. See `docs/completed-phases.md`.
+- **Completed**: Phases 0-14. See `docs/completed-phases.md`.
 - **Roadmap**: Resource assignment/leveling, baseline tracking, export (PDF/PNG/CSV).

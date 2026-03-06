@@ -86,7 +86,7 @@ Triggered on `pull_request: [opened, synchronize]`. Runs `/code-review` on non-a
 Uses confidence-based scoring (threshold: 80) with 5 parallel review agents (CLAUDE.md compliance, bug scan, git history, previous PR comments, code comment compliance). See `docs/plugin-adoption-plan.md` for full plugin details.
 
 ## Completed Work
-Phases 0-13 are done, plus plugin adoption. Details in `docs/completed-phases.md`.
+Phases 0-14 are done, plus plugin adoption. Details in `docs/completed-phases.md`.
 
 ## Roadmap (Future)
 - Resource assignment and leveling

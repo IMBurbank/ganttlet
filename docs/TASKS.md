@@ -240,6 +240,223 @@ Execution: F1 → F2
 
 ---
 
+## Phase 14: Drag Interaction Reliability & Sync Integrity
+
+Fix fast-drag data corruption, arrow offset bugs, missing structural CRDT sync, and add
+multi-user drag intent. Based on `docs/phase14-recommendations.md`.
+
+### Context
+
+Production bugs observed: fast click-and-drag corrupts task duration and dependencies, arrows
+become offset. Investigation revealed structural sync gap: ADD_TASK, DELETE_TASK, and dependency
+operations don't sync via Yjs at all. This phase fixes all data integrity issues and adds
+awareness-based drag intent for multi-user UX.
+
+### Agent Groups & File Ownership
+
+```
+Stage 1 (Core Fixes — 3 groups, parallel, zero file overlap)
+
+Group A (Drag Throttle + Guard)         Group B (Duration + Sheets)
+  src/components/gantt/TaskBar.tsx         src/state/ganttReducer.ts
+  src/state/GanttContext.tsx               src/state/actions.ts
+                                           src/types/index.ts
+                                           src/utils/dateUtils.ts
+                                           src/sheets/sheetsMapper.ts
+
+Group C (Cascade Optimization)
+  crates/scheduler/src/cascade.rs
+  src/utils/schedulerWasm.ts
+
+Stage 2 (Sync + Rendering — 2 groups, parallel, zero file overlap)
+
+Group D (Atomic Drag + Struct Sync)     Group E (Arrow Rendering)
+  src/collab/yjsBinding.ts               src/components/gantt/DependencyLayer.tsx
+  src/state/GanttContext.tsx              src/components/gantt/DependencyArrow.tsx
+  src/state/ganttReducer.ts               src/utils/dependencyUtils.ts
+  src/state/actions.ts                    src/utils/layoutUtils.ts
+  src/components/gantt/TaskBar.tsx         src/components/gantt/GanttChart.tsx
+
+Stage 3 (Multi-User UX — 1 group)
+
+Group F (Awareness Ghost Bar)
+  src/collab/awareness.ts
+  src/components/gantt/TaskBar.tsx
+  src/components/gantt/GanttChart.tsx
+  src/types/index.ts
+```
+
+### Group A: Drag Throttle + SET_TASKS Guard (R1, R3)
+
+**A1: Read and understand the current code**
+- [ ] Read TaskBar.tsx, GanttContext.tsx, yjsBinding.ts
+
+**A2: Split dispatch into localDispatch + collabDispatch**
+- [ ] Create LocalDispatchContext + useLocalDispatch hook
+- [ ] localDispatch calls only React reducer (no Yjs)
+
+**A3: Add active drag tracking**
+- [ ] activeDragRef tracks { taskId, startDate, endDate } during drag
+- [ ] Expose setter via context
+
+**A4: Guard SET_TASKS during active drag**
+- [ ] Wrap dispatch passed to bindYjsToDispatch to preserve dragged task dates
+
+**A5: Throttle drag dispatch in TaskBar**
+- [ ] RAF throttle for local renders (~60fps)
+- [ ] 100ms throttle for CRDT broadcasts
+- [ ] Final authoritative write on mouseup
+
+**A6: Verify and finalize**
+- [ ] tsc + vitest pass, no out-of-scope files modified
+
+Execution: A1 → A2 → A3 → A4 → A5 → A6
+
+### Group B: Duration Derivation + Semantics + Sheets (R2, R7, R9)
+
+**B1: Read and understand the current code**
+- [ ] Read actions.ts, ganttReducer.ts, sheetsMapper.ts, types, dateUtils
+
+**B2: Document duration semantics**
+- [ ] Comment on Task.duration in types/index.ts
+- [ ] Comment on daysBetween in dateUtils.ts
+
+**B3: Remove newDuration from RESIZE_TASK payload**
+- [ ] Make newDuration optional in actions.ts
+
+**B4: Compute duration from dates in the reducer**
+- [ ] MOVE_TASK and RESIZE_TASK compute duration via daysBetween
+- [ ] ADD_TASK computes duration explicitly
+
+**B5: Sheets mapper — compute on write, ignore on read**
+- [ ] taskToRow computes duration from daysBetween(startDate, endDate)
+- [ ] rowToTask computes duration from dates, not column 4
+
+**B6: Verify and finalize**
+- [ ] tsc + vitest pass, no out-of-scope files modified
+
+Execution: B1 → B2 → B3 → B4 → B5 → B6
+
+### Group C: Cascade Optimization + Instrumentation (R8)
+
+**C1: Read and understand the current code**
+- [ ] Read cascade.rs, types.rs, schedulerWasm.ts
+
+**C2: Build adjacency list in cascade_dependents**
+- [ ] HashMap<predecessor, Vec<successors>> built once, O(e)
+- [ ] Inner function uses adjacency lookup instead of full scan
+- [ ] All 8 existing cargo tests pass
+
+**C3: Add new Rust tests**
+- [ ] Large-scale test (50+ task linear chain)
+- [ ] Orphan tasks test (no deps → no shifts)
+
+**C4: Add performance instrumentation in schedulerWasm.ts**
+- [ ] performance.mark/measure around WASM cascade call
+- [ ] Console warning if >16ms
+
+**C5: Verify and finalize**
+- [ ] cargo test + build:wasm + tsc + vitest pass
+
+Execution: C1 → C2 → C3 → C4 → C5
+
+### Group D: Atomic COMPLETE_DRAG + Structural CRDT Sync (R4, R10)
+
+**D1: Read ALL files after Stage 1 merge**
+- [ ] git log, read current versions of all target files
+
+**D2: Add COMPLETE_DRAG action type**
+- [ ] Payload: taskId, origStartDate, origEndDate, finalStartDate, finalEndDate, mode
+
+**D3: Add COMPLETE_DRAG handler to reducer**
+- [ ] Atomic position set + cascade + summary recalc
+- [ ] Add to UNDOABLE_ACTIONS
+
+**D4: Add COMPLETE_DRAG to Yjs binding**
+- [ ] Single doc.transact() for moved task + all cascaded tasks
+
+**D5: Update TaskBar mouseup to use COMPLETE_DRAG**
+- [ ] Replace separate CASCADE_DEPENDENTS dispatch
+
+**D6: Add COMPLETE_DRAG to TASK_MODIFYING_ACTIONS**
+- [ ] Also add ADD_DEPENDENCY, UPDATE_DEPENDENCY, REMOVE_DEPENDENCY
+
+**D7: Add dependency operations to Yjs**
+- [ ] ADD_DEPENDENCY: parse deps JSON, push, stringify back
+- [ ] UPDATE_DEPENDENCY: find and replace matching dep
+- [ ] REMOVE_DEPENDENCY: filter out matching dep
+
+**D8: Add useEffect diff for ADD_TASK/DELETE_TASK sync**
+- [ ] Track prevTasksRef, diff for adds/deletes
+- [ ] Sync additions and deletions to Yjs
+
+**D9: Verify and finalize**
+- [ ] tsc + vitest pass, no out-of-scope files modified
+
+Execution: D1 → D2 → D3 → D4 → D5 → D6 → D7 → D8 → D9
+
+### Group E: Arrow Render Consistency (R5)
+
+**E1: Read and understand the current code**
+- [ ] Read DependencyLayer, DependencyArrow, dependencyUtils, layoutUtils, GanttChart
+
+**E2: Fix consistency between taskYPositions and dependency data**
+- [ ] Guard against missing taskYPositions entries in DependencyLayer
+
+**E3: Memoize getDependencyPoints**
+- [ ] useMemo or React.memo for arrow calculations
+
+**E4: Ensure arrow path consistency**
+- [ ] Guard clauses for undefined positions in getDependencyPoints
+
+**E5: Verify and finalize**
+- [ ] tsc + vitest pass, no out-of-scope files modified
+
+Execution: E1 → E2 → E3 → E4 → E5
+
+### Group F: Drag Intent via Awareness / Ghost Bar (R6)
+
+**F1: Read ALL files after Stage 2 merge**
+- [ ] git log, read current versions of awareness.ts, TaskBar.tsx, GanttChart.tsx
+
+**F2: Extend awareness with drag intent**
+- [ ] setDragIntent function for { taskId, currentStartDate, currentEndDate }
+- [ ] Update getCollabUsers to include dragging field
+
+**F3: Extend CollabUser type**
+- [ ] Add dragging field to CollabUser interface
+
+**F4: Broadcast drag intent from TaskBar**
+- [ ] Piggyback on existing 100ms CRDT throttle
+- [ ] Clear on mouseup
+
+**F5: Render ghost bars for remote drags**
+- [ ] Semi-transparent rect at drag position with user color
+- [ ] Dashed stroke + user name label
+
+**F6: Verify and finalize**
+- [ ] tsc + vitest pass, no out-of-scope files modified
+
+Execution: F1 → F2 → F3 → F4 → F5 → F6
+
+### Validation Agent (runs automatically after final merge)
+
+**Checks:**
+- [ ] V1: Build verification (WASM, tsc, vitest, cargo test)
+- [ ] V2: Drag throttle (R1) — RAF + 100ms broadcast
+- [ ] V3: Dispatch split (R1) — localDispatch + collabDispatch
+- [ ] V4: Duration derivation (R2, R7, R9) — computed from dates everywhere
+- [ ] V5: SET_TASKS guard (R3) — active drag preserved
+- [ ] V6: Atomic COMPLETE_DRAG (R4) — action + reducer + Yjs + TaskBar
+- [ ] V7: Arrow rendering (R5) — guards + memoization
+- [ ] V8: Ghost bar (R6) — awareness + rendering
+- [ ] V9: Duration semantics (R7) — calendar days everywhere
+- [ ] V10: Cascade optimization (R8) — adjacency list + instrumentation
+- [ ] V11: Structural sync (R10) — dependency + add/delete sync
+- [ ] V12: Cross-group consistency — all sets complete, no duplicate paths
+
+---
+
 ## Resource Assignment & Leveling
 Basic resource tracking and overallocation detection.
 

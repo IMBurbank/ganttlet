@@ -34,40 +34,48 @@ DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 STALL_TIMEOUT="${STALL_TIMEOUT:-30}"  # minutes before warning about stalled agent
 # Per-agent model override: MODEL=sonnet run_agent groupH "$workdir"
 # Default: uses Claude's default model. Options: opus, sonnet, haiku
-PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase13}"
+PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase14}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
 # Set WATCH=1 to see full live agent output in tmux panes
 WATCH="${WATCH:-0}"
-PHASE="phase13"
+PHASE="phase14"
 
 LOG_DIR="${WORKSPACE}/logs/${PHASE}"
 TMUX_SESSION="${PHASE}-agents"
 
-# Stage 1: Agent infrastructure improvements (4 groups, parallel, zero file overlap)
-STAGE1_GROUPS=("groupA" "groupB" "groupC" "groupD")
+# Stage 1: Core Fixes — drag throttle, duration derivation, cascade optimization (3 groups, parallel, zero file overlap)
+STAGE1_GROUPS=("groupA" "groupB" "groupC")
 STAGE1_BRANCHES=(
-  "feature/phase13-claude-skills"
-  "feature/phase13-orchestrator"
-  "feature/phase13-hooks-guardrails"
-  "feature/phase13-github-pipeline"
+  "feature/phase14-drag-throttle"
+  "feature/phase14-duration-derive"
+  "feature/phase14-cascade-optimize"
 )
 STAGE1_MERGE_MESSAGES=(
-  "Merge feature/phase13-claude-skills: restructure CLAUDE.md to lean core, create .claude/skills/ with 8 domain skills, extract reference docs"
-  "Merge feature/phase13-orchestrator: enrich retry context, add --max-turns/budget, improve merge conflict context, partial stage success, preflight, model selection, stall detection"
-  "Merge feature/phase13-hooks-guardrails: scope-aware verify.sh, output dedup, rate limiting, compact output, pre-commit hook"
-  "Merge feature/phase13-github-pipeline: issue template, quality gate workflow, overhaul agent-work.yml with retry and complexity routing"
+  "Merge feature/phase14-drag-throttle: RAF throttle + CRDT broadcast throttle + dispatch split + SET_TASKS guard (R1, R3)"
+  "Merge feature/phase14-duration-derive: duration computed from dates in reducer + Sheets + standardized semantics (R2, R7, R9)"
+  "Merge feature/phase14-cascade-optimize: adjacency list O(e*d) cascade + performance instrumentation (R8)"
 )
 
-# No Stage 2 or 3 needed — single parallel stage
-STAGE2_GROUPS=()
-STAGE2_BRANCHES=()
-STAGE2_MERGE_MESSAGES=()
+# Stage 2: Sync Resilience + Rendering — atomic drag + structural sync + arrow fixes (2 groups, parallel, zero file overlap)
+STAGE2_GROUPS=("groupD" "groupE")
+STAGE2_BRANCHES=(
+  "feature/phase14-atomic-drag-sync"
+  "feature/phase14-arrow-render"
+)
+STAGE2_MERGE_MESSAGES=(
+  "Merge feature/phase14-atomic-drag-sync: COMPLETE_DRAG action + dependency/add/delete CRDT sync (R4, R10)"
+  "Merge feature/phase14-arrow-render: arrow consistency guards + memoization (R5)"
+)
 
-# Stage 3: empty
-STAGE3_GROUPS=()
-STAGE3_BRANCHES=()
-STAGE3_MERGE_MESSAGES=()
+# Stage 3: Multi-User UX — awareness ghost bar (1 group)
+STAGE3_GROUPS=("groupF")
+STAGE3_BRANCHES=(
+  "feature/phase14-ghost-bar"
+)
+STAGE3_MERGE_MESSAGES=(
+  "Merge feature/phase14-ghost-bar: drag intent via awareness + ghost bar rendering (R6)"
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

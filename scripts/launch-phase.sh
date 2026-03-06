@@ -245,10 +245,19 @@ setup_worktree() {
 }
 
 # ── WATCH mode: tmux-based interactive output ────────────────────────────────
+#
+# Lessons learned from test-watch-interactive.sh:
+# 1. Claude interactive (no -p flag) = full rich TUI output
+# 2. tmux pipe-pane captures logs WITHOUT breaking TUI rendering
+# 3. Idle monitor (background child) kills claude when output stabilizes
+# 4. tmux send-keys (not command string) keeps shell alive for scrollback
+# 5. Pre-trust workspace via quick -p dry run (interactive shows trust dialog)
+# 6. Explicit -t TMUX_TARGET for pipe-pane (avoids wrong-pane bug)
 
-# Build the claude command string for a group.
-# Generates a wrapper script with retry loop, log capture, and crash context
-# injection — mirroring the non-WATCH run_agent() behavior.
+IDLE_THRESHOLD="${IDLE_THRESHOLD:-30}"  # seconds of stable log before killing claude
+
+# Build the wrapper script for a group agent.
+# Uses interactive mode (rich TUI) + pipe-pane (log capture) + idle monitor (auto-exit).
 build_claude_cmd() {
   local group="$1"
   local workdir="$2"
@@ -261,20 +270,44 @@ build_claude_cmd() {
 #!/usr/bin/env bash
 set -uo pipefail
 
-GROUP="PLACEHOLDER_GROUP"
-WORKDIR="PLACEHOLDER_WORKDIR"
-PROMPT_FILE="PLACEHOLDER_PROMPT_FILE"
-EXITCODE_FILE="PLACEHOLDER_EXITCODE_FILE"
-LOGFILE="PLACEHOLDER_LOGFILE"
-MAX_RETRIES="PLACEHOLDER_MAX_RETRIES"
-RETRY_DELAY="PLACEHOLDER_RETRY_DELAY"
-MAX_TURNS_VAL="PLACEHOLDER_MAX_TURNS"
-MAX_BUDGET_VAL="PLACEHOLDER_MAX_BUDGET"
-MODEL_FLAG="PLACEHOLDER_MODEL_FLAG"
-
-PROMPT="$(cat "$PROMPT_FILE")"
+GROUP="__GROUP__"
+WORKDIR="__WORKDIR__"
+PROMPT_FILE="__PROMPT_FILE__"
+EXITCODE_FILE="__EXITCODE_FILE__"
+LOGFILE="__LOGFILE__"
+MAX_RETRIES="__MAX_RETRIES__"
+RETRY_DELAY="__RETRY_DELAY__"
+MAX_TURNS_VAL="__MAX_TURNS__"
+MAX_BUDGET_VAL="__MAX_BUDGET__"
+MODEL_FLAG="__MODEL_FLAG__"
+TMUX_TARGET="__TMUX_TARGET__"
+IDLE_THRESHOLD="__IDLE_THRESHOLD__"
 
 cd "$WORKDIR"
+
+# Pre-trust workspace (interactive mode shows trust dialog that blocks automation)
+claude --dangerously-skip-permissions -p "echo ok" >/dev/null 2>&1 || true
+
+# Start tmux pipe-pane to capture output to log (doesn't affect TUI rendering)
+# Use explicit -t target to avoid wrong-pane bug with concurrent windows
+tmux pipe-pane -t "$TMUX_TARGET" -o "cat >> $LOGFILE" 2>/dev/null || true
+touch "$LOGFILE"
+
+# Write PID so idle monitor can walk the process tree
+echo $$ > "${LOGFILE}.wrapper-pid"
+
+# Recursively find all descendant PIDs
+get_all_descendants() {
+  local parent=$1
+  local children
+  children=$(ps -o pid= --ppid "$parent" 2>/dev/null | tr -d ' ')
+  for child in $children; do
+    echo "$child"
+    get_all_descendants "$child"
+  done
+}
+
+PROMPT="$(cat "$PROMPT_FILE")"
 
 for attempt in $(seq 1 "$MAX_RETRIES"); do
   echo "=== ${GROUP}: attempt ${attempt}/${MAX_RETRIES} ==="
@@ -307,16 +340,60 @@ Review what has already been done. Do NOT redo completed work. If the output abo
 ${PROMPT}"
   fi
 
-  # Run claude, capturing output to log AND showing in tmux
-  # PIPESTATUS: [0]=echo [1]=claude [2]=tee — we want claude's exit code
+  # Write prompt to temp file for interactive mode
+  PROMPT_TMPFILE="${LOGFILE}.prompt-attempt${attempt}"
+  echo "$FULL_PROMPT" > "$PROMPT_TMPFILE"
+
+  # Idle monitor — kills claude process tree when output stabilizes
+  # (Claude interactive never auto-exits; this is how we detect completion)
+  (
+    trap '' TERM  # survive our own SIGTERM blast
+    sleep 15  # grace: let claude start up
+    LAST_SIZE=0
+    IDLE_SECONDS=0
+    while true; do
+      sleep 5
+      CURRENT_SIZE=$(stat -c %s "$LOGFILE" 2>/dev/null || echo 0)
+      if [[ "$CURRENT_SIZE" -gt 0 ]] && [[ "$CURRENT_SIZE" == "$LAST_SIZE" ]]; then
+        IDLE_SECONDS=$((IDLE_SECONDS + 5))
+      else
+        IDLE_SECONDS=0
+        LAST_SIZE=$CURRENT_SIZE
+      fi
+      if [[ $IDLE_SECONDS -ge $IDLE_THRESHOLD ]]; then
+        echo "[monitor] ${GROUP}: idle for ${IDLE_SECONDS}s — killing claude"
+        WRAPPER_PID=$(cat "${LOGFILE}.wrapper-pid" 2>/dev/null || echo "")
+        if [[ -n "$WRAPPER_PID" ]]; then
+          MY_PID=$BASHPID
+          DESCENDANTS=$(get_all_descendants "$WRAPPER_PID" | grep -v "^${MY_PID}$")
+          if [[ -n "$DESCENDANTS" ]]; then
+            echo "$DESCENDANTS" | xargs kill -TERM 2>/dev/null || true
+            sleep 2
+            echo "$DESCENDANTS" | xargs kill -9 2>/dev/null || true
+          fi
+        fi
+        break
+      fi
+    done
+  ) &
+  MONITOR_PID=$!
+
+  # Run claude interactively — owns the terminal for full rich TUI
   # shellcheck disable=SC2086
-  echo "$FULL_PROMPT" | claude --dangerously-skip-permissions --max-turns "$MAX_TURNS_VAL" --max-budget-usd "$MAX_BUDGET_VAL" $MODEL_FLAG -p - 2>&1 | tee -a "$LOGFILE"
-  EXIT_CODE=${PIPESTATUS[1]:-$?}
+  claude --dangerously-skip-permissions --max-turns "$MAX_TURNS_VAL" --max-budget-usd "$MAX_BUDGET_VAL" $MODEL_FLAG "$(cat "$PROMPT_TMPFILE")"
+  EXIT_CODE=$?
+
+  # Clean up monitor
+  kill $MONITOR_PID 2>/dev/null || true
+
+  # 143=SIGTERM, 137=SIGKILL from idle monitor — treat as success
+  if [[ $EXIT_CODE -eq 143 ]] || [[ $EXIT_CODE -eq 137 ]]; then
+    EXIT_CODE=0
+  fi
 
   if [[ $EXIT_CODE -eq 0 ]]; then
     echo "=== ${GROUP}: completed successfully ==="
-    echo "0" > "$EXITCODE_FILE"
-    exit 0
+    break
   fi
 
   echo "=== ${GROUP}: exited with code ${EXIT_CODE} ==="
@@ -327,30 +404,36 @@ ${PROMPT}"
   fi
 done
 
-echo "=== ${GROUP}: FAILED after ${MAX_RETRIES} attempts ==="
-echo "1" > "$EXITCODE_FILE"
-exit 1
+# Clean up
+rm -f "${LOGFILE}.wrapper-pid" "${LOGFILE}".prompt-attempt*
+tmux pipe-pane -t "$TMUX_TARGET" 2>/dev/null || true
+
+echo "$EXIT_CODE" > "$EXITCODE_FILE"
 WRAPPER_OUTER
 
-  # Substitute placeholders with actual values
-  sed -i "s|PLACEHOLDER_GROUP|${group}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_WORKDIR|${workdir}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_PROMPT_FILE|${prompt_file}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_EXITCODE_FILE|${exitcode_file}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_LOGFILE|${logfile}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_MAX_RETRIES|${MAX_RETRIES}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_RETRY_DELAY|${RETRY_DELAY}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_MAX_TURNS|${MAX_TURNS:-$DEFAULT_MAX_TURNS}|g" "$wrapper"
-  sed -i "s|PLACEHOLDER_MAX_BUDGET|${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}|g" "$wrapper"
+  # Replace placeholders (wrapper uses single-quoted heredoc, no expansion)
+  sed -i "s|__GROUP__|${group}|g" "$wrapper"
+  sed -i "s|__WORKDIR__|${workdir}|g" "$wrapper"
+  sed -i "s|__PROMPT_FILE__|${prompt_file}|g" "$wrapper"
+  sed -i "s|__EXITCODE_FILE__|${exitcode_file}|g" "$wrapper"
+  sed -i "s|__LOGFILE__|${logfile}|g" "$wrapper"
+  sed -i "s|__MAX_RETRIES__|${MAX_RETRIES}|g" "$wrapper"
+  sed -i "s|__RETRY_DELAY__|${RETRY_DELAY}|g" "$wrapper"
+  sed -i "s|__MAX_TURNS__|${MAX_TURNS:-$DEFAULT_MAX_TURNS}|g" "$wrapper"
+  sed -i "s|__MAX_BUDGET__|${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}|g" "$wrapper"
   local model_flag_val=""
   [[ -n "${MODEL:-}" ]] && model_flag_val="--model $MODEL"
-  sed -i "s|PLACEHOLDER_MODEL_FLAG|${model_flag_val}|g" "$wrapper"
+  sed -i "s|__MODEL_FLAG__|${model_flag_val}|g" "$wrapper"
+  sed -i "s|__TMUX_TARGET__|${TMUX_SESSION}:${group}|g" "$wrapper"
+  sed -i "s|__IDLE_THRESHOLD__|${IDLE_THRESHOLD}|g" "$wrapper"
 
   chmod +x "$wrapper"
   echo "$wrapper"
 }
 
-# Launch all agents in tmux panes and wait for them to finish.
+# Launch all agents in tmux windows and wait for them to finish.
+# Uses send-keys pattern from test-watch-interactive.sh: shell survives
+# after wrapper finishes so user can scroll back and read output.
 watch_parallel_stage() {
   local stage_label="$1"
   local -n w_groups_ref="$2"
@@ -361,19 +444,30 @@ watch_parallel_stage() {
     return 1
   fi
 
+  # Ensure the implementation branch exists BEFORE creating worktrees
+  setup_merge_target
+
   log "=== ${stage_label} (WATCH mode): Launching agents in tmux ==="
 
   # Kill any existing session with this name
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 
+  local launched_groups=()
+  local setup_failures=0
   local first=true
+
   for i in "${!w_groups_ref[@]}"; do
     local group="${w_groups_ref[$i]}"
     local branch="${w_branches_ref[$i]}"
 
     # Setup worktree
     local worktree
-    worktree=$(setup_worktree "$group" "$branch") || continue
+    worktree=$(setup_worktree "$group" "$branch")
+    if [[ $? -ne 0 ]]; then
+      err "${group}: worktree setup failed — skipping"
+      setup_failures=$((setup_failures + 1))
+      continue
+    fi
 
     # Clean up exit code file from prior runs
     rm -f "${LOG_DIR}/${group}.exit"
@@ -382,19 +476,27 @@ watch_parallel_stage() {
     local wrapper
     wrapper=$(build_claude_cmd "$group" "$worktree")
 
+    # Create tmux windows with bare shells, then send-keys to start wrappers.
+    # Shell survives after wrapper finishes — user can scroll back and read.
     if $first; then
-      # Create the tmux session with the first agent
-      tmux new-session -d -s "$TMUX_SESSION" -n "$group" \
-        "$wrapper; echo ''; echo '══════════════════════════════════════════════'; echo \"── ${group} finished (exit code: \$(cat '${LOG_DIR}/${group}.exit' 2>/dev/null || echo '?'))  Press Enter to close ──\"; echo '══════════════════════════════════════════════'; read"
+      tmux new-session -d -s "$TMUX_SESSION" -n "$group"
       first=false
     else
-      # Add a new window for each additional agent
-      tmux new-window -t "$TMUX_SESSION" -n "$group" \
-        "$wrapper; echo ''; echo '══════════════════════════════════════════════'; echo \"── ${group} finished (exit code: \$(cat '${LOG_DIR}/${group}.exit' 2>/dev/null || echo '?'))  Press Enter to close ──\"; echo '══════════════════════════════════════════════'; read"
+      tmux new-window -t "$TMUX_SESSION" -n "$group"
     fi
+    tmux send-keys -t "${TMUX_SESSION}:${group}" "$wrapper" Enter
 
+    launched_groups+=("$group")
     log "${group} launched in tmux window '${group}'"
   done
+
+  # If no agents launched, fail immediately
+  if [[ ${#launched_groups[@]} -eq 0 ]]; then
+    err "=== ${stage_label}: ALL worktree setups failed — no agents launched ==="
+    echo "" > "${LOG_DIR}/stage-succeeded.txt"
+    echo "${w_groups_ref[*]}" > "${LOG_DIR}/stage-failed.txt"
+    return 1
+  fi
 
   echo ""
   log "╔══════════════════════════════════════════════════════════════╗"
@@ -409,8 +511,7 @@ watch_parallel_stage() {
   log "Waiting for all agents to finish..."
   while true; do
     local all_done=true
-    for i in "${!w_groups_ref[@]}"; do
-      local group="${w_groups_ref[$i]}"
+    for group in "${launched_groups[@]}"; do
       if [[ ! -f "${LOG_DIR}/${group}.exit" ]]; then
         all_done=false
         break
@@ -425,8 +526,7 @@ watch_parallel_stage() {
   # Collect results, tracking success/failure per group
   local succeeded_groups=()
   local failed_groups=()
-  for i in "${!w_groups_ref[@]}"; do
-    local group="${w_groups_ref[$i]}"
+  for group in "${launched_groups[@]}"; do
     local rc
     rc=$(cat "${LOG_DIR}/${group}.exit" 2>/dev/null || echo "1")
     if [[ "$rc" -ne 0 ]]; then
@@ -498,27 +598,97 @@ ${prev_errors}"
     fi
 
     local logfile="${LOG_DIR}/validate-attempt${attempt}.log"
+    local tmux_session="${TMUX_SESSION}-validate"
+    local tmux_target="${tmux_session}:validate"
 
-    # Write a wrapper script for tmux — captures log AND shows in tmux via tee.
+    # Build wrapper script using interactive mode + pipe-pane + idle monitor
     local wrapper="${LOG_DIR}/validate-run.sh"
-    cat > "$wrapper" <<WRAPPER
+    local idle_threshold="${IDLE_THRESHOLD:-120}"
+    local max_turns_val="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
+    local max_budget_val="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+    local model_flag_val=""
+    [[ -n "${MODEL:-}" ]] && model_flag_val="--model $MODEL"
+
+    cat > "$wrapper" <<VALIDATE_WRAPPER
 #!/usr/bin/env bash
 set -uo pipefail
-cd "$WORKSPACE"
-# PIPESTATUS: [0]=claude [1]=tee — we want claude's exit code
-claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p "\$(cat '$prompt_to_use')" 2>&1 | tee "$logfile"
-EXIT_CODE=\${PIPESTATUS[0]:-\$?}
-echo "\$EXIT_CODE" > "$exitcode_file"
-exit "\$EXIT_CODE"
-WRAPPER
+cd "${WORKSPACE}"
+
+# Pre-trust workspace
+claude --dangerously-skip-permissions -p "echo ok" >/dev/null 2>&1 || true
+
+# Start pipe-pane to capture output to log
+tmux pipe-pane -t "${tmux_target}" -o "cat >> ${logfile}" 2>/dev/null || true
+touch "${logfile}"
+
+echo \$\$ > "${logfile}.wrapper-pid"
+
+# Idle monitor
+get_all_descendants() {
+  local parent=\$1
+  local children
+  children=\$(ps -o pid= --ppid "\$parent" 2>/dev/null | tr -d ' ')
+  for child in \$children; do
+    echo "\$child"
+    get_all_descendants "\$child"
+  done
+}
+(
+  trap '' TERM
+  sleep 15
+  LAST_SIZE=0
+  IDLE_SECONDS=0
+  while true; do
+    sleep 5
+    CURRENT_SIZE=\$(stat -c %s "${logfile}" 2>/dev/null || echo 0)
+    if [[ "\$CURRENT_SIZE" -gt 0 ]] && [[ "\$CURRENT_SIZE" == "\$LAST_SIZE" ]]; then
+      IDLE_SECONDS=\$((IDLE_SECONDS + 5))
+    else
+      IDLE_SECONDS=0
+      LAST_SIZE=\$CURRENT_SIZE
+    fi
+    if [[ \$IDLE_SECONDS -ge ${idle_threshold} ]]; then
+      echo "[monitor] validate: idle for \${IDLE_SECONDS}s — killing claude"
+      WRAPPER_PID=\$(cat "${logfile}.wrapper-pid" 2>/dev/null || echo "")
+      if [[ -n "\$WRAPPER_PID" ]]; then
+        MY_PID=\$BASHPID
+        DESCENDANTS=\$(get_all_descendants "\$WRAPPER_PID" | grep -v "^\${MY_PID}\$")
+        if [[ -n "\$DESCENDANTS" ]]; then
+          echo "\$DESCENDANTS" | xargs kill -TERM 2>/dev/null || true
+          sleep 2
+          echo "\$DESCENDANTS" | xargs kill -9 2>/dev/null || true
+        fi
+      fi
+      break
+    fi
+  done
+) &
+MONITOR_PID=\$!
+
+# Run claude interactively
+claude --dangerously-skip-permissions --max-turns "${max_turns_val}" --max-budget-usd "${max_budget_val}" ${model_flag_val} "\$(cat '${prompt_to_use}')"
+EXIT_CODE=\$?
+
+kill \$MONITOR_PID 2>/dev/null || true
+
+# 143=SIGTERM, 137=SIGKILL from idle monitor — treat as success
+if [[ \$EXIT_CODE -eq 143 ]] || [[ \$EXIT_CODE -eq 137 ]]; then
+  EXIT_CODE=0
+fi
+
+rm -f "${logfile}.wrapper-pid"
+tmux pipe-pane -t "${tmux_target}" 2>/dev/null || true
+echo "\$EXIT_CODE" > "${exitcode_file}"
+VALIDATE_WRAPPER
     chmod +x "$wrapper"
 
-    # Run in tmux
-    tmux kill-session -t "${TMUX_SESSION}-validate" 2>/dev/null || true
-    tmux new-session -d -s "${TMUX_SESSION}-validate" -n "validate" "$wrapper; echo '── validate finished ──'; read"
+    # Run in tmux using send-keys pattern (shell survives for scrollback)
+    tmux kill-session -t "${tmux_session}" 2>/dev/null || true
+    tmux new-session -d -s "${tmux_session}" -n "validate"
+    tmux send-keys -t "${tmux_target}" "$wrapper" Enter
 
-    log "Validation attempt ${attempt}/${max_attempts} running in tmux session: ${TMUX_SESSION}-validate"
-    log "Attach to watch:  tmux attach -t ${TMUX_SESSION}-validate"
+    log "Validation attempt ${attempt}/${max_attempts} running in tmux session: ${tmux_session}"
+    log "Attach to watch:  tmux attach -t ${tmux_session}"
 
     # Wait for completion
     while [[ ! -f "$exitcode_file" ]]; do
@@ -528,7 +698,7 @@ WRAPPER
     local exit_code
     exit_code=$(cat "$exitcode_file")
 
-    tmux kill-session -t "${TMUX_SESSION}-validate" 2>/dev/null || true
+    tmux kill-session -t "${tmux_session}" 2>/dev/null || true
 
     if [[ "$exit_code" -ne 0 ]]; then
       warn "Validation agent exited with code ${exit_code} on attempt ${attempt}"
@@ -597,6 +767,10 @@ run_parallel_stage() {
   # Run preflight checks before launching agents
   preflight_check "${groups_ref[@]}" || return 1
 
+  # Ensure the implementation branch exists BEFORE creating worktrees
+  # (worktrees branch from MERGE_TARGET — it must exist first)
+  setup_merge_target
+
   # Delegate to tmux-based runner in WATCH mode
   if [[ "$WATCH" == "1" ]]; then
     watch_parallel_stage "$stage_label" "$2" "$3"
@@ -608,13 +782,19 @@ run_parallel_stage() {
   local pids=()
   local monitor_pids=()
   local groups_list=()
+  local setup_failures=0
 
   for i in "${!groups_ref[@]}"; do
     local group="${groups_ref[$i]}"
     local branch="${branches_ref[$i]}"
 
     local worktree
-    worktree=$(setup_worktree "$group" "$branch") || continue
+    worktree=$(setup_worktree "$group" "$branch")
+    if [[ $? -ne 0 ]]; then
+      err "${group}: worktree setup failed — skipping"
+      setup_failures=$((setup_failures + 1))
+      continue
+    fi
 
     # Launch agent in background
     run_agent "$group" "$worktree" &
@@ -628,6 +808,14 @@ run_parallel_stage() {
 
     log "${group} launched (PID: ${agent_pid})"
   done
+
+  # If no agents launched, fail immediately
+  if [[ ${#pids[@]} -eq 0 ]]; then
+    err "=== ${stage_label}: ALL worktree setups failed — no agents launched ==="
+    echo "" > "${LOG_DIR}/stage-succeeded.txt"
+    echo "${groups_ref[*]}" > "${LOG_DIR}/stage-failed.txt"
+    return 1
+  fi
 
   # Wait for all parallel agents, tracking success/failure per group
   local succeeded_groups=()
@@ -761,6 +949,12 @@ WRAPPER
 merge_branch_with_retries() {
   local branch="$1"
   local msg="$2"
+
+  # Check if the branch exists before attempting merge
+  if ! git rev-parse --verify "$branch" >/dev/null 2>&1; then
+    err "Branch '${branch}' does not exist — agents may not have run. Skipping."
+    return 1
+  fi
 
   for attempt in $(seq 1 "$MERGE_FIX_RETRIES"); do
     log "Merging ${branch}... (attempt ${attempt}/${MERGE_FIX_RETRIES})"

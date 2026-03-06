@@ -28,4 +28,9 @@ if [[ -d "$GCLOUD_HOST" && ! -f "$GCLOUD_DIR/.seeded" ]]; then
   touch "$GCLOUD_DIR/.seeded"
 fi
 
+# Auto-install git hooks if in a git repo
+if [[ -d /workspace/.git ]]; then
+  ln -sf ../../scripts/pre-commit-hook.sh /workspace/.git/hooks/pre-commit 2>/dev/null || true
+fi
+
 exec "$@"

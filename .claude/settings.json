@@ -22,6 +22,10 @@
           {
             "type": "command",
             "command": "node -e \"const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const c=d.tool_input?.command||''; if(/git\\s+push/.test(c)&&/\\bmain\\b/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Cannot push directly to main. Use a feature branch and PR.'}))}\""
+          },
+          {
+            "type": "command",
+            "command": "node -e \"const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const c=d.tool_input?.command||''; if(/git\\s+(checkout|switch)/.test(c)&&!/--\\s/.test(c)&&!/worktree/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Do not use git checkout/switch in /workspace. Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>'}))}\""
           }
         ]
       }

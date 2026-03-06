@@ -8,6 +8,23 @@ set -euo pipefail
 
 ERRORS=0
 
+# ── Worktree isolation: block non-main commits in /workspace ──────────────
+# Worktrees (e.g. /workspace/.claude/worktrees/foo) have a different toplevel
+# and pass through. CI/deploy agents don't use /workspace so are unaffected.
+# Override with WORKTREE_EXEMPT=1 for intentional direct-on-main work.
+TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+if [[ "$TOPLEVEL" = "/workspace" && "$BRANCH" != "main" && "${WORKTREE_EXEMPT:-}" != "1" ]]; then
+  echo "ERROR: Committing to branch '$BRANCH' directly in /workspace is blocked."
+  echo "       /workspace must stay on main. Use a worktree instead:"
+  echo ""
+  echo "         git worktree add /workspace/.claude/worktrees/$BRANCH -b $BRANCH"
+  echo "         cd /workspace/.claude/worktrees/$BRANCH"
+  echo ""
+  echo "       Override: WORKTREE_EXEMPT=1 git commit ..."
+  exit 1
+fi
+
 # Check staged files only
 STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 

@@ -12,7 +12,7 @@ export interface Task {
   name: string;
   startDate: string; // ISO date string
   endDate: string;
-  /** Number of calendar days from startDate to endDate. Always derived — never edit directly. */
+  /** Number of business days (Mon-Fri) from startDate to endDate, inclusive of start, exclusive of end. Always derived — never edit directly. */
   duration: number;
   owner: string;
   workStream: string;

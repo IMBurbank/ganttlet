@@ -2,7 +2,7 @@ import type { GanttState, Task, CascadeShift } from '../types';
 import type { GanttAction } from './actions';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
-import { daysBetween } from '../utils/dateUtils';
+import { workingDaysBetween } from '../utils/dateUtils';
 import { computeInheritedFields, generatePrefixedId, getHierarchyRole, getAllDescendantIds, isDescendantOf } from '../utils/hierarchyUtils';
 import { validateDependencyHierarchy } from '../utils/dependencyValidation';
 import { checkMoveConflicts } from '../utils/dependencyValidation';
@@ -30,7 +30,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     case 'MOVE_TASK': {
       let tasks = state.tasks.map(t => {
         if (t.id !== action.taskId) return t;
-        const duration = daysBetween(action.newStartDate, action.newEndDate);
+        const duration = workingDaysBetween(action.newStartDate, action.newEndDate);
         return { ...t, startDate: action.newStartDate, endDate: action.newEndDate, duration };
       });
       tasks = recalcSummaryDates(tasks);
@@ -40,7 +40,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     case 'RESIZE_TASK': {
       let tasks = state.tasks.map(t => {
         if (t.id !== action.taskId) return t;
-        const duration = daysBetween(t.startDate, action.newEndDate);
+        const duration = workingDaysBetween(t.startDate, action.newEndDate);
         return { ...t, endDate: action.newEndDate, duration };
       });
       tasks = recalcSummaryDates(tasks);
@@ -56,7 +56,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         const updated = { ...t, [action.field]: action.value };
         // Recompute duration when dates change
         if (action.field === 'startDate' || action.field === 'endDate') {
-          updated.duration = daysBetween(updated.startDate, updated.endDate);
+          updated.duration = workingDaysBetween(updated.startDate, updated.endDate);
         }
         return updated;
       });
@@ -280,7 +280,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         name: 'New Task',
         startDate: today,
         endDate: endDateStr,
-        duration: daysBetween(today, endDateStr),
+        duration: workingDaysBetween(today, endDateStr),
         owner: '',
         workStream: inherited.workStream,
         project: inherited.project,
@@ -543,7 +543,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
     case 'COMPLETE_DRAG': {
       // Atomic: set final position + cascade dependents in one reducer pass
-      const duration = daysBetween(action.newStartDate, action.newEndDate);
+      const duration = workingDaysBetween(action.newStartDate, action.newEndDate);
       let tasks = state.tasks.map(t =>
         t.id === action.taskId
           ? { ...t, startDate: action.newStartDate, endDate: action.newEndDate, duration }

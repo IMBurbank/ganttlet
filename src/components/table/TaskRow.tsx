@@ -9,7 +9,7 @@ import { getHierarchyRole, findWorkstreamAncestor } from '../../utils/hierarchyU
 import InlineEdit from './InlineEdit';
 import PredecessorsCell from './PredecessorsCell';
 import OKRPickerModal from '../shared/OKRPickerModal';
-import { formatDisplayDate, addDaysToDate, daysBetween } from '../../utils/dateUtils';
+import { formatDisplayDate, addBusinessDaysToDate, daysBetween, workingDaysBetween } from '../../utils/dateUtils';
 import { validateTaskName, validateDuration, validateEndDate } from '../../utils/taskFieldValidation';
 
 interface TaskRowProps {
@@ -63,7 +63,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
   function handleDateUpdate(field: 'startDate' | 'endDate', value: string) {
     const oldValue = task[field];
     if (field === 'startDate') {
-      const newEndDate = addDaysToDate(value, task.duration);
+      const newEndDate = addBusinessDaysToDate(value, task.duration);
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'startDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
       dispatch({
@@ -76,7 +76,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: delta });
       }
     } else {
-      const newDuration = daysBetween(task.startDate, value);
+      const newDuration = workingDaysBetween(task.startDate, value);
       if (newDuration < 0) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
@@ -97,7 +97,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
     if (isNaN(newDuration) || newDuration < 0) return;
     const oldEndDate = task.endDate;
     const oldValue = String(task.duration);
-    const newEndDate = addDaysToDate(task.startDate, newDuration);
+    const newEndDate = addBusinessDaysToDate(task.startDate, newDuration);
     dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
     dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
     dispatch({

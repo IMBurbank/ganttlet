@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-import { formatDisplayDate, addDaysToDate, daysBetween } from '../../utils/dateUtils';
+import { formatDisplayDate, addBusinessDaysToDate, daysBetween, workingDaysBetween } from '../../utils/dateUtils';
 
 interface TaskBarPopoverProps {
   taskId: string;
@@ -55,7 +55,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
     if (value === oldValue) return;
 
     if (field === 'startDate') {
-      const newEndDate = addDaysToDate(value, task!.duration);
+      const newEndDate = addBusinessDaysToDate(value, task!.duration);
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'startDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value: newEndDate });
       setEndDate(newEndDate);
@@ -69,7 +69,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
       }
     } else if (field === 'endDate') {
-      const newDuration = daysBetween(task!.startDate, value);
+      const newDuration = workingDaysBetween(task!.startDate, value);
       if (newDuration < 0) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });

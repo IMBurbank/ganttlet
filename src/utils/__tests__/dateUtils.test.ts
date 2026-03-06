@@ -8,6 +8,10 @@ import {
   getColumnWidth,
   dateToX,
   xToDate,
+  dateToXCollapsed,
+  xToDateCollapsed,
+  businessDaysBetween,
+  workingDaysBetween,
 } from '../dateUtils';
 
 describe('dateUtils', () => {
@@ -86,6 +90,68 @@ describe('dateUtils', () => {
       const x = dateToX('2026-03-11', timelineStart, colWidth, 'day');
       const backDate = xToDate(x, timelineStart, colWidth, 'day');
       expect(formatDate(backDate)).toBe('2026-03-11');
+    });
+  });
+
+  describe('duration should be business days, not calendar days', () => {
+    it('daysBetween counts calendar days (still used for cascade delta)', () => {
+      expect(daysBetween('2026-03-06', '2026-03-10')).toBe(4);
+    });
+
+    it('businessDaysBetween counts only weekdays (used for pixel mapping)', () => {
+      // Mar 6 (Fri) to Mar 10 (Tue): Fri, [Sat, Sun], Mon = 2 business days
+      expect(businessDaysBetween(new Date('2026-03-06'), new Date('2026-03-10'))).toBe(2);
+    });
+
+    it('Mar 6 (Fri) to Mar 10 (Tue) = 2 working days (Fri, Mon)', () => {
+      // Start-inclusive, end-exclusive: Fri(1), [Sat skip], [Sun skip], Mon(2)
+      expect(workingDaysBetween('2026-03-06', '2026-03-10')).toBe(2);
+    });
+  });
+
+  describe('move-drag must preserve visual width with collapsed weekends', () => {
+    const timelineStart = new Date('2026-03-02'); // Monday
+    const colWidth = 36;
+    const zoom = 'day' as const;
+
+    function getVisualWidth(start: string, end: string): number {
+      const startX = dateToXCollapsed(start, timelineStart, colWidth, zoom, true);
+      const endX = dateToXCollapsed(end, timelineStart, colWidth, zoom, true);
+      return (endX - startX) / colWidth;
+    }
+
+    function simulateCorrectDrag(origStart: string, origEnd: string, columnsDragged: number) {
+      const dx = columnsDragged * colWidth;
+      const startX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, true);
+      const newStart = formatDate(xToDateCollapsed(startX + dx, timelineStart, colWidth, zoom, true));
+      const endX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, true);
+      const newEnd = formatDate(xToDateCollapsed(endX + dx, timelineStart, colWidth, zoom, true));
+      return { newStart, newEnd };
+    }
+
+    it('Fri-Mon (1 col) dragged 1 col right stays 1 col wide', () => {
+      expect(getVisualWidth('2026-03-06', '2026-03-09')).toBe(1);
+      const { newStart, newEnd } = simulateCorrectDrag('2026-03-06', '2026-03-09', 1);
+      expect(newStart).toBe('2026-03-09');
+      expect(getVisualWidth(newStart, newEnd)).toBe(1);
+    });
+
+    it('Thu-Tue (3 cols) dragged 2 cols right stays 3 cols wide', () => {
+      expect(getVisualWidth('2026-03-05', '2026-03-10')).toBe(3);
+      const { newStart, newEnd } = simulateCorrectDrag('2026-03-05', '2026-03-10', 2);
+      expect(getVisualWidth(newStart, newEnd)).toBe(3);
+    });
+
+    it('Mon-Fri (4 cols) dragged 3 cols right stays 4 cols wide', () => {
+      expect(getVisualWidth('2026-03-02', '2026-03-06')).toBe(4);
+      const { newStart, newEnd } = simulateCorrectDrag('2026-03-02', '2026-03-06', 3);
+      expect(getVisualWidth(newStart, newEnd)).toBe(4);
+    });
+
+    it('Wed-Mon (3 cols) dragged 1 col right stays 3 cols wide', () => {
+      expect(getVisualWidth('2026-03-04', '2026-03-09')).toBe(3);
+      const { newStart, newEnd } = simulateCorrectDrag('2026-03-04', '2026-03-09', 1);
+      expect(getVisualWidth(newStart, newEnd)).toBe(3);
     });
   });
 });

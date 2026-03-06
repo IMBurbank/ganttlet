@@ -30,6 +30,7 @@ Each agent MUST run in its own git worktree. `/workspace` stays on `main` always
 - NEVER `git checkout` or `git switch` in `/workspace` — this breaks every other agent sharing the filesystem
 - All git operations (commit, push, diff) must happen inside the worktree directory
 - Common failure: agent does `git checkout feature-branch` in `/workspace`, another agent commits to the wrong branch
+- **Cleanup is mandatory**: when work is complete (PR created, or task done), run `cd /workspace && git worktree remove /workspace/.claude/worktrees/<name>`. Stale worktrees prevent branch deletion and waste disk. If the agent crashes, the orchestrator or next agent should clean up orphaned worktrees with `git worktree prune`.
 
 ## WATCH Mode
 `WATCH=1` runs agents in tmux windows with visible output.

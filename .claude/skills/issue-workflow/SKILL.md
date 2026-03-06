@@ -6,7 +6,8 @@ description: "Use when working from a GitHub issue (agent-ready label, single-ag
 # Single-Agent Issue Workflow
 
 ## Setup
-- Branch: `agent/issue-{number}`
+- Create a worktree: `git worktree add /workspace/.claude/worktrees/issue-{number} -b agent/issue-{number}`
+- `cd /workspace/.claude/worktrees/issue-{number}` — all work happens here, not in `/workspace`
 - Read the issue carefully. Identify acceptance criteria and scope boundaries.
 - If the issue lacks acceptance criteria, write your own based on the description.
 - Read CLAUDE.md and relevant skill files before starting work.
@@ -31,6 +32,7 @@ If E2E tests fail but unit tests pass, note this in your summary.
 - PR body must include `Closes #{issue_number}` for auto-closing
 - Write `.agent-summary.md`: what changed, tests added, what couldn't be done
 - PR body should include structured sections: Summary, Test plan, Closes #N
+- **After PR is created**, clean up: `cd /workspace && git worktree remove /workspace/.claude/worktrees/issue-{number}`
 
 ## Error Handling
 - **Level 1** (fixable): Read error, fix code, re-run. Up to 3 distinct approaches.

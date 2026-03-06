@@ -523,10 +523,12 @@ Commit: `"feat: sync task add/delete to Yjs via useEffect diff (R10)"`
 
 After completing each major task, append a status line to `claude-progress.txt`:
 ```
-D1: DONE — read all files after Stage 1 merge
-D2: DONE — COMPLETE_DRAG action type added
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+D1 | DONE | 2026-03-06T10:23Z | Read all files after Stage 1 merge
+D2 | DONE | 2026-03-06T10:45Z | COMPLETE_DRAG action type added
 ```
-On restart, read `claude-progress.txt` FIRST.
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 

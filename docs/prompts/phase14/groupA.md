@@ -303,11 +303,13 @@ After completing each major task (A1, A2, etc.), append a status line to `claude
 in the worktree root:
 
 ```
-A1: DONE — read and understood drag flow and dispatch pipeline
-A2: DONE — split dispatch into local + collab
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+A1 | DONE | 2026-03-06T10:23Z | Read and understood drag flow and dispatch pipeline
+A2 | DONE | 2026-03-06T10:45Z | Split dispatch into local + collab
 ```
 
-On restart, read `claude-progress.txt` FIRST to understand where you left off.
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 

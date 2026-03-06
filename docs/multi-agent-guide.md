@@ -98,6 +98,7 @@ merge gating, and validation automatically.
 ## Agent Prompts
 
 Prompts live in `docs/prompts/<phaseN>/` as standalone files (one per group). Each prompt:
+- Uses YAML frontmatter for structured metadata (scope, tasks, dependencies)
 - Lists the exact files the agent may modify (zero overlap between parallel groups)
 - Instructs the agent to skip plan mode and execute without confirmation
 - Includes retry context so restarted agents resume where they left off
@@ -113,7 +114,7 @@ The validation prompt (e.g., `docs/prompts/phase12/validate.md`) runs after merg
 ## Unplanned Issues
 
 Triaged in `docs/unplanned-issues.md` using a Backlog → Claimed → Planned workflow.
-Planning agents claim up to 3 items, plan them into `docs/TASKS.md`, then mark them planned.
+Planning agents claim up to 3 items, plan them into `docs/tasks/phaseN.yaml`, then mark them planned.
 
 ## Claude CLI Reference (for launch scripts)
 
@@ -166,7 +167,7 @@ This prevents `git reset --hard` from destroying planning work if a phase run ne
 
 1. Create a phase subdirectory `docs/prompts/phase<N>/` with prompt files (e.g., `groupA.md`, `groupB.md`, `groupC.md`)
 2. Define file ownership, interface contracts, and execution order in this file
-3. Add tasks to `docs/TASKS.md`
+3. Add tasks to `docs/tasks/phase<N>.yaml`
 4. Update the config block at the top of `scripts/launch-phase.sh`:
    - `PROMPTS_DIR` to point to `docs/prompts/phase<N>`
    - `STAGE1_GROUPS`/`STAGE1_BRANCHES`/`STAGE1_MERGE_MESSAGES` for the first parallel set

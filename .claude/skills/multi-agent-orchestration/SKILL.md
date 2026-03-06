@@ -15,9 +15,13 @@ See `docs/multi-agent-guide.md` for full command reference and usage examples.
 
 ## Prompt File Structure
 Prompts live in `docs/prompts/<phaseN>/` (one file per group). Each prompt must:
+- Use YAML frontmatter for structured metadata (scope, tasks, dependencies)
 - List the exact files the agent may modify (zero overlap between groups)
 - Instruct the agent to skip plan mode and execute without confirmation
 - Include retry context so restarted agents resume where they left off
+
+Phase launch configuration is defined in `docs/prompts/<phaseN>/launch-config.yaml`
+(stages, groups, branches, merge messages) rather than hardcoded in `launch-phase.sh`.
 
 ## Worktree Isolation
 Each agent runs in its own git worktree branched from main. This prevents

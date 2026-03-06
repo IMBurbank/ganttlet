@@ -180,10 +180,12 @@ Commit: `"fix: guard against undefined taskYPositions in getDependencyPoints (R5
 
 After completing each major task, append a status line to `claude-progress.txt`:
 ```
-E1: DONE — read all rendering files, identified visibility guard gap
-E2: DONE — fixed taskYPositions consistency check
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+E1 | DONE | 2026-03-06T10:23Z | Read all rendering files, identified visibility guard gap
+E2 | DONE | 2026-03-06T10:45Z | Fixed taskYPositions consistency check
 ```
-On restart, read `claude-progress.txt` FIRST.
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 

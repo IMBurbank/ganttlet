@@ -277,10 +277,12 @@ Commit: `"feat: render ghost bars for remote drag intent (R6)"`
 
 After completing each major task, append a status line to `claude-progress.txt`:
 ```
-F1: DONE — read all files, understood awareness and TaskBar drag flow
-F2: DONE — extended awareness with drag intent
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+F1 | DONE | 2026-03-06T10:23Z | Read all files, understood awareness and TaskBar drag flow
+F2 | DONE | 2026-03-06T10:45Z | Extended awareness with drag intent
 ```
-On restart, read `claude-progress.txt` FIRST.
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 

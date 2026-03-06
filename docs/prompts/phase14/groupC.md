@@ -289,10 +289,12 @@ performance.clearMeasures(perfLabel);
 
 After completing each major task, append a status line to `claude-progress.txt`:
 ```
-C1: DONE — read cascade.rs, 8 existing tests pass
-C2: DONE — adjacency list implemented, all tests pass
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+C1 | DONE | 2026-03-06T10:23Z | Read cascade.rs, 8 existing tests pass
+C2 | DONE | 2026-03-06T10:45Z | Adjacency list implemented, all tests pass
 ```
-On restart, read `claude-progress.txt` FIRST.
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 

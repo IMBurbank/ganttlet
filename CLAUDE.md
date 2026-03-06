@@ -108,7 +108,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 - `docs/multi-agent-guide.md` — launch-phase.sh usage, Claude CLI reference, phase setup
 - `docs/completed-phases.md` — Detailed notes on phases 0-13 (auth, sync, deployment, agent infra)
 - `docs/cloud-verification-plan.md` — Cloud-based verification stages and GCP layout
-- `docs/TASKS.md` — Claimable task queue and claiming convention
+- `docs/TASKS.md` — Task queue index; structured data in `docs/tasks/phaseN.yaml`
 - `.claude/skills/` — Domain-specific skills (loaded on demand):
   - `scheduling-engine` — CPM, cascade, constraints, crates/scheduler/ patterns
   - `e2e-testing` — Playwright, relay server, collab test patterns
@@ -120,7 +120,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
 
 ## Task Queue
-See `docs/TASKS.md` for claimable tasks and claiming convention.
+See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.
 
 ## Project Status
 - **Completed**: Phases 0-13. See `docs/completed-phases.md`.

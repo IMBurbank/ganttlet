@@ -272,10 +272,12 @@ duration: (() => {
 
 After completing each major task (B1, B2, etc.), append a status line to `claude-progress.txt`:
 ```
-B1: DONE — read and understood duration handling across codebase
-B2: DONE — documented duration semantics
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+B1 | DONE | 2026-03-06T10:23Z | Read and understood duration handling across codebase
+B2 | DONE | 2026-03-06T10:45Z | Documented duration semantics
 ```
-On restart, read `claude-progress.txt` FIRST.
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 

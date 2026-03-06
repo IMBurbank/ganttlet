@@ -22,9 +22,12 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 
-# Claude (track settings.json, ignore everything else)
+# Claude (track settings.json and worktree context, ignore everything else)
 .claude/*
 !.claude/settings.json
+!.claude/worktrees/
+.claude/worktrees/*
+!.claude/worktrees/CLAUDE.md
 
 # Docker
 docker-compose.override.yml

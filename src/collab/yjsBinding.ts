@@ -3,6 +3,7 @@ import type { Dispatch } from 'react';
 import type { Task, Dependency } from '../types';
 import type { GanttAction } from '../state/actions';
 import { cascadeDependents } from '../utils/schedulerWasm';
+import { daysBetween } from '../utils/dateUtils';
 
 /**
  * Flag to prevent echoing local changes back through the observer.
@@ -170,7 +171,9 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
           if (idx !== -1) {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set('endDate', action.newEndDate);
-            ymap.set('duration', action.newDuration);
+            // Compute duration from dates, not action payload
+            const duration = daysBetween(ymap.get('startDate') as string, action.newEndDate);
+            ymap.set('duration', duration);
           }
         });
       } finally {
@@ -259,6 +262,104 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
                 ymap.set('endDate', task.endDate);
               }
             }
+          }
+        });
+      } finally {
+        isLocalUpdate = false;
+      }
+      break;
+    }
+
+    case 'COMPLETE_DRAG': {
+      isLocalUpdate = true;
+      try {
+        doc.transact(() => {
+          const idx = findTaskIndex(yarray, action.taskId);
+          if (idx !== -1) {
+            const ymap = yarray.get(idx) as Y.Map<unknown>;
+            ymap.set('startDate', action.newStartDate);
+            ymap.set('endDate', action.newEndDate);
+            ymap.set('duration', daysBetween(action.newStartDate, action.newEndDate));
+          }
+          // Also cascade dependents in the CRDT
+          if (action.daysDelta !== 0) {
+            const currentTasks = readTasksFromYjs(doc);
+            const updated = cascadeDependents(currentTasks, action.taskId, action.daysDelta);
+            for (const task of updated) {
+              const ci = findTaskIndex(yarray, task.id);
+              if (ci !== -1) {
+                const orig = currentTasks.find(t => t.id === task.id);
+                if (orig && (orig.startDate !== task.startDate || orig.endDate !== task.endDate)) {
+                  const cmap = yarray.get(ci) as Y.Map<unknown>;
+                  cmap.set('startDate', task.startDate);
+                  cmap.set('endDate', task.endDate);
+                  cmap.set('duration', daysBetween(task.startDate, task.endDate));
+                }
+              }
+            }
+          }
+        });
+      } finally {
+        isLocalUpdate = false;
+      }
+      break;
+    }
+
+    case 'ADD_DEPENDENCY': {
+      isLocalUpdate = true;
+      try {
+        doc.transact(() => {
+          const idx = findTaskIndex(yarray, action.taskId);
+          if (idx !== -1) {
+            const ymap = yarray.get(idx) as Y.Map<unknown>;
+            const depsRaw = ymap.get('dependencies') as string;
+            let deps: Dependency[] = [];
+            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
+            deps.push(action.dependency);
+            ymap.set('dependencies', JSON.stringify(deps));
+          }
+        });
+      } finally {
+        isLocalUpdate = false;
+      }
+      break;
+    }
+
+    // Note: fromId uniquely identifies a dep within a task's array since toId == taskId
+    case 'UPDATE_DEPENDENCY': {
+      isLocalUpdate = true;
+      try {
+        doc.transact(() => {
+          const idx = findTaskIndex(yarray, action.taskId);
+          if (idx !== -1) {
+            const ymap = yarray.get(idx) as Y.Map<unknown>;
+            const depsRaw = ymap.get('dependencies') as string;
+            let deps: Dependency[] = [];
+            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
+            deps = deps.map(d =>
+              d.fromId === action.fromId ? { ...d, type: action.newType, lag: action.newLag } : d
+            );
+            ymap.set('dependencies', JSON.stringify(deps));
+          }
+        });
+      } finally {
+        isLocalUpdate = false;
+      }
+      break;
+    }
+
+    case 'REMOVE_DEPENDENCY': {
+      isLocalUpdate = true;
+      try {
+        doc.transact(() => {
+          const idx = findTaskIndex(yarray, action.taskId);
+          if (idx !== -1) {
+            const ymap = yarray.get(idx) as Y.Map<unknown>;
+            const depsRaw = ymap.get('dependencies') as string;
+            let deps: Dependency[] = [];
+            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
+            deps = deps.filter(d => d.fromId !== action.fromId);
+            ymap.set('dependencies', JSON.stringify(deps));
           }
         });
       } finally {

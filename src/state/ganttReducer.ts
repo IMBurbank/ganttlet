@@ -2,12 +2,13 @@ import type { GanttState, Task, CascadeShift } from '../types';
 import type { GanttAction } from './actions';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
+import { daysBetween } from '../utils/dateUtils';
 import { computeInheritedFields, generatePrefixedId, getHierarchyRole, getAllDescendantIds, isDescendantOf } from '../utils/hierarchyUtils';
 import { validateDependencyHierarchy } from '../utils/dependencyValidation';
 import { checkMoveConflicts } from '../utils/dependencyValidation';
 
 const UNDOABLE_ACTIONS = new Set([
-  'MOVE_TASK', 'RESIZE_TASK', 'CASCADE_DEPENDENTS',
+  'RESIZE_TASK', 'CASCADE_DEPENDENTS', 'COMPLETE_DRAG',
   'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
   'ADD_TASK', 'DELETE_TASK', 'REPARENT_TASK',
   'RECALCULATE_EARLIEST',
@@ -27,21 +28,21 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
 function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
   switch (action.type) {
     case 'MOVE_TASK': {
-      let tasks = state.tasks.map(t =>
-        t.id === action.taskId
-          ? { ...t, startDate: action.newStartDate, endDate: action.newEndDate }
-          : t
-      );
+      let tasks = state.tasks.map(t => {
+        if (t.id !== action.taskId) return t;
+        const duration = daysBetween(action.newStartDate, action.newEndDate);
+        return { ...t, startDate: action.newStartDate, endDate: action.newEndDate, duration };
+      });
       tasks = recalcSummaryDates(tasks);
       return { ...state, tasks };
     }
 
     case 'RESIZE_TASK': {
-      let tasks = state.tasks.map(t =>
-        t.id === action.taskId
-          ? { ...t, endDate: action.newEndDate, duration: action.newDuration }
-          : t
-      );
+      let tasks = state.tasks.map(t => {
+        if (t.id !== action.taskId) return t;
+        const duration = daysBetween(t.startDate, action.newEndDate);
+        return { ...t, endDate: action.newEndDate, duration };
+      });
       tasks = recalcSummaryDates(tasks);
       return { ...state, tasks };
     }
@@ -50,11 +51,15 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       const taskMap = new Map(state.tasks.map(t => [t.id, t]));
       const targetTask = taskMap.get(action.taskId);
 
-      let tasks = state.tasks.map(t =>
-        t.id === action.taskId
-          ? { ...t, [action.field]: action.value }
-          : t
-      );
+      let tasks = state.tasks.map(t => {
+        if (t.id !== action.taskId) return t;
+        const updated = { ...t, [action.field]: action.value };
+        // Recompute duration when dates change
+        if (action.field === 'startDate' || action.field === 'endDate') {
+          updated.duration = daysBetween(updated.startDate, updated.endDate);
+        }
+        return updated;
+      });
 
       // If renaming a project or workstream, cascade to descendants
       if (action.field === 'name' && targetTask && typeof action.value === 'string') {
@@ -275,7 +280,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         name: 'New Task',
         startDate: today,
         endDate: endDateStr,
-        duration: 5,
+        duration: daysBetween(today, endDateStr),
         owner: '',
         workStream: inherited.workStream,
         project: inherited.project,
@@ -535,6 +540,36 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
     case 'CLEAR_FOCUS_NEW_TASK':
       return { ...state, focusNewTaskId: null };
+
+    case 'COMPLETE_DRAG': {
+      // Atomic: set final position + cascade dependents in one reducer pass
+      const duration = daysBetween(action.newStartDate, action.newEndDate);
+      let tasks = state.tasks.map(t =>
+        t.id === action.taskId
+          ? { ...t, startDate: action.newStartDate, endDate: action.newEndDate, duration }
+          : t
+      );
+      if (action.daysDelta !== 0) {
+        const preCascadeDates = new Map(tasks.map(t => [t.id, { start: t.startDate, end: t.endDate }]));
+        tasks = cascadeDependents(tasks, action.taskId, action.daysDelta);
+        const changedIds: string[] = [];
+        const shifts: CascadeShift[] = [];
+        for (const t of tasks) {
+          const pre = preCascadeDates.get(t.id);
+          if (pre && (t.startDate !== pre.start || t.endDate !== pre.end)) {
+            changedIds.push(t.id);
+            shifts.push({ taskId: t.id, fromStartDate: pre.start, fromEndDate: pre.end });
+          }
+        }
+        tasks = recalcSummaryDates(tasks);
+        if (changedIds.length > 0) {
+          return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: shifts };
+        }
+        return { ...state, tasks };
+      }
+      tasks = recalcSummaryDates(tasks);
+      return { ...state, tasks };
+    }
 
     case 'RECALCULATE_EARLIEST': {
       const { scope } = action;

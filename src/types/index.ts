@@ -12,7 +12,8 @@ export interface Task {
   name: string;
   startDate: string; // ISO date string
   endDate: string;
-  duration: number; // business days
+  /** Number of calendar days from startDate to endDate. Always derived — never edit directly. */
+  duration: number;
   owner: string;
   workStream: string;
   project: string;
@@ -64,6 +65,7 @@ export interface CollabUser {
   color: string;
   viewingTaskId: string | null;
   viewingCellColumn: string | null;
+  dragging: { taskId: string; startDate: string; endDate: string } | null;
 }
 
 export interface ColumnConfig {

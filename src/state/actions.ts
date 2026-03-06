@@ -2,7 +2,7 @@ import type { ColorByField, ZoomLevel, ColumnConfig, CollabUser, Dependency, Dep
 
 export type GanttAction =
   | { type: 'MOVE_TASK'; taskId: string; newStartDate: string; newEndDate: string }
-  | { type: 'RESIZE_TASK'; taskId: string; newEndDate: string; newDuration: number }
+  | { type: 'RESIZE_TASK'; taskId: string; newEndDate: string; newDuration?: number }
   | { type: 'UPDATE_TASK_FIELD'; taskId: string; field: string; value: string | number | boolean | string[] }
   | { type: 'TOGGLE_EXPAND'; taskId: string }
   | { type: 'SET_COLOR_BY'; colorBy: ColorByField }
@@ -44,4 +44,5 @@ export type GanttAction =
   | { type: 'SET_REPARENT_PICKER'; picker: { taskId: string } | null }
   | { type: 'TOGGLE_LEFT_PANE' }
   | { type: 'CLEAR_FOCUS_NEW_TASK' }
-  | { type: 'RECALCULATE_EARLIEST'; scope: { taskId?: string; workstream?: string; project?: string } };
+  | { type: 'RECALCULATE_EARLIEST'; scope: { taskId?: string; workstream?: string; project?: string } }
+  | { type: 'COMPLETE_DRAG'; taskId: string; newStartDate: string; newEndDate: string; daysDelta: number };

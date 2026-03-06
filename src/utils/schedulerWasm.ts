@@ -139,11 +139,19 @@ export function cascadeDependents(
   try {
     const wasmTasks = mapTasksToWasm(tasks);
 
+    if (import.meta.env.DEV) performance.mark('cascade-start');
     const results: CascadeResult[] = wasmModule.cascade_dependents(
       wasmTasks,
       movedTaskId,
       daysDelta,
     );
+    if (import.meta.env.DEV) {
+      performance.mark('cascade-end');
+      performance.measure('cascadeDependents', 'cascade-start', 'cascade-end');
+      performance.clearMarks('cascade-start');
+      performance.clearMarks('cascade-end');
+      performance.clearMeasures('cascadeDependents');
+    }
 
     // Build a map of changed tasks
     const changedMap = new Map(results.map(r => [r.id, r]));

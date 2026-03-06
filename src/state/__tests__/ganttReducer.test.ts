@@ -94,11 +94,11 @@ describe('ganttReducer', () => {
         type: 'RESIZE_TASK',
         taskId: 'a',
         newEndDate: '2026-03-20',
-        newDuration: 15,
       });
       const task = result.tasks.find(t => t.id === 'a')!;
       expect(task.endDate).toBe('2026-03-20');
-      expect(task.duration).toBe(15);
+      // Duration is computed from dates: daysBetween('2026-03-01', '2026-03-20') = 19
+      expect(task.duration).toBe(19);
     });
   });
 
@@ -655,14 +655,15 @@ describe('ganttReducer', () => {
         tasks: [makeTask({ id: 'a' })],
         cascadeShifts: [{ taskId: 'a', fromStartDate: '2026-03-01', fromEndDate: '2026-03-10' }],
       });
-      // Move task to create undo entry
-      const afterMove = ganttReducer(state, {
-        type: 'MOVE_TASK',
+      // COMPLETE_DRAG to create undo entry (MOVE_TASK is no longer undoable)
+      const afterDrag = ganttReducer(state, {
+        type: 'COMPLETE_DRAG',
         taskId: 'a',
         newStartDate: '2026-03-05',
         newEndDate: '2026-03-14',
+        daysDelta: 4,
       });
-      const afterUndo = ganttReducer(afterMove, { type: 'UNDO' });
+      const afterUndo = ganttReducer(afterDrag, { type: 'UNDO' });
       expect(afterUndo.cascadeShifts).toEqual([]);
     });
   });

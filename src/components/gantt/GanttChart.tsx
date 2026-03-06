@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
+import { parseISO, isValid } from 'date-fns';
 import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import { dateToX, dateToXCollapsed, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineDaysFiltered, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
@@ -224,6 +225,25 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
                 collapseWeekends={collapseWeekends}
                 earliestStart={earliest ?? undefined}
               />
+            );
+          })}
+          {/* Ghost bars for remote drags */}
+          {collabUsers?.filter(u => u.dragging).map(u => {
+            const drag = u.dragging!;
+            if (!isValid(parseISO(drag.startDate)) || !isValid(parseISO(drag.endDate))) return null;
+            const yPos = taskYPositions.get(drag.taskId);
+            if (yPos === undefined) return null;
+            const gx = dateToXCollapsed(drag.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const gEndX = dateToXCollapsed(drag.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const gw = Math.max(gEndX - gx, 0);
+            const barH = 28;
+            const barY = yPos + (ROW_HEIGHT - barH) / 2;
+            return (
+              <g key={`ghost-${u.clientId}`} opacity={0.4}>
+                <rect x={gx} y={barY} width={gw} height={barH} rx={4}
+                  fill={u.color} stroke={u.color} strokeWidth={1.5} strokeDasharray="4 2" />
+                <text x={gx + 4} y={Math.max(barY - 4, 10)} fontSize={9} fill={u.color}>{u.name}</text>
+              </g>
             );
           })}
           {/* Dependencies */}

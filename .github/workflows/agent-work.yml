@@ -232,24 +232,105 @@ jobs:
             --head "$BRANCH" \
             --base main
 
-      - name: Check PR size for code review
+      - name: Review-fix loop
         if: success()
-        id: pr-size
-        run: |
-          DIFF_LINES=$(git diff origin/main...HEAD --stat | tail -1 | grep -oP '\d+(?= insertion)' || echo "0")
-          echo "lines=${DIFF_LINES}" >> $GITHUB_OUTPUT
-
-      - name: Run automated code review
-        if: success() && steps.pr-size.outputs.lines > 10
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          DIFF_LINES=$(git diff origin/main...HEAD --stat | tail -1 | grep -oP '\d+(?= insertion)' || echo "0")
+          if [[ "$DIFF_LINES" -le 10 ]]; then
+            echo "PR too small for review (${DIFF_LINES} insertions). Skipping."
+            exit 0
+          fi
+
           PR_NUMBER=$(gh pr view "$BRANCH" --json number -q '.number')
-          claude -p "Use /code-review to review PR #${PR_NUMBER}" \
-            --dangerously-skip-permissions \
-            --max-turns 30 \
-            --max-budget-usd 5.00 || true
+          MAX_REVIEW_ITERATIONS=3
+
+          for iteration in $(seq 1 $MAX_REVIEW_ITERATIONS); do
+            echo "=== Review iteration ${iteration}/${MAX_REVIEW_ITERATIONS} ==="
+
+            # Run code review and capture output
+            set +e
+            REVIEW_OUTPUT=$(claude -p "Use /code-review to review PR #${PR_NUMBER}. After posting your review comment, output EXACTLY one of these lines at the end: REVIEW_RESULT:CLEAN (if no issues found or no comment posted) or REVIEW_RESULT:ISSUES_FOUND (if you posted a review comment with issues)." \
+              --dangerously-skip-permissions \
+              --max-turns 30 \
+              --max-budget-usd 5.00 2>&1)
+            REVIEW_EXIT=$?
+            set -e
+
+            echo "$REVIEW_OUTPUT"
+
+            if [[ $REVIEW_EXIT -ne 0 ]]; then
+              echo "Review agent failed (exit $REVIEW_EXIT). Skipping review loop."
+              break
+            fi
+
+            # Check if issues were found
+            if echo "$REVIEW_OUTPUT" | grep -q "REVIEW_RESULT:CLEAN"; then
+              echo "Review clean on iteration ${iteration}. Done."
+              break
+            fi
+
+            if ! echo "$REVIEW_OUTPUT" | grep -q "REVIEW_RESULT:ISSUES_FOUND"; then
+              echo "Could not determine review result. Assuming clean."
+              break
+            fi
+
+            # Issues found — if we have iterations left, fix them
+            if [[ $iteration -eq $MAX_REVIEW_ITERATIONS ]]; then
+              echo "Max review iterations reached. Remaining issues left for human review."
+              break
+            fi
+
+            echo "Issues found. Running fix agent (attempt ${iteration})..."
+
+            # Get the latest review comment
+            REVIEW_COMMENT=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments | map(select(.body | test("Code review"))) | last | .body' 2>/dev/null || echo "")
+
+            if [[ -z "$REVIEW_COMMENT" ]]; then
+              echo "Could not retrieve review comment. Skipping fix."
+              break
+            fi
+
+            # Run fix agent
+            set +e
+            claude -p "You are fixing code review findings for PR #${PR_NUMBER} on the Ganttlet project.
+
+          Read CLAUDE.md first for project context.
+
+          The code review found these issues:
+
+          ${REVIEW_COMMENT}
+
+          Fix ALL the issues listed above. For each issue:
+          1. Read the referenced file(s)
+          2. Understand the problem
+          3. Make the fix
+          4. Commit with: fix: <description of what was fixed>
+
+          After fixing, run ./scripts/full-verify.sh to make sure nothing is broken.
+          Do NOT modify files unrelated to the review findings." \
+              --dangerously-skip-permissions \
+              --max-turns ${{ steps.config.outputs.max_turns }} \
+              --max-budget-usd ${{ steps.config.outputs.max_budget }} 2>&1 | tee /tmp/fix-attempt-${iteration}.log
+            FIX_EXIT=${PIPESTATUS[0]}
+            set -e
+
+            if [[ $FIX_EXIT -ne 0 ]]; then
+              echo "Fix agent failed (exit $FIX_EXIT). Leaving issues for human review."
+              break
+            fi
+
+            # Push fixes
+            if [[ -n "$(git status --porcelain)" ]]; then
+              git add -A
+              git commit -m "fix: address code review findings (iteration ${iteration})" || true
+            fi
+            git push origin "$BRANCH"
+
+            echo "Fixes pushed. Re-reviewing..."
+          done
 
       - name: Comment on issue (success)
         if: success()

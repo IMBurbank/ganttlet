@@ -6,9 +6,8 @@ on:
 
 jobs:
   review:
-    # Skip draft PRs. Agent PRs get initial review from agent-work.yml,
-    # but this catches subsequent pushes (e.g. after fixing review findings).
-    if: "!github.event.pull_request.draft"
+    # Skip draft PRs and agent PRs (which have their own review-fix loop)
+    if: "!github.event.pull_request.draft && !startsWith(github.head_ref, 'agent/')"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

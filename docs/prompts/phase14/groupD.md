@@ -1,3 +1,38 @@
+---
+phase: 14
+group: D
+stage: 2
+agent_count: 1
+scope:
+  modify:
+    - src/state/actions.ts
+    - src/state/ganttReducer.ts
+    - src/collab/yjsBinding.ts
+    - src/state/GanttContext.tsx
+    - src/components/gantt/TaskBar.tsx
+  read_only: []
+depends_on: [A, B, C]
+tasks:
+  - id: D1
+    summary: "Read post-merge"
+  - id: D2
+    summary: "COMPLETE_DRAG action"
+  - id: D3
+    summary: "COMPLETE_DRAG handler"
+  - id: D4
+    summary: "RESIZE_TASK Yjs fix + COMPLETE_DRAG Yjs"
+  - id: D5
+    summary: "TaskBar mouseup"
+  - id: D6
+    summary: "TASK_MODIFYING_ACTIONS"
+  - id: D7
+    summary: "Dependency Yjs ops"
+  - id: D8
+    summary: "useEffect add/delete sync"
+  - id: D9
+    summary: "Verify"
+---
+
 # Phase 14 Group D — Atomic COMPLETE_DRAG + Structural CRDT Sync (R4, R10)
 
 You are implementing Phase 14 Group D for the Ganttlet project.

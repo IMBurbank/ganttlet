@@ -1,3 +1,35 @@
+---
+phase: 14
+type: validation
+stage: final
+depends_on: [A, B, C, D, E, F]
+checks:
+  - id: V1
+    summary: "Build verification"
+  - id: V2
+    summary: "Drag throttle (R1)"
+  - id: V3
+    summary: "Dispatch split (R1)"
+  - id: V4
+    summary: "Duration derivation (R2/R7/R9)"
+  - id: V5
+    summary: "SET_TASKS guard (R3)"
+  - id: V6
+    summary: "Atomic COMPLETE_DRAG (R4)"
+  - id: V7
+    summary: "Arrow rendering (R5)"
+  - id: V8
+    summary: "Ghost bar (R6)"
+  - id: V9
+    summary: "Duration semantics (R7)"
+  - id: V10
+    summary: "Cascade optimization (R8)"
+  - id: V11
+    summary: "Structural sync (R10)"
+  - id: V12
+    summary: "Cross-group consistency"
+---
+
 # Phase 14 Validation — Drag Reliability & Sync Integrity
 
 You are the validation agent for Phase 14. Your job is to verify that all six agent groups

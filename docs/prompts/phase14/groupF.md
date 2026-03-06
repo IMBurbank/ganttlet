@@ -1,3 +1,31 @@
+---
+phase: 14
+group: F
+stage: 3
+agent_count: 1
+scope:
+  modify:
+    - src/collab/awareness.ts
+    - src/types/index.ts
+    - src/components/gantt/TaskBar.tsx
+    - src/components/gantt/GanttChart.tsx
+  read_only: []
+depends_on: [A, B, C, D, E]
+tasks:
+  - id: F1
+    summary: "Read post-merge"
+  - id: F2
+    summary: "Extend awareness"
+  - id: F3
+    summary: "Extend CollabUser type"
+  - id: F4
+    summary: "Broadcast drag intent"
+  - id: F5
+    summary: "Render ghost bars"
+  - id: F6
+    summary: "Verify"
+---
+
 # Phase 14 Group F — Drag Intent via Awareness / Ghost Bar (R6)
 
 You are implementing Phase 14 Group F for the Ganttlet project.

@@ -1,3 +1,30 @@
+---
+phase: 14
+group: A
+stage: 1
+agent_count: 1
+scope:
+  modify:
+    - src/components/gantt/TaskBar.tsx
+    - src/state/GanttContext.tsx
+  read_only:
+    - src/collab/yjsBinding.ts
+depends_on: []
+tasks:
+  - id: A1
+    summary: "Read code"
+  - id: A2
+    summary: "Split dispatch"
+  - id: A3
+    summary: "Active drag tracking"
+  - id: A4
+    summary: "Guard SET_TASKS"
+  - id: A5
+    summary: "Throttle drag dispatch"
+  - id: A6
+    summary: "Verify"
+---
+
 # Phase 14 Group A — Drag Throttle + SET_TASKS Guard (R1, R3)
 
 You are implementing Phase 14 Group A for the Ganttlet project.

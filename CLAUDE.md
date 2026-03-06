@@ -26,6 +26,19 @@ via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
 
 After each major task, append status to `claude-progress.txt` in the worktree root.
 
+## Progress Tracking Format
+
+Agents append status to `claude-progress.txt` using this schema:
+```
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+A1 | DONE | 2026-03-06T10:23Z | Read and understood drag flow
+A2 | IN_PROGRESS | 2026-03-06T10:30Z | Split dispatch — working on tests
+B3 | BLOCKED | 2026-03-06T11:00Z | Waiting on A2 merge for type exports
+```
+
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
+
 ## Commands Quick Reference
 | Command | Purpose |
 |---------|---------|

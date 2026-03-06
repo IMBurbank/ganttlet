@@ -1,3 +1,30 @@
+---
+phase: 14
+group: E
+stage: 2
+agent_count: 1
+scope:
+  modify:
+    - src/components/gantt/DependencyLayer.tsx
+    - src/components/gantt/DependencyArrow.tsx
+    - src/utils/dependencyUtils.ts
+    - src/utils/layoutUtils.ts
+    - src/components/gantt/GanttChart.tsx
+  read_only: []
+depends_on: [A, B, C]
+tasks:
+  - id: E1
+    summary: "Read code"
+  - id: E2
+    summary: "Fix consistency"
+  - id: E3
+    summary: "Memoize getDependencyPoints"
+  - id: E4
+    summary: "Arrow path consistency"
+  - id: E5
+    summary: "Verify"
+---
+
 # Phase 14 Group E — Arrow Render Consistency (R5)
 
 You are implementing Phase 14 Group E for the Ganttlet project.

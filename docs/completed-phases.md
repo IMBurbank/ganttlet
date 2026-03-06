@@ -3,6 +3,27 @@
 This file preserves detailed design notes from completed phases for reference.
 See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 
+## Phase Summary
+
+| Phase | Name | Groups | Key Deliverable |
+|-------|------|--------|-----------------|
+| 0 | Promote ui-demo-2 to root | 1 | Project scaffold |
+| 1 | Bug Fixes | 4 (1A-1D) | Cascade/drag/CPM/CRUD fixes |
+| 2 | Testing Infrastructure | 1 | Vitest + 45 unit tests |
+| 3 | Google Sheets Integration | 2 (3A-3B) | OAuth2 + Sheets sync |
+| 4 | Real-Time Collaboration | 3 (4A-4C) | Yjs/Yrs CRDT + relay server |
+| 5 | Rust WASM Scheduling Engine | 1 | CPM/cascade in Rust WASM |
+| 6 | Gantt Chart UX | 3 | Undo/redo, weekend collapse, drag constraints |
+| 7 | Hierarchy & Task Movement | 3 (A-C) | Reparenting, dependency validation |
+| 8 | Bug Fixes + OKR + Deployment | 3 | Cascade shadow trail, E2E, Firebase+Cloud Run |
+| 9 | Deployment Hardening + UX | 3 (A-C) | Static server, IAP, Cloud Armor |
+| 10 | Architecture Hardening | 4 (A-D) | CORS, token auth, Sheets backoff, CI/CD |
+| 11 | Testing + Presence Fix | 3 (E-G) | E2E harness, presence fix, CI pipeline |
+| 12 | Scheduling Engine Overhaul | 5 (H-L) | Asymmetric cascade, SNET constraints, CPM fixes |
+| 13 | Agent Infrastructure | 4 (A-D) | Skills, orchestrator, hooks, GitHub pipeline |
+| 13a | Post-Implementation Cleanup | 2 (E-F) | Doc alignment, skill enrichment |
+| Plugin | Plugin Adoption | — | LSP plugins, code review, protective hooks |
+
 ---
 
 ## Core Features (Planned)

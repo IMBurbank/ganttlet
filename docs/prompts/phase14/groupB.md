@@ -1,3 +1,35 @@
+---
+phase: 14
+group: B
+stage: 1
+agent_count: 1
+scope:
+  modify:
+    - src/state/ganttReducer.ts
+    - src/state/actions.ts
+    - src/types/index.ts
+    - src/utils/dateUtils.ts
+    - src/sheets/sheetsMapper.ts
+  read_only:
+    - src/components/gantt/TaskBar.tsx
+depends_on: []
+tasks:
+  - id: B1
+    summary: "Read code"
+  - id: B2
+    summary: "Document duration semantics"
+  - id: B3
+    summary: "Make newDuration optional"
+  - id: B4
+    summary: "Compute duration from dates"
+  - id: B5
+    summary: "Audit duration semantics"
+  - id: B6
+    summary: "Sheets mapper"
+  - id: B7
+    summary: "Verify"
+---
+
 # Phase 14 Group B — Duration Derivation + Semantics + Sheets (R2, R7, R9)
 
 You are implementing Phase 14 Group B for the Ganttlet project.

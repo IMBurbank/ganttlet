@@ -1,0 +1,34 @@
+# Phase 14: Drag Interaction Reliability & Sync Integrity
+# This file is the machine-readable launch config for launch-phase.sh.
+# Prompt files live alongside this config in docs/prompts/phase14/.
+
+phase: phase14
+merge_target: feature/phase14
+
+stages:
+  - name: "Core Fixes"
+    groups:
+      - id: groupA
+        branch: feature/phase14-drag-throttle
+        merge_message: "Merge feature/phase14-drag-throttle: RAF throttle + CRDT broadcast throttle + dispatch split + SET_TASKS guard (R1, R3)"
+      - id: groupB
+        branch: feature/phase14-duration-derive
+        merge_message: "Merge feature/phase14-duration-derive: duration computed from dates in reducer + Sheets + standardized semantics (R2, R7, R9)"
+      - id: groupC
+        branch: feature/phase14-cascade-optimize
+        merge_message: "Merge feature/phase14-cascade-optimize: adjacency list O(e*d) cascade + performance instrumentation (R8)"
+
+  - name: "Sync Resilience + Rendering"
+    groups:
+      - id: groupD
+        branch: feature/phase14-atomic-drag-sync
+        merge_message: "Merge feature/phase14-atomic-drag-sync: COMPLETE_DRAG action + dependency/add/delete CRDT sync (R4, R10)"
+      - id: groupE
+        branch: feature/phase14-arrow-render
+        merge_message: "Merge feature/phase14-arrow-render: arrow consistency guards + memoization (R5)"
+
+  - name: "Multi-User UX"
+    groups:
+      - id: groupF
+        branch: feature/phase14-ghost-bar
+        merge_message: "Merge feature/phase14-ghost-bar: drag intent via awareness + ghost bar rendering (R6)"

@@ -1,3 +1,28 @@
+---
+phase: 14
+group: C
+stage: 1
+agent_count: 1
+scope:
+  modify:
+    - crates/scheduler/src/cascade.rs
+    - src/utils/schedulerWasm.ts
+  read_only:
+    - crates/scheduler/src/types.rs
+depends_on: []
+tasks:
+  - id: C1
+    summary: "Read code"
+  - id: C2
+    summary: "Build adjacency list"
+  - id: C3
+    summary: "Add Rust tests"
+  - id: C4
+    summary: "Performance instrumentation"
+  - id: C5
+    summary: "Verify"
+---
+
 # Phase 14 Group C — Cascade Adjacency List Optimization + Instrumentation (R8)
 
 You are implementing Phase 14 Group C for the Ganttlet project.

@@ -187,6 +187,10 @@ const handleMouseDown = useCallback((e: React.MouseEvent, mode: 'move' | 'resize
 
     if (dragRef.current.mode === 'move') {
       // ... same date computation as current code ...
+      // IMPORTANT: update BOTH lastStartDate AND lastEndDate in dragRef
+      dragRef.current.lastStartDate = newStartStr;
+      dragRef.current.lastEndDate = newEndStr;
+
       const action = { type: 'MOVE_TASK' as const, taskId, newStartDate: newStartStr, newEndDate: newEndStr };
       pendingAction = action;
 
@@ -246,6 +250,15 @@ const handleMouseDown = useCallback((e: React.MouseEvent, mode: 'move' | 'resize
 ```
 
 **IMPORTANT:** Preserve the existing date computation logic exactly (lines 71-86 for move, 91-99 for resize). Only change the dispatch pattern, not the date math.
+
+**CRITICAL BUG FIX:** The current code (line 88) only updates `dragRef.current.lastStartDate` during move but NOT `lastEndDate`. You MUST update BOTH:
+```typescript
+dragRef.current.lastStartDate = newStartStr;
+dragRef.current.lastEndDate = newEndStr;  // <-- this is missing in the current code!
+```
+Group D (Stage 2) reads `finalTask.lastEndDate` in the COMPLETE_DRAG payload. If you don't update it during move, it will be stale (the original end date) and the drag result will be wrong.
+
+**UNDO STACK NOTE:** `localDispatch` dispatches `MOVE_TASK` which is in `UNDOABLE_ACTIONS`, so each RAF tick pushes an undo entry (~60/sec). This is acceptable in Stage 1 — Group D (Stage 2) will fix this by removing `MOVE_TASK` from `UNDOABLE_ACTIONS` once `COMPLETE_DRAG` is the authoritative undo entry.
 
 5. Commit: `"feat: throttle drag dispatch via RAF + 100ms CRDT broadcast (R1)"`
 

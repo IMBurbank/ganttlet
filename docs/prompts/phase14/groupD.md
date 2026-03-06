@@ -102,15 +102,17 @@ Commit: `"feat: add COMPLETE_DRAG action type (R4)"`
 
 In `src/state/ganttReducer.ts`:
 
-1. Add `COMPLETE_DRAG` to `UNDOABLE_ACTIONS`:
+1. Add `COMPLETE_DRAG` to `UNDOABLE_ACTIONS` and **remove `MOVE_TASK`** from it:
 ```typescript
 const UNDOABLE_ACTIONS = new Set([
-  'MOVE_TASK', 'RESIZE_TASK', 'CASCADE_DEPENDENTS',
+  'RESIZE_TASK', 'CASCADE_DEPENDENTS',
   'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
   'ADD_TASK', 'DELETE_TASK', 'REPARENT_TASK',
   'RECALCULATE_EARLIEST', 'COMPLETE_DRAG',
 ]);
 ```
+
+**WHY remove MOVE_TASK:** Group A's throttled drag dispatches `MOVE_TASK` via `localDispatch` at ~60fps for local rendering. Each dispatch pushes to the undo stack. With `COMPLETE_DRAG` now as the authoritative undo entry for the entire drag, keeping `MOVE_TASK` undoable would pollute the stack with ~60 entries per drag. Removing it means only `COMPLETE_DRAG` creates a single clean undo entry.
 
 2. Add the handler (use `daysBetween` import — should already exist from Group B's work):
 ```typescript
@@ -269,7 +271,15 @@ const TASK_MODIFYING_ACTIONS = new Set([
 ]);
 ```
 
-Commit: `"feat: add COMPLETE_DRAG and dependency ops to TASK_MODIFYING_ACTIONS (R4, R10)"`
+Also, export a `useAwareness` hook so that Group F (Stage 3) can access the awareness instance from `TaskBar.tsx`:
+```typescript
+export function useAwareness() {
+  return useContext(AwarenessContext);
+}
+```
+`AwarenessContext` already exists as a module-private context in GanttContext.tsx — just export the hook, not the context itself.
+
+Commit: `"feat: add COMPLETE_DRAG and dependency ops to TASK_MODIFYING_ACTIONS, export useAwareness (R4, R10)"`
 
 ### D7: Add dependency operations to Yjs (R10)
 

@@ -149,16 +149,19 @@ Commit: `"feat: extend CollabUser type with drag intent (R6)"`
 
 In `src/components/gantt/TaskBar.tsx`:
 
-1. Import `setDragIntent` from awareness and get the awareness instance. You'll need to access it — check how `useSetViewingTask` works in GanttContext. You may need to:
-   - Import `useContext` for AwarenessContext, OR
-   - Create a `useAwareness` hook in GanttContext, OR
-   - Use the existing awareness access pattern
+1. Import `setDragIntent` from `../../collab/awareness` and get the awareness instance via the `useAwareness` hook (exported from GanttContext by Group D in Stage 2):
+```typescript
+import { setDragIntent } from '../../collab/awareness';
+import { useAwareness } from '../../state/GanttContext';
+
+const awareness = useAwareness();
+```
 
 2. In the `onMouseMove` handler (inside RAF or alongside CRDT broadcast), broadcast drag intent:
 ```typescript
 // Broadcast drag position to remote users via awareness (not document state)
-if (awarenessInstance) {
-  setDragIntent(awarenessInstance, {
+if (awareness) {
+  setDragIntent(awareness, {
     taskId,
     currentStartDate: newStartStr,
     currentEndDate: newEndStr,
@@ -168,8 +171,8 @@ if (awarenessInstance) {
 
 3. In `onMouseUp`, clear drag intent:
 ```typescript
-if (awarenessInstance) {
-  setDragIntent(awarenessInstance, null);
+if (awareness) {
+  setDragIntent(awareness, null);
 }
 ```
 

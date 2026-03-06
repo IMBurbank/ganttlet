@@ -20,6 +20,7 @@ Run each check below. Record PASS or FAIL. Do not attempt any fixes until all ch
 - Verify RAF-based throttle exists in `onMouseMove` (requestAnimationFrame pattern)
 - Verify CRDT broadcast is throttled to ~100ms (performance.now() comparison)
 - Verify `localDispatch` is used for RAF renders, `dispatch` (collabDispatch) for CRDT
+- Verify move handler updates BOTH `dragRef.current.lastStartDate` AND `dragRef.current.lastEndDate`
 - PASS/FAIL: ___
 
 ### V3: Dispatch Split (R1)
@@ -27,6 +28,7 @@ Run each check below. Record PASS or FAIL. Do not attempt any fixes until all ch
 - Verify both `localDispatch` (React only) and `collabDispatch` (React + Yjs) exist
 - Verify both are exposed via context
 - Verify `useLocalDispatch` hook exists and works
+- Verify `useAwareness` hook is exported (needed by Group F for ghost bars)
 - PASS/FAIL: ___
 
 ### V4: Duration Derivation (R2, R7, R9)
@@ -95,9 +97,10 @@ Run each check below. Record PASS or FAIL. Do not attempt any fixes until all ch
 - Verify TASK_MODIFYING_ACTIONS set includes ALL actions that should sync:
   MOVE_TASK, RESIZE_TASK, UPDATE_TASK_FIELD, TOGGLE_EXPAND, HIDE_TASK, SHOW_ALL_TASKS,
   CASCADE_DEPENDENTS, COMPLETE_DRAG, ADD_DEPENDENCY, UPDATE_DEPENDENCY, REMOVE_DEPENDENCY
-- Verify UNDOABLE_ACTIONS includes: MOVE_TASK, RESIZE_TASK, CASCADE_DEPENDENTS,
+- Verify UNDOABLE_ACTIONS includes: RESIZE_TASK, CASCADE_DEPENDENTS,
   ADD_DEPENDENCY, UPDATE_DEPENDENCY, REMOVE_DEPENDENCY, ADD_TASK, DELETE_TASK,
   REPARENT_TASK, RECALCULATE_EARLIEST, COMPLETE_DRAG
+- Verify MOVE_TASK is NOT in UNDOABLE_ACTIONS (it's a drag preview action; only COMPLETE_DRAG should create undo entries)
 - Verify no duplicate action handling (e.g., CASCADE_DEPENDENTS not dispatched separately if COMPLETE_DRAG handles it)
 - PASS/FAIL: ___
 

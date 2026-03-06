@@ -317,3 +317,4 @@ On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip c
 - Level 2 (stuck): Commit WIP with honest message, move to NEXT TASK (not "stop all work").
 - Level 3 (blocked): Commit, write BLOCKED in claude-progress.txt, skip dependent tasks.
 - Emergency: If running out of context, `git add -A && git commit -m "emergency: groupA saving work"`.
+- **Calculations**: NEVER do mental math or date arithmetic. Use `node -e "const {differenceInCalendarDays,addDays}=require('date-fns'); ..."` or `date -d '2026-03-06 + 17 days' +%Y-%m-%d` or `python3 -c "print(...)"`. In code, use `daysBetween()`/`addDaysToDate()` from `src/utils/dateUtils.ts`.

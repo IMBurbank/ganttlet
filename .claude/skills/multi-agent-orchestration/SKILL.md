@@ -42,6 +42,11 @@ creates and initializes worktrees.
 - `--dangerously-skip-permissions`: required for automated runs
 - Other flags: `-c` (continue), `-r` (resume), `--system-prompt`, `--model`, `--max-budget-usd`
 
+## Prompt Boilerplate Patterns
+Every group prompt should include in its Error Handling section:
+- The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `node -e`, `python3 -c`, `date -d`, or the project's `dateUtils.ts`/`date_utils.rs` helpers
+- Progress tracking in pipe-delimited format: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`
+
 ## Lessons Learned
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.

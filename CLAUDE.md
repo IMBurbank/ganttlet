@@ -17,6 +17,10 @@ via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
 - If you encounter test-specific code paths in production builds, remove them.
 - Keep dependencies minimal — every added dependency is attack surface.
 - NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).
+- NEVER do mental math, date arithmetic, or duration calculations. Use tools instead:
+  - **Date math**: `node -e "..."` with `date-fns`, or `date -d '2026-03-06 + 17 days' +%Y-%m-%d`
+  - **Arithmetic**: `node -e "console.log(365 * 3 + 42)"` or `python3 -c "print(...)"`
+  - **In code**: use `daysBetween()`, `addDaysToDate()` from `src/utils/dateUtils.ts` or `add_days()` from `crates/scheduler/src/date_utils.rs` — never hand-compute dates in code
 
 ## Error Handling Protocol
 - **Level 1** (fixable): Read the error, fix the code, re-run. Try up to 3 distinct approaches.

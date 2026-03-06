@@ -3,6 +3,27 @@
 This file preserves detailed design notes from completed phases for reference.
 See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 
+## Phase Summary
+
+| Phase | Name | Groups | Key Deliverable |
+|-------|------|--------|-----------------|
+| 0 | Promote ui-demo-2 to root | 1 | Project scaffold |
+| 1 | Bug Fixes | 4 (1A-1D) | Cascade/drag/CPM/CRUD fixes |
+| 2 | Testing Infrastructure | 1 | Vitest + 45 unit tests |
+| 3 | Google Sheets Integration | 2 (3A-3B) | OAuth2 + Sheets sync |
+| 4 | Real-Time Collaboration | 3 (4A-4C) | Yjs/Yrs CRDT + relay server |
+| 5 | Rust WASM Scheduling Engine | 1 | CPM/cascade in Rust WASM |
+| 6 | Gantt Chart UX | 3 | Undo/redo, weekend collapse, drag constraints |
+| 7 | Hierarchy & Task Movement | 3 (A-C) | Reparenting, dependency validation |
+| 8 | Bug Fixes + OKR + Deployment | 3 | Cascade shadow trail, E2E, Firebase+Cloud Run |
+| 9 | Deployment Hardening + UX | 3 (A-C) | Static server, IAP, Cloud Armor |
+| 10 | Architecture Hardening | 4 (A-D) | CORS, token auth, Sheets backoff, CI/CD |
+| 11 | Testing + Presence Fix | 3 (E-G) | E2E harness, presence fix, CI pipeline |
+| 12 | Scheduling Engine Overhaul | 5 (H-L) | Asymmetric cascade, SNET constraints, CPM fixes |
+| 13 | Agent Infrastructure | 4 (A-D) | Skills, orchestrator, hooks, GitHub pipeline |
+| 13a | Post-Implementation Cleanup | 2 (E-F) | Doc alignment, skill enrichment |
+| Plugin | Plugin Adoption | — | LSP plugins, code review, protective hooks |
+
 ---
 
 ## Core Features (Planned)
@@ -138,6 +159,11 @@ Single stage with 4 parallel groups (zero file overlap) + validation. Implemente
 - **Group C (Hooks & Guardrails)**: Made `scripts/verify.sh` scope-aware via `AGENT_SCOPE` env var (rust/ts/full), added hash-based output deduplication, 30s rate limiting cooldown, compact output format; fixed pre-existing PIPESTATUS exit code bug; created `scripts/pre-commit-hook.sh` rejecting todo!()/unimplemented!()/commented-out tests
 - **Group D (GitHub Pipeline)**: Created `.github/ISSUE_TEMPLATE/agent-task.yml` with structured fields; added `.github/workflows/agent-gate.yml` quality gate; overhauled `.github/workflows/agent-work.yml` with env-var-based prompt construction (shell injection protection), 2-attempt retry loop, complexity-based `--max-turns`/`--max-budget-usd`, `.agent-summary.md` PR body
 - **Known issues**: WATCH mode uses `-p` (sparse text output) instead of interactive mode (rich TUI) — a regression from Phase 12. `docs/multi-agent-guide.md` doesn't reflect Group B's new features (written in parallel). See `docs/phase13-review.md` for full review.
+
+## Phase 13a: Post-Implementation Cleanup — DONE
+Two parallel groups fixing cross-group inconsistencies from Phase 13.
+- **Group E (Doc Alignment)**: Updated `docs/multi-agent-guide.md` with Group B's new launch-phase.sh features (preflight, partial success, watchdog, model selection, resume); fixed WATCH mode description contradiction; added pre-commit hook reference to CLAUDE.md
+- **Group F (Skill Enrichment)**: Enriched `google-sheets-sync` skill (data mapping, gotchas, failure modes) and `cloud-deployment` skill (troubleshooting, gcloud commands, promotion flow, deploy gotchas)
 
 ## Plugin Adoption — DONE
 Added Claude Code plugins, protective hooks, and automated code review to the CI pipeline. See `docs/plugin-adoption-plan.md` for the full plan and decision log.

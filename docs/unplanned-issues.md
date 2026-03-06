@@ -2,11 +2,11 @@
 
 Triage buffer for issues not yet assigned to a phase. A planning agent picks
 items from **Backlog**, moves them to **Claimed**, and once planned into
-`docs/TASKS.md` + `CLAUDE.md`, moves them to **Planned**.
+`docs/tasks/phaseN.yaml` + `CLAUDE.md`, moves them to **Planned**.
 
 ## Rules (agents MUST follow these)
 1. Claim up to 3 items at a time by moving them to **Claimed** with your agent ID.
-2. Plan each item into `docs/TASKS.md` under the appropriate phase.
+2. Plan each item into `docs/tasks/phaseN.yaml` under the appropriate phase.
 3. Move planned items to **Planned** with a reference to the phase/group/task.
 4. Do not modify items claimed by another agent.
 5. A user may add new items to **Backlog** at any time.
@@ -29,7 +29,7 @@ items from **Backlog**, moves them to **Claimed**, and once planned into
 
 
 ## Planned
-<!-- Agents move items here after planning into docs/TASKS.md. Format: `- [x] description → Phase X, Group Y, Task Z` -->
+<!-- Agents move items here after planning into docs/tasks/phaseN.yaml. Format: `- [x] description → Phase X, Group Y, Task Z` -->
 
 
 ---

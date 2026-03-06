@@ -26,6 +26,19 @@ via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
 
 After each major task, append status to `claude-progress.txt` in the worktree root.
 
+## Progress Tracking Format
+
+Agents append status to `claude-progress.txt` using this schema:
+```
+# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
+# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
+A1 | DONE | 2026-03-06T10:23Z | Read and understood drag flow
+A2 | IN_PROGRESS | 2026-03-06T10:30Z | Split dispatch — working on tests
+B3 | BLOCKED | 2026-03-06T11:00Z | Waiting on A2 merge for type exports
+```
+
+On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
+
 ## Commands Quick Reference
 | Command | Purpose |
 |---------|---------|
@@ -95,7 +108,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 - `docs/multi-agent-guide.md` — launch-phase.sh usage, Claude CLI reference, phase setup
 - `docs/completed-phases.md` — Detailed notes on phases 0-13 (auth, sync, deployment, agent infra)
 - `docs/cloud-verification-plan.md` — Cloud-based verification stages and GCP layout
-- `docs/TASKS.md` — Claimable task queue and claiming convention
+- `docs/TASKS.md` — Task queue index; structured data in `docs/tasks/phaseN.yaml`
 - `.claude/skills/` — Domain-specific skills (loaded on demand):
   - `scheduling-engine` — CPM, cascade, constraints, crates/scheduler/ patterns
   - `e2e-testing` — Playwright, relay server, collab test patterns
@@ -107,7 +120,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
 
 ## Task Queue
-See `docs/TASKS.md` for claimable tasks and claiming convention.
+See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.
 
 ## Project Status
 - **Completed**: Phases 0-13. See `docs/completed-phases.md`.

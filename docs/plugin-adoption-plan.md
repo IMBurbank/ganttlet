@@ -2,8 +2,8 @@
 
 **Project:** Ganttlet
 **Date:** March 2026
-**Status:** In Progress
-**Last reviewed:** 2026-03-05 (codebase automation audit via `claude-code-setup` skill)
+**Status:** Complete
+**Last reviewed:** 2026-03-06 (V1-V4 verification passed, review-fix loop validated)
 
 ---
 
@@ -24,10 +24,10 @@
 | A4. Verify hooks work | CLAUDE | [x] DONE | All 6 test cases pass: blocks wasm/env/lockfile/push-main, allows normal files/feature branches |
 | A5. Verify build | CLAUDE | [x] DONE | `npm run build` passes (429 modules, 2.35s) |
 | A6. Commit all changes | CLAUDE | [x] DONE | `feature/plugin-adoption` branch, commit `2c12b1b` |
-| V1. Docker build test | USER | [ ] | `docker compose build dev` on host |
-| V2. Container LSP check | USER | [ ] | `rust-analyzer --version` + `typescript-language-server --version` |
-| V3. Plugin load check | USER | [ ] | `claude` shows plugins in `/plugin` > Installed |
-| V4. CI workflow test | USER | [ ] | Trigger agent-work on a test issue |
+| V1. Docker build test | USER | [x] DONE | `docker compose build dev` succeeds with LSP binaries |
+| V2. Container LSP check | USER | [x] DONE | `rust-analyzer --version` + `typescript-language-server --version` confirmed |
+| V3. Plugin load check | USER | [x] DONE | All 4 plugins loaded (github, rust-analyzer-lsp, typescript-lsp, code-review) |
+| V4. CI workflow test | USER | [x] DONE | Issues #2, #7, #9 triggered agent-work; PRs created, review-fix loop validated |
 
 ---
 
@@ -303,4 +303,7 @@ _Space for tracking issues, observations, and follow-ups as implementation proce
 | 2026-03-05 | Plugin install steps in CI use `\|\| true` to avoid blocking agent work if plugin marketplace is unreachable. |
 | 2026-03-05 | A1-A6 complete. Committed on `feature/plugin-adoption` (2c12b1b). Awaiting user V1-V4 verification + M1/M2. |
 | 2026-03-05 | M1/M2 complete. Token generated and GitHub secret added. Added CLAUDE.md rule: never ask users to paste secrets. |
+| 2026-03-06 | V1-V4 complete. Docker build, LSP binaries, plugin loading, and CI workflow all verified. |
+| 2026-03-06 | Review-fix loop added to agent-work.yml (max 3 iterations). PR progress comments with workflow links. |
+| 2026-03-06 | pr-review.yml added for non-agent PRs. Code review threshold lowered to 10 insertions. |
 | | |

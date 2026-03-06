@@ -74,8 +74,19 @@ stages: health checks → service account smoke tests → E2E against live Cloud
 project with Secret Manager → visual regression baselines. The plan documents motivations,
 GCP project layout, auth strategy, and what's done vs not yet done.
 
+## CI/CD Pipeline
+
+### Agent Work (`agent-work.yml`)
+Triggered by `agent-ready` label on issues. Full pipeline: checkout → build → Claude Code agent → PR creation → review-fix loop → status comments. The review-fix loop runs `/code-review` (multi-agent plugin), and if issues are found, runs a fix agent to address them, then re-reviews. Max 3 iterations. Progress comments are posted on both the issue and the PR with links to the workflow run.
+
+### PR Review (`pr-review.yml`)
+Triggered on `pull_request: [opened, synchronize]`. Runs `/code-review` on non-agent, non-draft PRs with >10 insertions. Agent branches are excluded (they have their own review-fix loop).
+
+### Code Review Plugin
+Uses confidence-based scoring (threshold: 80) with 5 parallel review agents (CLAUDE.md compliance, bug scan, git history, previous PR comments, code comment compliance). See `docs/plugin-adoption-plan.md` for full plugin details.
+
 ## Completed Work
-Phases 0-12 are done. Details in `docs/completed-phases.md`.
+Phases 0-13 are done, plus plugin adoption. Details in `docs/completed-phases.md`.
 
 ## Roadmap (Future)
 - Resource assignment and leveling

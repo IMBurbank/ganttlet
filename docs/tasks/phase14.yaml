@@ -97,14 +97,14 @@ validation:
   - {id: V12, summary: "Cross-group consistency", status: complete}
 
 follow_up:
-  - {summary: "Fast-drag duration preservation E2E (R1/R2)", status: complete}
-  - {summary: "Concurrent drag + remote edit resilience E2E (R3/R4)", status: complete}
-  - {summary: "Arrow endpoints match task bars after fast drag (R5)", status: complete}
-  - {summary: "Network latency simulation drag test (R1/R3/R4)", status: complete}
-  - {summary: "200-task stress test with duration/dependency verification (R1/R8)", status: complete}
-  - {summary: "Cascade latency threshold <16ms E2E (R8)", status: complete}
-  - {summary: "Ghost bar rendering for remote drag E2E (R6)", status: complete}
-  - {summary: "Add task syncs to collaborator via CRDT within 2s (R10)", status: complete}
-  - {summary: "Delete task syncs to collaborator via CRDT within 2s (R10)", status: complete}
-  - {summary: "Add/remove dependency syncs to collaborator (R10)", status: complete}
-  - {summary: "Remove redundant duration dispatches from TaskBarPopover.tsx and TaskRow.tsx", status: complete}
+  - {summary: "Fast-drag duration preservation E2E (R1/R2)", status: pending}
+  - {summary: "Concurrent drag + remote edit resilience E2E (R3/R4)", status: pending}
+  - {summary: "Arrow endpoints match task bars after fast drag (R5)", status: pending}
+  - {summary: "Network latency simulation drag test (R1/R3/R4)", status: pending}
+  - {summary: "200-task stress test with duration/dependency verification (R1/R8)", status: pending}
+  - {summary: "Cascade latency threshold <16ms E2E (R8)", status: pending}
+  - {summary: "Ghost bar rendering for remote drag E2E (R6)", status: pending}
+  - {summary: "Add task syncs to collaborator via CRDT within 2s (R10)", status: pending}
+  - {summary: "Delete task syncs to collaborator via CRDT within 2s (R10)", status: pending}
+  - {summary: "Add/remove dependency syncs to collaborator (R10)", status: pending}
+  - {summary: "Remove redundant duration dispatches from TaskBarPopover.tsx and TaskRow.tsx", status: pending}

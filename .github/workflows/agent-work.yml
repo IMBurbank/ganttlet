@@ -246,6 +246,9 @@ jobs:
 
           PR_NUMBER=$(gh pr view "$BRANCH" --json number -q '.number')
           MAX_REVIEW_ITERATIONS=3
+          REVIEW_STATUS="clean"
+          FIXES_APPLIED=0
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           for iteration in $(seq 1 $MAX_REVIEW_ITERATIONS); do
             echo "=== Review iteration ${iteration}/${MAX_REVIEW_ITERATIONS} ==="
@@ -263,23 +266,27 @@ jobs:
 
             if [[ $REVIEW_EXIT -ne 0 ]]; then
               echo "Review agent failed (exit $REVIEW_EXIT). Skipping review loop."
+              REVIEW_STATUS="error"
               break
             fi
 
             # Check if issues were found
             if echo "$REVIEW_OUTPUT" | grep -q "REVIEW_RESULT:CLEAN"; then
               echo "Review clean on iteration ${iteration}. Done."
+              REVIEW_STATUS="clean"
               break
             fi
 
             if ! echo "$REVIEW_OUTPUT" | grep -q "REVIEW_RESULT:ISSUES_FOUND"; then
               echo "Could not determine review result. Assuming clean."
+              REVIEW_STATUS="clean"
               break
             fi
 
             # Issues found — if we have iterations left, fix them
             if [[ $iteration -eq $MAX_REVIEW_ITERATIONS ]]; then
               echo "Max review iterations reached. Remaining issues left for human review."
+              REVIEW_STATUS="issues_remaining"
               break
             fi
 
@@ -290,6 +297,7 @@ jobs:
 
             if [[ -z "$REVIEW_COMMENT" ]]; then
               echo "Could not retrieve review comment. Skipping fix."
+              REVIEW_STATUS="error"
               break
             fi
 
@@ -319,8 +327,11 @@ jobs:
 
             if [[ $FIX_EXIT -ne 0 ]]; then
               echo "Fix agent failed (exit $FIX_EXIT). Leaving issues for human review."
+              REVIEW_STATUS="issues_remaining"
               break
             fi
+
+            FIXES_APPLIED=$((FIXES_APPLIED + 1))
 
             # Push fixes
             if [[ -n "$(git status --porcelain)" ]]; then
@@ -331,6 +342,20 @@ jobs:
 
             echo "Fixes pushed. Re-reviewing..."
           done
+
+          # Post review summary on the PR
+          if [[ "$REVIEW_STATUS" == "clean" && $FIXES_APPLIED -eq 0 ]]; then
+            SUMMARY="Automated code review passed — no issues found."
+          elif [[ "$REVIEW_STATUS" == "clean" && $FIXES_APPLIED -gt 0 ]]; then
+            SUMMARY="Automated code review found issues and fixed them in ${FIXES_APPLIED} iteration(s). Final review is clean."
+          elif [[ "$REVIEW_STATUS" == "issues_remaining" ]]; then
+            SUMMARY="Automated code review found issues. Fix agent attempted ${FIXES_APPLIED} fix(es) but some issues remain. Please review manually."
+          else
+            SUMMARY="Automated code review encountered an error. Please review manually."
+          fi
+
+          PR_BODY=$(printf "### Automated Review Summary\n\n%s\n\n[View workflow run](%s)" "$SUMMARY" "$RUN_URL")
+          gh pr comment "$PR_NUMBER" --body "$PR_BODY"
 
       - name: Comment on issue (success)
         if: success()

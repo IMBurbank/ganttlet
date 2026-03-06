@@ -78,6 +78,8 @@ Run each check below. Record PASS or FAIL. Do not attempt any fixes until all ch
 - Verify `duration` is consistently calendar days everywhere
 - Check `daysBetween` uses `differenceInCalendarDays` (not business days)
 - Check no code path sets `duration` directly from user input without computing from dates
+- Search for `businessDaysBetween` — verify it's NOT used to set `task.duration`
+- Read `src/state/ganttReducer.ts` UPDATE_TASK_FIELD handler — verify it recomputes duration when field is startDate or endDate
 - PASS/FAIL: ___
 
 ### V10: Cascade Optimization (R8)

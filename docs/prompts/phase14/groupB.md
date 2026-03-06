@@ -170,9 +170,36 @@ case 'MOVE_TASK': {
 
 4. Verify `ADD_TASK` (line 256-336) already sets duration to 5 and computes endDate as today+5. This is OK — duration matches the date span. But you can make it explicit by computing `duration: daysBetween(today, endDateStr)`.
 
-5. Commit: `"feat: compute duration from dates in reducer — never trust action payload (R2)"`
+5. Modify `UPDATE_TASK_FIELD` handler: When `field === 'startDate'` or `field === 'endDate'`, recompute `duration` from dates after setting the field. Other files (TaskBarPopover.tsx, TaskRow.tsx) dispatch separate `UPDATE_TASK_FIELD` for duration — this makes those dispatches redundant-but-harmless:
+```typescript
+case 'UPDATE_TASK_FIELD': {
+  let tasks = state.tasks.map(t => {
+    if (t.id !== action.taskId) return t;
+    const updated = { ...t, [action.field]: action.value };
+    // Recompute duration whenever dates change (R2)
+    if (action.field === 'startDate' || action.field === 'endDate') {
+      updated.duration = daysBetween(updated.startDate, updated.endDate);
+    }
+    return updated;
+  });
+  tasks = recalcSummaryDates(tasks);
+  return { ...state, tasks };
+}
+```
 
-### B5: Sheets mapper — compute on write, ignore on read (R9)
+6. Commit: `"feat: compute duration from dates in reducer — never trust action payload (R2)"`
+
+### B5: Audit duration semantics across codebase (R7)
+
+1. Search for all uses of `businessDaysBetween` in the codebase:
+```bash
+grep -rn 'businessDaysBetween' src/
+```
+2. Verify that no code path uses `businessDaysBetween` to compute or set `task.duration`. The `duration` field should ONLY use calendar days (via `daysBetween`). `businessDaysBetween` should only be used for display purposes (if at all).
+3. If any code sets `duration` using `businessDaysBetween`, change it to use `daysBetween`.
+4. Commit if changes were needed: `"fix: ensure all duration calculations use calendar days (R7)"`
+
+### B6: Sheets mapper — compute on write, ignore on read (R9)
 
 1. In `src/sheets/sheetsMapper.ts`, add `daysBetween` import:
 ```typescript
@@ -200,7 +227,7 @@ duration: (() => {
 
 5. Commit: `"feat: Sheets duration column is computed-on-write, ignored-on-read (R9)"`
 
-### B6: Verify and finalize
+### B7: Verify and finalize
 
 1. Run `npx tsc --noEmit` — fix any type errors
 2. Run `npm run test` — fix any test failures

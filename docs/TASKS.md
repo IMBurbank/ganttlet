@@ -326,16 +326,20 @@ Execution: A1 → A2 → A3 → A4 → A5 → A6
 
 **B4: Compute duration from dates in the reducer**
 - [ ] MOVE_TASK and RESIZE_TASK compute duration via daysBetween
+- [ ] UPDATE_TASK_FIELD recomputes duration when field is startDate or endDate
 - [ ] ADD_TASK computes duration explicitly
 
-**B5: Sheets mapper — compute on write, ignore on read**
+**B5: Audit businessDaysBetween usage (R7)**
+- [ ] Verify no code uses businessDaysBetween to set task.duration
+
+**B6: Sheets mapper — compute on write, ignore on read**
 - [ ] taskToRow computes duration from daysBetween(startDate, endDate)
 - [ ] rowToTask computes duration from dates, not column 4
 
-**B6: Verify and finalize**
+**B7: Verify and finalize**
 - [ ] tsc + vitest pass, no out-of-scope files modified
 
-Execution: B1 → B2 → B3 → B4 → B5 → B6
+Execution: B1 → B2 → B3 → B4 → B5 → B6 → B7
 
 ### Group C: Cascade Optimization + Instrumentation (R8)
 
@@ -454,6 +458,25 @@ Execution: F1 → F2 → F3 → F4 → F5 → F6
 - [ ] V10: Cascade optimization (R8) — adjacency list + instrumentation
 - [ ] V11: Structural sync (R10) — dependency + add/delete sync
 - [ ] V12: Cross-group consistency — all sets complete, no duplicate paths
+
+---
+
+## Phase 14 Follow-up: E2E Tests for Drag & Sync
+
+E2E tests from `docs/phase14-recommendations.md` Section 5. Phase 14 fixes data integrity;
+these tests verify the fixes under real browser + network conditions.
+
+- [ ] Fast-drag duration preservation (Playwright, R1/R2)
+- [ ] Concurrent drag + remote edit resilience (collab harness, R3/R4)
+- [ ] Arrow endpoints match task bars after fast drag (visual, R5)
+- [ ] Network latency simulation drag test (CDP throttling, R1/R3/R4)
+- [ ] 200-task stress test with duration/dependency verification (perf, R1/R8)
+- [ ] Cascade latency threshold assertion <16ms (E2E, R8)
+- [ ] Ghost bar rendering for remote drag (collab harness, R6)
+- [ ] Add task syncs to collaborator via CRDT within 2s (collab harness, R10)
+- [ ] Delete task syncs to collaborator via CRDT within 2s (collab harness, R10)
+- [ ] Add/remove dependency syncs to collaborator (collab harness, R10)
+- [ ] Remove redundant duration dispatches from TaskBarPopover.tsx and TaskRow.tsx
 
 ---
 

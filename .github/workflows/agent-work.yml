@@ -78,6 +78,8 @@ jobs:
       - name: Create branch
         run: |
           BRANCH="agent/issue-${{ github.event.issue.number }}"
+          # Delete stale remote branch from previous runs (if any)
+          git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           echo "BRANCH=$BRANCH" >> $GITHUB_ENV
 

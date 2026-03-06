@@ -150,19 +150,17 @@ export default function TaskBar({
       if (dragRef.current) {
         const finalTask = dragRef.current;
         dragRef.current = null;
-        if (finalTask.mode === 'move') {
-          const delta = daysBetween(finalTask.origStartDate, finalTask.lastStartDate);
-          if (delta !== 0) {
-            dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
-          }
-        } else {
-          const endDelta = daysBetween(finalTask.origEndDate, finalTask.lastEndDate);
-          if (endDelta !== 0) {
-            dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
-          }
-        }
-        // Final authoritative CRDT write
-        dispatch({ type: 'MOVE_TASK', taskId, newStartDate: finalTask.lastStartDate, newEndDate: finalTask.lastEndDate });
+        const daysDelta = finalTask.mode === 'move'
+          ? daysBetween(finalTask.origStartDate, finalTask.lastStartDate)
+          : daysBetween(finalTask.origEndDate, finalTask.lastEndDate);
+        // Atomic: set final position + cascade in one dispatch
+        dispatch({
+          type: 'COMPLETE_DRAG',
+          taskId,
+          newStartDate: finalTask.lastStartDate,
+          newEndDate: finalTask.lastEndDate,
+          daysDelta,
+        });
       }
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);

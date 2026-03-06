@@ -65,6 +65,10 @@ const TASK_MODIFYING_ACTIONS = new Set([
   'HIDE_TASK',
   'SHOW_ALL_TASKS',
   'CASCADE_DEPENDENTS',
+  'COMPLETE_DRAG',
+  'ADD_DEPENDENCY',
+  'UPDATE_DEPENDENCY',
+  'REMOVE_DEPENDENCY',
 ]);
 
 export function GanttProvider({ children }: { children: React.ReactNode }) {
@@ -111,8 +115,9 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
     dispatch(action);
 
-    if (action.type === 'UNDO' || action.type === 'REDO' || action.type === 'REPARENT_TASK') {
-      // UNDO/REDO/REPARENT replace the entire task array — flag for full sync in useEffect
+    if (action.type === 'UNDO' || action.type === 'REDO' || action.type === 'REPARENT_TASK'
+        || action.type === 'ADD_TASK' || action.type === 'DELETE_TASK') {
+      // These actions change the task array structure — flag for full sync in useEffect
       pendingFullSyncRef.current = true;
     } else if (yjsDocRef.current && TASK_MODIFYING_ACTIONS.has(action.type)) {
       applyActionToYjs(yjsDocRef.current, action);

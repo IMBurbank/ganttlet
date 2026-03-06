@@ -81,6 +81,56 @@ STAGE3_MERGE_MESSAGES=(
   "Merge feature/phase14-ghost-bar: drag intent via awareness + ghost bar rendering (R6)"
 )
 
+# ── Load config from YAML if available ────────────────────────────────────────
+
+load_yaml_config() {
+  local config_file="${WORKSPACE}/${PROMPTS_DIR}/launch-config.yaml"
+  if [[ ! -f "$config_file" ]]; then
+    return 0  # No YAML config — use hardcoded arrays above
+  fi
+
+  log "Loading config from ${config_file}"
+
+  PHASE=$(yq -r '.phase' "$config_file")
+  local merge_target_yaml
+  merge_target_yaml=$(yq -r '.merge_target // empty' "$config_file")
+  if [[ -n "$merge_target_yaml" ]]; then
+    MERGE_TARGET="${MERGE_TARGET:-$merge_target_yaml}"
+  fi
+
+  local num_stages
+  num_stages=$(yq -r '.stages | length' "$config_file")
+
+  for ((s=0; s<num_stages; s++)); do
+    local stage_num=$((s + 1))
+    local num_groups
+    num_groups=$(yq -r ".stages[$s].groups | length" "$config_file")
+
+    # Build arrays for this stage
+    local groups=() branches=() messages=()
+    for ((g=0; g<num_groups; g++)); do
+      groups+=("$(yq -r ".stages[$s].groups[$g].id" "$config_file")")
+      branches+=("$(yq -r ".stages[$s].groups[$g].branch" "$config_file")")
+      messages+=("$(yq -r ".stages[$s].groups[$g].merge_message" "$config_file")")
+    done
+
+    # Assign to the STAGE<N>_ arrays dynamically
+    case $stage_num in
+      1) STAGE1_GROUPS=("${groups[@]}"); STAGE1_BRANCHES=("${branches[@]}"); STAGE1_MERGE_MESSAGES=("${messages[@]}") ;;
+      2) STAGE2_GROUPS=("${groups[@]}"); STAGE2_BRANCHES=("${branches[@]}"); STAGE2_MERGE_MESSAGES=("${messages[@]}") ;;
+      3) STAGE3_GROUPS=("${groups[@]}"); STAGE3_BRANCHES=("${branches[@]}"); STAGE3_MERGE_MESSAGES=("${messages[@]}") ;;
+      *) warn "Stage ${stage_num} defined in YAML but launch-phase.sh only supports stages 1-3" ;;
+    esac
+  done
+
+  # Update derived values
+  MERGE_TARGET="${MERGE_TARGET:-feature/${PHASE}}"
+  LOG_DIR="${WORKSPACE}/logs/${PHASE}"
+  TMUX_SESSION="${PHASE}-agents"
+}
+
+load_yaml_config
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'

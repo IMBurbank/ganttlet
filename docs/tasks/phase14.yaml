@@ -1,0 +1,110 @@
+# Phase 14: Drag Interaction Reliability & Sync Integrity
+# Source: docs/phase14-recommendations.md
+
+phase: 14
+status: pending
+context: >
+  Fix fast-drag data corruption, arrow offset bugs, missing structural CRDT sync,
+  and add multi-user drag intent.
+
+stages:
+  - name: "Stage 1: Core Fixes"
+    groups:
+      - id: A
+        name: "Drag Throttle + SET_TASKS Guard"
+        refs: [R1, R3]
+        tasks:
+          - {id: A1, summary: "Read TaskBar.tsx, GanttContext.tsx, yjsBinding.ts", status: pending}
+          - {id: A2, summary: "Split dispatch into localDispatch + collabDispatch", status: pending}
+          - {id: A3, summary: "Add active drag tracking (activeDragRef)", status: pending}
+          - {id: A4, summary: "Guard SET_TASKS during active drag", status: pending}
+          - {id: A5, summary: "Throttle drag dispatch (RAF local, 100ms CRDT)", status: pending}
+          - {id: A6, summary: "Verify and finalize", status: pending}
+
+      - id: B
+        name: "Duration Derivation + Semantics + Sheets"
+        refs: [R2, R7, R9]
+        tasks:
+          - {id: B1, summary: "Read actions.ts, ganttReducer.ts, sheetsMapper.ts", status: pending}
+          - {id: B2, summary: "Document duration semantics (calendar days)", status: pending}
+          - {id: B3, summary: "Make newDuration optional on RESIZE_TASK", status: pending}
+          - {id: B4, summary: "Compute duration from dates in reducer", status: pending}
+          - {id: B5, summary: "Audit businessDaysBetween usage", status: pending}
+          - {id: B6, summary: "Sheets mapper — compute on write, ignore on read", status: pending}
+          - {id: B7, summary: "Verify and finalize", status: pending}
+
+      - id: C
+        name: "Cascade Optimization + Instrumentation"
+        refs: [R8]
+        tasks:
+          - {id: C1, summary: "Read cascade.rs, types.rs, schedulerWasm.ts", status: pending}
+          - {id: C2, summary: "Build adjacency list in cascade_dependents", status: pending}
+          - {id: C3, summary: "Add new Rust tests (50+ tasks, orphans)", status: pending}
+          - {id: C4, summary: "Add performance instrumentation in schedulerWasm.ts", status: pending}
+          - {id: C5, summary: "Verify and finalize", status: pending}
+
+  - name: "Stage 2: Sync + Rendering"
+    groups:
+      - id: D
+        name: "Atomic Drag + Struct Sync"
+        refs: [R4, R10]
+        tasks:
+          - {id: D1, summary: "Read ALL files after Stage 1 merge", status: pending}
+          - {id: D2, summary: "Add COMPLETE_DRAG action type", status: pending}
+          - {id: D3, summary: "Add COMPLETE_DRAG handler to reducer", status: pending}
+          - {id: D4, summary: "Fix RESIZE_TASK Yjs + Add COMPLETE_DRAG to Yjs", status: pending}
+          - {id: D5, summary: "Update TaskBar mouseup to COMPLETE_DRAG", status: pending}
+          - {id: D6, summary: "Add COMPLETE_DRAG to TASK_MODIFYING_ACTIONS", status: pending}
+          - {id: D7, summary: "Add dependency operations to Yjs", status: pending}
+          - {id: D8, summary: "Add useEffect diff for ADD_TASK/DELETE_TASK sync", status: pending}
+          - {id: D9, summary: "Verify and finalize", status: pending}
+
+      - id: E
+        name: "Arrow Render Consistency"
+        refs: [R5]
+        tasks:
+          - {id: E1, summary: "Read DependencyLayer, DependencyArrow, dependencyUtils", status: pending}
+          - {id: E2, summary: "Fix consistency between taskYPositions and deps", status: pending}
+          - {id: E3, summary: "Memoize getDependencyPoints", status: pending}
+          - {id: E4, summary: "Ensure arrow path consistency (guard clauses)", status: pending}
+          - {id: E5, summary: "Verify and finalize", status: pending}
+
+  - name: "Stage 3: Multi-User UX"
+    groups:
+      - id: F
+        name: "Drag Intent via Awareness / Ghost Bar"
+        refs: [R6]
+        tasks:
+          - {id: F1, summary: "Read ALL files after Stage 2 merge", status: pending}
+          - {id: F2, summary: "Extend awareness with drag intent", status: pending}
+          - {id: F3, summary: "Extend CollabUser type with dragging field", status: pending}
+          - {id: F4, summary: "Broadcast drag intent from TaskBar", status: pending}
+          - {id: F5, summary: "Render ghost bars for remote drags", status: pending}
+          - {id: F6, summary: "Verify and finalize", status: pending}
+
+validation:
+  - {id: V1, summary: "Build verification (WASM, tsc, vitest, cargo test)", status: pending}
+  - {id: V2, summary: "Drag throttle (R1)", status: pending}
+  - {id: V3, summary: "Dispatch split (R1)", status: pending}
+  - {id: V4, summary: "Duration derivation (R2, R7, R9)", status: pending}
+  - {id: V5, summary: "SET_TASKS guard (R3)", status: pending}
+  - {id: V6, summary: "Atomic COMPLETE_DRAG (R4)", status: pending}
+  - {id: V7, summary: "Arrow rendering (R5)", status: pending}
+  - {id: V8, summary: "Ghost bar (R6)", status: pending}
+  - {id: V9, summary: "Duration semantics (R7)", status: pending}
+  - {id: V10, summary: "Cascade optimization (R8)", status: pending}
+  - {id: V11, summary: "Structural sync (R10)", status: pending}
+  - {id: V12, summary: "Cross-group consistency", status: pending}
+
+follow_up:
+  - {summary: "Fast-drag duration preservation E2E (R1/R2)", status: pending}
+  - {summary: "Concurrent drag + remote edit resilience E2E (R3/R4)", status: pending}
+  - {summary: "Arrow endpoints match task bars after fast drag (R5)", status: pending}
+  - {summary: "Network latency simulation drag test (R1/R3/R4)", status: pending}
+  - {summary: "200-task stress test with duration/dependency verification (R1/R8)", status: pending}
+  - {summary: "Cascade latency threshold <16ms E2E (R8)", status: pending}
+  - {summary: "Ghost bar rendering for remote drag E2E (R6)", status: pending}
+  - {summary: "Add task syncs to collaborator via CRDT within 2s (R10)", status: pending}
+  - {summary: "Delete task syncs to collaborator via CRDT within 2s (R10)", status: pending}
+  - {summary: "Add/remove dependency syncs to collaborator (R10)", status: pending}
+  - {summary: "Remove redundant duration dispatches from TaskBarPopover.tsx and TaskRow.tsx", status: pending}

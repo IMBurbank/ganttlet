@@ -23,10 +23,13 @@ Prompts live in `docs/prompts/<phaseN>/` (one file per group). Each prompt must:
 Phase launch configuration is defined in `docs/prompts/<phaseN>/launch-config.yaml`
 (stages, groups, branches, merge messages) rather than hardcoded in `launch-phase.sh`.
 
-## Worktree Isolation
-Each agent runs in its own git worktree branched from main. This prevents
-file conflicts between parallel agents. The `setup_worktree()` function
-creates and initializes worktrees.
+## Worktree Isolation (Critical)
+Each agent MUST run in its own git worktree. `/workspace` stays on `main` always.
+- `launch-phase.sh` handles this automatically via `setup_worktree()`
+- Manually-launched agents must create their own: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
+- NEVER `git checkout` or `git switch` in `/workspace` — this breaks every other agent sharing the filesystem
+- All git operations (commit, push, diff) must happen inside the worktree directory
+- Common failure: agent does `git checkout feature-branch` in `/workspace`, another agent commits to the wrong branch
 
 ## WATCH Mode
 `WATCH=1` runs agents in tmux windows with visible output.

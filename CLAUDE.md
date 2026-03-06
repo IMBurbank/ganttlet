@@ -9,6 +9,11 @@ via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
 - Do NOT create files unless absolutely necessary. Prefer editing existing files.
 - Do NOT modify files outside your assigned scope in multi-agent phases.
 - Do NOT push directly to main. Always use feature branches and PRs.
+- Do NOT run `git checkout` or `git switch` in `/workspace` when other agents may be running. Use git worktrees for isolation:
+  - Create: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
+  - Work entirely within that directory — all git operations (commit, push) happen there
+  - Clean up when done: `git worktree remove /workspace/.claude/worktrees/<name>`
+  - `/workspace` must always stay on `main` — it is the shared base for all worktrees
 - Do NOT add features, refactoring, or "improvements" beyond what was requested.
 - Do NOT skip verification. Run `./scripts/full-verify.sh` before declaring work done.
 - Do NOT enter plan mode or ask for confirmation when executing from a prompt file.

@@ -39,7 +39,12 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          claude -p "Use /code-review to review PR #${{ github.event.pull_request.number }}" \
+          # Tell the review agent this may be a re-review after fixes
+          PROMPT="Use /code-review to review PR #${{ github.event.pull_request.number }}."
+          if [ "${{ github.event.action }}" = "synchronize" ]; then
+            PROMPT="${PROMPT} This PR was updated since the last review. Focus on the current state of the code, not previous commits. Ignore any issues that have already been fixed."
+          fi
+          claude -p "$PROMPT" \
             --dangerously-skip-permissions \
             --max-turns 30 \
             --max-budget-usd 5.00 || true

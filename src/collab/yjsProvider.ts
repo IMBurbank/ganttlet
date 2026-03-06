@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import type { Awareness } from 'y-protocols/awareness';
 
-const COLLAB_URL = import.meta.env.VITE_COLLAB_URL || 'ws://localhost:4000';
+const COLLAB_URL = window.__ganttlet_config?.collabUrl || import.meta.env.VITE_COLLAB_URL || 'ws://localhost:4000';
 
 let doc: Y.Doc | null = null;
 let provider: WebsocketProvider | null = null;

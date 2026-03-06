@@ -240,7 +240,7 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
               <g key={`ghost-${u.clientId}`} opacity={0.4}>
                 <rect x={gx} y={barY} width={gw} height={barH} rx={4}
                   fill={u.color} stroke={u.color} strokeWidth={1.5} strokeDasharray="4 2" />
-                <text x={gx + 4} y={barY - 4} fontSize={9} fill={u.color}>{u.name}</text>
+                <text x={gx + 4} y={Math.max(barY - 4, 10)} fontSize={9} fill={u.color}>{u.name}</text>
               </g>
             );
           })}

@@ -110,6 +110,8 @@ export default function TaskBar({
         const now = performance.now();
         if (now - lastCrdtBroadcast.current >= 100) {
           lastCrdtBroadcast.current = now;
+          // Cancel pending RAF — collabDispatch already updates React state
+          if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
           dispatch(moveAction);
           if (awareness) setDragIntent(awareness, { taskId, startDate: newStartStr, endDate: newEndStr });
         }
@@ -139,6 +141,7 @@ export default function TaskBar({
         const now = performance.now();
         if (now - lastCrdtBroadcast.current >= 100) {
           lastCrdtBroadcast.current = now;
+          if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
           dispatch(resizeAction);
           if (awareness) setDragIntent(awareness, { taskId, startDate: dragRef.current!.origStartDate, endDate: newEndStr });
         }
@@ -173,7 +176,7 @@ export default function TaskBar({
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [dispatch, localDispatch, activeDragRef, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth, collapseWeekends, earliestStart]);
+  }, [dispatch, localDispatch, activeDragRef, awareness, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth, collapseWeekends, earliestStart]);
 
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
 

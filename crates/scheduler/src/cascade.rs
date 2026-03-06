@@ -302,13 +302,12 @@ mod tests {
     #[test]
     fn large_chain_cascade() {
         // 50-task chain: t0 -> t1 -> t2 -> ... -> t49
+        // Use month boundaries to avoid date clamping issues
         let mut tasks: Vec<Task> = (0..50).map(|i| {
-            let start_day = 1 + i * 10;
-            let end_day = start_day + 9;
             make_task(
                 &format!("t{}", i),
-                &format!("2026-03-{:02}", start_day.min(28)),
-                &format!("2026-03-{:02}", end_day.min(28)),
+                &add_days("2026-01-01", (i * 5) as i32),
+                &add_days("2026-01-01", (i * 5 + 4) as i32),
             )
         }).collect();
         for i in 1..50 {
@@ -316,9 +315,15 @@ mod tests {
         }
         let results = cascade_dependents(&tasks, "t0", 2);
         assert_eq!(results.len(), 49);
-        // Each task shifted by exactly 2 days
+        // Verify first dependent (t1) was shifted by exactly +2 days
+        let t1 = results.iter().find(|r| r.id == "t1").unwrap();
+        assert_eq!(t1.start_date, "2026-01-08"); // was 2026-01-06, shifted +2
+        assert_eq!(t1.end_date, "2026-01-12"); // was 2026-01-10, shifted +2
+        // Verify every result was shifted by exactly +2: new_start == add_days(orig_start, 2)
         for r in &results {
-            assert!(!r.id.is_empty());
+            let orig = tasks.iter().find(|t| t.id == r.id).unwrap();
+            assert_eq!(r.start_date, add_days(&orig.start_date, 2), "Task {} start not shifted +2", r.id);
+            assert_eq!(r.end_date, add_days(&orig.end_date, 2), "Task {} end not shifted +2", r.id);
         }
     }
 

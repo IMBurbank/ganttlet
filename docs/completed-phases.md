@@ -139,6 +139,11 @@ Single stage with 4 parallel groups (zero file overlap) + validation. Implemente
 - **Group D (GitHub Pipeline)**: Created `.github/ISSUE_TEMPLATE/agent-task.yml` with structured fields; added `.github/workflows/agent-gate.yml` quality gate; overhauled `.github/workflows/agent-work.yml` with env-var-based prompt construction (shell injection protection), 2-attempt retry loop, complexity-based `--max-turns`/`--max-budget-usd`, `.agent-summary.md` PR body
 - **Known issues**: WATCH mode uses `-p` (sparse text output) instead of interactive mode (rich TUI) — a regression from Phase 12. `docs/multi-agent-guide.md` doesn't reflect Group B's new features (written in parallel). See `docs/phase13-review.md` for full review.
 
+## Phase 13a: Post-Implementation Cleanup — DONE
+Two parallel groups fixing cross-group inconsistencies from Phase 13.
+- **Group E (Doc Alignment)**: Updated `docs/multi-agent-guide.md` with Group B's new launch-phase.sh features (preflight, partial success, watchdog, model selection, resume); fixed WATCH mode description contradiction; added pre-commit hook reference to CLAUDE.md
+- **Group F (Skill Enrichment)**: Enriched `google-sheets-sync` skill (data mapping, gotchas, failure modes) and `cloud-deployment` skill (troubleshooting, gcloud commands, promotion flow, deploy gotchas)
+
 ## Plugin Adoption — DONE
 Added Claude Code plugins, protective hooks, and automated code review to the CI pipeline. See `docs/plugin-adoption-plan.md` for the full plan and decision log.
 - **Plugins**: `github`, `rust-analyzer-lsp`, `typescript-lsp`, `code-review` — configured in `.claude/settings.json`

@@ -9,13 +9,16 @@ interface InlineEditProps {
   max?: number;
   autoEdit?: boolean;
   readOnly?: boolean;
+  validate?: (value: string) => string | null;
 }
 
-export default function InlineEdit({ value, onSave, type = 'text', displayValue, min, max, autoEdit, readOnly }: InlineEditProps) {
+export default function InlineEdit({ value, onSave, type = 'text', displayValue, min, max, autoEdit, readOnly, validate }: InlineEditProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const prevAutoEditRef = useRef(autoEdit);
+  const errorId = useRef(`inline-edit-err-${Math.random().toString(36).slice(2)}`).current;
 
   useEffect(() => {
     const wasAutoEdit = prevAutoEditRef.current;
@@ -33,7 +36,20 @@ export default function InlineEdit({ value, onSave, type = 'text', displayValue,
     }
   }, [editing]);
 
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setEditValue(e.target.value);
+    if (error) setError(null);
+  }
+
   function handleSave() {
+    if (validate) {
+      const validationError = validate(editValue);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+    }
+    setError(null);
     setEditing(false);
     if (editValue !== value) {
       onSave(editValue);
@@ -44,23 +60,34 @@ export default function InlineEdit({ value, onSave, type = 'text', displayValue,
     if (e.key === 'Enter') handleSave();
     if (e.key === 'Escape') {
       setEditValue(value);
+      setError(null);
       setEditing(false);
     }
   }
 
   if (editing) {
+    const hasError = !!error;
     return (
-      <input
-        ref={inputRef}
-        type={type}
-        value={editValue}
-        onChange={e => setEditValue(e.target.value)}
-        onBlur={handleSave}
-        onKeyDown={handleKeyDown}
-        className="inline-edit-input"
-        min={min}
-        max={max}
-      />
+      <div className="w-full">
+        <input
+          ref={inputRef}
+          type={type}
+          value={editValue}
+          onChange={handleChange}
+          onBlur={handleSave}
+          onKeyDown={handleKeyDown}
+          className={`inline-edit-input${hasError ? ' inline-edit-error' : ''}`}
+          min={min}
+          max={max}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? errorId : undefined}
+        />
+        {hasError && (
+          <div id={errorId} className="inline-edit-error-message" role="alert">
+            {error}
+          </div>
+        )}
+      </div>
     );
   }
 

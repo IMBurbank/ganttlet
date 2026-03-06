@@ -105,16 +105,14 @@ test.describe('Collaboration E2E', () => {
           pageB.locator('header').click(),
         ]);
 
-        // Allow time for CRDT sync to settle
-        await pageA.waitForTimeout(3_000);
-
-        // Both pages should converge to the same final name (last-write-wins)
-        const finalNameA = await pageA.getByTitle('Double-click to edit').first().textContent();
-        const finalNameB = await pageB.getByTitle('Double-click to edit').first().textContent();
-
-        expect(finalNameA).toBeTruthy();
-        expect(finalNameA!.trim()).toBe(finalNameB!.trim());
-        expect(['Concurrent Write A', 'Concurrent Write B']).toContain(finalNameA!.trim());
+        // Wait for CRDT sync — one of the two names must win and appear on both pages
+        await expect(async () => {
+          const finalNameA = await pageA.getByTitle('Double-click to edit').first().textContent();
+          const finalNameB = await pageB.getByTitle('Double-click to edit').first().textContent();
+          expect(finalNameA).toBeTruthy();
+          expect(finalNameA!.trim()).toBe(finalNameB!.trim());
+          expect(['Concurrent Write A', 'Concurrent Write B']).toContain(finalNameA!.trim());
+        }).toPass({ timeout: 8_000 });
       } finally {
         await cleanup();
       }
@@ -200,14 +198,13 @@ test.describe('Collaboration E2E', () => {
           })(),
         ]);
 
-        // Allow CRDT sync to settle
-        await pageA.waitForTimeout(3_000);
-
-        // Both pages should have the same number of task bars (no divergence or crash)
-        const barCountA = await pageA.locator('.task-bar').count();
-        const barCountB = await pageB.locator('.task-bar').count();
-        expect(barCountA).toBeGreaterThan(0);
-        expect(barCountA).toBe(barCountB);
+        // Both pages should converge to the same task bar count (no divergence or crash)
+        await expect(async () => {
+          const barCountA = await pageA.locator('.task-bar').count();
+          const barCountB = await pageB.locator('.task-bar').count();
+          expect(barCountA).toBeGreaterThan(0);
+          expect(barCountA).toBe(barCountB);
+        }).toPass({ timeout: 8_000 });
       } finally {
         await cleanup();
       }
@@ -224,35 +221,40 @@ test.describe('Collaboration E2E', () => {
           return;
         }
 
-        // Helper: edit the first task name on a given page and blur to save
+        // Helper: open edit, fill name, and blur — does NOT wait for sync
         async function editTaskName(page: typeof pageA, name: string) {
           await page.getByTitle('Double-click to edit').first().dblclick();
           const input = page.locator('input.inline-edit-input');
           await input.waitFor({ timeout: 5_000 });
           await input.fill(name);
           await page.locator('header').click();
-          // Short settle time for each individual edit
-          await page.waitForTimeout(300);
         }
 
-        // Rapid interleaved edits from both users on the same task
-        await editTaskName(pageA, 'Rapid Edit 1 from A');
-        await editTaskName(pageB, 'Rapid Edit 2 from B');
-        await editTaskName(pageA, 'Rapid Edit 3 from A');
-        await editTaskName(pageB, 'Rapid Edit 4 from B');
+        // Fire concurrent edits from both users simultaneously
+        await Promise.all([
+          editTaskName(pageA, 'Rapid Edit A-1'),
+          editTaskName(pageB, 'Rapid Edit B-1'),
+        ]);
 
-        const finalName = 'Rapid Edit 5 Final from A';
-        await editTaskName(pageA, finalName);
+        // Second wave of concurrent edits
+        await Promise.all([
+          editTaskName(pageA, 'Rapid Edit A-2'),
+          editTaskName(pageB, 'Rapid Edit B-2'),
+        ]);
 
-        // Final edit from A should propagate to pageB
-        await expect(
-          pageB.getByTitle('Double-click to edit').filter({ hasText: finalName }),
-        ).toBeVisible({ timeout: 8_000 });
+        // Final concurrent wave
+        await Promise.all([
+          editTaskName(pageA, 'Rapid Edit A-3'),
+          editTaskName(pageB, 'Rapid Edit B-3'),
+        ]);
 
-        // Both pages should display the same final value
-        const nameOnA = await pageA.getByTitle('Double-click to edit').first().textContent();
-        const nameOnB = await pageB.getByTitle('Double-click to edit').first().textContent();
-        expect(nameOnA?.trim()).toBe(nameOnB?.trim());
+        // Both pages should converge to the same value (whichever CRDT wins)
+        await expect(async () => {
+          const nameOnA = await pageA.getByTitle('Double-click to edit').first().textContent();
+          const nameOnB = await pageB.getByTitle('Double-click to edit').first().textContent();
+          expect(nameOnA).toBeTruthy();
+          expect(nameOnA!.trim()).toBe(nameOnB!.trim());
+        }).toPass({ timeout: 8_000 });
       } finally {
         await cleanup();
       }
@@ -289,16 +291,13 @@ test.describe('Collaboration E2E', () => {
         // userB tries to save the now-deleted task (graceful no-op expected)
         await pageB.locator('header').click();
 
-        // Allow sync to settle
-        await pageA.waitForTimeout(3_000);
-
-        // The deleted task should no longer appear on pageA
-        const barCountA = await pageA.locator('.task-bar').count();
-        expect(barCountA).toBeLessThan(initialBarCount);
-
-        // pageB should converge to the same task bar count (CRDT sync)
-        const barCountB = await pageB.locator('.task-bar').count();
-        expect(barCountB).toBe(barCountA);
+        // Both pages should converge: deleted task gone, same bar count
+        await expect(async () => {
+          const barCountA = await pageA.locator('.task-bar').count();
+          const barCountB = await pageB.locator('.task-bar').count();
+          expect(barCountA).toBeLessThan(initialBarCount);
+          expect(barCountB).toBe(barCountA);
+        }).toPass({ timeout: 8_000 });
 
         // The deleted task's original name should no longer appear on pageB
         if (targetName) {

@@ -286,7 +286,7 @@ Do NOT persist via named volume. Sharing `.claude/` across container rebuilds ca
 | `rust-analyzer-lsp` | Zero | Memory only |
 | `typescript-lsp` | Zero | Memory only |
 | `github` | Zero | GitHub API rate limits |
-| `code-review` | ~$0.50-2.00/PR | Gated on PR size > 50 insertions |
+| `code-review` | ~$0.50-2.00/PR | Gated on PR size > 10 insertions |
 
 ---
 

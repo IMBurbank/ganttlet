@@ -12,7 +12,8 @@ export interface Task {
   name: string;
   startDate: string; // ISO date string
   endDate: string;
-  duration: number; // business days
+  /** Calendar days between startDate and endDate (inclusive). Always derived — never edit directly. */
+  duration: number;
   owner: string;
   workStream: string;
   project: string;

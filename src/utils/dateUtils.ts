@@ -13,6 +13,11 @@ export function formatDisplayDate(dateStr: string): string {
   return format(parseISO(dateStr), 'MMM d');
 }
 
+/**
+ * Returns the number of calendar days between two date strings.
+ * This is the canonical duration calculation used everywhere.
+ * For business-day display, use businessDaysBetween() separately.
+ */
 export function daysBetween(start: string, end: string): number {
   return differenceInCalendarDays(parseISO(end), parseISO(start));
 }

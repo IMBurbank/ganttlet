@@ -238,7 +238,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          claude -p "/code-review" \
+          PR_NUMBER=$(gh pr view "$BRANCH" --json number -q '.number')
+          claude -p "Review PR #${PR_NUMBER} in this repo. Run 'git diff origin/main...HEAD' to see the changes. Analyze for bugs, security issues, architecture violations (check CLAUDE.md), and code quality. Post your findings as a PR review comment using 'gh pr review ${PR_NUMBER} --comment --body <your-review>'. Be concise. If the code looks good, say so briefly." \
             --dangerously-skip-permissions \
             --max-turns 15 \
             --max-budget-usd 3.00 || true

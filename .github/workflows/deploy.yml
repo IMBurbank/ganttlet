@@ -174,27 +174,7 @@ jobs:
           echo "Runtime config OK"
 
       - name: Validate OAuth client ID
-        run: |
-          echo "Validating OAuth client ID from ${FRONTEND_URL}/config.js"
-          BODY=$(curl -s "${FRONTEND_URL}/config.js")
-          # Extract client ID — format is googleClientId:"<value>"
-          CLIENT_ID=$(echo "$BODY" | grep -oP 'googleClientId:"([^"]*)"' | head -1 | cut -d'"' -f2)
-          if [ -z "$CLIENT_ID" ]; then
-            echo "FAIL: Could not extract googleClientId from config.js"
-            exit 1
-          fi
-          echo "Client ID: ${CLIENT_ID}"
-          # Validate by constructing an OAuth2 auth URL and checking Google's response.
-          # An invalid client_id returns a page with "Error 401: invalid_client".
-          AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&response_type=token&redirect_uri=https://localhost&scope=email"
-          RESPONSE=$(curl -s -L --max-redirs 0 -o /dev/null -w '%{http_code}' "$AUTH_URL")
-          # Google returns 200 (consent page) for valid client IDs, 400 for invalid
-          if [ "$RESPONSE" = "400" ]; then
-            echo "FAIL: Google rejected client ID as invalid (HTTP 400)"
-            echo "The OAuth client ID '${CLIENT_ID}' is not a valid Google OAuth client"
-            exit 1
-          fi
-          echo "OAuth client ID validated (HTTP ${RESPONSE})"
+        run: bash scripts/validate-oauth.sh
 
       - name: Health check — WebSocket upgrade
         run: |

@@ -182,5 +182,68 @@ if [[ "$WS_STATUS" == "000" ]] || [[ "$WS_STATUS" =~ ^5 ]]; then
 fi
 ok "Reader WebSocket upgrade (HTTP ${WS_STATUS})"
 
+# ── Test 6: Full task row schema round-trip ───────────────────────────────────
+
+echo ""
+echo "--- Test 6: Task schema round-trip (18 columns) ---"
+# Write a full task row matching sheetsMapper.ts SHEET_COLUMNS order:
+# id, name, startDate, endDate, duration, owner, workStream, project,
+# functionalArea, done, description, isMilestone, isSummary, parentId,
+# childIds, dependencies, notes, okrs
+TASK_ROW='[["smoke-task-'"$$"'","Smoke Test Task","2026-03-02","2026-03-06","4","ci-writer-1","Engineering","SmokeTest","Backend","false","Smoke test description","false","false","","","dep1:FS:0","smoke notes","OKR-1|OKR-2"]]'
+
+SCHEMA_WRITE=$(curl -s -w "\n%{http_code}" \
+  -X PUT \
+  "https://sheets.googleapis.com/v4/spreadsheets/${TEST_SHEET_ID_DEV}/values/Sheet1!A3:R3?valueInputOption=RAW" \
+  -H "Authorization: Bearer ${WRITER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"values\":${TASK_ROW}}")
+
+SCHEMA_WRITE_STATUS=$(echo "$SCHEMA_WRITE" | tail -1)
+if [[ "$SCHEMA_WRITE_STATUS" != "200" ]]; then
+  die "Task row write failed (HTTP ${SCHEMA_WRITE_STATUS})"
+fi
+ok "Full task row written (18 columns)"
+
+# Read back and verify key columns
+SCHEMA_READ=$(curl -s -w "\n%{http_code}" \
+  "https://sheets.googleapis.com/v4/spreadsheets/${TEST_SHEET_ID_DEV}/values/Sheet1!A3:R3" \
+  -H "Authorization: Bearer ${WRITER_TOKEN}")
+
+SCHEMA_READ_BODY=$(echo "$SCHEMA_READ" | head -n -1)
+SCHEMA_READ_STATUS=$(echo "$SCHEMA_READ" | tail -1)
+
+if [[ "$SCHEMA_READ_STATUS" != "200" ]]; then
+  die "Task row read failed (HTTP ${SCHEMA_READ_STATUS})"
+fi
+
+# Verify column count and key values
+COL_COUNT=$(echo "$SCHEMA_READ_BODY" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('values',[[]])[0]))" 2>/dev/null || echo "0")
+if [[ "$COL_COUNT" -lt 18 ]]; then
+  die "Expected 18 columns, got ${COL_COUNT}"
+fi
+
+READ_ID=$(echo "$SCHEMA_READ_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['values'][0][0])" 2>/dev/null || true)
+READ_DEPS=$(echo "$SCHEMA_READ_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['values'][0][15])" 2>/dev/null || true)
+READ_OKRS=$(echo "$SCHEMA_READ_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['values'][0][17])" 2>/dev/null || true)
+
+if [[ "$READ_ID" != "smoke-task-$$" ]]; then
+  die "Task ID mismatch: expected 'smoke-task-$$', got '${READ_ID}'"
+fi
+if [[ "$READ_DEPS" != "dep1:FS:0" ]]; then
+  die "Dependencies mismatch: expected 'dep1:FS:0', got '${READ_DEPS}'"
+fi
+if [[ "$READ_OKRS" != "OKR-1|OKR-2" ]]; then
+  die "OKRs mismatch: expected 'OKR-1|OKR-2', got '${READ_OKRS}'"
+fi
+ok "Task schema round-trip verified (18 columns, deps, OKRs)"
+
+# Clean up test row
+curl -s -X PUT \
+  "https://sheets.googleapis.com/v4/spreadsheets/${TEST_SHEET_ID_DEV}/values/Sheet1!A3:R3?valueInputOption=RAW" \
+  -H "Authorization: Bearer ${WRITER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"values":[["","","","","","","","","","","","","","","","","",""]]}' > /dev/null 2>&1
+
 echo ""
 echo "=== All smoke tests passed ==="

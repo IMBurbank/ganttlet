@@ -12,6 +12,8 @@ services:
       - ~/.gitconfig:/home/node/.gitconfig:ro
       # Share SSH keys for GitHub push/pull
       - ~/.ssh:/home/node/.ssh:ro
+      # Uncomment the following to use your local claude file for development
+      # - ~/.claude/CLAUDE.md:/home/node/.claude/CLAUDE.md:ro
       # Uncomment the following for Google Cloud auth (requires gcloud target above):
       # - ~/.config/gcloud:/home/node/.config/gcloud-host:ro
       # - gcloud-config:/home/node/.config/gcloud

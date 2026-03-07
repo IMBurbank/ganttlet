@@ -9,7 +9,7 @@ import { getHierarchyRole, findWorkstreamAncestor } from '../../utils/hierarchyU
 import InlineEdit from './InlineEdit';
 import PredecessorsCell from './PredecessorsCell';
 import OKRPickerModal from '../shared/OKRPickerModal';
-import { formatDisplayDate, addBusinessDaysToDate, daysBetween, workingDaysBetween } from '../../utils/dateUtils';
+import { formatDisplayDate, addBusinessDaysToDate, businessDaysDelta, workingDaysBetween } from '../../utils/dateUtils';
 import { validateTaskName, validateDuration, validateEndDate } from '../../utils/taskFieldValidation';
 
 interface TaskRowProps {
@@ -71,7 +71,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         taskId: task.id, taskName: task.name, field: 'startDate',
         oldValue, newValue: value, user: 'You',
       });
-      const delta = daysBetween(oldValue, value);
+      const delta = businessDaysDelta(oldValue, value);
       if (delta !== 0) {
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: delta });
       }
@@ -85,7 +85,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         taskId: task.id, taskName: task.name, field: 'endDate',
         oldValue, newValue: value, user: 'You',
       });
-      const endDelta = daysBetween(oldValue, value);
+      const endDelta = businessDaysDelta(oldValue, value);
       if (endDelta !== 0) {
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
       }
@@ -105,7 +105,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
       taskId: task.id, taskName: task.name, field: 'duration',
       oldValue, newValue: value, user: 'You',
     });
-    const endDelta = daysBetween(oldEndDate, newEndDate);
+    const endDelta = businessDaysDelta(oldEndDate, newEndDate);
     if (endDelta !== 0) {
       dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
     }

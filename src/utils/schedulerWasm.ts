@@ -1,4 +1,5 @@
 import type { Task, CriticalPathScope } from '../types';
+import { workingDaysBetween } from './dateUtils';
 
 // Lazily loaded WASM module
 let wasmModule: typeof import('../wasm/scheduler/ganttlet_scheduler') | null = null;
@@ -160,7 +161,12 @@ export function cascadeDependents(
     return tasks.map(t => {
       const changed = changedMap.get(t.id);
       if (changed) {
-        return { ...t, startDate: changed.startDate, endDate: changed.endDate };
+        return {
+          ...t,
+          startDate: changed.startDate,
+          endDate: changed.endDate,
+          duration: workingDaysBetween(changed.startDate, changed.endDate),
+        };
       }
       return t;
     });

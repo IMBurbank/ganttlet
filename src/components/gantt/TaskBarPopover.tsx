@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-import { formatDisplayDate, addBusinessDaysToDate, daysBetween, workingDaysBetween } from '../../utils/dateUtils';
+import { formatDisplayDate, addBusinessDaysToDate, businessDaysDelta, workingDaysBetween } from '../../utils/dateUtils';
 
 interface TaskBarPopoverProps {
   taskId: string;
@@ -64,7 +64,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         taskId, taskName: task!.name, field: 'startDate',
         oldValue, newValue: value, user: 'You',
       });
-      const delta = daysBetween(oldValue, value);
+      const delta = businessDaysDelta(oldValue, value);
       if (delta !== 0) {
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
       }
@@ -78,7 +78,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         taskId, taskName: task!.name, field: 'endDate',
         oldValue, newValue: value, user: 'You',
       });
-      const endDelta = daysBetween(oldValue, value);
+      const endDelta = businessDaysDelta(oldValue, value);
       if (endDelta !== 0) {
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
       }

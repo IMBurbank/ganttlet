@@ -72,8 +72,9 @@ describe('dependencyUtils', () => {
       ];
       const result = cascadeDependents(tasks, 'a', 5);
       const b = result.find(t => t.id === 'b')!;
-      expect(b.startDate).toBe('2026-03-16');
-      expect(b.endDate).toBe('2026-03-25');
+      // delta=5 is now business days: Wed Mar 11 + 5 biz = Wed Mar 18, Fri Mar 20 + 5 biz = Fri Mar 27
+      expect(b.startDate).toBe('2026-03-18');
+      expect(b.endDate).toBe('2026-03-27');
     });
 
     it('does not shift the moved task itself', () => {
@@ -94,7 +95,8 @@ describe('dependencyUtils', () => {
       ];
       const result = cascadeDependents(tasks, 'a', 3);
       const c = result.find(t => t.id === 'c')!;
-      expect(c.startDate).toBe('2026-03-24');
+      // delta=3 biz days: Sat Mar 21 + 3 biz = Wed Mar 25
+      expect(c.startDate).toBe('2026-03-25');
     });
 
     it('skips summary tasks', () => {

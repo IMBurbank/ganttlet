@@ -369,4 +369,70 @@ mod tests {
         assert_eq!(c.start_date, "2026-03-26");
         assert_eq!(c.end_date, "2026-04-04");
     }
+
+    // ── Weekend-aware cascade tests ──────────────────────────────────────
+
+    #[test]
+    fn cascade_across_weekend_preserves_duration() {
+        // B starts Mon 2026-03-09, ends Fri 2026-03-13 (5 biz days).
+        // Move A forward by 1 calendar day (Thu->Fri). Cascade should shift B
+        // by 1 business day: Mon 03-09 -> Tue 03-10, Fri 03-13 -> Mon 03-16.
+        // Bug: add_days shifts to Tue 03-10 / Sat 03-14, changing duration.
+        let tasks = vec![
+            make_task("a", "2026-03-05", "2026-03-06"), // Thu-Fri
+            {
+                let mut t = Task {
+                    id: "b".to_string(),
+                    start_date: "2026-03-09".to_string(), // Mon
+                    end_date: "2026-03-13".to_string(),   // Fri (5 biz days)
+                    duration: 5,
+                    is_milestone: false,
+                    is_summary: false,
+                    dependencies: vec![make_dep("a", "b")],
+                    project: String::new(),
+                    work_stream: String::new(),
+                    constraint_type: None,
+                    constraint_date: None,
+                };
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 1);
+        assert_eq!(results.len(), 1);
+        let b = &results[0];
+        assert_eq!(b.start_date, "2026-03-10"); // Tue
+        assert_eq!(b.end_date, "2026-03-16");   // Mon (not Sat 03-14!)
+    }
+
+    #[test]
+    fn cascade_does_not_land_on_weekend() {
+        // B starts Fri 2026-03-06, ends Fri 2026-03-13 (6 biz days).
+        // Cascade +1 should give Mon 2026-03-09 start (not Sat 03-07).
+        let tasks = vec![
+            make_task("a", "2026-03-02", "2026-03-06"),
+            {
+                let mut t = Task {
+                    id: "b".to_string(),
+                    start_date: "2026-03-06".to_string(), // Fri
+                    end_date: "2026-03-13".to_string(),   // Fri
+                    duration: 6,
+                    is_milestone: false,
+                    is_summary: false,
+                    dependencies: vec![make_dep("a", "b")],
+                    project: String::new(),
+                    work_stream: String::new(),
+                    constraint_type: None,
+                    constraint_date: None,
+                };
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 1);
+        assert_eq!(results.len(), 1);
+        let b = &results[0];
+        // Start should skip weekend: Fri+1 biz day = Mon
+        assert_eq!(b.start_date, "2026-03-09"); // Mon, not Sat
+        // End should also be a weekday, preserving duration
+        assert_eq!(b.end_date, "2026-03-16");   // Mon
+    }
 }

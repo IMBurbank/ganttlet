@@ -29,6 +29,10 @@ Thumbs.db
 .claude/worktrees/*
 !.claude/worktrees/CLAUDE.md
 
+# Agent ephemeral state (lives in worktrees, cleaned up with them)
+claude-progress.txt
+.agent-summary.md
+
 # Docker
 docker-compose.override.yml
 

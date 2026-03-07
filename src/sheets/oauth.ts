@@ -196,3 +196,18 @@ if (import.meta.env.DEV) {
     notifyAuthChange();
   };
 }
+
+// Exported for unit testing only
+export const _testing = {
+  persistAuth,
+  clearPersistedAuth,
+  restoreSession,
+  resetState: () => {
+    authState = { accessToken: null, userEmail: null, userName: null, userPicture: null, expiresAt: 0 };
+    tokenClient = null;
+    if (renewalTimer) clearTimeout(renewalTimer);
+    renewalTimer = null;
+    authChangeListeners.clear();
+  },
+  STORAGE_KEY,
+};

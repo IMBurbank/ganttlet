@@ -168,9 +168,13 @@ jobs:
             exit 1
           fi
           if echo "$BODY" | grep -q 'googleClientId:""'; then
-            echo "WARNING: GANTTLET_GOOGLE_CLIENT_ID is empty — OAuth will be disabled"
+            echo "FAIL: GANTTLET_GOOGLE_CLIENT_ID is empty — OAuth will not work"
+            exit 1
           fi
           echo "Runtime config OK"
+
+      - name: Validate OAuth client ID
+        run: bash scripts/validate-oauth.sh
 
       - name: Health check — WebSocket upgrade
         run: |

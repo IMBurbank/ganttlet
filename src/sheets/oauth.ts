@@ -7,6 +7,8 @@ export interface AuthState {
   expiresAt: number;
 }
 
+const STORAGE_KEY = 'ganttlet_auth';
+
 let authState: AuthState = {
   accessToken: null,
   userEmail: null,
@@ -16,6 +18,7 @@ let authState: AuthState = {
 };
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
+let renewalTimer: ReturnType<typeof setTimeout> | null = null;
 const authChangeListeners = new Set<(state: AuthState) => void>();
 
 export function setAuthChangeCallback(cb: (state: AuthState) => void) {
@@ -30,6 +33,53 @@ function notifyAuthChange() {
   for (const cb of authChangeListeners) {
     cb(authState);
   }
+}
+
+function persistAuth() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      accessToken: authState.accessToken,
+      userEmail: authState.userEmail,
+      userName: authState.userName,
+      userPicture: authState.userPicture,
+      expiresAt: authState.expiresAt,
+    }));
+  } catch { /* localStorage may be unavailable */ }
+}
+
+function clearPersistedAuth() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* noop */ }
+}
+
+function restoreSession(): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const stored = JSON.parse(raw) as AuthState;
+    if (!stored.accessToken || Date.now() >= stored.expiresAt) {
+      clearPersistedAuth();
+      return false;
+    }
+    authState = { ...stored };
+    scheduleRenewal();
+    return true;
+  } catch {
+    clearPersistedAuth();
+    return false;
+  }
+}
+
+function scheduleRenewal() {
+  if (renewalTimer) clearTimeout(renewalTimer);
+  const msUntilExpiry = authState.expiresAt - Date.now();
+  // Renew 60s before expiry, but at least 10s from now
+  const renewIn = Math.max(msUntilExpiry - 60_000, 10_000);
+  renewalTimer = setTimeout(() => {
+    if (tokenClient) {
+      // prompt: '' = silent renewal (no popup if consent already granted)
+      tokenClient.requestAccessToken({ prompt: '' });
+    }
+  }, renewIn);
 }
 
 export function getAuthState(): AuthState {
@@ -65,6 +115,11 @@ export function initOAuth(): void {
     scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
     callback: handleTokenResponse,
   });
+
+  // Restore session from localStorage (survives page refresh)
+  if (restoreSession()) {
+    notifyAuthChange();
+  }
 }
 
 function handleTokenResponse(response: google.accounts.oauth2.TokenResponse) {
@@ -79,6 +134,8 @@ function handleTokenResponse(response: google.accounts.oauth2.TokenResponse) {
     expiresAt: Date.now() + (parseInt(response.expires_in) * 1000),
   };
 
+  scheduleRenewal();
+
   // Fetch user info
   fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
     headers: { Authorization: `Bearer ${response.access_token}` },
@@ -91,9 +148,11 @@ function handleTokenResponse(response: google.accounts.oauth2.TokenResponse) {
         userName: info.name || null,
         userPicture: info.picture || null,
       };
+      persistAuth();
       notifyAuthChange();
     })
     .catch(() => {
+      persistAuth();
       notifyAuthChange();
     });
 }
@@ -108,6 +167,8 @@ export function signIn(): void {
 }
 
 export function signOut(): void {
+  if (renewalTimer) clearTimeout(renewalTimer);
+  clearPersistedAuth();
   if (authState.accessToken) {
     google.accounts.oauth2.revoke(authState.accessToken, () => {
       authState = {

@@ -1,0 +1,11 @@
+# Local overrides for docker-compose.yml
+# Copy to docker-compose.override.yml and uncomment what you need.
+# docker-compose.override.yml is gitignored — it won't be committed.
+
+# services:
+#   dev:
+#     volumes:
+#       # Personal Claude Code preferences — loaded as global context for all projects.
+#       # Create ~/.claude/CLAUDE.md on your host with your dev preferences
+#       # (formatting, tool choices, workflow habits, etc.).
+#       - ~/.claude/CLAUDE.md:/home/node/.claude/CLAUDE.md:ro

@@ -8,7 +8,7 @@ import {
   _testing,
 } from '../oauth';
 
-const { persistAuth, clearPersistedAuth, restoreSession, resetState, STORAGE_KEY } = _testing;
+const { persistAuth, clearPersistedAuth, restoreSession, resetState, STORAGE_KEY } = _testing!;
 
 describe('oauth token persistence', () => {
   beforeEach(() => {

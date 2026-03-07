@@ -197,8 +197,14 @@ if (import.meta.env.DEV) {
   };
 }
 
-// Exported for unit testing only
-export const _testing = {
+// Exported for unit testing only — tree-shaken from production builds
+export const _testing: {
+  persistAuth: typeof persistAuth;
+  clearPersistedAuth: typeof clearPersistedAuth;
+  restoreSession: typeof restoreSession;
+  resetState: () => void;
+  STORAGE_KEY: string;
+} | undefined = import.meta.env.DEV ? {
   persistAuth,
   clearPersistedAuth,
   restoreSession,
@@ -210,4 +216,4 @@ export const _testing = {
     authChangeListeners.clear();
   },
   STORAGE_KEY,
-};
+} : undefined;

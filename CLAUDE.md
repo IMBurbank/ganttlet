@@ -4,6 +4,18 @@ Ganttlet is a free, open-source Gantt chart with real-time collaboration and two
 Google Sheets sync. Scheduling engine runs as Rust→WASM in the browser. Real-time sync
 via Yjs/Yrs CRDTs. Relay server is a stateless WebSocket forwarder.
 
+## Code Navigation (LSP-First)
+TypeScript and Rust LSP servers are available via the `LSP` tool. **Prefer LSP over Grep/Read for navigating code:**
+- **goToDefinition** — jump to where a function, type, or variable is defined (instead of grepping for `function foo`)
+- **findReferences** — find all callsites of a symbol with zero false positives (instead of grepping for `foo(`)
+- **hover** — get type info and docs without reading surrounding code
+- **documentSymbol** — list all exports/functions/types in a file (instead of reading the whole file)
+- **workspaceSymbol** — search for a symbol by name across the entire codebase
+- **goToImplementation** — find concrete implementations of interfaces/traits
+- **incomingCalls / outgoingCalls** — trace call chains without reading every file in the chain
+
+Use Grep/Glob/Read for: string literals, config keys, file discovery, understanding overall structure, and cross-language searches (TS↔Rust/WASM boundary). LSP is for precise, type-aware navigation — use it to avoid pulling full source files into context when you only need to trace a symbol.
+
 ## Agent Behavioral Rules (Non-Negotiable)
 - Read relevant files BEFORE editing. Understand existing code before modifying it.
 - Do NOT create files unless absolutely necessary. Prefer editing existing files.

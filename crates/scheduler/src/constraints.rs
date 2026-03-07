@@ -1,4 +1,4 @@
-use crate::date_utils::{add_days, add_business_days};
+use crate::date_utils::add_business_days;
 use crate::types::{ConstraintType, DepType, RecalcResult, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -18,16 +18,17 @@ pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
 
         let earliest = match dep.dep_type {
             DepType::FS => {
-                // Start after predecessor finishes: end_date + lag + 1 day
-                add_days(&pred.end_date, dep.lag + 1)
+                // Start after predecessor finishes: next business day after end_date, then + lag business days
+                let next_biz = add_business_days(&pred.end_date, 1);
+                add_business_days(&next_biz, dep.lag)
             }
             DepType::SS => {
-                // Start when predecessor starts + lag
-                add_days(&pred.start_date, dep.lag)
+                // Start when predecessor starts + lag business days
+                add_business_days(&pred.start_date, dep.lag)
             }
             DepType::FF => {
-                // Finish together: predecessor end_date + lag, then back up by duration business days
-                let finish = add_days(&pred.end_date, dep.lag);
+                // Finish together: predecessor end_date + lag business days, then back up by duration
+                let finish = add_business_days(&pred.end_date, dep.lag);
                 add_business_days(&finish, -(task.duration - 1))
             }
         };
@@ -606,12 +607,13 @@ mod tests {
 
     #[test]
     fn recalc_fs_across_weekend() {
-        // A ends Friday 2026-03-06. B should recalculate to start Monday 2026-03-09.
+        // A: Mon 03-02 to Fri 03-06, duration=4 (consistent with dates).
+        // A ends Friday 03-06. B should recalculate to start Monday 03-09.
         // B has duration=5, so end = add_business_days(03-09, 5) = 03-16 (Mon).
         let mut b = make_task("b", "2026-03-20", "2026-03-27", 5); // currently too late
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 4), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         assert_eq!(results.len(), 1);

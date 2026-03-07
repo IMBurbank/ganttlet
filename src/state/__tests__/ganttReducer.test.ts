@@ -158,7 +158,8 @@ describe('ganttReducer', () => {
       });
       const result = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'a', daysDelta: 5 });
       const b = result.tasks.find(t => t.id === 'b')!;
-      expect(b.startDate).toBe('2026-03-16');
+      // delta=5 is now business days: Wed Mar 11 + 5 biz = Wed Mar 18
+      expect(b.startDate).toBe('2026-03-18');
     });
   });
 
@@ -547,8 +548,9 @@ describe('ganttReducer', () => {
       state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: 5 });
 
       const childTask = state.tasks.find(t => t.id === 'B')!;
-      expect(childTask.startDate).toBe('2026-03-16');
-      expect(childTask.endDate).toBe('2026-03-25');
+      // delta=5 is now business days: Wed Mar 11 + 5 biz = Wed Mar 18, Fri Mar 20 + 5 biz = Fri Mar 27
+      expect(childTask.startDate).toBe('2026-03-18');
+      expect(childTask.endDate).toBe('2026-03-27');
     });
 
     it('does not cascade dependents on backward move (asymmetric cascade)', () => {

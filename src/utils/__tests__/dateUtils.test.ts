@@ -11,6 +11,7 @@ import {
   dateToXCollapsed,
   xToDateCollapsed,
   businessDaysBetween,
+  businessDaysDelta,
   workingDaysBetween,
 } from '../dateUtils';
 
@@ -101,6 +102,19 @@ describe('dateUtils', () => {
     it('businessDaysBetween counts only weekdays (used for pixel mapping)', () => {
       // Mar 6 (Fri) to Mar 10 (Tue): Fri, [Sat, Sun], Mon = 2 business days
       expect(businessDaysBetween(new Date('2026-03-06'), new Date('2026-03-10'))).toBe(2);
+    });
+
+    it('businessDaysDelta returns business days between two date strings', () => {
+      // Mon to Fri same week = 4 business days
+      expect(businessDaysDelta('2026-03-02', '2026-03-06')).toBe(4);
+      // Fri to next Mon = 1 business day (skips weekend)
+      expect(businessDaysDelta('2026-03-06', '2026-03-09')).toBe(1);
+      // Mon to next Mon = 5 business days
+      expect(businessDaysDelta('2026-03-02', '2026-03-09')).toBe(5);
+      // Same date = 0
+      expect(businessDaysDelta('2026-03-02', '2026-03-02')).toBe(0);
+      // Negative (moving backward)
+      expect(businessDaysDelta('2026-03-09', '2026-03-06')).toBe(-1);
     });
 
     it('Mar 6 (Fri) to Mar 10 (Tue) = 2 working days (Fri, Mon)', () => {

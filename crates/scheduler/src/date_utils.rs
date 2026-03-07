@@ -122,6 +122,16 @@ mod tests {
     }
 
     #[test]
+    fn add_business_days_from_weekend() {
+        // Sat 2026-03-21 + 5 should match date-fns: 2026-03-27
+        assert_eq!(add_business_days("2026-03-21", 5), "2026-03-27");
+        // Sun 2026-03-01 + 10 should match date-fns: 2026-03-13
+        assert_eq!(add_business_days("2026-03-01", 10), "2026-03-13");
+        // Fri 2026-03-20 + 5 should be: 2026-03-27
+        assert_eq!(add_business_days("2026-03-20", 5), "2026-03-27");
+    }
+
+    #[test]
     fn day_of_week_known_dates() {
         assert_eq!(day_of_week(2026, 3, 1), 0); // Sunday
         assert_eq!(day_of_week(2026, 3, 2), 1); // Monday

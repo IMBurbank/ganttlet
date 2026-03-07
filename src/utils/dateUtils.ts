@@ -1,4 +1,4 @@
-import { addDays, differenceInCalendarDays, format, parseISO, startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, isWeekend, addBusinessDays, isSameDay } from 'date-fns';
+import { addDays, differenceInCalendarDays, differenceInBusinessDays, format, parseISO, startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, isWeekend, addBusinessDays, isSameDay } from 'date-fns';
 import type { ZoomLevel } from '../types';
 
 export function parseDate(dateStr: string): Date {
@@ -28,6 +28,14 @@ export function addDaysToDate(dateStr: string, days: number): string {
 
 export function addBusinessDaysToDate(dateStr: string, days: number): string {
   return formatDate(addBusinessDays(parseISO(dateStr), days));
+}
+
+/**
+ * Signed business-day difference between two date strings.
+ * Used for cascade deltas so shifts skip weekends.
+ */
+export function businessDaysDelta(start: string, end: string): number {
+  return differenceInBusinessDays(parseISO(end), parseISO(start));
 }
 
 export function getTimelineRange(tasks: Array<{ startDate: string; endDate: string }>): { start: Date; end: Date } {

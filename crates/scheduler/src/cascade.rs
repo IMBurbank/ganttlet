@@ -1,4 +1,4 @@
-use crate::date_utils::add_days;
+use crate::date_utils::add_business_days;
 use crate::types::{CascadeResult, Task};
 use std::collections::{HashSet, HashMap};
 
@@ -50,10 +50,11 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
                     _ => continue,
                 };
 
-                // Only shift each task once, using original dates to preserve duration
+                // Only shift each task once, using business days to preserve duration
+                // and avoid landing on weekends
                 if shifted.insert(dep_id.to_string()) {
-                    let new_start = add_days(&dependent.start_date, delta);
-                    let new_end = add_days(&dependent.end_date, delta);
+                    let new_start = add_business_days(&dependent.start_date, delta);
+                    let new_end = add_business_days(&dependent.end_date, delta);
                     results.push(CascadeResult {
                         id: dependent.id.clone(),
                         start_date: new_start,
@@ -90,6 +91,7 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::date_utils::add_days;
     use crate::types::{Dependency, DepType};
 
     fn make_task(id: &str, start: &str, end: &str) -> Task {
@@ -119,6 +121,7 @@ mod tests {
 
     #[test]
     fn shifts_dependent_tasks() {
+        // Delta is now in business days. B: Wed 03-11 +5 biz = Wed 03-18, Fri 03-20 +5 biz = Fri 03-27
         let tasks = vec![
             make_task("a", "2026-03-01", "2026-03-10"),
             {
@@ -129,8 +132,8 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 5);
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b.start_date, "2026-03-16");
-        assert_eq!(b.end_date, "2026-03-25");
+        assert_eq!(b.start_date, "2026-03-18");
+        assert_eq!(b.end_date, "2026-03-27");
     }
 
     #[test]
@@ -150,6 +153,7 @@ mod tests {
 
     #[test]
     fn transitive_cascade() {
+        // Delta=3 business days. C: Sat 03-21 +3 biz = Wed 03-25
         let tasks = vec![
             make_task("a", "2026-03-01", "2026-03-10"),
             {
@@ -165,7 +169,7 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 3);
         let c = results.iter().find(|r| r.id == "c").unwrap();
-        assert_eq!(c.start_date, "2026-03-24");
+        assert_eq!(c.start_date, "2026-03-25");
     }
 
     #[test]
@@ -187,26 +191,28 @@ mod tests {
     #[test]
     fn preserves_duration_for_all_tasks() {
         // Chain of 4 tasks with varying durations
+        // With business-day cascade, both start and end shift by the same number
+        // of business days, so business-day duration is preserved.
         let tasks = vec![
             {
-                let mut t = make_task("a", "2026-03-01", "2026-03-05"); // 4 days
+                let mut t = make_task("a", "2026-03-01", "2026-03-05");
                 t.duration = 4;
                 t
             },
             {
-                let mut t = make_task("b", "2026-03-06", "2026-03-16"); // 10 days
+                let mut t = make_task("b", "2026-03-06", "2026-03-16");
                 t.duration = 10;
                 t.dependencies = vec![make_dep("a", "b")];
                 t
             },
             {
-                let mut t = make_task("c", "2026-03-17", "2026-03-19"); // 2 days
+                let mut t = make_task("c", "2026-03-17", "2026-03-19");
                 t.duration = 2;
                 t.dependencies = vec![make_dep("b", "c")];
                 t
             },
             {
-                let mut t = make_task("d", "2026-03-20", "2026-03-27"); // 7 days
+                let mut t = make_task("d", "2026-03-20", "2026-03-27");
                 t.duration = 7;
                 t.dependencies = vec![make_dep("c", "d")];
                 t
@@ -215,27 +221,19 @@ mod tests {
 
         let results = cascade_dependents(&tasks, "a", 7);
 
-        // Every cascaded task must preserve its original duration
+        // Every cascaded task must be shifted by exactly 7 business days
         for result in &results {
             let original = tasks.iter().find(|t| t.id == result.id).unwrap();
-            let orig_start = crate::date_utils::parse_date(&original.start_date);
-            let orig_end = crate::date_utils::parse_date(&original.end_date);
-            let new_start = crate::date_utils::parse_date(&result.start_date);
-            let new_end = crate::date_utils::parse_date(&result.end_date);
-
-            // Duration = difference in days between end and start
-            // Using a simple calculation: both should shift by the same delta
-            let orig_duration_approx = (orig_end.2 as i32) - (orig_start.2 as i32);
-            let new_duration_approx = (new_end.2 as i32) - (new_start.2 as i32);
-
-            // For same-month dates, durations must match exactly
-            if orig_start.1 == orig_end.1 && new_start.1 == new_end.1 {
-                assert_eq!(
-                    orig_duration_approx, new_duration_approx,
-                    "Duration changed for task {}: was {} days, now {} days",
-                    result.id, orig_duration_approx, new_duration_approx
-                );
-            }
+            assert_eq!(
+                result.start_date,
+                add_business_days(&original.start_date, 7),
+                "Task {} start not shifted by 7 biz days", result.id
+            );
+            assert_eq!(
+                result.end_date,
+                add_business_days(&original.end_date, 7),
+                "Task {} end not shifted by 7 biz days", result.id
+            );
         }
 
         assert_eq!(results.len(), 3); // b, c, d should all be shifted
@@ -265,10 +263,10 @@ mod tests {
         let c_results: Vec<_> = results.iter().filter(|r| r.id == "c").collect();
         assert_eq!(c_results.len(), 1, "Task c should appear exactly once in results");
 
-        // C should be shifted by exactly 5 days (not 10)
+        // C should be shifted by exactly 5 business days (not 10)
         let c = &c_results[0];
-        assert_eq!(c.start_date, "2026-03-26");
-        assert_eq!(c.end_date, "2026-04-04");
+        assert_eq!(c.start_date, "2026-03-27"); // Sat 03-21 +5 biz = Fri 03-27
+        assert_eq!(c.end_date, "2026-04-06");   // Mon 03-30 +5 biz = Mon 04-06
     }
 
     #[test]
@@ -317,11 +315,11 @@ mod tests {
         assert_eq!(results.len(), 49);
         // Moved task itself must not appear in results
         assert!(results.iter().all(|r| r.id != "t0"), "Moved task t0 should not be in results");
-        // Verify every result was shifted by exactly +2: new_start == add_days(orig_start, 2)
+        // Verify every result was shifted by exactly +2 business days
         for r in &results {
             let orig = tasks.iter().find(|t| t.id == r.id).unwrap();
-            assert_eq!(r.start_date, add_days(&orig.start_date, 2), "Task {} start not shifted +2", r.id);
-            assert_eq!(r.end_date, add_days(&orig.end_date, 2), "Task {} end not shifted +2", r.id);
+            assert_eq!(r.start_date, add_business_days(&orig.start_date, 2), "Task {} start not shifted +2 biz", r.id);
+            assert_eq!(r.end_date, add_business_days(&orig.end_date, 2), "Task {} end not shifted +2 biz", r.id);
         }
     }
 
@@ -340,11 +338,17 @@ mod tests {
         let results = cascade_dependents(&tasks, "a", 3);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
+        // B: Wed 03-11 +3 biz = Mon 03-16, Fri 03-20 +3 biz = Wed 03-25
+        assert_eq!(results[0].start_date, "2026-03-16");
+        assert_eq!(results[0].end_date, "2026-03-25");
     }
 
     #[test]
     fn forward_cascade_still_works() {
-        // Verify forward cascade (+5 days) still shifts dependents correctly
+        // Verify forward cascade (+5 business days) shifts dependents correctly.
+        // Delta is now in business days (not calendar days).
+        // B: Wed 03-11 + 5 biz = Wed 03-18, Fri 03-20 + 5 biz = Fri 03-27
+        // C: Sat 03-21 + 5 biz = Fri 03-27, Mon 03-30 + 5 biz = Mon 04-06
         let tasks = vec![
             make_task("a", "2026-03-01", "2026-03-10"),
             {
@@ -362,12 +366,12 @@ mod tests {
         assert_eq!(results.len(), 2);
 
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b.start_date, "2026-03-16");
-        assert_eq!(b.end_date, "2026-03-25");
+        assert_eq!(b.start_date, "2026-03-18");
+        assert_eq!(b.end_date, "2026-03-27");
 
         let c = results.iter().find(|r| r.id == "c").unwrap();
-        assert_eq!(c.start_date, "2026-03-26");
-        assert_eq!(c.end_date, "2026-04-04");
+        assert_eq!(c.start_date, "2026-03-27");
+        assert_eq!(c.end_date, "2026-04-06");
     }
 
     // ── Weekend-aware cascade tests ──────────────────────────────────────
@@ -381,7 +385,7 @@ mod tests {
         let tasks = vec![
             make_task("a", "2026-03-05", "2026-03-06"), // Thu-Fri
             {
-                let mut t = Task {
+                let t = Task {
                     id: "b".to_string(),
                     start_date: "2026-03-09".to_string(), // Mon
                     end_date: "2026-03-13".to_string(),   // Fri (5 biz days)
@@ -411,7 +415,7 @@ mod tests {
         let tasks = vec![
             make_task("a", "2026-03-02", "2026-03-06"),
             {
-                let mut t = Task {
+                let t = Task {
                     id: "b".to_string(),
                     start_date: "2026-03-06".to_string(), // Fri
                     end_date: "2026-03-13".to_string(),   // Fri

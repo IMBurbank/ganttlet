@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useState } from 'react';
 import type { ZoomLevel } from '../../types';
 import { useGanttDispatch, useLocalDispatch, useActiveDrag, useAwareness, useSetViewingTask } from '../../state/GanttContext';
 import { setDragIntent } from '../../collab/awareness';
-import { dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, workingDaysBetween, getColumnWidth } from '../../utils/dateUtils';
+import { dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, businessDaysDelta, workingDaysBetween, getColumnWidth } from '../../utils/dateUtils';
 import { parseISO } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
 import TaskBarPopover from './TaskBarPopover';
@@ -167,8 +167,8 @@ export default function TaskBar({
         const finalTask = dragRef.current;
         dragRef.current = null;
         const daysDelta = finalTask.mode === 'move'
-          ? daysBetween(finalTask.origStartDate, finalTask.lastStartDate)
-          : daysBetween(finalTask.origEndDate, finalTask.lastEndDate);
+          ? businessDaysDelta(finalTask.origStartDate, finalTask.lastStartDate)
+          : businessDaysDelta(finalTask.origEndDate, finalTask.lastEndDate);
         // Atomic: set final position + cascade in one dispatch
         dispatch({
           type: 'COMPLETE_DRAG',

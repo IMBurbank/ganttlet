@@ -235,6 +235,12 @@ do_merge() {
   source "$HOME/.cargo/env" 2>/dev/null || true
   npm run build:wasm || warn "WASM build failed (may not have Rust changes)"
 
+  # Commit Cargo.lock if it was modified by the build (new deps from merged Cargo.toml)
+  if [[ -n "$(git diff --name-only -- crates/scheduler/Cargo.lock 2>/dev/null)" ]]; then
+    WORKTREE_EXEMPT=1 git add crates/scheduler/Cargo.lock
+    WORKTREE_EXEMPT=1 git commit -m "chore: update Cargo.lock after ${merge_label}"
+  fi
+
   # Verify build
   log "Verifying merged code..."
   local verify_ok=true
@@ -268,6 +274,10 @@ do_merge() {
 
   # Cleanup worktrees
   cleanup_worktrees "$2" "$3"
+
+  # Return to main so /workspace stays clean for the next stage's preflight check.
+  cd "$WORKSPACE"
+  git checkout main
 
   ok "=== ${merge_label} complete ==="
 }

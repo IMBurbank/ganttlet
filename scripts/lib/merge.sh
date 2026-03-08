@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # scripts/lib/merge.sh — Branch merging with conflict resolution and post-merge verification
+#
+# All merge operations happen inside the merge worktree (MERGE_WORKTREE),
+# never in /workspace. This keeps /workspace on main at all times.
 
 # Ensure the implementation branch exists (created from main).
 setup_merge_target() {
@@ -11,11 +14,12 @@ setup_merge_target() {
 }
 
 # Launch a Claude agent to resolve merge conflicts.
+# All operations run inside the merge worktree.
 resolve_merge_conflicts() {
   local branch="$1"
   local msg="$2"
   local conflicts
-  conflicts=$(cd "$WORKSPACE" && git diff --name-only --diff-filter=U)
+  conflicts=$(cd "$MERGE_WORKTREE" && git diff --name-only --diff-filter=U)
 
   if [[ -z "$conflicts" ]]; then
     warn "resolve_merge_conflicts called but no conflicted files found"
@@ -29,12 +33,12 @@ resolve_merge_conflicts() {
   while IFS= read -r f; do
     conflict_diffs+="
 === $f ===
-$(head -200 "$f")
+$(cd "$MERGE_WORKTREE" && head -200 "$f")
 "
   done <<< "$conflicts"
 
   local branch_summary
-  branch_summary=$(git log --oneline "${MERGE_TARGET}".."$branch" 2>/dev/null | head -10 || echo "(no commits)")
+  branch_summary=$(cd "$MERGE_WORKTREE" && git log --oneline "${MERGE_TARGET}".."$branch" 2>/dev/null | head -10 || echo "(no commits)")
 
   local fix_prompt="You are resolving git merge conflicts in the Ganttlet project.
 The branch '${branch}' is being merged into ${MERGE_TARGET}. The following files have conflicts:
@@ -57,8 +61,6 @@ Instructions:
 
 Do NOT enter plan mode. Do NOT ask for confirmation. Fix the conflicts and commit."
 
-  cd "$WORKSPACE"
-
   if [[ "$WATCH" == "1" ]]; then
     local fix_prompt_file="${LOG_DIR}/merge-fix-${branch//\//-}.md"
     echo "$fix_prompt" > "$fix_prompt_file"
@@ -68,7 +70,7 @@ Do NOT enter plan mode. Do NOT ask for confirmation. Fix the conflicts and commi
     local wrapper="${LOG_DIR}/merge-fix-run.sh"
     cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
-cd "$WORKSPACE"
+cd "${MERGE_WORKTREE}"
 claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p "\$(cat '$fix_prompt_file')"
 echo \$? > "$exitcode_file"
 WRAPPER
@@ -88,15 +90,21 @@ WRAPPER
     tmux kill-session -t "${TMUX_SESSION}-merge-fix" 2>/dev/null || true
     return "$rc"
   else
-    echo "$fix_prompt" | claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p - >> "${LOG_DIR}/merge-fix.log" 2>&1
+    (
+      cd "$MERGE_WORKTREE"
+      echo "$fix_prompt" | claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p - >> "${LOG_DIR}/merge-fix.log" 2>&1
+    )
     return $?
   fi
 }
 
 # Merge a single branch with conflict resolution retries.
+# Runs inside the merge worktree.
 merge_branch_with_retries() {
   local branch="$1"
   local msg="$2"
+
+  cd "$MERGE_WORKTREE"
 
   if ! git rev-parse --verify "$branch" >/dev/null 2>&1; then
     err "Branch '${branch}' does not exist — agents may not have run. Skipping."
@@ -136,6 +144,7 @@ merge_branch_with_retries() {
 }
 
 # Launch a fix agent that keeps running until tsc + vitest + cargo test all pass.
+# Runs inside the merge worktree.
 run_merge_fix_agent() {
   local merge_label="$1"
   local max_fix_attempts="${MERGE_FIX_RETRIES:-3}"
@@ -160,19 +169,21 @@ Do NOT modify files unnecessarily. Only fix actual errors. Read the error output
     log "Merge-fix attempt ${attempt}/${max_fix_attempts}"
     local logfile="${LOG_DIR}/merge-fix-${merge_label// /-}-attempt${attempt}.log"
 
-    cd "$WORKSPACE"
     local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
     local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
 
     set +e
-    echo "$fix_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
+    (
+      cd "$MERGE_WORKTREE"
+      echo "$fix_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
+    )
     local exit_code=$?
     set -e
 
     local all_ok=true
-    npx tsc --noEmit >/dev/null 2>&1 || all_ok=false
-    npm run test >/dev/null 2>&1 || all_ok=false
-    (source "$HOME/.cargo/env" 2>/dev/null; cd crates/scheduler && cargo test >/dev/null 2>&1) || all_ok=false
+    (cd "$MERGE_WORKTREE" && npx tsc --noEmit >/dev/null 2>&1) || all_ok=false
+    (cd "$MERGE_WORKTREE" && npm run test >/dev/null 2>&1) || all_ok=false
+    (cd "$MERGE_WORKTREE" && source "$HOME/.cargo/env" 2>/dev/null; cd "$MERGE_WORKTREE/crates/scheduler" && cargo test >/dev/null 2>&1) || all_ok=false
 
     if $all_ok; then
       ok "Merge-fix agent resolved all issues on attempt ${attempt}"
@@ -190,6 +201,7 @@ Do NOT modify files unnecessarily. Only fix actual errors. Read the error output
 }
 
 # Run merge stage for a given stage index: merge all branches, verify, fix if needed.
+# All operations run in the merge worktree — /workspace stays on main.
 # Usage: do_merge "Merge 1" groups_array branches_array messages_array
 do_merge() {
   local merge_label="$1"
@@ -199,15 +211,10 @@ do_merge() {
 
   log "=== ${merge_label}: Combining parallel branches into ${MERGE_TARGET} ==="
 
-  cd "$WORKSPACE"
-  setup_merge_target
+  # Create/reuse merge worktree (persists across stages)
+  setup_merge_worktree
 
-  local current_branch
-  current_branch=$(git branch --show-current)
-  if [[ "$current_branch" != "$MERGE_TARGET" ]]; then
-    log "Switching to ${MERGE_TARGET}..."
-    git checkout "$MERGE_TARGET"
-  fi
+  cd "$MERGE_WORKTREE"
 
   # Check which groups succeeded (if stage result files exist)
   local succeeded=""
@@ -231,14 +238,15 @@ do_merge() {
   done
 
   # Rebuild WASM (Rust source may have changed)
+  cd "$MERGE_WORKTREE"
   log "Rebuilding WASM..."
   source "$HOME/.cargo/env" 2>/dev/null || true
   npm run build:wasm || warn "WASM build failed (may not have Rust changes)"
 
   # Commit Cargo.lock if it was modified by the build (new deps from merged Cargo.toml)
   if [[ -n "$(git diff --name-only -- crates/scheduler/Cargo.lock 2>/dev/null)" ]]; then
-    WORKTREE_EXEMPT=1 git add crates/scheduler/Cargo.lock
-    WORKTREE_EXEMPT=1 git commit -m "chore: update Cargo.lock after ${merge_label}"
+    git add crates/scheduler/Cargo.lock
+    git commit -m "chore: update Cargo.lock after ${merge_label}"
   fi
 
   # Verify build
@@ -272,12 +280,11 @@ do_merge() {
     fi
   fi
 
-  # Cleanup worktrees
+  # Cleanup agent worktrees (not the merge worktree — it persists for validate/PR)
   cleanup_worktrees "$2" "$3"
 
-  # Return to main so /workspace stays clean for the next stage's preflight check.
+  # Return to /workspace (stays on main)
   cd "$WORKSPACE"
-  git checkout main
 
   ok "=== ${merge_label} complete ==="
 }

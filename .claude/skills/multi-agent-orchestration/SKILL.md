@@ -34,12 +34,13 @@ Phase launch configuration is defined in `docs/prompts/<phaseN>/launch-config.ya
 
 ## Worktree Isolation (Critical)
 Each agent MUST run in its own git worktree. `/workspace` stays on `main` always.
-- `launch-phase.sh` handles this automatically via `setup_worktree()`
+- **Agent worktrees**: `setup_worktree()` creates per-group worktrees at `/workspace/.claude/worktrees/<phase>-<group>`
+- **Merge worktree**: `setup_merge_worktree()` creates a long-lived worktree at `/workspace/.claude/worktrees/<phase>-merge` for all merge/validate/PR operations. It persists across stages and is cleaned up after PR creation.
 - Manually-launched agents must create their own: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
 - NEVER `git checkout` or `git switch` in `/workspace` — this breaks every other agent sharing the filesystem
 - All git operations (commit, push, diff) must happen inside the worktree directory
 - Common failure: agent does `git checkout feature-branch` in `/workspace`, another agent commits to the wrong branch
-- **Cleanup is mandatory**: when work is complete (PR created, or task done), run `cd /workspace && git worktree remove /workspace/.claude/worktrees/<name>`. Stale worktrees prevent branch deletion and waste disk. If the agent crashes, the orchestrator or next agent should clean up orphaned worktrees with `git worktree prune`.
+- **Cleanup is mandatory**: when work is complete (PR created, or task done), remove the worktree. Stale worktrees prevent branch deletion and waste disk. The merge worktree is cleaned up automatically by `create-pr`; agent worktrees are cleaned up by `do_merge()`. For manual cleanup: `cd /workspace` (standalone), then `git worktree remove <path>` (standalone), then `git worktree prune`.
 
 ## WATCH Mode
 `WATCH=1` runs agents in tmux windows with visible output.
@@ -69,3 +70,5 @@ Every group prompt should include in its Error Handling section:
 - **`script -q -c` is fragile**: Prefer `tee -a` for simultaneous terminal + file capture.
 - **Validation log parsing**: Must exclude the `COMMAND=` header line to avoid false positive failure detection from prompt template strings.
 - **Container dependencies**: tmux must be in the Dockerfile's `apt-get install` line. If missing, WATCH mode is completely broken with no useful error.
+- **`CLAUDECODE` env var blocks nested sessions**: When `launch-phase.sh` is run from a supervisor agent (Claude Code), child `claude` processes refuse to start. Fixed by `unset CLAUDECODE` at the top of `launch-phase.sh`.
+- **Merge worktree isolation**: Merge/validate/PR steps must never `git checkout` in `/workspace`. The `do_merge()`, `validate()`, and `create_pr()` functions operate in a dedicated merge worktree (`MERGE_WORKTREE`). This prevents dirty state, Cargo.lock conflicts, and pre-commit hook issues.

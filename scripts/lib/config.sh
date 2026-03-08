@@ -80,6 +80,7 @@ load_config() {
   # Derived values
   LOG_DIR="${WORKSPACE}/logs/${PHASE}"
   TMUX_SESSION="${PHASE}-agents"
+  MERGE_WORKTREE="${WORKTREE_BASE}/${PHASE}-merge"
 
   mkdir -p "$LOG_DIR"
 

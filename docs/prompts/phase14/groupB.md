@@ -121,7 +121,7 @@ dispatch({ type: 'RESIZE_TASK', taskId, newEndDate: newEndStr, newDuration });
 ```
 This is the call site for RESIZE_TASK. When you remove `newDuration` from the action type, TaskBar.tsx will have a type error. **You must NOT fix TaskBar.tsx** — Group A owns that file. Instead:
 - Make `newDuration` optional in the action type temporarily: `newDuration?: number`
-- OR add a note in claude-progress.txt that TaskBar.tsx needs updating after merge
+- OR add a note in `.agent-status.json` that TaskBar.tsx needs updating after merge
 
 **RECOMMENDED APPROACH**: Make `newDuration` optional in actions.ts so both old and new call sites compile. The reducer ignores it and computes from dates anyway. This avoids cross-group conflicts.
 
@@ -265,24 +265,31 @@ duration: (() => {
 2. Run `npm run test` — fix any test failures
 3. Verify no files outside your scope were modified: `git diff --name-only`
 4. If there are test files under `src/` that test duration behavior, update them to match the new semantics
-5. Update `claude-progress.txt` with final status
+5. Update `.agent-status.json` with final status
 6. Commit any remaining fixes
 
 ## Progress Tracking
 
-After completing each major task (B1, B2, etc.), append a status line to `claude-progress.txt`:
+After completing each major task (B1, B2, etc.), update `.agent-status.json` in the worktree root:
+
+```json
+{
+  "group": "B",
+  "phase": 14,
+  "tasks": {
+    "B1": { "status": "done", "tests_passing": 3, "tests_failing": 0 },
+    "B2": { "status": "in_progress" }
+  },
+  "last_updated": "2026-03-06T10:30:00Z"
+}
 ```
-# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
-# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
-B1 | DONE | 2026-03-06T10:23Z | Read and understood duration handling across codebase
-B2 | DONE | 2026-03-06T10:45Z | Documented duration semantics
-```
-On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
+
+On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 
 - Level 1 (fixable): Read error, fix, re-run. Up to 3 distinct approaches.
 - Level 2 (stuck): Commit WIP with honest message, move to NEXT TASK.
-- Level 3 (blocked): Commit, write BLOCKED in claude-progress.txt, skip dependent tasks.
+- Level 3 (blocked): Commit, update .agent-status.json with "status": "blocked", skip dependent tasks.
 - Emergency: `git add -A && git commit -m "emergency: groupB saving work"`.
 - **Calculations**: NEVER do mental math or date arithmetic. Use `node -e "const {differenceInCalendarDays,addDays}=require('date-fns'); ..."` or `date -d '2026-03-06 + 17 days' +%Y-%m-%d` or `python3 -c "print(...)"`. Prefer `date-fns` directly (`differenceInCalendarDays`, `addDays`, `addBusinessDays`) over project wrappers when writing new code.

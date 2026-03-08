@@ -44,7 +44,7 @@ If you encounter an error, fix it and continue. If you cannot fix it after 3 dis
 
 **CRITICAL CONTEXT**: This is a Stage 2 agent. Stage 1 has already been merged. Before starting work:
 1. Read the recent git log (`git log --oneline -20`) to see what Stage 1 changed
-2. Read `claude-progress.txt` if it exists
+2. Read `.agent-status.json` (or `claude-progress.txt`) if it exists
 3. Read the CURRENT versions of all files you'll modify — they may have changed in Stage 1
 
 ## Success Criteria (you're done when ALL of these are true):
@@ -516,24 +516,31 @@ Commit: `"feat: sync task add/delete to Yjs via useEffect diff (R10)"`
 2. Run `npm run test` — fix any test failures
 3. Verify no files outside your scope were modified: `git diff --name-only`
 4. Test flow mentally: drag → RAF throttle → COMPLETE_DRAG on mouseup → single Yjs transaction
-5. Update `claude-progress.txt` with final status
+5. Update `.agent-status.json` with final status
 6. Commit any remaining fixes
 
 ## Progress Tracking
 
-After completing each major task, append a status line to `claude-progress.txt`:
+After completing each major task (D1, D2, etc.), update `.agent-status.json` in the worktree root:
+
+```json
+{
+  "group": "D",
+  "phase": 14,
+  "tasks": {
+    "D1": { "status": "done", "tests_passing": 3, "tests_failing": 0 },
+    "D2": { "status": "in_progress" }
+  },
+  "last_updated": "2026-03-06T10:30:00Z"
+}
 ```
-# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
-# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
-D1 | DONE | 2026-03-06T10:23Z | Read all files after Stage 1 merge
-D2 | DONE | 2026-03-06T10:45Z | COMPLETE_DRAG action type added
-```
-On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
+
+On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and `git log --oneline -10` first. Skip completed tasks.
 
 ## Error Handling Protocol
 
 - Level 1 (fixable): Read error, fix, re-run. Up to 3 distinct approaches.
 - Level 2 (stuck): Commit WIP with honest message, move to NEXT TASK.
-- Level 3 (blocked): Commit, write BLOCKED in claude-progress.txt, skip dependent tasks.
+- Level 3 (blocked): Commit, update .agent-status.json with "status": "blocked", skip dependent tasks.
 - Emergency: `git add -A && git commit -m "emergency: groupD saving work"`.
 - **Calculations**: NEVER do mental math or date arithmetic. Use `node -e "const {differenceInCalendarDays,addDays}=require('date-fns'); ..."` or `date -d '2026-03-06 + 17 days' +%Y-%m-%d` or `python3 -c "print(...)"`. Prefer `date-fns` directly (`differenceInCalendarDays`, `addDays`, `addBusinessDays`) over project wrappers when writing new code.

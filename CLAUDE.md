@@ -45,23 +45,54 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 ## Error Handling Protocol
 - **Level 1** (fixable): Read the error, fix the code, re-run. Try up to 3 distinct approaches.
 - **Level 2** (stuck): Commit WIP with an honest message explaining what's broken and why. Move to the NEXT task — do NOT stop all work.
-- **Level 3** (blocked): Commit WIP, write `BLOCKED` in `claude-progress.txt` with details, skip dependent tasks and continue with independent ones.
+- **Level 3** (blocked): Commit WIP, update `.agent-status.json` with `"status": "blocked"` and a `"blocker"` message, skip dependent tasks and continue with independent ones.
 - **Emergency** (out of context/crashing): `git add -A && git commit -m "emergency: saving work"`
 
-After each major task, append status to `claude-progress.txt` in the worktree root.
+After each major task, update `.agent-status.json` in the worktree root.
 
 ## Progress Tracking Format
 
-Agents append status to `claude-progress.txt` using this schema:
-```
-# STATUS values: DONE, IN_PROGRESS, BLOCKED, SKIPPED
-# Format: TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE
-A1 | DONE | 2026-03-06T10:23Z | Read and understood drag flow
-A2 | IN_PROGRESS | 2026-03-06T10:30Z | Split dispatch — working on tests
-B3 | BLOCKED | 2026-03-06T11:00Z | Waiting on A2 merge for type exports
+Agents maintain `.agent-status.json` in the worktree root. Update it after each major task.
+
+**Multi-agent (phase work):**
+```json
+{
+  "group": "A",
+  "phase": 14,
+  "tasks": {
+    "A1": { "status": "done", "tests_passing": 4, "tests_failing": 0 },
+    "A2": { "status": "in_progress", "tests_passing": 2, "tests_failing": 1,
+             "blocker": "cross-scope dependency not propagating" },
+    "A3": { "status": "pending" }
+  },
+  "last_updated": "2026-03-06T14:30:00Z"
+}
 ```
 
-On restart, read `claude-progress.txt` and `git log --oneline -10` first. Skip completed tasks.
+**Single-agent (issue work):**
+```json
+{
+  "issue": 42,
+  "branch": "agent/issue-42",
+  "status": "in_progress",
+  "tasks": {
+    "read-and-understand": { "status": "done" },
+    "write-tests": { "status": "in_progress" },
+    "implement": { "status": "pending" },
+    "verify": { "status": "pending" }
+  },
+  "last_updated": "2026-03-08T10:00:00Z"
+}
+```
+
+**Status values:** `done`, `in_progress`, `blocked`, `pending`, `skipped`
+
+**Updating:** JSON cannot be appended — read, parse, modify, write:
+```bash
+node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileSync(f,'utf8'));d.tasks['A1']={status:'done',tests_passing:3,tests_failing:0};d.last_updated=new Date().toISOString();fs.writeFileSync(f,JSON.stringify(d,null,2))"
+```
+
+On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it exists) and `git log --oneline -10` first. Skip completed tasks.
 
 ## Commands Quick Reference
 | Command | Purpose |
@@ -126,7 +157,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 
 ## Context Conservation
 - Commit early and often — progress survives crashes and context loss.
-- On restart, read `claude-progress.txt` first and check `git log --oneline -10`.
+- On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and check `git log --oneline -10`.
 - Use subagents (Agent tool) for expensive file investigation to preserve main context.
 - Load `.claude/skills/` on demand — only read skills relevant to the current task.
 - If context is getting large, summarize findings and commit before continuing.

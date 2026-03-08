@@ -89,6 +89,26 @@ mod tests {
     }
 
     #[test]
+    fn sf_cycle_detected() {
+        // A→(SF)→B→(FS)→A should be detected as a cycle
+        let tasks = vec![
+            make_task("a"),
+            {
+                let mut t = make_task("b");
+                t.dependencies = vec![Dependency {
+                    from_id: "a".to_string(),
+                    to_id: "b".to_string(),
+                    dep_type: DepType::SF,
+                    lag: 0,
+                }];
+                t
+            },
+        ];
+        // Adding B→A (FS) would create: A→(SF)→B→(FS)→A
+        assert!(would_create_cycle(&tasks, "a", "b"));
+    }
+
+    #[test]
     fn transitive_cycle() {
         let tasks = vec![
             make_task("a"),

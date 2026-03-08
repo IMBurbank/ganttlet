@@ -127,16 +127,23 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
                         (new_start, required_end)
                     }
                     DepType::SF => {
-                        // SF cascade: successor's finish must be >= pred start + lag.
-                        // Full implementation in Stage 2 (Group B).
-                        continue;
+                        // SF: successor's end must be no earlier than the first business day
+                        // on or after (pred.start + lag business days).
+                        let raw_end = add_business_days(&pred_eff_start, dep_link.lag);
+                        let required_end = next_biz_day_on_or_after(&raw_end);
+                        if required_end <= dep_curr_end {
+                            continue;
+                        }
+                        let shift = count_biz_days_to(&dep_curr_end, &required_end);
+                        let new_start = add_business_days(&dep_curr_start, shift);
+                        (new_start, required_end)
                     }
                 };
 
                 // Update effective dates only if this path requires a larger
                 // shift than a previous path (diamond dependency support).
                 let needs_update = new_start > dep_curr_start
-                    || (dep_link.dep_type == DepType::FF && new_end > dep_curr_end);
+                    || (matches!(dep_link.dep_type, DepType::FF | DepType::SF) && new_end > dep_curr_end);
 
                 if needs_update {
                     eff_start.insert(dep_id.to_string(), new_start.clone());
@@ -511,6 +518,102 @@ mod tests {
         let results = cascade_dependents(&tasks, "a", 2);
         let b = results.iter().find(|r| r.id == "b").unwrap();
         // required = add_biz(Mar 16, 1) = Mar 17 (Tue)
+        assert_eq!(b.start_date, "2026-03-17");
+    }
+
+    // ── SF cascade tests ──────────────────────────────────────────────────
+
+    fn make_sf_dep(from: &str, to: &str) -> Dependency {
+        Dependency {
+            from_id: from.to_string(),
+            to_id: to.to_string(),
+            dep_type: DepType::SF,
+            lag: 0,
+        }
+    }
+
+    fn make_sf_dep_with_lag(from: &str, to: &str, lag: i32) -> Dependency {
+        Dependency {
+            from_id: from.to_string(),
+            to_id: to.to_string(),
+            dep_type: DepType::SF,
+            lag,
+        }
+    }
+
+    /// Basic SF cascade: A starts Mar 10 (Tue), B (SF lag=0) must end >= Mar 10.
+    /// B currently ends Mar 06 (Fri) → violation, B shifts forward.
+    #[test]
+    fn sf_basic_cascade() {
+        let tasks = vec![
+            make_task("a", "2026-03-10", "2026-03-17"), // A starts Tue Mar 10
+            {
+                let mut t = make_task("b", "2026-03-02", "2026-03-06"); // B ends Fri Mar 06
+                t.duration = 5;
+                t.dependencies = vec![make_sf_dep("a", "b")];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 3);
+        let b = results.iter().find(|r| r.id == "b").unwrap();
+        // required_end = Mar 10 (Tue). B.end was Mar 06 < Mar 10 → violation.
+        // shift = count_biz(Mar 06, Mar 10) = 2. B.new_end = Mar 10.
+        assert_eq!(b.end_date, "2026-03-10");
+        // B.new_start = add_biz(Mar 02, 2) = Mar 04 (Wed)
+        assert_eq!(b.start_date, "2026-03-04");
+    }
+
+    /// SF with lag: A starts Mar 10, SF lag 2 → B must end >= add_biz(Mar 10, 2) = Mar 12.
+    #[test]
+    fn sf_cascade_with_lag() {
+        let tasks = vec![
+            make_task("a", "2026-03-10", "2026-03-17"),
+            {
+                let mut t = make_task("b", "2026-03-02", "2026-03-06");
+                t.duration = 5;
+                t.dependencies = vec![make_sf_dep_with_lag("a", "b", 2)];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 3);
+        let b = results.iter().find(|r| r.id == "b").unwrap();
+        // required_end = add_biz(Mar 10, 2) = Mar 12 (Thu). B.end Mar 06 < Mar 12 → violation.
+        assert_eq!(b.end_date, "2026-03-12");
+    }
+
+    /// SF slack absorption: B already ends Mar 15, A starts Mar 10, SF lag 0.
+    /// required_end = Mar 10. B.end = Mar 15 > Mar 10 → no cascade.
+    #[test]
+    fn sf_slack_absorption() {
+        let tasks = vec![
+            make_task("a", "2026-03-10", "2026-03-17"),
+            {
+                let mut t = make_task("b", "2026-03-09", "2026-03-15");
+                t.dependencies = vec![make_sf_dep("a", "b")];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 3);
+        assert!(results.is_empty(), "SF slack should absorb move — no cascade needed");
+    }
+
+    /// Diamond: A→(SF)→B and A→(FS)→B — both constraints satisfied.
+    #[test]
+    fn sf_diamond_with_fs() {
+        let tasks = vec![
+            make_task("a", "2026-03-10", "2026-03-17"), // A starts Mar 10, ends Mar 17
+            {
+                let mut t = make_task("b", "2026-03-11", "2026-03-18");
+                t.duration = 6;
+                // SF from A (pred.start=Mar 10): required_end = Mar 10. B.end=Mar 18 > Mar 10 → OK.
+                // FS from A (pred.end=Mar 17): required_start = Mar 17. B.start=Mar 11 < Mar 17 → violation.
+                t.dependencies = vec![make_sf_dep("a", "b"), make_dep("a", "b")];
+                t
+            },
+        ];
+        let results = cascade_dependents(&tasks, "a", 5);
+        // FS dominates: B.start must be >= Mar 17.
+        let b = results.iter().find(|r| r.id == "b").unwrap();
         assert_eq!(b.start_date, "2026-03-17");
     }
 

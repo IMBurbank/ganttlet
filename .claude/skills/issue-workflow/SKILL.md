@@ -37,14 +37,32 @@ If E2E tests fail but unit tests pass, note this in your summary.
 ## Error Handling
 - **Level 1** (fixable): Read error, fix code, re-run. Up to 3 distinct approaches.
 - **Level 2** (stuck): Commit WIP with message explaining what's broken and why. Move to next task — do NOT stop all work.
-- **Level 3** (blocked): Commit, write BLOCKED note in `claude-progress.txt` (pipe-delimited: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`), continue with non-dependent tasks.
+- **Level 3** (blocked): Commit, update `.agent-status.json` with `"status": "blocked"` and a `"blocker"` message, continue with non-dependent tasks.
 - **Emergency**: If running out of context: `git add -A && git commit -m "emergency: saving work"`
+
+## Progress Tracking
+Initialize `.agent-status.json` at the start of issue work:
+```bash
+cat > .agent-status.json <<JSON
+{
+  "issue": {number},
+  "branch": "agent/issue-{number}",
+  "status": "in_progress",
+  "tasks": {},
+  "last_updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+```
+Update after each major task:
+```bash
+node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileSync(f,'utf8'));d.tasks['write-tests']={status:'done'};d.last_updated=new Date().toISOString();fs.writeFileSync(f,JSON.stringify(d,null,2))"
+```
 
 ## Context Conservation
 - Commit early and often (progress survives crashes)
 - Use subagents for expensive investigation
 - Check `git log --oneline -10` if you lose track of previous work
-- Check `claude-progress.txt` for task status on restart (format: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`)
+- Check `.agent-status.json` for task status on restart (fall back to `claude-progress.txt` if it exists)
 
 ## Lessons Learned
 - `${{ github.event.issue.body }}` injected directly into a shell heredoc is a shell injection risk — always sanitize or use environment variables

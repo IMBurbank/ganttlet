@@ -16,7 +16,7 @@ It does NOT apply to CI/workflow agents.
 - Other agents may be running concurrently in sibling worktrees.
 - Never modify `/workspace` directly — it must stay on `main`.
 - If you need to read another agent's in-progress work, look in `/workspace/.claude/worktrees/`.
-- Coordinate via files in the repo (e.g. `claude-progress.txt`), not by switching branches.
+- Coordinate via files in the repo (e.g. `.agent-status.json`), not by switching branches.
 
 ## Worktree Lifecycle
 - You are working in a worktree. All git operations (commit, push, rebase) happen here.

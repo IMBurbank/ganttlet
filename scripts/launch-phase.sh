@@ -300,7 +300,8 @@ setup_worktree() {
   # Seed .agent-status.json if it doesn't exist yet
   if [[ ! -f "${worktree}/.agent-status.json" ]]; then
     local phase_num
-    phase_num=$(echo "$PHASE" | grep -oP '\d+' || echo "0")
+    phase_num=$(echo "$PHASE" | sed 's/[^0-9]//g')
+    phase_num="${phase_num:-0}"
     cat > "${worktree}/.agent-status.json" <<SEED
 {
   "group": "${group}",

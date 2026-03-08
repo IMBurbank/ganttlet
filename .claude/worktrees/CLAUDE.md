@@ -27,6 +27,7 @@ It does NOT apply to CI/workflow agents.
   1. Verify merge: `gh pr view <number> --json state --jq '.state'` — must be `"MERGED"`
   2. `cd /workspace`
   3. `git worktree remove /workspace/.claude/worktrees/<name>`
-  4. `git branch -d <branch>` (if it still exists)
+  4. `git branch -d <branch>` (delete local branch)
+  5. `git push origin --delete <branch>` (delete remote branch)
   - **Why separate calls**: If `cd` is chained with `&&` and a later command fails, the Bash tool does not persist the directory change. The CWD remains pointed at the deleted worktree and all subsequent Bash calls fail — this is unrecoverable in the current session.
-  - **Why no `--delete-branch` on merge**: `gh pr merge --squash --delete-branch` tries to delete the local branch while the worktree still holds it, causing an error. Always merge without `--delete-branch` and delete the branch manually after removing the worktree.
+  - **Why no `--delete-branch` on merge**: `gh pr merge --squash --delete-branch` tries to delete the local branch while the worktree still holds it, causing an error. Always merge without `--delete-branch` and clean up branches manually after removing the worktree.

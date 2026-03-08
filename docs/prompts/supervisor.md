@@ -150,7 +150,8 @@ Once the code review finds no issues:
    gh pr view <number> --json mergeable --jq '.mergeable'
    ```
    - If `MERGEABLE` → proceed to merge
-   - If `CONFLICTING` → rebase onto main, resolve conflicts, reverify (`./scripts/full-verify.sh` or at minimum `bash -n` for scripts + `npx tsc --noEmit` for TS), force-push, then re-run the code review loop (Step 4). Do NOT merge without reverifying and re-reviewing after conflict resolution.
+   - If `UNKNOWN` → wait 10 seconds and re-check (GitHub hasn't computed merge status yet)
+   - If `CONFLICTING` → rebase onto main in the merge worktree, resolve conflicts, reverify (`./scripts/full-verify.sh` or at minimum `bash -n` for scripts + `npx tsc --noEmit` for TS), force-push, then re-run the code review loop (Step 4). Do NOT merge without reverifying and re-reviewing after conflict resolution.
 
 3. Merge the PR:
    ```bash

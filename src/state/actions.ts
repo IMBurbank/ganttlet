@@ -45,4 +45,5 @@ export type GanttAction =
   | { type: 'TOGGLE_LEFT_PANE' }
   | { type: 'CLEAR_FOCUS_NEW_TASK' }
   | { type: 'RECALCULATE_EARLIEST'; scope: { taskId?: string; workstream?: string; project?: string } }
-  | { type: 'COMPLETE_DRAG'; taskId: string; newStartDate: string; newEndDate: string; daysDelta: number };
+  | { type: 'COMPLETE_DRAG'; taskId: string; newStartDate: string; newEndDate: string; daysDelta: number }
+  | { type: 'SET_CONSTRAINT'; taskId: string; constraintType: Task['constraintType']; constraintDate?: string };

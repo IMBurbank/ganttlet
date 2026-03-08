@@ -9,6 +9,7 @@ const DEP_TYPE_LABELS: Record<DependencyType, string> = {
   FS: 'Finish \u2192 Start',
   FF: 'Finish \u2192 Finish',
   SS: 'Start \u2192 Start',
+  SF: 'Start \u2192 Finish',
 };
 
 export default function DependencyEditorModal() {

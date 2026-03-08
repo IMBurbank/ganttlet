@@ -5,7 +5,7 @@ import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import { dateToX, dateToXCollapsed, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineDaysFiltered, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
 import { buildTaskYPositions, ROW_HEIGHT } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
-import { computeCriticalPathScoped, computeEarliestStart } from '../../utils/schedulerWasm';
+import { computeCriticalPathScoped, computeEarliestStart, detectConflicts } from '../../utils/schedulerWasm';
 import SlackIndicator from './SlackIndicator';
 import CascadeHighlight from './CascadeHighlight';
 import TimelineHeader from './TimelineHeader';
@@ -75,6 +75,15 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
   );
   const criticalPathIds = criticalPathResult.taskIds;
   const criticalEdges = criticalPathResult.edges;
+
+  const conflictMap = useMemo(() => {
+    const conflicts = detectConflicts(allTasks);
+    const map = new Map<string, string>();
+    for (const c of conflicts) {
+      map.set(c.taskId, c.message);
+    }
+    return map;
+  }, [allTasks]);
 
   const { start: timelineStart, end: timelineEnd } = useMemo(
     () => getTimelineRange(allTasks),
@@ -224,6 +233,7 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
                 viewerColor={viewer?.color}
                 collapseWeekends={collapseWeekends}
                 earliestStart={earliest ?? undefined}
+                conflictMessage={conflictMap.get(task.id)}
               />
             );
           })}

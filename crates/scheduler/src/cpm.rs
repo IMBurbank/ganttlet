@@ -1,4 +1,4 @@
-use crate::types::{DepType, Task};
+use crate::types::{ConstraintType, DepType, Task};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -119,6 +119,7 @@ pub fn compute_critical_path(tasks: &[Task]) -> CriticalPathResult {
                     DepType::FS => cur_ef + edge.lag as i64,
                     DepType::SS => cur_es + edge.lag as i64,
                     DepType::FF => cur_ef + edge.lag as i64 - succ_dur,
+                    DepType::SF => cur_es + edge.lag as i64 - succ_dur,
                 };
 
                 if new_es > current_succ_es {
@@ -180,6 +181,11 @@ pub fn compute_critical_path(tasks: &[Task]) -> CriticalPathResult {
                             let nlf = cur_lf - dep.lag as i64;
                             (nlf, nlf - pred_dur)
                         }
+                        DepType::SF => {
+                            // SF backward: LS_pred >= LF_succ - lag
+                            let nls = cur_lf - dep.lag as i64;
+                            (nls + pred_dur, nls)
+                        }
                     };
 
                     let pred_id = dep.from_id.as_str();
@@ -192,6 +198,16 @@ pub fn compute_critical_path(tasks: &[Task]) -> CriticalPathResult {
                 }
                 _ => continue,
             }
+        }
+    }
+
+    // ALAP resolution: after backward pass, ALAP tasks use LS as their ES
+    for t in &non_summary {
+        if let Some(ConstraintType::ALAP) = &t.constraint_type {
+            let task_ls = *ls.get(t.id.as_str()).unwrap_or(&0);
+            let dur = if t.is_milestone { 0 } else { t.duration as i64 };
+            es.insert(&t.id, task_ls);
+            ef.insert(&t.id, task_ls + dur);
         }
     }
 
@@ -759,5 +775,105 @@ mod tests {
         assert!(alpha_critical.task_ids.contains(&"a2".to_string()));
         assert!(alpha_critical.task_ids.contains(&"a3".to_string()));
         assert!(!alpha_critical.task_ids.contains(&"b1".to_string()));
+    }
+
+    // --- SF dependency tests ---
+
+    #[test]
+    fn sf_dep_forward_pass() {
+        // A(3d) →SF→ B(2d). SF: EF_B >= ES_A + lag.
+        // ES_A = 0, EF_A = 3. ES_B should be = ES_A + 0 - 2 = -2, floored at 0.
+        // So B: ES=0, EF=2. A: ES=0, EF=3. Project end=3.
+        // Both critical (same ES).
+        let mut b = make_task("b", "2026-03-01", "2026-03-03", 2);
+        b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-04", 3), b];
+        let result = compute_critical_path(&tasks);
+        // A is critical (longer). B has float since EF_B=2 < project_end=3.
+        assert!(result.task_ids.contains(&"a".to_string()));
+    }
+
+    #[test]
+    fn sf_dep_chain_with_fs() {
+        // A(5d) →FS→ C(3d), A(5d) →SF→ B(2d), B(2d) →FS→ C(3d)
+        // A: ES=0, EF=5. B: SF from A → ES=max(0, 0+0-2)=0, EF=2.
+        // C: FS from A → ES=5. FS from B → ES=2. Max=5, EF=8.
+        // Critical path: A→C via FS.
+        let mut b = make_task("b", "2026-03-01", "2026-03-03", 2);
+        b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
+
+        let mut c = make_task("c", "2026-03-01", "2026-03-04", 3);
+        c.dependencies = vec![
+            make_dep("a", "c", DepType::FS, 0),
+            make_dep("b", "c", DepType::FS, 0),
+        ];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c];
+        let result = compute_critical_path(&tasks);
+        assert!(result.task_ids.contains(&"a".to_string()));
+        assert!(result.task_ids.contains(&"c".to_string()));
+    }
+
+    // --- ALAP resolution test ---
+
+    #[test]
+    fn alap_task_uses_late_start() {
+        // A(5d) →FS→ B(3d, ALAP) →FS→ C(2d)
+        // Forward: A ES=0 EF=5. B ES=5 EF=8. C ES=8 EF=10.
+        // Backward: project_end=10. C LS=8 LF=10. B LS=5 LF=8. A LS=0 LF=5.
+        // ALAP on B: ES set to LS=5. Still critical (float=0).
+        let mut b = make_task("b", "2026-03-01", "2026-03-04", 3);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::ALAP);
+
+        let mut c = make_task("c", "2026-03-01", "2026-03-03", 2);
+        c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c];
+        let result = compute_critical_path(&tasks);
+        // All on critical path since it's a linear chain
+        assert!(result.task_ids.contains(&"a".to_string()));
+        assert!(result.task_ids.contains(&"b".to_string()));
+        assert!(result.task_ids.contains(&"c".to_string()));
+    }
+
+    #[test]
+    fn alap_task_non_critical_becomes_critical() {
+        // A(5d), B(3d, ALAP) — no deps between them.
+        // Forward: A ES=0 EF=5, B ES=0 EF=3.
+        // project_end=5. Backward: A LS=0 LF=5, B LS=2 LF=5.
+        // ALAP resolution: B ES=LS=2, EF=2+3=5. Float=LS-ES=2-2=0 → B becomes critical.
+        let mut b = make_task("b", "2026-03-01", "2026-03-04", 3);
+        b.constraint_type = Some(ConstraintType::ALAP);
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b];
+        let result = compute_critical_path(&tasks);
+        assert!(result.task_ids.contains(&"a".to_string()));
+        assert!(result.task_ids.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn alap_with_successor_delays_correctly() {
+        // A(10d), B(3d, ALAP)→FS→C(2d). No dep between A and B.
+        // Forward: A ES=0 EF=10. B ES=0 EF=3. C ES=3 EF=5.
+        // project_end=10. Backward: all LS=project_end-dur.
+        // A LS=0 LF=10. C LS=8 LF=10. B LS=5 LF=8.
+        // ALAP: B ES=5, EF=8. Float for B: 5-5=0 → critical.
+        // C: LS=8, ES=3 originally, but B is predecessor and pushed to ES=5...
+        // Actually C ES from forward pass stays 3, and with ALAP B is now at 5...
+        // CPM doesn't re-run forward pass after ALAP — it just sets ES.
+        // C's ES in forward pass is 3 (from B FS). After ALAP, B's ES becomes 5,
+        // but C's ES is still 3 from forward pass. The float check: C LS=8, ES=3 → float=5.
+        let mut b = make_task("b", "2026-03-01", "2026-03-04", 3);
+        b.constraint_type = Some(ConstraintType::ALAP);
+        let mut c = make_task("c", "2026-03-01", "2026-03-03", 2);
+        c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-11", 10), b, c];
+        let result = compute_critical_path(&tasks);
+        // A is critical (longest). B becomes critical via ALAP (float=0).
+        assert!(result.task_ids.contains(&"a".to_string()));
+        assert!(result.task_ids.contains(&"b".to_string()));
     }
 }

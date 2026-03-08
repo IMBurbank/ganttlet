@@ -1,6 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task, ColumnConfig, ColorByField } from '../../types';
+
+const CONSTRAINT_OPTIONS: { value: NonNullable<Task['constraintType']>; label: string }[] = [
+  { value: 'ASAP', label: 'ASAP' },
+  { value: 'ALAP', label: 'ALAP' },
+  { value: 'SNET', label: 'SNET' },
+  { value: 'SNLT', label: 'SNLT' },
+  { value: 'FNET', label: 'FNET' },
+  { value: 'FNLT', label: 'FNLT' },
+  { value: 'MSO', label: 'MSO' },
+  { value: 'MFO', label: 'MFO' },
+];
 import type { ViewerInfo } from './TaskTable';
 import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
 import { getTaskDepth } from '../../utils/layoutUtils';
@@ -283,6 +294,28 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
             value={task.notes}
             onSave={v => handleFieldUpdate('notes', v)}
           />
+        );
+      case 'constraintType':
+        return (
+          <select
+            value={task.constraintType ?? 'ASAP'}
+            onChange={e => {
+              const ct = e.target.value as NonNullable<Task['constraintType']>;
+              dispatch({
+                type: 'SET_CONSTRAINT',
+                taskId: task.id,
+                constraintType: ct,
+                constraintDate: ['SNET', 'SNLT', 'FNET', 'FNLT', 'MSO', 'MFO'].includes(ct)
+                  ? (task.constraintDate ?? task.startDate)
+                  : undefined,
+              });
+            }}
+            className="bg-transparent border-none text-text-secondary text-xs cursor-pointer focus:outline-none hover:text-text-primary"
+          >
+            {CONSTRAINT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         );
       default:
         return null;

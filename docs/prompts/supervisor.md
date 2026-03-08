@@ -141,17 +141,25 @@ Once the code review finds no issues:
    gh pr merge <number> --squash --delete-branch
    ```
 
-3. Clean up all remaining worktrees:
+3. Clean up all remaining worktrees (**each command must be a separate Bash call** — never chain `cd` with `&&`):
    ```bash
+   # Bash call 1:
    cd /workspace
+   # Bash call 2:
    git worktree remove /workspace/.claude/worktrees/<name>
+   # Bash call 3:
    git worktree prune
    ```
 
-4. Update main:
+4. Update main (separate Bash call after cd):
    ```bash
-   cd /workspace && git pull origin main
+   # Bash call 1:
+   cd /workspace
+   # Bash call 2:
+   git pull origin main
    ```
+
+**CRITICAL**: Never chain `cd` with `&&` or `;` in a single Bash call. If the second command fails, the `cd` does not persist and all subsequent commands run in the wrong directory. Always `cd` in a standalone Bash call first.
 
 ## Log Inspection
 
@@ -184,6 +192,7 @@ MODEL=sonnet ./scripts/launch-phase.sh <config> stage 1
 - Do NOT modify source code directly during stages. All code changes happen through the agents spawned by launch-phase.sh. Exception: you MAY fix issues found by code review directly in Step 4.
 - Do NOT push to main directly. Use `gh pr merge --squash --delete-branch` after the review loop is clean.
 - Do NOT run `git checkout` or `git switch` in `/workspace`. It must stay on `main`.
+- NEVER chain `cd` with `&&` or `;`. Always run `cd` as a standalone Bash call. If a chained command fails, the `cd` does not persist and all subsequent calls run in the wrong (potentially deleted) directory.
 - Follow all rules in `/workspace/CLAUDE.md`, especially the arithmetic rule (use tools for any calculations).
 
 ## Final Report

@@ -149,17 +149,24 @@ describe('ganttReducer', () => {
   });
 
   describe('CASCADE_DEPENDENTS', () => {
-    it('cascades date changes to dependents', () => {
+    it('cascades date changes to dependents when constraint is violated', () => {
+      // In real usage, the moved task's dates are updated (via UPDATE_TASK_FIELD)
+      // before CASCADE_DEPENDENTS is dispatched. The cascade checks for constraint
+      // violations based on the task's current (already updated) dates.
+      //
+      // A moved +5 biz days: endDate is already updated to Mar 17 (Tue).
+      // B starts Mar 11 (Wed). required = add_biz(Mar 17, 0) = Mar 17.
+      // Mar 11 < Mar 17 → violation → B cascades to Mar 17 (shift 4 biz days).
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10' }),
+          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-17' }), // already moved
           makeTask({ id: 'b', startDate: '2026-03-11', endDate: '2026-03-20', dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
         ],
       });
       const result = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'a', daysDelta: 5 });
       const b = result.tasks.find(t => t.id === 'b')!;
-      // delta=5 is now business days: Wed Mar 11 + 5 biz = Wed Mar 18
-      expect(b.startDate).toBe('2026-03-18');
+      // B shifts by minimum to satisfy: required = Mar 17, so B starts Mar 17
+      expect(b.startDate).toBe('2026-03-17');
     });
   });
 
@@ -491,9 +498,12 @@ describe('ganttReducer', () => {
 
   describe('CASCADE_DEPENDENTS', () => {
     it('populates cascadeShifts with pre-cascade dates for changed tasks', () => {
+      // A's dates are already updated to reflect the +3 biz day move.
+      // B starts on the same day A (old) ended, so required B.start = A.new_end
+      // creates a violation and B cascades.
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
+          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-13', duration: 9 }), // moved +3 biz
           makeTask({
             id: 'b',
             startDate: '2026-03-10',
@@ -508,7 +518,7 @@ describe('ganttReducer', () => {
         taskId: 'a',
         daysDelta: 3,
       });
-      // Task 'b' should have been cascaded
+      // Task 'b' should have been cascaded (B.start = Mar 10 < required = Mar 13)
       expect(result.lastCascadeIds).toContain('b');
       expect(result.cascadeShifts.length).toBeGreaterThan(0);
       const shiftB = result.cascadeShifts.find(s => s.taskId === 'b');
@@ -543,14 +553,17 @@ describe('ganttReducer', () => {
       });
       let state = makeState({ tasks: [parent, child] });
 
-      // Simulate end date change: A's end date moves from Mar 10 to Mar 15 (5 day delta)
+      // Simulate end date change: A's end date moves from Mar 10 to Mar 15 (Sun).
+      // Mar 15 is a weekend, so the required B.start snaps to Mon Mar 16.
+      // B.start = Mar 11 < Mar 16 → violation, shift by 3 biz days.
       state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-15' });
       state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: 5 });
 
       const childTask = state.tasks.find(t => t.id === 'B')!;
-      // delta=5 is now business days: Wed Mar 11 + 5 biz = Wed Mar 18, Fri Mar 20 + 5 biz = Fri Mar 27
-      expect(childTask.startDate).toBe('2026-03-18');
-      expect(childTask.endDate).toBe('2026-03-27');
+      // A ends Sun Mar 15 → required B.start = next_biz(Mar 15) = Mon Mar 16.
+      // B shifts 3 biz: Mar 11 → Mar 16. End: add_biz(Mar 20, 3) = Mar 25 (Wed).
+      expect(childTask.startDate).toBe('2026-03-16');
+      expect(childTask.endDate).toBe('2026-03-25');
     });
 
     it('does not cascade dependents on backward move (asymmetric cascade)', () => {

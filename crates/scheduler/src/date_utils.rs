@@ -58,6 +58,36 @@ pub fn add_business_days(date_str: &str, n: i32) -> String {
     result
 }
 
+/// Advance a date to the next business day if it falls on a weekend.
+/// Returns the date unchanged if it is already a business day.
+pub fn next_biz_day_on_or_after(date: &str) -> String {
+    let (y, m, d) = parse_date(date);
+    if is_weekend(y, m, d) {
+        add_business_days(date, 1)
+    } else {
+        date.to_string()
+    }
+}
+
+/// Count the number of business days needed to advance `from` to reach `to`.
+/// `to` must be >= `from`; returns 0 if `to <= from`.
+/// Used by cascade to compute minimum shift amounts.
+pub fn count_biz_days_to(from: &str, to: &str) -> i32 {
+    if from >= to {
+        return 0;
+    }
+    let mut count = 0;
+    let mut current = from.to_string();
+    while current < to.to_string() {
+        current = add_days(&current, 1);
+        let (y, m, d) = parse_date(&current);
+        if !is_weekend(y, m, d) {
+            count += 1;
+        }
+    }
+    count
+}
+
 /// Add `delta` days to a date string, returning a new date string.
 pub fn add_days(date_str: &str, delta: i32) -> String {
     let (mut y, mut m, mut d) = parse_date(date_str);
@@ -129,6 +159,24 @@ mod tests {
         assert_eq!(add_business_days("2026-03-01", 10), "2026-03-13");
         // Fri 2026-03-20 + 5 should be: 2026-03-27
         assert_eq!(add_business_days("2026-03-20", 5), "2026-03-27");
+    }
+
+    #[test]
+    fn count_biz_days_to_basic() {
+        // Mon Mar 09 to Tue Mar 17 across a weekend
+        // Mar 10(1), 11(2), 12(3), 13(4), [14 Sat, 15 Sun], 16(5), 17(6)? wait:
+        // from Mar 09, stepping to Mar 17:
+        // Mar 10 Mon:1, 11 Tue:2, 12 Wed:3, 13 Thu:4, [14 Sat skip, 15 Sun skip], 16 Mon:5, 17 Tue:6
+        // Actually Mar 9 is Mon (Mar 1=Sun, +8=Mon)
+        assert_eq!(count_biz_days_to("2026-03-09", "2026-03-17"), 6);
+        // Same date: 0
+        assert_eq!(count_biz_days_to("2026-03-09", "2026-03-09"), 0);
+        // from > to: 0
+        assert_eq!(count_biz_days_to("2026-03-17", "2026-03-09"), 0);
+        // Adjacent weekdays: 1
+        assert_eq!(count_biz_days_to("2026-03-09", "2026-03-10"), 1);
+        // Fri to Mon = 1 business day
+        assert_eq!(count_biz_days_to("2026-03-06", "2026-03-09"), 1);
     }
 
     #[test]

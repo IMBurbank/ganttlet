@@ -25,6 +25,8 @@ Thumbs.db
 # Claude (track settings.json and worktree context, ignore everything else)
 .claude/*
 !.claude/settings.json
+!.claude/agents/
+!.claude/skills/
 !.claude/worktrees/
 .claude/worktrees/*
 !.claude/worktrees/CLAUDE.md

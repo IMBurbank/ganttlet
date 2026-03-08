@@ -101,7 +101,7 @@ This pushes the implementation branch and creates a PR via `gh pr create`. It al
 
 ### Step 4: Code Review Loop
 
-After the PR is created, manage the code review loop:
+After the PR is created, manage the code review loop until the PR is clean:
 
 1. Wait briefly (30-60 seconds) for the background code review to complete
 2. Check for review comments on the PR:
@@ -109,17 +109,49 @@ After the PR is created, manage the code review loop:
    gh pr view <number> --json comments --jq '.comments[-1].body'
    ```
 3. If the review found issues:
-   - Read the review comment to understand what needs fixing
-   - Create a worktree for fixes:
+   - Read the review comment carefully to understand each issue
+   - Fix the issues directly on the implementation branch (checkout in a worktree if needed):
      ```bash
-     git worktree add /workspace/.claude/worktrees/<phase>-review-fix -b <merge_target>-review-fix
+     git worktree add /workspace/.claude/worktrees/<phase>-review-fix <merge_target>
      ```
-   - Fix the issues in the worktree (or use `claude -p` to fix them)
-   - Push the fixes to the implementation branch
+   - Make the fixes, commit, and push
    - Re-trigger code review using the `/code-review` skill with the PR number
-   - Repeat until the review finds no issues
-4. If the review found no issues: report success
+   - Wait for the new review, then check comments again
+   - **Repeat this loop until the review returns "No issues found"**
+4. If the review found no issues: proceed to Step 5
 5. Clean up any worktrees created during the review loop
+
+### Step 5: Final Comment and Merge
+
+Once the code review finds no issues:
+
+1. Post a comment on the PR summarizing the final state:
+   ```bash
+   gh pr comment <number> --body "<summary>"
+   ```
+   The comment should include:
+   - What the phase implemented (brief, from config)
+   - How many stages ran, how many groups succeeded
+   - Validation result (PASS/FAIL)
+   - Code review result (no issues found / issues fixed in N iterations)
+   - Why the PR is ready to merge (all tests pass, review clean, no outstanding issues)
+
+2. Merge the PR:
+   ```bash
+   gh pr merge <number> --squash --delete-branch
+   ```
+
+3. Clean up all remaining worktrees:
+   ```bash
+   cd /workspace
+   git worktree remove /workspace/.claude/worktrees/<name>
+   git worktree prune
+   ```
+
+4. Update main:
+   ```bash
+   cd /workspace && git pull origin main
+   ```
 
 ## Log Inspection
 
@@ -149,8 +181,8 @@ MODEL=sonnet ./scripts/launch-phase.sh <config> stage 1
 - Do NOT enter plan mode. Execute immediately.
 - Do NOT ask for confirmation before each step. Drive the pipeline autonomously.
 - DO stop and report if a step fails unexpectedly (launch-phase.sh crashes, git state corruption, etc.).
-- Do NOT modify source code directly. All code changes happen through the agents spawned by launch-phase.sh.
-- Do NOT push to main. The create-pr step handles pushing the feature branch.
+- Do NOT modify source code directly during stages. All code changes happen through the agents spawned by launch-phase.sh. Exception: you MAY fix issues found by code review directly in Step 4.
+- Do NOT push to main directly. Use `gh pr merge --squash --delete-branch` after the review loop is clean.
 - Do NOT run `git checkout` or `git switch` in `/workspace`. It must stay on `main`.
 - Follow all rules in `/workspace/CLAUDE.md`, especially the arithmetic rule (use tools for any calculations).
 
@@ -162,5 +194,8 @@ When the pipeline completes (success or failure), produce a summary:
 - Groups that failed (if any)
 - Validation result
 - PR URL (if created)
-- Code review status
+- Code review iterations: how many rounds, issues found and fixed
+- Merge status: merged / not merged (and why)
 - Log file locations for any failures
+
+The full lifecycle is: **stage → merge → validate → create-pr → review loop → merge**. The pipeline is not complete until the PR is merged to main.

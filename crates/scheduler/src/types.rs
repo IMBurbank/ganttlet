@@ -3,16 +3,23 @@ use serde::{Deserialize, Serialize};
 /// Constraint type for a task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConstraintType {
-    ASAP,
-    SNET,
+    ASAP, // As Soon As Possible (default)
+    SNET, // Start No Earlier Than
+    ALAP, // As Late As Possible
+    SNLT, // Start No Later Than
+    FNET, // Finish No Earlier Than
+    FNLT, // Finish No Later Than
+    MSO,  // Must Start On
+    MFO,  // Must Finish On
 }
 
 /// Dependency type between two tasks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DepType {
-    FS,
-    FF,
-    SS,
+    FS, // Finish-to-Start
+    FF, // Finish-to-Finish
+    SS, // Start-to-Start
+    SF, // Start-to-Finish
 }
 
 /// A dependency link from one task to another.
@@ -63,4 +70,6 @@ pub struct RecalcResult {
     pub id: String,
     pub new_start: String,
     pub new_end: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<String>,
 }

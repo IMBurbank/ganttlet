@@ -119,6 +119,7 @@ pub fn compute_critical_path(tasks: &[Task]) -> CriticalPathResult {
                     DepType::FS => cur_ef + edge.lag as i64,
                     DepType::SS => cur_es + edge.lag as i64,
                     DepType::FF => cur_ef + edge.lag as i64 - succ_dur,
+                    DepType::SF => cur_es + edge.lag as i64 - succ_dur,
                 };
 
                 if new_es > current_succ_es {
@@ -179,6 +180,11 @@ pub fn compute_critical_path(tasks: &[Task]) -> CriticalPathResult {
                         DepType::FF => {
                             let nlf = cur_lf - dep.lag as i64;
                             (nlf, nlf - pred_dur)
+                        }
+                        DepType::SF => {
+                            // SF backward: LS_pred >= LF_succ - lag
+                            let nls = cur_lf - dep.lag as i64;
+                            (nls + pred_dur, nls)
                         }
                     };
 

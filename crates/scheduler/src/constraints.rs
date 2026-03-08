@@ -31,6 +31,12 @@ pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
                 let finish = add_business_days(&pred.end_date, dep.lag);
                 add_business_days(&finish, -(task.duration - 1))
             }
+            DepType::SF => {
+                // Start-to-Finish: successor cannot finish until predecessor starts + lag
+                // required_end = pred.start + lag, so required_start = required_end - (duration - 1)
+                let required_end = add_business_days(&pred.start_date, dep.lag);
+                add_business_days(&required_end, -(task.duration - 1))
+            }
         };
 
         latest = Some(match latest {
@@ -220,6 +226,7 @@ pub fn recalculate_earliest(
                 id: id.to_string(),
                 new_start: new_start.clone(),
                 new_end: new_end.clone(),
+                conflict: None,
             });
         }
 

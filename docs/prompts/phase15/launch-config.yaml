@@ -1,0 +1,28 @@
+# Phase 15: Scheduling Engine — Constraints, Dependencies & Conflict Detection
+# This file is the machine-readable launch config for launch-phase.sh.
+# Prompt files live alongside this config in docs/prompts/phase15/.
+
+phase: phase15
+merge_target: feature/phase15
+
+stages:
+  - name: "Core Type + Constraint Engine"
+    groups:
+      - id: groupA
+        branch: feature/phase15-constraint-engine
+        merge_message: "Merge feature/phase15-constraint-engine: ALAP/SNLT/FNET/FNLT/MSO/MFO constraints + SF dep type in types/constraints/cpm"
+
+  - name: "Cascade + Graph + TypeScript"
+    groups:
+      - id: groupB
+        branch: feature/phase15-sf-cascade-conflicts
+        merge_message: "Merge feature/phase15-sf-cascade-conflicts: SF in cascade/graph + detect_conflicts WASM export"
+      - id: groupC
+        branch: feature/phase15-ts-types-sheets
+        merge_message: "Merge feature/phase15-ts-types-sheets: TS type updates + WASM bridge + Sheets constraint columns"
+
+  - name: "Constraint UI"
+    groups:
+      - id: groupD
+        branch: feature/phase15-constraint-ui
+        merge_message: "Merge feature/phase15-constraint-ui: SET_CONSTRAINT action + popover/table UI + conflict indicator + SF in dep editor"

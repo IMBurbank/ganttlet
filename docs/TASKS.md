@@ -7,7 +7,7 @@ Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phas
 
 ## Active Phase
 
-No active phase.
+- **Phase 15**: Scheduling Engine — Constraints, Dependencies & Conflict Detection — [`docs/tasks/phase15.yaml`](tasks/phase15.yaml)
 
 ## Completed
 

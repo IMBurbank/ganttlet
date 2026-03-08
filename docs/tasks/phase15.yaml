@@ -1,0 +1,272 @@
+# Phase 15: Scheduling Engine — Constraints, Dependencies & Conflict Detection
+# Source: docs/unplanned-issues.md (Scheduling Engine backlog)
+
+phase: 15
+status: pending
+context: >
+  Extend the scheduling engine with professional constraint types (ALAP, SNLT,
+  FNET, FNLT, MSO, MFO), SF dependency type, negative float / conflict detection,
+  and user-facing constraint UI + Sheets sync. This brings Ganttlet closer to
+  parity with MS Project / Primavera P6.
+
+stages:
+  - name: "Stage 1: Core Type + Constraint Engine (single agent)"
+    groups:
+      - id: A
+        name: "Type Definitions + Constraint Engine + CPM"
+        scope:
+          modify:
+            - crates/scheduler/src/types.rs
+            - crates/scheduler/src/constraints.rs
+            - crates/scheduler/src/cpm.rs
+          read_only:
+            - crates/scheduler/src/lib.rs
+            - crates/scheduler/src/cascade.rs
+            - crates/scheduler/src/date_utils.rs
+        tasks:
+          - id: A1
+            summary: "Read types.rs, constraints.rs, cpm.rs, cascade.rs — understand current ASAP/SNET implementation"
+            status: pending
+          - id: A2
+            summary: "Add ALAP, SNLT, FNET, FNLT, MSO, MFO to ConstraintType AND SF to DepType in types.rs"
+            status: pending
+            exit_criteria: >
+              ConstraintType has 8 variants: ASAP, SNET, ALAP, SNLT, FNET, FNLT, MSO, MFO.
+              DepType has 4 variants: FS, FF, SS, SF. Serde round-trip works for both.
+          - id: A3
+            summary: "Implement ALAP in constraints.rs — schedule task as late as possible"
+            status: pending
+            exit_criteria: >
+              ALAP tasks scheduled as late as possible without delaying successors.
+              Test: A(5d)→B(3d, ALAP), B scheduled at project end minus 3d.
+          - id: A4
+            summary: "Implement SNLT (Start No Later Than) — ceiling constraint on start date"
+            status: pending
+            exit_criteria: >
+              SNLT task's start never exceeds constraint_date.
+              Test: task with SNLT Mar 20, deps push to Mar 25 → conflict flagged via return value.
+          - id: A5
+            summary: "Implement FNET (Finish No Earlier Than) — floor constraint on end date"
+            status: pending
+            exit_criteria: >
+              FNET task's end >= constraint_date.
+              Test: 3d task starting Mar 10 with FNET Mar 20 → end date pushed to Mar 20.
+          - id: A6
+            summary: "Implement FNLT (Finish No Later Than) — ceiling constraint on end date"
+            status: pending
+            exit_criteria: >
+              FNLT task's end never exceeds constraint_date.
+              Test: task with FNLT Mar 15, deps push end to Mar 18 → conflict flagged.
+          - id: A7
+            summary: "Implement MSO (Must Start On) — hard start constraint"
+            status: pending
+            exit_criteria: >
+              MSO pins start to exact constraint_date. If deps conflict, negative float.
+              Test: MSO Mar 15, dep requires Mar 18 → conflict flagged.
+          - id: A8
+            summary: "Implement MFO (Must Finish On) — hard finish constraint"
+            status: pending
+            exit_criteria: >
+              MFO pins end to exact constraint_date. Conflict flagged if impossible.
+              Test: MFO Mar 15, 5d task → start derived correctly.
+          - id: A9
+            summary: "Implement SF in constraints.rs compute_earliest_start"
+            status: pending
+            exit_criteria: >
+              compute_earliest_start handles SF predecessor: B.end constrained by A.start + lag.
+              Test: A starts Mar 10 (3d), SF lag 0 → B must end by Mar 10.
+          - id: A10
+            summary: "Update recalculate_earliest to apply all constraint types during topological pass"
+            status: pending
+            exit_criteria: >
+              recalculate_earliest correctly applies ALAP, SNLT, FNET, FNLT, MSO, MFO.
+              Existing ASAP/SNET tests still pass.
+          - id: A11
+            summary: "Update CPM forward/backward pass for new constraints + SF dependency type"
+            status: pending
+            exit_criteria: >
+              CPM handles SF deps in forward/backward pass. Float computed correctly
+              for constrained tasks. ALAP tasks have correct LS/LF.
+
+  - name: "Stage 2: Cascade + Graph + TypeScript (parallel — 2 agents)"
+    groups:
+      - id: B
+        name: "SF Cascade + Graph + Conflict Detection — Rust"
+        depends_on: [A]
+        scope:
+          modify:
+            - crates/scheduler/src/cascade.rs
+            - crates/scheduler/src/graph.rs
+            - crates/scheduler/src/lib.rs
+          read_only:
+            - crates/scheduler/src/types.rs
+            - crates/scheduler/src/constraints.rs
+            - crates/scheduler/src/cpm.rs
+            - crates/scheduler/src/date_utils.rs
+        tasks:
+          - id: B1
+            summary: "Read cascade.rs, graph.rs, lib.rs after Stage 1 merge — understand FS/SS/FF handling"
+            status: pending
+          - id: B2
+            summary: "Implement SF in cascade.rs — successor end constrained by predecessor start + lag"
+            status: pending
+            exit_criteria: >
+              SF cascade: required B.end >= next_biz_day(add_biz(A.start, lag)).
+              Tests cover basic SF, SF with lag, SF slack absorption, SF + diamond deps.
+          - id: B3
+            summary: "Implement SF in graph.rs — cycle detection handles SF edges"
+            status: pending
+            exit_criteria: "would_create_cycle correctly detects cycles involving SF edges."
+          - id: B4
+            summary: "Add detect_conflicts function to lib.rs — new WASM export"
+            status: pending
+            exit_criteria: >
+              New public function: detect_conflicts(tasks) → Vec<ConflictResult>.
+              Returns task IDs with negative float and the conflicting constraint/dependency.
+              Tests cover MSO+dep conflict, FNLT+dep conflict, no conflict returns empty.
+          - id: B5
+            summary: "Verify cascade_dependents handles all 4 dep types (FS, SS, FF, SF)"
+            status: pending
+            exit_criteria: "cascade_dependents works for all dep types. All existing cascade tests still pass."
+
+      - id: C
+        name: "TypeScript Types + WASM Bridge + Sheets Sync"
+        depends_on: [A]
+        scope:
+          modify:
+            - src/types/index.ts
+            - src/utils/schedulerWasm.ts
+            - src/sheets/sheetsMapper.ts
+          read_only:
+            - src/state/ganttReducer.ts
+            - src/state/actions.ts
+        tasks:
+          - id: C1
+            summary: "Read types/index.ts, schedulerWasm.ts, sheetsMapper.ts after Stage 1 merge"
+            status: pending
+          - id: C2
+            summary: "Add SF to DependencyType union and all 8 constraint types to Task interface"
+            status: pending
+            exit_criteria: >
+              DependencyType = 'FS' | 'FF' | 'SS' | 'SF'.
+              Task.constraintType = 'ASAP' | 'SNET' | 'ALAP' | 'SNLT' | 'FNET' | 'FNLT' | 'MSO' | 'MFO'.
+          - id: C3
+            summary: "Update schedulerWasm.ts — add detectConflicts wrapper, pass new types through"
+            status: pending
+            exit_criteria: >
+              detectConflicts() exported. Existing WASM functions handle new types without breaking.
+          - id: C4
+            summary: "Add constraintType + constraintDate columns to sheetsMapper.ts"
+            status: pending
+            exit_criteria: >
+              SHEET_COLUMNS includes 'constraintType' and 'constraintDate'. taskToRow serializes them.
+              rowToTask parses them. Round-trip: write→read preserves constraint data.
+
+  - name: "Stage 3: Constraint UI (single agent)"
+    groups:
+      - id: D
+        name: "Constraint UI + Conflict Indicators"
+        depends_on: [A, B, C]
+        scope:
+          modify:
+            - src/state/ganttReducer.ts
+            - src/state/actions.ts
+            - src/components/gantt/TaskBar.tsx
+            - src/components/gantt/TaskBarPopover.tsx
+            - src/components/table/TaskRow.tsx
+            - src/components/shared/DependencyEditorModal.tsx
+          read_only:
+            - src/types/index.ts
+            - src/utils/schedulerWasm.ts
+        tasks:
+          - id: D1
+            summary: "Read ganttReducer.ts, actions.ts, TaskBarPopover.tsx, TaskRow.tsx after Stage 2 merge"
+            status: pending
+          - id: D2
+            summary: "Add SET_CONSTRAINT action to actions.ts and reducer"
+            status: pending
+            exit_criteria: >
+              SET_CONSTRAINT sets constraintType + constraintDate on a task. ASAP clears constraintDate.
+              Unit test: dispatch SET_CONSTRAINT → task updated, summary dates recalculated.
+          - id: D3
+            summary: "Add constraint selector dropdown to TaskBarPopover.tsx"
+            status: pending
+            exit_criteria: >
+              Popover shows constraint type dropdown (8 options) + date picker for date-bearing constraints.
+              ASAP/ALAP hide the date picker. Changing constraint dispatches SET_CONSTRAINT.
+          - id: D4
+            summary: "Add constraintType column to TaskRow.tsx table"
+            status: pending
+            exit_criteria: "Constraint type visible in task table. Inline editable via dropdown."
+          - id: D5
+            summary: "Add conflict indicator to TaskBar.tsx — red outline for negative float tasks"
+            status: pending
+            exit_criteria: >
+              Tasks with conflicts (from detectConflicts) show red visual indicator on Gantt bar.
+              Tooltip shows conflict reason. Indicator clears when conflict is resolved.
+          - id: D6
+            summary: "Add SF to DependencyEditorModal.tsx type dropdown"
+            status: pending
+            exit_criteria: "Dependency editor allows selecting SF type. Creating SF dependency works end-to-end."
+
+validation_agent:
+  name: "Integration Tests + Regression Verification (runs via validate.md after Stage 3 merge)"
+  scope:
+    modify:
+      - src/state/__tests__/ganttReducer.test.ts
+      - src/sheets/__tests__/sheetsMapper.test.ts
+    read_only:
+      - crates/scheduler/src/types.rs
+      - crates/scheduler/src/constraints.rs
+      - crates/scheduler/src/cascade.rs
+      - crates/scheduler/src/lib.rs
+      - src/types/index.ts
+      - src/utils/schedulerWasm.ts
+      - src/state/ganttReducer.ts
+      - src/state/actions.ts
+      - src/sheets/sheetsMapper.ts
+  tasks:
+    - id: V-E1
+      summary: "Read all modified files — verify type consistency Rust/TS/Sheets"
+      status: pending
+    - id: V-E2
+      summary: "Add integration tests in ganttReducer.test.ts for constraints + SF + conflicts"
+      status: pending
+      exit_criteria: >
+        Tests cover: SET_CONSTRAINT→cascade, SNET+dep interaction, ALAP scheduling,
+        MSO conflict detection, SF dependency cascade.
+    - id: V-E3
+      summary: "Add sheetsMapper.test.ts tests for constraint column read/write"
+      status: pending
+      exit_criteria: >
+        Tests verify constraintType and constraintDate survive Sheets round-trip.
+        Edge cases: empty/null constraint, invalid constraint type string.
+    - id: V-E4
+      summary: "Run full-verify.sh — WASM build, tsc, vitest, cargo test"
+      status: pending
+      exit_criteria: "npm run build:wasm succeeds. npx tsc --noEmit passes. npm run test passes. cargo test passes."
+    - id: V-E5
+      summary: "Verify no regressions in existing scheduling behavior"
+      status: pending
+      exit_criteria: >
+        All existing Rust tests pass. All existing TS tests pass. ASAP/SNET unchanged.
+        cascade_dependents still respects slack for FS/SS/FF. Critical path unchanged for unconstrained tasks.
+
+validation:
+  - {id: V1, summary: "Build verification (WASM, tsc, vitest, cargo test)", status: pending}
+  - {id: V2, summary: "Constraint types ALAP/SNLT/FNET/FNLT/MSO/MFO work in engine", status: pending}
+  - {id: V3, summary: "SF dependency works in cascade, CPM, and cycle detection", status: pending}
+  - {id: V4, summary: "Negative float / conflict detection returns correct results", status: pending}
+  - {id: V5, summary: "Constraint UI (popover, table column, dropdown) works", status: pending}
+  - {id: V6, summary: "Conflict indicator renders on conflicted task bars", status: pending}
+  - {id: V7, summary: "Sheets sync round-trips constraintType + constraintDate", status: pending}
+  - {id: V8, summary: "SF appears in dependency editor dropdown", status: pending}
+  - {id: V9, summary: "Existing ASAP/SNET/FS/SS/FF behavior unchanged (regression)", status: pending}
+  - {id: V10, summary: "Type consistency across Rust enum ↔ TS union ↔ Sheets column", status: pending}
+
+follow_up:
+  - {summary: "Calendar support (holidays, resource calendars) — separate phase", status: pending}
+  - {summary: "Duration mode toggle (business vs calendar days) — separate phase", status: pending}
+  - {summary: "E2E test: constraint set via popover cascades across tabs", status: pending}
+  - {summary: "E2E test: SF dependency renders correct arrow path", status: pending}
+  - {summary: "E2E test: conflict indicator visible to collaborators", status: pending}

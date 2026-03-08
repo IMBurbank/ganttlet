@@ -115,7 +115,7 @@ export function createArrowHead(end: Point, depType?: DependencyType): string {
   // The path line terminates at `end`. The arrowhead tip should extend
   // BEYOND `end` toward the target bar, with the base at `end` connecting
   // to the incoming line.
-  if (depType === 'FF') {
+  if (depType === 'FF' || depType === 'SF') {
     // Tip points left (toward bar end), base at end.x
     return `M ${end.x - size} ${end.y} L ${end.x} ${end.y - size} L ${end.x} ${end.y + size} Z`;
   }

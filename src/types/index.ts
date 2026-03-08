@@ -34,10 +34,10 @@ export interface Task {
 }
 
 export interface ConflictResult {
-  task_id: string;
-  conflict_type: string;
-  constraint_date: string;
-  actual_date: string;
+  taskId: string;
+  conflictType: string;
+  constraintDate: string;
+  actualDate: string;
   message: string;
 }
 

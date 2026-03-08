@@ -80,7 +80,7 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
     const conflicts = detectConflicts(allTasks);
     const map = new Map<string, string>();
     for (const c of conflicts) {
-      map.set(c.task_id, c.message);
+      map.set(c.taskId, c.message);
     }
     return map;
   }, [allTasks]);

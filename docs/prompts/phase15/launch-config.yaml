@@ -26,3 +26,21 @@ stages:
       - id: groupD
         branch: feature/phase15-constraint-ui
         merge_message: "Merge feature/phase15-constraint-ui: SET_CONSTRAINT action + popover/table UI + conflict indicator + SF in dep editor"
+
+pr:
+  title: "Phase 15: Scheduling engine — constraints, SF deps, conflict detection"
+  summary: |
+    Phase 15 implementation — professional constraint types, SF dependency, and conflict detection.
+    - ALAP, SNLT, FNET, FNLT, MSO, MFO constraint types in Rust WASM + TypeScript
+    - SF (Start-to-Finish) dependency type in cascade, graph, and CPM
+    - Negative float / conflict detection with visual indicators
+    - Constraint UI in task popover and table columns
+    - Sheets sync for constraint columns
+  test_plan: |
+    - [ ] `npx tsc --noEmit` passes
+    - [ ] `npm run test` passes
+    - [ ] `cd crates/scheduler && cargo test` passes
+    - [ ] Set SNET constraint, verify task cannot start earlier
+    - [ ] Set MSO constraint conflicting with dependency, verify red indicator
+    - [ ] Create SF dependency, verify scheduling logic
+    - [ ] Save/load constraints via Google Sheets

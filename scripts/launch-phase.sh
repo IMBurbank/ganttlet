@@ -28,6 +28,10 @@
 
 set -euo pipefail
 
+# Allow nested Claude sessions when launched from a supervisor agent.
+# Without this, child `claude` processes refuse to start.
+unset CLAUDECODE 2>/dev/null || true
+
 # ── Config defaults ──────────────────────────────────────────────────────────
 
 MAX_RETRIES="${MAX_RETRIES:-3}"

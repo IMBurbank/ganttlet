@@ -25,7 +25,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
   - Create: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
   - Work entirely within that directory — all git operations (commit, push) happen there
   - `/workspace` must always stay on `main` — it is the shared base for all worktrees
-  - **Clean up when done** (mandatory): see `.claude/worktrees/CLAUDE.md` for the exact cleanup procedure — stale worktrees leak disk and block branch deletion
+  - **Clean up after PR is merged** (mandatory): verify merge succeeded before deleting worktrees — see `.claude/worktrees/CLAUDE.md` for the exact procedure. Stale worktrees leak disk and block branch deletion, but premature deletion loses your ability to fix a failed merge.
 - Do NOT add features, refactoring, or "improvements" beyond what was requested.
 - Write failing tests before implementation when feasible (unit, integration — not E2E requiring deployment). Let the test define the expected behavior, then make it pass.
 - Rebase on main regularly during development (`git fetch origin && git rebase origin/main`). Always rebase and re-verify before creating a PR — the branch must pass against current HEAD, not a stale base.

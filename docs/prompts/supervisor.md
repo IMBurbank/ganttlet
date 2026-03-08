@@ -141,7 +141,14 @@ Once the code review finds no issues:
    gh pr merge <number> --squash --delete-branch
    ```
 
-3. Clean up any remaining worktrees (**each command must be a separate Bash call** — never chain `cd` with `&&`):
+3. **Verify the merge succeeded** before cleaning up anything:
+   ```bash
+   gh pr view <number> --json state --jq '.state'
+   ```
+   - If `MERGED` → proceed to cleanup
+   - If not merged → do NOT delete worktrees. Diagnose the failure, fix, and retry the merge. The worktree is your only working copy of the branch.
+
+4. Clean up any remaining worktrees (**each command must be a separate Bash call** — never chain `cd` with `&&`):
    ```bash
    # The merge worktree is cleaned up automatically by create-pr.
    # Only clean up manually if worktrees remain (e.g., from review-fix work):
@@ -153,7 +160,7 @@ Once the code review finds no issues:
    git worktree prune
    ```
 
-4. Update main (separate Bash call after cd):
+5. Update main (separate Bash call after cd):
    ```bash
    # Bash call 1:
    cd /workspace

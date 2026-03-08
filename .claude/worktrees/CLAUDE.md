@@ -21,8 +21,12 @@ It does NOT apply to CI/workflow agents.
 ## Worktree Lifecycle
 - You are working in a worktree. All git operations (commit, push, rebase) happen here.
 - If you find stale worktrees from crashed agents: `git worktree prune`
-- **Clean up when done (follow this exact order):**
-  1. Run `cd /workspace` as a **standalone Bash call** (not chained with `&&`)
-  2. Then in a **separate** Bash call: `git worktree remove /workspace/.claude/worktrees/<name>`
-  3. Then: `git branch -d <branch>` if the branch still exists
+- **Clean up only after the PR is merged** — the worktree is your only working copy. If you delete it before the merge completes and the merge fails, you have no way to fix and retry. Verify first:
+  ```bash
+  gh pr view <number> --json state --jq '.state'   # must be "MERGED"
+  ```
+- **Cleanup order (each step is a separate Bash call — never chain with `&&`):**
+  1. `cd /workspace`
+  2. `git worktree remove /workspace/.claude/worktrees/<name>`
+  3. `git branch -d <branch>` (if it still exists)
   - **Why separate calls**: If `cd` is chained with `&&` and a later command fails, the Bash tool does not persist the directory change. The CWD remains pointed at the deleted worktree and all subsequent Bash calls fail — this is unrecoverable in the current session.

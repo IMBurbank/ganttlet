@@ -13,6 +13,15 @@ description: "Use when modifying launch-phase.sh, creating phase prompts, debugg
 
 See `docs/multi-agent-guide.md` for full command reference and usage examples.
 
+## Supervisor Mode
+A Claude agent can orchestrate the full pipeline autonomously using `scripts/launch-supervisor.sh`.
+- The supervisor runs interactively and calls `launch-phase.sh` subcommands step-by-step
+- It monitors output/logs, makes retry decisions, and handles the code review loop
+- Usage: `./scripts/launch-supervisor.sh docs/prompts/phase15/launch-config.yaml`
+- Prompt: `docs/prompts/supervisor.md` (shared across phases)
+- No tmux needed for the supervisor itself — it runs in the foreground terminal
+- Worker agents spawned by `launch-phase.sh stage N` still run in parallel as usual
+
 ## Prompt File Structure
 Prompts live in `docs/prompts/<phaseN>/` (one file per group). Each prompt must:
 - Use YAML frontmatter for structured metadata (scope, tasks, dependencies)

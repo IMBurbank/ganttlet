@@ -32,6 +32,7 @@ interface TaskBarProps {
   viewerColor?: string;
   collapseWeekends?: boolean;
   earliestStart?: string;
+  conflictMessage?: string;
 }
 
 let clipIdCounter = 0;
@@ -40,7 +41,7 @@ export default function TaskBar({
   taskId, taskName, startDate, endDate, done, color,
   x, y, width, timelineStart, zoom, rowHeight, notes,
   owner, functionalArea, okrs, showOwner, showArea, showOkrs, isCritical,
-  viewerName, viewerColor, collapseWeekends = false, earliestStart,
+  viewerName, viewerColor, collapseWeekends = false, earliestStart, conflictMessage,
 }: TaskBarProps) {
   const dispatch = useGanttDispatch();
   const localDispatch = useLocalDispatch();
@@ -206,6 +207,7 @@ export default function TaskBar({
       <div className="text-text-secondary">{startDate} - {endDate}</div>
       <div className="text-text-secondary">{done ? 'Done' : 'In progress'}</div>
       {notes && <div className="text-text-muted text-xs italic">{notes}</div>}
+      {conflictMessage && <div className="text-red-400 text-xs font-medium">{conflictMessage}</div>}
     </div>
   );
 
@@ -272,6 +274,22 @@ export default function TaskBar({
             stroke="#ef4444"
             strokeWidth={1}
             opacity={0.3}
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+        {/* Conflict indicator outline */}
+        {conflictMessage && (
+          <rect
+            x={x - 2}
+            y={barY - 2}
+            width={Math.max(width, 4) + 4}
+            height={barHeight + 4}
+            rx={6}
+            fill="none"
+            stroke="#ef4444"
+            strokeWidth={2}
+            strokeDasharray="4 2"
+            opacity={0.9}
             style={{ pointerEvents: 'none' }}
           />
         )}
@@ -352,6 +370,32 @@ export default function TaskBar({
           >
             ✓
           </text>
+        )}
+        {/* Conflict warning icon */}
+        {conflictMessage && (
+          <Tooltip content={<div className="text-red-300 text-xs">{conflictMessage}</div>} delay={100} svg>
+            <g style={{ cursor: 'default' }}>
+              <circle
+                cx={x + Math.max(width, 4) + 10}
+                cy={barY + barHeight / 2}
+                r={8}
+                fill="#ef4444"
+                opacity={0.9}
+              />
+              <text
+                x={x + Math.max(width, 4) + 10}
+                y={barY + barHeight / 2 + 1}
+                fontSize={11}
+                fill="white"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontWeight={700}
+                style={{ pointerEvents: 'none' }}
+              >
+                !
+              </text>
+            </g>
+          </Tooltip>
         )}
         {/* Right resize handle */}
         <rect

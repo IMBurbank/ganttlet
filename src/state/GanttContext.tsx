@@ -70,6 +70,7 @@ const TASK_MODIFYING_ACTIONS = new Set([
   'ADD_DEPENDENCY',
   'UPDATE_DEPENDENCY',
   'REMOVE_DEPENDENCY',
+  'SET_CONSTRAINT',
 ]);
 
 export function GanttProvider({ children }: { children: React.ReactNode }) {

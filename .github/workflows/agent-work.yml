@@ -122,6 +122,15 @@ jobs:
           - Level 2 (stuck): Commit WIP with message explaining what's broken.
           - Level 3 (blocked): Commit, continue with non-dependent tasks.
 
+          ## Progress Reporting
+          After each significant step, output a one-line status update so progress is visible in the CI log.
+          Use this format: [PROGRESS] <what you just did or are about to do>
+          Examples:
+            [PROGRESS] Read 4 source files, identified cascade logic in src/utils/cascadeUtils.ts
+            [PROGRESS] Added 3 test cases for slack-preserving cascade behavior
+            [PROGRESS] Running ./scripts/full-verify.sh — all unit tests pass
+          Report progress after: reading files, writing tests, implementing changes, running verification, and committing.
+
           ## When Done
           Write `.agent-summary.md` in the repo root containing:
           - What you changed and why
@@ -172,7 +181,7 @@ jobs:
             fi
 
             set +e
-            claude -p "$(cat $PROMPT_FILE)" \
+            claude -p --verbose "$(cat $PROMPT_FILE)" \
               --dangerously-skip-permissions \
               --max-turns ${{ steps.config.outputs.max_turns }} \
               --max-budget-usd ${{ steps.config.outputs.max_budget }} \
@@ -259,7 +268,7 @@ jobs:
 
             # Run code review and capture output
             set +e
-            REVIEW_OUTPUT=$(claude -p "Use /code-review to review PR #${PR_NUMBER}. After posting your review comment, output EXACTLY one of these lines at the end: REVIEW_RESULT:CLEAN (if no issues found or no comment posted) or REVIEW_RESULT:ISSUES_FOUND (if you posted a review comment with issues)." \
+            REVIEW_OUTPUT=$(claude -p --verbose "Use /code-review to review PR #${PR_NUMBER}. After posting your review comment, output EXACTLY one of these lines at the end: REVIEW_RESULT:CLEAN (if no issues found or no comment posted) or REVIEW_RESULT:ISSUES_FOUND (if you posted a review comment with issues)." \
               --dangerously-skip-permissions \
               --max-turns 30 \
               --max-budget-usd 5.00 2>&1)
@@ -307,7 +316,7 @@ jobs:
 
             # Run fix agent
             set +e
-            claude -p "You are fixing code review findings for PR #${PR_NUMBER} on the Ganttlet project.
+            claude -p --verbose "You are fixing code review findings for PR #${PR_NUMBER} on the Ganttlet project.
 
           Read CLAUDE.md first for project context.
 

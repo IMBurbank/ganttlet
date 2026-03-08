@@ -8,8 +8,11 @@ description: "Use when modifying launch-phase.sh, creating phase prompts, debugg
 ## launch-phase.sh Architecture
 - **Stages**: Sequential groups of parallel agents (stage1 → merge1 → stage2 → merge2 → ...)
 - **Merge gating**: Each stage's branches must merge cleanly before the next stage starts
+- **Per-branch verification**: After each branch merge, tsc/vitest/cargo test run in parallel
+- **Stage timeouts**: `MAX_STAGE_DURATION` (default 1800s) kills stalled agents
 - **Retry-on-crash**: Agents that crash are restarted automatically
 - **Validation**: Post-merge validation agent runs fix-and-retry cycles
+- **Cleanup command**: `./scripts/launch-phase.sh <config> cleanup` removes all phase worktrees/branches
 
 See `docs/multi-agent-guide.md` for full command reference and usage examples.
 
@@ -72,3 +75,6 @@ Every group prompt should include in its Error Handling section:
 - **Container dependencies**: tmux must be in the Dockerfile's `apt-get install` line. If missing, WATCH mode is completely broken with no useful error.
 - **`CLAUDECODE` env var blocks nested sessions**: When `launch-phase.sh` is run from a supervisor agent (Claude Code), child `claude` processes refuse to start. Fixed by `unset CLAUDECODE` at the top of `launch-phase.sh`.
 - **Merge worktree isolation**: Merge/validate/PR steps must never `git checkout` in `/workspace`. The `do_merge()`, `validate()`, and `create_pr()` functions operate in a dedicated merge worktree (`MERGE_WORKTREE`). This prevents dirty state, Cargo.lock conflicts, and pre-commit hook issues.
+- **Per-branch verification**: Verifying after ALL branches are merged makes failures harder to diagnose (compound errors). `do_merge()` now runs `run_parallel_verification()` after each branch, catching breakage before the next branch is merged on top.
+- **Parallel verification is faster**: Running tsc, vitest, and cargo test with `&` + `wait` instead of sequentially saves significant time during merge verification.
+- **Code review rounds should be capped**: Without a cap, the review-fix-review loop can cycle indefinitely. The supervisor prompt caps at 3 rounds; beyond that, add `needs-human-review` label.

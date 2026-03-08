@@ -5,6 +5,19 @@
 preflight_check() {
   log "=== Preflight check ==="
 
+  # Verify claude CLI is available
+  if ! command -v claude >/dev/null 2>&1; then
+    err "claude CLI not found — install it before launching agents"
+    return 1
+  fi
+  log "claude CLI: $(claude --version 2>/dev/null || echo 'available')"
+
+  # Verify tmux if WATCH mode is enabled
+  if [[ "$WATCH" == "1" ]] && ! command -v tmux >/dev/null 2>&1; then
+    err "WATCH=1 requires tmux but it's not installed"
+    return 1
+  fi
+
   if [[ -n "$(cd "$WORKSPACE" && git status --porcelain)" ]]; then
     err "Dirty git state — commit or stash changes before launching agents"
     return 1
@@ -18,6 +31,18 @@ preflight_check() {
     fi
   done
   $prompts_exist || return 1
+
+  # Verify merge target branch can be created or already exists
+  cd "$WORKSPACE"
+  if ! git rev-parse --verify "$MERGE_TARGET" >/dev/null 2>&1; then
+    if ! git rev-parse --verify main >/dev/null 2>&1; then
+      err "Neither ${MERGE_TARGET} nor main branch exists"
+      return 1
+    fi
+    log "Merge target ${MERGE_TARGET} will be created from main"
+  else
+    log "Merge target ${MERGE_TARGET} already exists"
+  fi
 
   log "Checking WASM build..."
   if ! (cd "$WORKSPACE" && npm run build:wasm > /dev/null 2>&1); then
@@ -80,6 +105,25 @@ run_parallel_stage() {
     return 1
   fi
 
+  # Stage-level timeout watchdog
+  local stage_start
+  stage_start=$(date +%s)
+  local timeout_pid=""
+  if [[ "${MAX_STAGE_DURATION:-0}" -gt 0 ]]; then
+    (
+      sleep "$MAX_STAGE_DURATION"
+      warn "=== ${stage_label}: stage timeout (${MAX_STAGE_DURATION}s) reached — killing agents ==="
+      for pid in "${pids[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+      done
+      sleep 5
+      for pid in "${pids[@]}"; do
+        kill -9 "$pid" 2>/dev/null || true
+      done
+    ) &
+    timeout_pid=$!
+  fi
+
   local succeeded_groups=()
   local failed_groups=()
 
@@ -99,9 +143,19 @@ run_parallel_stage() {
     fi
   done
 
+  # Kill timeout watchdog if it's still running
+  if [[ -n "$timeout_pid" ]]; then
+    kill "$timeout_pid" 2>/dev/null || true
+  fi
+
   for mpid in "${monitor_pids[@]}"; do
     kill "$mpid" 2>/dev/null || true
   done
+
+  local stage_end
+  stage_end=$(date +%s)
+  local stage_elapsed=$(( stage_end - stage_start ))
+  log "${stage_label} completed in ${stage_elapsed}s"
 
   echo "${succeeded_groups[*]}" > "${LOG_DIR}/stage-succeeded.txt"
   echo "${failed_groups[*]}" > "${LOG_DIR}/stage-failed.txt"

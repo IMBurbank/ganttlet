@@ -19,9 +19,10 @@ All commands require the config file as the first argument:
 ```bash
 ./scripts/launch-phase.sh <config> status       # Current state overview
 ./scripts/launch-phase.sh <config> stage <N>     # Run stage N parallel groups
-./scripts/launch-phase.sh <config> merge <N>     # Merge stage N branches
+./scripts/launch-phase.sh <config> merge <N>     # Merge stage N branches (verifies after each)
 ./scripts/launch-phase.sh <config> validate      # Run validation agent
 ./scripts/launch-phase.sh <config> create-pr     # Create PR + trigger code review
+./scripts/launch-phase.sh <config> cleanup       # Remove all phase worktrees and branches
 ```
 
 ## Execution Protocol
@@ -64,7 +65,7 @@ This blocks until all parallel agents in the stage finish. The command handles w
 ./scripts/launch-phase.sh <config> merge <N>
 ```
 
-This merges succeeded branches to the implementation branch in a dedicated merge worktree (`/workspace/.claude/worktrees/<phase>-merge`). It runs build verification (WASM + tsc + vitest + cargo test) and auto-launches fix agents if verification fails. The merge worktree persists across stages and is cleaned up after PR creation. `/workspace` stays on `main` at all times.
+This merges succeeded branches to the implementation branch in a dedicated merge worktree (`/workspace/.claude/worktrees/<phase>-merge`). After each branch merge, it runs build verification (WASM + tsc + vitest + cargo test in parallel) and auto-launches fix agents if verification fails. This catches breakage early — before merging more branches on top. The merge worktree persists across stages and is cleaned up after PR creation. `/workspace` stays on `main` at all times.
 
 **Check merge results:**
 - Exit code 0 = clean merge + verification passed
@@ -108,7 +109,8 @@ This pushes the implementation branch and creates a PR via `gh pr create`. It al
 
 ### Step 4: Code Review Loop
 
-After the PR is created, manage the code review loop until the PR is clean:
+After the PR is created, manage the code review loop until the PR is clean.
+**Maximum review rounds: 3.** If issues persist after 3 rounds, add a `needs-human-review` label and proceed to Step 5 with a note that the review is incomplete.
 
 1. Wait briefly (30-60 seconds) for the background code review to complete
 2. Check for review comments on the PR:
@@ -122,9 +124,9 @@ After the PR is created, manage the code review loop until the PR is clean:
      git worktree add /workspace/.claude/worktrees/<phase>-review-fix <merge_target>
      ```
    - Make the fixes, commit, and push
-   - Re-trigger code review using the `/code-review` skill with the PR number
+   - When re-triggering code review, include the previous review comment body in your review prompt so the reviewer can skip issues that were already fixed. This prevents re-flagging resolved issues.
    - Wait for the new review, then check comments again
-   - **Repeat this loop until the review returns "No issues found"**
+   - **Repeat this loop until the review returns "No issues found" or you hit the 3-round cap**
 4. If the review found no issues: proceed to Step 5
 5. Clean up any worktrees created during the review loop
 
@@ -155,10 +157,12 @@ Once the code review finds no issues:
    - If `MERGED` → proceed to cleanup
    - If not merged → do NOT delete worktrees. Diagnose the failure, fix, and retry the merge. The worktree is your only working copy of the branch.
 
-4. Clean up any remaining worktrees (**each command must be a separate Bash call** — never chain `cd` with `&&`):
+4. Clean up all phase worktrees and branches:
    ```bash
-   # The merge worktree is cleaned up automatically by create-pr.
-   # Only clean up manually if worktrees remain (e.g., from review-fix work):
+   ./scripts/launch-phase.sh <config> cleanup
+   ```
+   This removes all worktrees matching the phase, prunes stale references, and deletes phase branches. If cleanup fails for specific worktrees, clean up manually (**each command must be a separate Bash call** — never chain `cd` with `&&`):
+   ```bash
    # Bash call 1:
    cd /workspace
    # Bash call 2:
@@ -197,6 +201,7 @@ You can set env vars per-command to customize behavior:
 ```bash
 MAX_RETRIES=5 ./scripts/launch-phase.sh <config> stage 1
 VALIDATE_MAX_ATTEMPTS=5 ./scripts/launch-phase.sh <config> validate
+MAX_STAGE_DURATION=3600 ./scripts/launch-phase.sh <config> stage 1   # 1 hour timeout
 MODEL=sonnet ./scripts/launch-phase.sh <config> stage 1
 ```
 

@@ -1,24 +1,13 @@
 {
-  "group": "C",
+  "group": "D",
   "phase": 15,
   "tasks": {
-    "C1": {
-      "status": "done"
-    },
-    "C2": {
-      "status": "done",
-      "tests_passing": 131,
-      "tests_failing": 0
-    },
-    "C3": {
-      "status": "done"
-    },
-    "C4": {
-      "status": "done",
-      "tests_passing": 34,
-      "tests_failing": 0
-    }
+    "D1": { "status": "done" },
+    "D2": { "status": "done", "tests_passing": 45, "tests_failing": 0 },
+    "D3": { "status": "done" },
+    "D4": { "status": "done" },
+    "D5": { "status": "done" },
+    "D6": { "status": "done", "notes": "SF already existed in DEP_TYPE_LABELS" }
   },
-  "notes": "DependencyEditorModal.tsx needs SF added to DEP_TYPE_LABELS (Group D scope). 4 test files fail due to pre-existing WASM module not built.",
-  "last_updated": "2026-03-08T20:19:43.215Z"
+  "last_updated": "2026-03-08T20:50:00Z"
 }

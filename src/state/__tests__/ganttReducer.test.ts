@@ -663,6 +663,67 @@ describe('ganttReducer', () => {
     });
   });
 
+  describe('SET_CONSTRAINT', () => {
+    it('sets constraintType and constraintDate on a task', () => {
+      const state = makeState({
+        tasks: [makeTask({ id: 'a' })],
+      });
+      const result = ganttReducer(state, {
+        type: 'SET_CONSTRAINT',
+        taskId: 'a',
+        constraintType: 'SNET',
+        constraintDate: '2026-04-01',
+      });
+      const task = result.tasks.find(t => t.id === 'a')!;
+      expect(task.constraintType).toBe('SNET');
+      expect(task.constraintDate).toBe('2026-04-01');
+    });
+
+    it('clears constraintDate when ASAP is selected', () => {
+      const state = makeState({
+        tasks: [makeTask({ id: 'a', constraintType: 'SNET', constraintDate: '2026-04-01' })],
+      });
+      const result = ganttReducer(state, {
+        type: 'SET_CONSTRAINT',
+        taskId: 'a',
+        constraintType: 'ASAP',
+      });
+      const task = result.tasks.find(t => t.id === 'a')!;
+      expect(task.constraintType).toBe('ASAP');
+      expect(task.constraintDate).toBeUndefined();
+    });
+
+    it('clears constraintDate when ALAP is selected', () => {
+      const state = makeState({
+        tasks: [makeTask({ id: 'a', constraintType: 'MSO', constraintDate: '2026-04-01' })],
+      });
+      const result = ganttReducer(state, {
+        type: 'SET_CONSTRAINT',
+        taskId: 'a',
+        constraintType: 'ALAP',
+      });
+      const task = result.tasks.find(t => t.id === 'a')!;
+      expect(task.constraintType).toBe('ALAP');
+      expect(task.constraintDate).toBeUndefined();
+    });
+
+    it('is undoable', () => {
+      const state = makeState({
+        tasks: [makeTask({ id: 'a' })],
+      });
+      const result = ganttReducer(state, {
+        type: 'SET_CONSTRAINT',
+        taskId: 'a',
+        constraintType: 'MFO',
+        constraintDate: '2026-05-01',
+      });
+      expect(result.undoStack.length).toBe(1);
+      const undone = ganttReducer(result, { type: 'UNDO' });
+      const task = undone.tasks.find(t => t.id === 'a')!;
+      expect(task.constraintType).toBeUndefined();
+    });
+  });
+
   describe('UNDO clears cascade state', () => {
     it('clears cascadeShifts on undo', () => {
       // First do an action that creates an undo snapshot

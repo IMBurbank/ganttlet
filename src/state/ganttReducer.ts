@@ -11,7 +11,7 @@ const UNDOABLE_ACTIONS = new Set([
   'RESIZE_TASK', 'CASCADE_DEPENDENTS', 'COMPLETE_DRAG',
   'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
   'ADD_TASK', 'DELETE_TASK', 'REPARENT_TASK',
-  'RECALCULATE_EARLIEST',
+  'RECALCULATE_EARLIEST', 'SET_CONSTRAINT',
 ]);
 
 export function ganttReducer(state: GanttState, action: GanttAction): GanttState {
@@ -567,6 +567,22 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         }
         return { ...state, tasks };
       }
+      tasks = recalcSummaryDates(tasks);
+      return { ...state, tasks };
+    }
+
+    case 'SET_CONSTRAINT': {
+      let tasks = state.tasks.map(t =>
+        t.id === action.taskId
+          ? {
+              ...t,
+              constraintType: action.constraintType,
+              constraintDate: action.constraintType === 'ASAP' || action.constraintType === 'ALAP'
+                ? undefined
+                : action.constraintDate,
+            }
+          : t
+      );
       tasks = recalcSummaryDates(tasks);
       return { ...state, tasks };
     }

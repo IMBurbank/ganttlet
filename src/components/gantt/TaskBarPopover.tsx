@@ -1,7 +1,22 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import type { Task } from '../../types';
 import { formatDisplayDate, addBusinessDaysToDate, businessDaysDelta, workingDaysBetween } from '../../utils/dateUtils';
+
+const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
+  ASAP: 'As Soon As Possible',
+  ALAP: 'As Late As Possible',
+  SNET: 'Start No Earlier Than',
+  SNLT: 'Start No Later Than',
+  FNET: 'Finish No Earlier Than',
+  FNLT: 'Finish No Later Than',
+  MSO: 'Must Start On',
+  MFO: 'Must Finish On',
+};
+
+const CONSTRAINT_TYPES = Object.keys(CONSTRAINT_LABELS) as NonNullable<Task['constraintType']>[];
+const DATE_BEARING_CONSTRAINTS = new Set(['SNET', 'SNLT', 'FNET', 'FNLT', 'MSO', 'MFO']);
 
 interface TaskBarPopoverProps {
   taskId: string;
@@ -159,6 +174,44 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
           />
         </div>
+        <div>
+          <label className="text-[10px] text-text-muted uppercase">Constraint</label>
+          <select
+            value={task.constraintType ?? 'ASAP'}
+            onChange={e => {
+              const ct = e.target.value as NonNullable<Task['constraintType']>;
+              dispatch({
+                type: 'SET_CONSTRAINT',
+                taskId,
+                constraintType: ct,
+                constraintDate: DATE_BEARING_CONSTRAINTS.has(ct) ? (task.constraintDate ?? task.startDate) : undefined,
+              });
+            }}
+            className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500 cursor-pointer"
+          >
+            {CONSTRAINT_TYPES.map(ct => (
+              <option key={ct} value={ct}>{CONSTRAINT_LABELS[ct]}</option>
+            ))}
+          </select>
+        </div>
+        {DATE_BEARING_CONSTRAINTS.has(task.constraintType ?? 'ASAP') && (
+          <div>
+            <label className="text-[10px] text-text-muted uppercase">Constraint Date</label>
+            <input
+              type="date"
+              value={task.constraintDate ?? ''}
+              onChange={e => {
+                dispatch({
+                  type: 'SET_CONSTRAINT',
+                  taskId,
+                  constraintType: task.constraintType!,
+                  constraintDate: e.target.value,
+                });
+              }}
+              className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

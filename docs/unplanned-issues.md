@@ -42,7 +42,7 @@ items from **Backlog**, moves them to **Claimed**, and once planned into
 
 ### Agent Infrastructure
 
-- [ ] Infra: Structured `.agent-status.json` for orchestrator polling — replace plain-text `claude-progress.txt` with machine-readable JSON so the orchestrator can programmatically detect task completion. Phase 13 §4A, P2 priority. Not implemented — plain text was acceptable tradeoff but limits automation.
+- [x] Infra: Structured `.agent-status.json` for orchestrator polling — replaced plain-text `claude-progress.txt` with machine-readable JSON. CLAUDE.md, launch-phase.sh, skills, and group prompts all updated. Backward-compatible fallback to `claude-progress.txt` retained.
 - [ ] Infra: Two-pass validation in orchestrator — split validation into diagnostic-then-fix passes to prevent fix-one-break-another cycles. Phase 13 §7, P2 priority. Current single-pass with retry is acceptable but suboptimal.
 - [ ] Infra: Orchestrator dry-run / smoke-test mode — run orchestrator pipeline without actually executing agents to validate configuration, file assignments, and prompt construction. Phase 13 §11, P3 priority.
 

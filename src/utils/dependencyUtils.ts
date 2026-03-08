@@ -44,6 +44,10 @@ export function getDependencyPoints(
       start = { x: fromStartX - STUB, y: fromY + midRow };
       end = { x: toStartX - STUB, y: toY + midRow };
       break;
+    case 'SF':
+      start = { x: fromStartX - STUB, y: fromY + midRow };
+      end = { x: toEndX + STUB, y: toY + midRow };
+      break;
   }
 
   return { start, end };

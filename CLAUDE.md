@@ -184,5 +184,5 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.
 
 ## Project Status
-- **Completed**: Phases 0-14. See `docs/completed-phases.md`.
+- **Completed**: Phases 0-15. See `docs/completed-phases.md`.
 - **Roadmap**: Resource assignment/leveling, baseline tracking, export (PDF/PNG/CSV).

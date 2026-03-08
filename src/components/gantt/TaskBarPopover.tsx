@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import type { Task } from '../../types';
-import { formatDisplayDate, addBusinessDaysToDate, businessDaysDelta, workingDaysBetween } from '../../utils/dateUtils';
+import { addBusinessDaysToDate, businessDaysDelta, workingDaysBetween } from '../../utils/dateUtils';
 
 const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
   ASAP: 'As Soon As Possible',

@@ -24,6 +24,7 @@ See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 | 13a | Post-Implementation Cleanup | 2 (E-F) | Doc alignment, skill enrichment |
 | Plugin | Plugin Adoption | — | LSP plugins, code review, protective hooks |
 | 14 | Drag Reliability & Sync Integrity | 6 (A-F) | Dispatch split, atomic drag, CRDT structural sync |
+| 15 | Scheduling Engine: Constraints & Conflicts | 4 (A-D) | All constraint types, SF deps, conflict detection, constraint UI |
 
 ---
 
@@ -183,3 +184,11 @@ Addressed 10 recommendations (R1-R10) for drag interaction reliability and CRDT 
 - **Group D (Atomic Drag + Structural Sync)**: Added `COMPLETE_DRAG` action — atomic position set + cascade in one reducer pass with cascade highlight tracking. Replaced separate `MOVE_TASK` + `CASCADE_DEPENDENTS` on mouseup. Added `ADD_DEPENDENCY`, `UPDATE_DEPENDENCY`, `REMOVE_DEPENDENCY` to Yjs binding. Added `ADD_TASK`/`DELETE_TASK` full-sync triggers.
 - **Group E (Arrow Render Consistency)**: Memoized `taskMap`, `visibleIds`, `criticalEdgeSet`, `arrows` in DependencyLayer. Added guard clauses for missing Y positions and missing from/to tasks.
 - **Group F (Drag Intent / Ghost Bar)**: Extended Yjs awareness with drag intent (`setDragIntent`). Extended `CollabUser` type with `dragging` field. Ghost bars render as dashed outlines with collaborator name for remote drags. Date validation via `parseISO` + `isValid`.
+
+## Phase 15: Scheduling Engine — Constraints, SF Deps & Conflict Detection — DONE
+Three-stage pipeline: stage 1 (Group A) → merge → stage 2 (Groups B+C parallel) → merge → stage 3 (Group D) → merge → validate → PR. First phase using config-driven `launch-phase.sh` with supervisor orchestration. Two code review rounds, all issues resolved. PR #34, squash-merged.
+- **Group A (Core Types + Constraint Engine)**: Extended `ConstraintType` enum with ALAP, SNLT, FNET, FNLT, MSO, MFO (8 total). Added `SF` to `DepType` (4 total: FS, FF, SS, SF). Implemented all constraint types in `constraints.rs` — ALAP schedules late via CPM backward pass, SNLT/FNLT flag conflicts, FNET/MSO/MFO push dates forward. SF handling in `compute_earliest_start` and CPM forward/backward pass.
+- **Group B (SF Cascade + Conflict Detection)**: Implemented SF cascade logic in `cascade.rs`. Added `detect_conflicts()` function that identifies constraint violations (negative float, constraint date vs actual date mismatches). Added `ConflictResult` type with camelCase serde for WASM boundary.
+- **Group C (TypeScript Types + Sheets Sync)**: Added `ConflictResult` interface to `types/index.ts` (camelCase to match Rust serde). Updated `sheetsMapper.ts` to read/write `constraintType` and `constraintDate` columns. Added `detectConflicts` WASM wrapper to `schedulerWasm.ts`.
+- **Group D (Constraint UI + Conflict Indicator)**: Added `SET_CONSTRAINT` action and reducer handler. Constraint selector dropdown in `TaskBarPopover` and `TaskRow`. Red conflict indicator on `TaskBar` for constraint violations. SF dependency type option in `DependencyEditorModal` with correct arrowhead direction.
+- **Orchestration improvements**: Fixed CLAUDECODE env var blocking nested sessions. Fixed merge script leaving `/workspace` on wrong branch. Added merge worktree isolation (PR #35). Added per-branch verification, stage timeouts, cleanup command (PR #36).

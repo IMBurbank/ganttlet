@@ -107,8 +107,10 @@ The supervisor replaces the `all` command with intelligent step-by-step orchestr
 **Environment variables:**
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SUPERVISOR_BUDGET` | `50.00` | Max USD budget for the supervisor agent |
 | `MODEL` | (unset) | Override Claude model for the supervisor |
+
+Note: `--max-budget-usd` only works in pipe mode (`-p`). The supervisor runs interactively,
+so budget is not capped by the CLI. Monitor usage manually during long-running phases.
 
 The supervisor prompt lives at `docs/prompts/supervisor.md` and is shared across all phases.
 

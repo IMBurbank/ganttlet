@@ -12,12 +12,10 @@
 #
 # Environment:
 #   MODEL                — Override Claude model for the supervisor (default: unset)
-#   SUPERVISOR_BUDGET    — Max USD budget for supervisor agent (default: 50.00)
 
 set -euo pipefail
 
 WORKSPACE="/workspace"
-SUPERVISOR_BUDGET="${SUPERVISOR_BUDGET:-50.00}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUPERVISOR_PROMPT="${SCRIPT_DIR}/../docs/prompts/supervisor.md"
 
@@ -38,7 +36,6 @@ Arguments:
 
 Environment variables:
   MODEL                Override Claude model for supervisor (opus, sonnet, haiku)
-  SUPERVISOR_BUDGET    Max USD budget for supervisor agent (default: 50.00)
 USAGE
   exit 0
 fi
@@ -81,8 +78,11 @@ fi
 claude_args=(
   --dangerously-skip-permissions
   --system-prompt "$(cat "$SUPERVISOR_PROMPT")"
-  --max-budget-usd "$SUPERVISOR_BUDGET"
 )
+
+# Note: --max-budget-usd only works with --print (pipe mode).
+# The supervisor runs interactively, so budget must be managed manually.
+# The supervisor prompt instructs the agent to be cost-conscious.
 
 if [[ -n "${MODEL:-}" ]]; then
   claude_args+=(--model "$MODEL")
@@ -97,7 +97,6 @@ Start by reading the config file and running status, then execute the full pipel
 
 echo "Starting supervisor agent..."
 echo "  Config: ${CONFIG_FILE}"
-echo "  Budget: \$${SUPERVISOR_BUDGET}"
 echo "  Prompt: ${SUPERVISOR_PROMPT}"
 echo ""
 

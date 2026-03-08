@@ -86,6 +86,34 @@ executes from the given step through the end. Also supports space-separated synt
 | `STALL_TIMEOUT` | `30` | Minutes of inactivity before stall warning |
 | `MODEL` | (unset) | Override Claude model (`opus`, `sonnet`, `haiku`) |
 
+## Supervisor Mode
+
+A Claude agent can orchestrate the full phase pipeline autonomously:
+```bash
+./scripts/launch-supervisor.sh docs/prompts/phase15/launch-config.yaml
+```
+
+The supervisor replaces the `all` command with intelligent step-by-step orchestration:
+- Reads the config to understand phase structure
+- Runs each `stage N` → `merge N` step sequentially via `launch-phase.sh`
+- Monitors output and logs between steps, makes judgment calls on retries
+- Drives validation and PR creation
+- Handles the code review loop: reads review comments, fixes issues, re-triggers review
+
+**When to use supervisor vs `all`:**
+- Use `all` for simple phases where automated retry logic is sufficient
+- Use supervisor for complex phases, risky merges, or when you want intelligent failure handling
+
+**Environment variables:**
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MODEL` | (unset) | Override Claude model for the supervisor |
+
+Note: `--max-budget-usd` only works in pipe mode (`-p`). The supervisor runs interactively,
+so budget is not capped by the CLI. Monitor usage manually during long-running phases.
+
+The supervisor prompt lives at `docs/prompts/supervisor.md` and is shared across all phases.
+
 ## WATCH Mode
 
 `WATCH=1` runs each agent in its own tmux window with streaming text output (not the full

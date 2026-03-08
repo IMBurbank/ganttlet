@@ -107,6 +107,8 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 | `docker compose run --service-ports dev` | Enter dev container |
 | `docker compose up --build relay` | Build + run relay server locally |
 | `claude --dangerously-skip-permissions` | Start Claude without permission checks |
+| `./scripts/launch-supervisor.sh <config>` | Supervisor agent drives phase pipeline |
+| `./scripts/launch-phase.sh <config> <cmd>` | Run pipeline step (stage/merge/validate/create-pr) |
 
 ## Architecture Constraints (do not violate)
 - **Thin server**: Relay forwards CRDT messages + validates OAuth. No business logic, no persistent state, no Sheets access.

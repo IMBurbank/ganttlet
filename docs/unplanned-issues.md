@@ -22,10 +22,10 @@ items from **Backlog**, moves them to **Claimed**, and once planned into
 
 ### Scheduling Engine
 
-- [ ] Feature: Additional constraint types — ALAP, SNLT, FNET, FNLT, MSO, MFO. Needed for professional scheduling parity with MS Project / P6.
-- [ ] Feature: Negative float / conflict detection — when hard constraints (MSO, MFO) conflict with dependency logic, flag the conflict visually (red indicator on task bar) rather than silently producing an impossible schedule. Depends on additional constraint types.
+- [x] Feature: Additional constraint types — ALAP, SNLT, FNET, FNLT, MSO, MFO → Phase 15, Group A
+- [x] Feature: Negative float / conflict detection → Phase 15, Group B
 - [ ] Feature: Calendar support — working days vs calendar days, holiday definitions. Duration calculations currently assume all weekdays are workdays. Needs project calendar, task calendar, and resource calendar support.
-- [ ] Feature: SF (Start-to-Finish) dependency type — currently only FS, SS, FF are supported. Intentionally dropped in Phase 1 as too rare, but noted for professional scheduling parity.
+- [x] Feature: SF (Start-to-Finish) dependency type → Phase 15, Groups A + B
 - [ ] Feature: Duration mode preference toggle — let users choose between calendar days and business days for duration display/calculation. Currently `duration` is always derived via `workingDaysBetween()` (business days, Mon-Fri) regardless of settings. Allow toggle per sheet, project, workstream or task.
 
 ### Collaboration & UX

@@ -20,7 +20,7 @@
 #   RETRY_DELAY=5       — seconds between retries
 #   VALIDATE_MAX_ATTEMPTS=3 — max fix-and-retry cycles for validation
 #   MERGE_FIX_RETRIES=3 — retries for merge conflict resolution
-#   PROMPTS_DIR         — path to prompt files (default: docs/prompts/phase14)
+#   PROMPTS_DIR         — path to prompt files (default: docs/prompts/phase15)
 #   MERGE_TARGET        — implementation branch (default: feature/<phase>)
 #   WORKTREE_BASE       — worktree root (default: /workspace/.claude/worktrees)
 
@@ -36,12 +36,12 @@ DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 STALL_TIMEOUT="${STALL_TIMEOUT:-30}"  # minutes before warning about stalled agent
 # Per-agent model override: MODEL=sonnet run_agent groupH "$workdir"
 # Default: uses Claude's default model. Options: opus, sonnet, haiku
-PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase14}"
+PROMPTS_DIR="${PROMPTS_DIR:-docs/prompts/phase15}"
 WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
 # Set WATCH=1 to see full live agent output in tmux panes
 WATCH="${WATCH:-0}"
-PHASE="phase14"
+PHASE="phase15"
 # Implementation branch — all stage merges target this branch, then a PR is created to main
 _USER_MERGE_TARGET="${MERGE_TARGET:-}"  # Preserve user's explicit env var (empty if unset)
 MERGE_TARGET="${MERGE_TARGET:-feature/${PHASE}}"
@@ -49,38 +49,37 @@ MERGE_TARGET="${MERGE_TARGET:-feature/${PHASE}}"
 LOG_DIR="${WORKSPACE}/logs/${PHASE}"
 TMUX_SESSION="${PHASE}-agents"
 
-# Stage 1: Core Fixes — drag throttle, duration derivation, cascade optimization (3 groups, parallel, zero file overlap)
-STAGE1_GROUPS=("groupA" "groupB" "groupC")
+# Stage 1: Core Type + Constraint Engine (single agent)
+STAGE1_GROUPS=("groupA")
 STAGE1_BRANCHES=(
-  "feature/phase14-drag-throttle"
-  "feature/phase14-duration-derive"
-  "feature/phase14-cascade-optimize"
+  "feature/phase15-constraint-engine"
 )
 STAGE1_MERGE_MESSAGES=(
-  "Merge feature/phase14-drag-throttle: RAF throttle + CRDT broadcast throttle + dispatch split + SET_TASKS guard (R1, R3)"
-  "Merge feature/phase14-duration-derive: duration computed from dates in reducer + Sheets + standardized semantics (R2, R7, R9)"
-  "Merge feature/phase14-cascade-optimize: adjacency list O(e*d) cascade + performance instrumentation (R8)"
+  "Merge feature/phase15-constraint-engine: ALAP/SNLT/FNET/FNLT/MSO/MFO constraints + SF dep type in types/constraints/cpm"
 )
 
-# Stage 2: Sync Resilience + Rendering — atomic drag + structural sync + arrow fixes (2 groups, parallel, zero file overlap)
-STAGE2_GROUPS=("groupD" "groupE")
+# Stage 2: Cascade + Graph + TypeScript (2 parallel agents)
+STAGE2_GROUPS=("groupB" "groupC")
 STAGE2_BRANCHES=(
-  "feature/phase14-atomic-drag-sync"
-  "feature/phase14-arrow-render"
+  "feature/phase15-sf-cascade-conflicts"
+  "feature/phase15-ts-types-sheets"
 )
 STAGE2_MERGE_MESSAGES=(
-  "Merge feature/phase14-atomic-drag-sync: COMPLETE_DRAG action + dependency/add/delete CRDT sync (R4, R10)"
-  "Merge feature/phase14-arrow-render: arrow consistency guards + memoization (R5)"
+  "Merge feature/phase15-sf-cascade-conflicts: SF in cascade/graph + detect_conflicts WASM export"
+  "Merge feature/phase15-ts-types-sheets: TS type updates + WASM bridge + Sheets constraint columns"
 )
 
-# Stage 3: Multi-User UX — awareness ghost bar (1 group)
-STAGE3_GROUPS=("groupF")
+# Stage 3: Constraint UI + Conflict Indicators (single agent)
+STAGE3_GROUPS=("groupD")
 STAGE3_BRANCHES=(
-  "feature/phase14-ghost-bar"
+  "feature/phase15-constraint-ui"
 )
 STAGE3_MERGE_MESSAGES=(
-  "Merge feature/phase14-ghost-bar: drag intent via awareness + ghost bar rendering (R6)"
+  "Merge feature/phase15-constraint-ui: SET_CONSTRAINT action + popover/table UI + conflict indicator + SF in dep editor"
 )
+
+# Validation runs via validate.md (not a numbered stage — uses fix-and-retry loop)
+# See: docs/prompts/phase15/validate.md
 
 # ── Load config from YAML if available ────────────────────────────────────────
 

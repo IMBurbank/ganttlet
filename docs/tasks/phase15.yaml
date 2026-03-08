@@ -162,7 +162,7 @@ stages:
               SHEET_COLUMNS includes 'constraintType' and 'constraintDate'. taskToRow serializes them.
               rowToTask parses them. Round-trip: write→read preserves constraint data.
 
-  - name: "Stage 3: Constraint UI + Conflict Indicators (single agent)"
+  - name: "Stage 3: Constraint UI (single agent)"
     groups:
       - id: D
         name: "Constraint UI + Conflict Indicators"
@@ -209,49 +209,48 @@ stages:
             status: pending
             exit_criteria: "Dependency editor allows selecting SF type. Creating SF dependency works end-to-end."
 
-  - name: "Stage 4: Validation + Integration Tests (single agent)"
-    groups:
-      - id: E
-        name: "Cross-Module Consistency + Integration Tests"
-        depends_on: [A, B, C, D]
-        scope:
-          modify:
-            - src/state/__tests__/ganttReducer.test.ts
-            - src/sheets/__tests__/sheetsMapper.test.ts
-          read_only:
-            - crates/scheduler/src/types.rs
-            - crates/scheduler/src/constraints.rs
-            - crates/scheduler/src/cascade.rs
-            - crates/scheduler/src/lib.rs
-            - src/types/index.ts
-            - src/utils/schedulerWasm.ts
-            - src/state/ganttReducer.ts
-        tasks:
-          - id: E1
-            summary: "Read all modified files after Stage 3 merge — verify type consistency Rust/TS/Sheets"
-            status: pending
-          - id: E2
-            summary: "Add integration tests in ganttReducer.test.ts for constraints + SF + conflicts"
-            status: pending
-            exit_criteria: >
-              Tests cover: SET_CONSTRAINT→cascade, SNET+dep interaction, ALAP scheduling,
-              MSO conflict detection, SF dependency cascade.
-          - id: E3
-            summary: "Add sheetsMapper.test.ts tests for constraint column read/write"
-            status: pending
-            exit_criteria: >
-              Tests verify constraintType and constraintDate survive Sheets round-trip.
-              Edge cases: empty/null constraint, invalid constraint type string.
-          - id: E4
-            summary: "Run full-verify.sh — WASM build, tsc, vitest, cargo test"
-            status: pending
-            exit_criteria: "npm run build:wasm succeeds. npx tsc --noEmit passes. npm run test passes. cargo test passes."
-          - id: E5
-            summary: "Verify no regressions in existing scheduling behavior"
-            status: pending
-            exit_criteria: >
-              All existing Rust tests pass. All existing TS tests pass. ASAP/SNET unchanged.
-              cascade_dependents still respects slack for FS/SS/FF. Critical path unchanged for unconstrained tasks.
+validation_agent:
+  name: "Integration Tests + Regression Verification (runs via validate.md after Stage 3 merge)"
+  scope:
+    modify:
+      - src/state/__tests__/ganttReducer.test.ts
+      - src/sheets/__tests__/sheetsMapper.test.ts
+    read_only:
+      - crates/scheduler/src/types.rs
+      - crates/scheduler/src/constraints.rs
+      - crates/scheduler/src/cascade.rs
+      - crates/scheduler/src/lib.rs
+      - src/types/index.ts
+      - src/utils/schedulerWasm.ts
+      - src/state/ganttReducer.ts
+      - src/state/actions.ts
+      - src/sheets/sheetsMapper.ts
+  tasks:
+    - id: V-E1
+      summary: "Read all modified files — verify type consistency Rust/TS/Sheets"
+      status: pending
+    - id: V-E2
+      summary: "Add integration tests in ganttReducer.test.ts for constraints + SF + conflicts"
+      status: pending
+      exit_criteria: >
+        Tests cover: SET_CONSTRAINT→cascade, SNET+dep interaction, ALAP scheduling,
+        MSO conflict detection, SF dependency cascade.
+    - id: V-E3
+      summary: "Add sheetsMapper.test.ts tests for constraint column read/write"
+      status: pending
+      exit_criteria: >
+        Tests verify constraintType and constraintDate survive Sheets round-trip.
+        Edge cases: empty/null constraint, invalid constraint type string.
+    - id: V-E4
+      summary: "Run full-verify.sh — WASM build, tsc, vitest, cargo test"
+      status: pending
+      exit_criteria: "npm run build:wasm succeeds. npx tsc --noEmit passes. npm run test passes. cargo test passes."
+    - id: V-E5
+      summary: "Verify no regressions in existing scheduling behavior"
+      status: pending
+      exit_criteria: >
+        All existing Rust tests pass. All existing TS tests pass. ASAP/SNET unchanged.
+        cascade_dependents still respects slack for FS/SS/FF. Critical path unchanged for unconstrained tasks.
 
 validation:
   - {id: V1, summary: "Build verification (WASM, tsc, vitest, cargo test)", status: pending}

@@ -23,6 +23,7 @@
 #   RETRY_DELAY=5       — seconds between retries
 #   VALIDATE_MAX_ATTEMPTS=3 — max fix-and-retry cycles for validation
 #   MERGE_FIX_RETRIES=3 — retries for merge conflict resolution
+#   MAX_STAGE_DURATION=1800 — max seconds per stage before killing agents
 #   MERGE_TARGET        — override implementation branch (default: from config)
 #   WORKTREE_BASE       — worktree root (default: /workspace/.claude/worktrees)
 
@@ -44,6 +45,7 @@ WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
 WORKSPACE="/workspace"
 WATCH="${WATCH:-0}"
 VALIDATE_MAX_ATTEMPTS="${VALIDATE_MAX_ATTEMPTS:-3}"
+MAX_STAGE_DURATION="${MAX_STAGE_DURATION:-1800}"  # 30 minutes default
 
 # Preserve user's explicit MERGE_TARGET (empty if unset)
 _USER_MERGE_TARGET="${MERGE_TARGET:-}"
@@ -78,6 +80,7 @@ Commands:
   validate          Run validation agent (checks all tests, fixes issues, reports)
   create-pr         Create PR from implementation branch to main + trigger code review
   resume <step>     Resume pipeline from a step (e.g., "stage:2", "merge:1", "validate")
+  cleanup           Remove all worktrees and prune branches for this phase
   status            Show current worktree and branch status
   logs [group]      Tail agent logs (optionally for a specific group)
 
@@ -87,6 +90,7 @@ Environment variables:
   RETRY_DELAY=5              Seconds between retries
   VALIDATE_MAX_ATTEMPTS=3    Max fix-and-retry cycles for validation
   MERGE_FIX_RETRIES=3        Retries for merge conflict resolution
+  MAX_STAGE_DURATION=1800    Max seconds per stage before killing agents (0=disabled)
   MERGE_TARGET               Override implementation branch
   MODEL                      Override Claude model (opus, sonnet, haiku)
 USAGE
@@ -264,6 +268,55 @@ show_status() {
   ls -lh "$LOG_DIR" 2>/dev/null || echo "  (no logs yet)"
 }
 
+# Remove all worktrees and branches for this phase.
+cleanup_phase() {
+  log "=== Cleaning up phase: ${PHASE} ==="
+  cd "$WORKSPACE"
+
+  # Remove merge worktree
+  cleanup_merge_worktree
+
+  # Find and remove all phase worktrees
+  local worktree_pattern="${WORKTREE_BASE}/${PHASE}-"
+  local removed=0
+  for wt in "${worktree_pattern}"*; do
+    if [[ -d "$wt" ]]; then
+      log "Removing worktree: ${wt}"
+      git worktree remove "$wt" --force 2>/dev/null || \
+        warn "Could not remove worktree: ${wt}"
+      removed=$((removed + 1))
+    fi
+  done
+
+  # Prune any stale worktree references
+  git worktree prune 2>/dev/null || true
+
+  # Remove phase branches (implementation branch + group branches)
+  local phase_branches
+  phase_branches=$(git branch --list "*${PHASE}*" 2>/dev/null || echo "")
+  if [[ -n "$phase_branches" ]]; then
+    while IFS= read -r branch; do
+      branch=$(echo "$branch" | sed 's/^[* ]*//')
+      if [[ -n "$branch" && "$branch" != "main" ]]; then
+        log "Deleting branch: ${branch}"
+        git branch -d "$branch" 2>/dev/null || \
+          warn "Could not delete branch: ${branch} (may need -D)"
+      fi
+    done <<< "$phase_branches"
+  fi
+
+  log "Verifying cleanup..."
+  echo ""
+  echo "Remaining worktrees:"
+  git worktree list
+  echo ""
+  echo "Remaining branches matching ${PHASE}:"
+  git branch --list "*${PHASE}*" 2>/dev/null || echo "  (none)"
+  echo ""
+
+  ok "=== Phase ${PHASE} cleanup complete (${removed} worktrees removed) ==="
+}
+
 show_logs() {
   local group="${1:-}"
   if [[ -n "$group" ]]; then
@@ -314,6 +367,9 @@ case "$COMMAND" in
       resume_step="${1}:${2}"
     fi
     run_pipeline "$resume_step"
+    ;;
+  cleanup)
+    cleanup_phase
     ;;
   status)
     show_status

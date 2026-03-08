@@ -25,6 +25,7 @@ WATCH=1 ./scripts/launch-phase.sh docs/prompts/phase15/launch-config.yaml all
 ./scripts/launch-phase.sh <config> validate   # run validation agent (fix-and-retry)
 ./scripts/launch-phase.sh <config> create-pr  # create PR + trigger code review
 ./scripts/launch-phase.sh <config> resume stage:2  # resume pipeline from a specific step
+./scripts/launch-phase.sh <config> cleanup    # remove all phase worktrees and branches
 ./scripts/launch-phase.sh <config> status     # show worktree/branch status
 ```
 
@@ -34,8 +35,11 @@ The config file defines phase name, stages, groups, branches, merge messages, an
 ## Preflight Checks
 
 Before launching any parallel stage, `launch-phase.sh` runs `preflight_check()` which verifies:
+- **claude CLI available** — checks `command -v claude` and logs version
+- **tmux available** (if `WATCH=1`) — fails fast instead of silently breaking
 - **Clean git state** — uncommitted changes cause an immediate abort
 - **Prompt files exist** — all groups in the stage must have a matching `.md` file
+- **Merge target viable** — verifies the implementation branch exists or can be created from main
 - **WASM builds** — runs `npm run build:wasm` to catch broken builds before agents start
 
 Preflight runs automatically at the start of every `run_parallel_stage()` call.
@@ -47,6 +51,39 @@ If some agents in a parallel stage succeed and others fail, the pipeline continu
 - Results are written to `${LOG_DIR}/stage-succeeded.txt` and `stage-failed.txt`
 - The merge stage reads these files and **skips merging branches from failed groups**
 - The pipeline only aborts if ALL groups in a stage fail; partial success continues
+
+## Per-Branch Merge Verification
+
+The merge step verifies the build **after each branch merge**, not just after all branches are merged.
+This catches breakage early — before merging more branches on top of broken code.
+
+After each successful branch merge, the pipeline:
+1. Rebuilds WASM (Rust source may have changed)
+2. Commits `Cargo.lock` if modified
+3. Runs tsc, vitest, and cargo test **in parallel** (with `&` + `wait`)
+4. If verification fails, launches a merge-fix agent to resolve issues
+
+This means a merge with 3 branches runs verification 3 times, but each run is faster because
+tsc/vitest/cargo test execute concurrently. The tradeoff is worth it: catching a type error after
+the first merge is far cheaper than debugging a compound failure after merging all 3 branches.
+
+## Stage Timeouts
+
+Stages have a configurable timeout (`MAX_STAGE_DURATION`, default 1800 seconds / 30 minutes).
+If agents in a stage exceed the timeout, they are killed (SIGTERM → SIGKILL after 5 seconds)
+and treated as failures. Set `MAX_STAGE_DURATION=0` to disable the timeout.
+
+## Cleanup Command
+
+Remove all worktrees and branches for a phase:
+```bash
+./scripts/launch-phase.sh <config> cleanup
+```
+
+This is useful after a failed pipeline run or when you want to start fresh. It removes:
+- The merge worktree (`<phase>-merge`)
+- All agent worktrees (`<phase>-<group>`)
+- All branches matching the phase name
 
 ## Stall Detection
 
@@ -84,6 +121,7 @@ executes from the given step through the end. Also supports space-separated synt
 | `DEFAULT_MAX_TURNS` | `80` | Max conversation turns per agent |
 | `DEFAULT_MAX_BUDGET` | `10.00` | Max USD budget per agent |
 | `STALL_TIMEOUT` | `30` | Minutes of inactivity before stall warning |
+| `MAX_STAGE_DURATION` | `1800` | Max seconds per stage before killing agents (0=disabled) |
 | `MODEL` | (unset) | Override Claude model (`opus`, `sonnet`, `haiku`) |
 
 ## Supervisor Mode

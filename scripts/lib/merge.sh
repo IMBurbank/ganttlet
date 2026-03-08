@@ -143,6 +143,49 @@ merge_branch_with_retries() {
   return 1
 }
 
+# Run tsc + vitest + cargo test in parallel. Returns 0 if all pass.
+# Runs inside the merge worktree.
+run_parallel_verification() {
+  local label="${1:-verification}"
+
+  log "Running parallel verification (tsc + vitest + cargo test) for ${label}..."
+
+  local tsc_log="${LOG_DIR}/verify-tsc.log"
+  local vitest_log="${LOG_DIR}/verify-vitest.log"
+  local cargo_log="${LOG_DIR}/verify-cargo.log"
+
+  (cd "$MERGE_WORKTREE" && npx tsc --noEmit > "$tsc_log" 2>&1) &
+  local tsc_pid=$!
+
+  (cd "$MERGE_WORKTREE" && npm run test > "$vitest_log" 2>&1) &
+  local vitest_pid=$!
+
+  (cd "$MERGE_WORKTREE" && source "$HOME/.cargo/env" 2>/dev/null; cd "$MERGE_WORKTREE/crates/scheduler" && cargo test > "$cargo_log" 2>&1) &
+  local cargo_pid=$!
+
+  local tsc_ok=true vitest_ok=true cargo_ok=true
+  set +e
+  wait $tsc_pid || tsc_ok=false
+  wait $vitest_pid || vitest_ok=false
+  wait $cargo_pid || cargo_ok=false
+  set -e
+
+  if ! $tsc_ok; then
+    err "TypeScript check failed (${label})"
+    tail -20 "$tsc_log" 2>/dev/null || true
+  fi
+  if ! $vitest_ok; then
+    err "Unit tests failed (${label})"
+    tail -20 "$vitest_log" 2>/dev/null || true
+  fi
+  if ! $cargo_ok; then
+    err "Rust tests failed (${label})"
+    tail -20 "$cargo_log" 2>/dev/null || true
+  fi
+
+  $tsc_ok && $vitest_ok && $cargo_ok
+}
+
 # Launch a fix agent that keeps running until tsc + vitest + cargo test all pass.
 # Runs inside the merge worktree.
 run_merge_fix_agent() {
@@ -180,12 +223,7 @@ Do NOT modify files unnecessarily. Only fix actual errors. Read the error output
     local exit_code=$?
     set -e
 
-    local all_ok=true
-    (cd "$MERGE_WORKTREE" && npx tsc --noEmit >/dev/null 2>&1) || all_ok=false
-    (cd "$MERGE_WORKTREE" && npm run test >/dev/null 2>&1) || all_ok=false
-    (cd "$MERGE_WORKTREE" && source "$HOME/.cargo/env" 2>/dev/null; cd "$MERGE_WORKTREE/crates/scheduler" && cargo test >/dev/null 2>&1) || all_ok=false
-
-    if $all_ok; then
+    if run_parallel_verification "merge-fix attempt ${attempt}"; then
       ok "Merge-fix agent resolved all issues on attempt ${attempt}"
       return 0
     fi
@@ -221,6 +259,7 @@ do_merge() {
   [[ -f "${LOG_DIR}/stage-succeeded.txt" ]] && succeeded=$(cat "${LOG_DIR}/stage-succeeded.txt")
 
   local merge_failures=0
+  local merged_count=0
   for i in "${!dm_branches[@]}"; do
     local group="${dm_groups[$i]}"
     local branch="${dm_branches[$i]}"
@@ -234,50 +273,39 @@ do_merge() {
     if ! merge_branch_with_retries "$branch" "$msg"; then
       err "Failed to merge ${branch} — continuing with remaining branches"
       merge_failures=$((merge_failures + 1))
+      continue
+    fi
+
+    merged_count=$((merged_count + 1))
+
+    # Verify after each branch merge to catch breakage early
+    log "Verifying after merging ${group}..."
+    cd "$MERGE_WORKTREE"
+
+    # Rebuild WASM (Rust source may have changed in this branch)
+    source "$HOME/.cargo/env" 2>/dev/null || true
+    npm run build:wasm 2>/dev/null || warn "WASM build failed after merging ${group}"
+
+    # Commit Cargo.lock if it was modified by the build
+    if [[ -n "$(git diff --name-only -- crates/scheduler/Cargo.lock 2>/dev/null)" ]]; then
+      git add crates/scheduler/Cargo.lock
+      git commit -m "chore: update Cargo.lock after merging ${group}"
+    fi
+
+    if ! run_parallel_verification "after merging ${group}"; then
+      warn "=== Verification failed after merging ${group} — launching fix agent ==="
+      if run_merge_fix_agent "${merge_label} (${group})"; then
+        ok "=== Verification issues after ${group} resolved by fix agent ==="
+      else
+        warn "=== Fix agent could not resolve all issues after ${group} — continuing ==="
+      fi
+    else
+      ok "Verification passed after merging ${group}"
     fi
   done
 
-  # Rebuild WASM (Rust source may have changed)
-  cd "$MERGE_WORKTREE"
-  log "Rebuilding WASM..."
-  source "$HOME/.cargo/env" 2>/dev/null || true
-  npm run build:wasm || warn "WASM build failed (may not have Rust changes)"
-
-  # Commit Cargo.lock if it was modified by the build (new deps from merged Cargo.toml)
-  if [[ -n "$(git diff --name-only -- crates/scheduler/Cargo.lock 2>/dev/null)" ]]; then
-    git add crates/scheduler/Cargo.lock
-    git commit -m "chore: update Cargo.lock after ${merge_label}"
-  fi
-
-  # Verify build
-  log "Verifying merged code..."
-  local verify_ok=true
-
-  log "Running tsc..."
-  if ! npx tsc --noEmit; then
-    err "TypeScript check failed after merge"
-    verify_ok=false
-  fi
-
-  log "Running vitest..."
-  if ! npm run test; then
-    err "Unit tests failed after merge"
-    verify_ok=false
-  fi
-
-  log "Running cargo test..."
-  if ! (source "$HOME/.cargo/env" 2>/dev/null; cd crates/scheduler && cargo test); then
-    err "Rust tests failed after merge"
-    verify_ok=false
-  fi
-
-  if ! $verify_ok; then
-    warn "=== ${merge_label} verification found issues — launching fix agent ==="
-    if run_merge_fix_agent "$merge_label"; then
-      ok "=== ${merge_label} verification issues resolved by fix agent ==="
-    else
-      warn "=== ${merge_label} fix agent could not resolve all issues — validation agent will handle remaining ==="
-    fi
+  if [[ $merged_count -eq 0 ]]; then
+    warn "No branches were merged in ${merge_label}"
   fi
 
   # Cleanup agent worktrees (not the merge worktree — it persists for validate/PR)

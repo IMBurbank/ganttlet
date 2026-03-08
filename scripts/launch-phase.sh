@@ -179,8 +179,11 @@ run_agent() {
       local prev_log_tail
       prev_log_tail=$(tail -100 "$logfile" 2>/dev/null | head -80 || echo "(no previous output)")
       local progress=""
-      if [[ -f "${workdir}/claude-progress.txt" ]]; then
-        progress=$(cat "${workdir}/claude-progress.txt")
+      if [[ -f "${workdir}/.agent-status.json" ]]; then
+        progress=$(cat "${workdir}/.agent-status.json")
+      elif [[ -f "${workdir}/claude-progress.txt" ]]; then
+        progress="(legacy plain-text format)
+$(cat "${workdir}/claude-progress.txt")"
       fi
       full_prompt="NOTE: You are being restarted after a crash. This is attempt ${attempt}/${MAX_RETRIES}.
 
@@ -294,6 +297,20 @@ setup_worktree() {
     fi
   )
 
+  # Seed .agent-status.json if it doesn't exist yet
+  if [[ ! -f "${worktree}/.agent-status.json" ]]; then
+    local phase_num
+    phase_num=$(echo "$PHASE" | grep -oP '\d+' || echo "0")
+    cat > "${worktree}/.agent-status.json" <<SEED
+{
+  "group": "${group}",
+  "phase": ${phase_num},
+  "tasks": {},
+  "last_updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+SEED
+  fi
+
   # Only the path goes to stdout — log calls go to stderr
   echo "$worktree"
 }
@@ -371,8 +388,11 @@ for attempt in $(seq 1 "$MAX_RETRIES"); do
     RECENT_COMMITS=$(git log --oneline -5 2>/dev/null || echo "(no commits yet)")
     PREV_LOG_TAIL=$(tail -100 "$LOGFILE" 2>/dev/null | head -80 || echo "(no previous output)")
     PROGRESS=""
-    if [[ -f "${WORKDIR}/claude-progress.txt" ]]; then
-      PROGRESS=$(cat "${WORKDIR}/claude-progress.txt")
+    if [[ -f "${WORKDIR}/.agent-status.json" ]]; then
+      PROGRESS=$(cat "${WORKDIR}/.agent-status.json")
+    elif [[ -f "${WORKDIR}/claude-progress.txt" ]]; then
+      PROGRESS="(legacy plain-text format)
+$(cat "${WORKDIR}/claude-progress.txt")"
     fi
     FULL_PROMPT="NOTE: You are being restarted after a crash. This is attempt ${attempt}/${MAX_RETRIES}.
 

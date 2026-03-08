@@ -120,6 +120,10 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 - Write `.agent-summary.md` explaining where you got stuck.
 - The PR will be created even with partial work — human reviewers can help.
 
+**Creating Issues:**
+- When asked to create a GitHub issue, use the template in `.github/ISSUE_TEMPLATE/agent-task.yml` via `gh issue create --template agent-task.yml`.
+- Fill in all required fields: Task Summary, Acceptance Criteria, Scope Boundaries, and Estimated Complexity.
+
 ## Context Conservation
 - Commit early and often — progress survives crashes and context loss.
 - On restart, read `claude-progress.txt` first and check `git log --oneline -10`.

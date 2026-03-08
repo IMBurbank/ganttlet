@@ -64,7 +64,7 @@ This blocks until all parallel agents in the stage finish. The command handles w
 ./scripts/launch-phase.sh <config> merge <N>
 ```
 
-This merges succeeded branches to the implementation branch, runs build verification (WASM + tsc + vitest + cargo test), and auto-launches fix agents if verification fails.
+This merges succeeded branches to the implementation branch in a dedicated merge worktree (`/workspace/.claude/worktrees/<phase>-merge`). It runs build verification (WASM + tsc + vitest + cargo test) and auto-launches fix agents if verification fails. The merge worktree persists across stages and is cleaned up after PR creation. `/workspace` stays on `main` at all times.
 
 **Check merge results:**
 - Exit code 0 = clean merge + verification passed
@@ -141,8 +141,10 @@ Once the code review finds no issues:
    gh pr merge <number> --squash --delete-branch
    ```
 
-3. Clean up all remaining worktrees (**each command must be a separate Bash call** — never chain `cd` with `&&`):
+3. Clean up any remaining worktrees (**each command must be a separate Bash call** — never chain `cd` with `&&`):
    ```bash
+   # The merge worktree is cleaned up automatically by create-pr.
+   # Only clean up manually if worktrees remain (e.g., from review-fix work):
    # Bash call 1:
    cd /workspace
    # Bash call 2:
@@ -191,7 +193,7 @@ MODEL=sonnet ./scripts/launch-phase.sh <config> stage 1
 - DO stop and report if a step fails unexpectedly (launch-phase.sh crashes, git state corruption, etc.).
 - Do NOT modify source code directly during stages. All code changes happen through the agents spawned by launch-phase.sh. Exception: you MAY fix issues found by code review directly in Step 4.
 - Do NOT push to main directly. Use `gh pr merge --squash --delete-branch` after the review loop is clean.
-- Do NOT run `git checkout` or `git switch` in `/workspace`. It must stay on `main`.
+- Do NOT run `git checkout` or `git switch` in `/workspace`. It must stay on `main`. All merge/validate/PR operations happen inside a dedicated merge worktree automatically.
 - NEVER chain `cd` with `&&` or `;`. Always run `cd` as a standalone Bash call. If a chained command fails, the `cd` does not persist and all subsequent calls run in the wrong (potentially deleted) directory.
 - Follow all rules in `/workspace/CLAUDE.md`, especially the arithmetic rule (use tools for any calculations).
 

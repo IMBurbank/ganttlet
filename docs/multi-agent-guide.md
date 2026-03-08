@@ -100,6 +100,10 @@ The supervisor replaces the `all` command with intelligent step-by-step orchestr
 - Drives validation and PR creation
 - Handles the code review loop: reads review comments, fixes issues, re-triggers review
 
+**Worktree isolation:** All merge, validation, and PR operations happen in a dedicated merge
+worktree (`/workspace/.claude/worktrees/<phase>-merge`). Agent work happens in per-group
+worktrees. `/workspace` stays on `main` throughout the entire pipeline.
+
 **When to use supervisor vs `all`:**
 - Use `all` for simple phases where automated retry logic is sufficient
 - Use supervisor for complex phases, risky merges, or when you want intelligent failure handling

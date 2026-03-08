@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # scripts/lib/validate.sh — Validation agent runner (pipe mode)
+#
+# Runs inside the merge worktree (MERGE_WORKTREE), not /workspace.
 
 # Run the validation agent with retry loop.
 validate() {
@@ -15,6 +17,9 @@ validate() {
     warn "No validation prompt found at $prompt_file — skipping."
     return 0
   fi
+
+  # Ensure merge worktree exists (may be called standalone via `validate` command)
+  setup_merge_worktree
 
   log "=== Running validation agent (up to ${max_attempts} attempts) ==="
 
@@ -45,18 +50,13 @@ ${prompt}"
     fi
 
     log "Validation attempt ${attempt}/${max_attempts} (log: ${logfile})"
-    cd "$WORKSPACE"
-
-    local current_branch
-    current_branch=$(git branch --show-current)
-    if [[ "$current_branch" != "$MERGE_TARGET" ]]; then
-      log "Switching to ${MERGE_TARGET} for validation..."
-      git checkout "$MERGE_TARGET"
-    fi
 
     local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
     local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
-    echo "$prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
+    (
+      cd "$MERGE_WORKTREE"
+      echo "$prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
+    )
     local exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then

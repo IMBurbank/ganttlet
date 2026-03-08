@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # scripts/lib/pr.sh — PR creation and code review trigger
+#
+# Operates from the merge worktree (MERGE_WORKTREE) for git push,
+# but gh commands work from anywhere.
 
 # Create a PR from the implementation branch to main.
 # Uses PR metadata from the YAML config if available, otherwise generates from commit log.
 create_pr() {
-  cd "$WORKSPACE"
+  # Ensure merge worktree exists (may be called standalone via `create-pr` command)
+  setup_merge_worktree
 
-  local current_branch
-  current_branch=$(git branch --show-current)
-  if [[ "$current_branch" != "$MERGE_TARGET" ]]; then
-    git checkout "$MERGE_TARGET"
-  fi
+  cd "$MERGE_WORKTREE"
 
   log "Pushing ${MERGE_TARGET} to origin..."
   git push -u origin "$MERGE_TARGET"
@@ -93,6 +93,10 @@ ${PR_TEST_PLAN}"
   else
     warn "Could not extract PR number from: ${pr_url} — skipping code review"
   fi
+
+  # Clean up the merge worktree — no longer needed after push + PR creation
+  cd "$WORKSPACE"
+  cleanup_merge_worktree
 
   ok "=== PR created and code review triggered ==="
 }

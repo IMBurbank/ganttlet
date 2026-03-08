@@ -50,6 +50,36 @@ SEED
   echo "$worktree"
 }
 
+# Setup the merge worktree for the implementation branch.
+# This worktree persists across stages (merge → validate → create-pr).
+setup_merge_worktree() {
+  if [[ -d "$MERGE_WORKTREE" ]]; then
+    log "Merge worktree already exists: ${MERGE_WORKTREE}"
+    return 0
+  fi
+
+  setup_merge_target  # ensure the implementation branch exists
+
+  log "Creating merge worktree: ${MERGE_WORKTREE} (branch: ${MERGE_TARGET})"
+  cd "$WORKSPACE"
+  git worktree add "$MERGE_WORKTREE" "$MERGE_TARGET" >/dev/null 2>&1 || \
+    { err "Failed to create merge worktree"; return 1; }
+
+  # Install dependencies so tsc/vitest can run in the worktree
+  (cd "$MERGE_WORKTREE" && npm install --silent >/dev/null 2>&1) || true
+}
+
+# Remove the merge worktree. Called after PR creation or on pipeline cleanup.
+cleanup_merge_worktree() {
+  if [[ -d "$MERGE_WORKTREE" ]]; then
+    log "Removing merge worktree: ${MERGE_WORKTREE}"
+    cd "$WORKSPACE"
+    git worktree remove "$MERGE_WORKTREE" --force 2>/dev/null || \
+      warn "Could not remove merge worktree: ${MERGE_WORKTREE}"
+    git worktree prune 2>/dev/null || true
+  fi
+}
+
 # Remove worktrees and delete branches for a list of groups.
 # Usage: cleanup_worktrees groups_array branches_array
 cleanup_worktrees() {

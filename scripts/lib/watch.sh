@@ -353,7 +353,7 @@ ${prev_errors}"
     cat > "$wrapper" <<VALIDATE_WRAPPER
 #!/usr/bin/env bash
 set -uo pipefail
-cd "${WORKSPACE}"
+cd "${MERGE_WORKTREE}"
 
 claude --dangerously-skip-permissions -p "echo ok" >/dev/null 2>&1 || true
 

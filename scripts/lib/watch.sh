@@ -12,7 +12,8 @@
 # 5. Pre-trust workspace via quick -p dry run (interactive shows trust dialog)
 # 6. Explicit -t TMUX_TARGET for pipe-pane (avoids wrong-pane bug)
 
-IDLE_THRESHOLD="${IDLE_THRESHOLD:-30}"  # seconds of stable log before killing claude
+AGENT_IDLE_THRESHOLD="${IDLE_THRESHOLD:-30}"  # seconds of stable log before killing agent
+VALIDATE_IDLE_THRESHOLD="${IDLE_THRESHOLD:-120}"  # validation needs longer (runs tsc/vitest/cargo)
 
 # Build wrapper script for a WATCH mode agent.
 # Returns path to the wrapper script via stdout.
@@ -182,7 +183,7 @@ WRAPPER_OUTER
   [[ -n "${MODEL:-}" ]] && model_flag_val="--model $MODEL"
   sed -i "s|__MODEL_FLAG__|${model_flag_val}|g" "$wrapper"
   sed -i "s|__TMUX_TARGET__|${TMUX_SESSION}:${group}|g" "$wrapper"
-  sed -i "s|__IDLE_THRESHOLD__|${IDLE_THRESHOLD}|g" "$wrapper"
+  sed -i "s|__IDLE_THRESHOLD__|${AGENT_IDLE_THRESHOLD}|g" "$wrapper"
 
   chmod +x "$wrapper"
   echo "$wrapper"
@@ -343,7 +344,7 @@ ${prev_errors}"
     local tmux_target="${tmux_session}:validate"
 
     local wrapper="${LOG_DIR}/validate-run.sh"
-    local idle_threshold="${IDLE_THRESHOLD:-120}"
+    local idle_threshold="${VALIDATE_IDLE_THRESHOLD}"
     local max_turns_val="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
     local max_budget_val="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
     local model_flag_val=""

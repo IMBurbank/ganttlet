@@ -11,23 +11,25 @@ Phases are executed via `scripts/launch-phase.sh`, which handles worktree setup,
 launch, retry-on-crash, merge verification, and sequential stage gating.
 
 ```bash
-# Full pipeline: parallel groups → merge → validate
-./scripts/launch-phase.sh all
+# Full pipeline: parallel groups → merge → validate → create-pr
+./scripts/launch-phase.sh docs/prompts/phase15/launch-config.yaml all
 
 # Same pipeline with live interactive agent output in tmux panes
-WATCH=1 ./scripts/launch-phase.sh all
+WATCH=1 ./scripts/launch-phase.sh docs/prompts/phase15/launch-config.yaml all
 
 # Or run stages individually:
-./scripts/launch-phase.sh stage1    # launch parallel groups in worktrees
-./scripts/launch-phase.sh merge1    # merge Stage 1 branches to main + verify
-./scripts/launch-phase.sh stage2    # launch Stage 2 groups (if any)
-./scripts/launch-phase.sh merge2    # merge Stage 2 branches to main + verify
-./scripts/launch-phase.sh stage3    # launch Stage 3 groups (if any)
-./scripts/launch-phase.sh merge3    # merge Stage 3 branches to main + verify
-./scripts/launch-phase.sh validate  # run validation agent (fix-and-retry)
-./scripts/launch-phase.sh resume stage2  # resume pipeline from a specific step
-./scripts/launch-phase.sh status    # show worktree/branch status
+./scripts/launch-phase.sh <config> stage 1    # launch Stage 1 parallel groups in worktrees
+./scripts/launch-phase.sh <config> merge 1    # merge Stage 1 branches to implementation branch + verify
+./scripts/launch-phase.sh <config> stage 2    # launch Stage 2 groups (if any)
+./scripts/launch-phase.sh <config> merge 2    # merge Stage 2 branches + verify
+./scripts/launch-phase.sh <config> validate   # run validation agent (fix-and-retry)
+./scripts/launch-phase.sh <config> create-pr  # create PR + trigger code review
+./scripts/launch-phase.sh <config> resume stage:2  # resume pipeline from a specific step
+./scripts/launch-phase.sh <config> status     # show worktree/branch status
 ```
+
+Where `<config>` is a path to a `launch-config.yaml` file (e.g., `docs/prompts/phase15/launch-config.yaml`).
+The config file defines phase name, stages, groups, branches, merge messages, and PR metadata.
 
 ## Preflight Checks
 
@@ -57,7 +59,7 @@ A watchdog process (`monitor_agent()`) runs alongside each agent in non-WATCH mo
 
 Set the `MODEL` env var to override the default Claude model for all agents:
 ```bash
-MODEL=sonnet ./scripts/launch-phase.sh all
+MODEL=sonnet ./scripts/launch-phase.sh docs/prompts/phase15/launch-config.yaml all
 ```
 Options: `opus`, `sonnet`, `haiku`. Passed as `--model $MODEL` to the `claude` CLI.
 
@@ -65,10 +67,10 @@ Options: `opus`, `sonnet`, `haiku`. Passed as `--model $MODEL` to the `claude` C
 
 Resume a pipeline from any step without re-running earlier stages:
 ```bash
-./scripts/launch-phase.sh resume <step>
+./scripts/launch-phase.sh <config> resume <step>
 ```
-Steps: `stage1`, `merge1`, `stage2`, `merge2`, `stage3`, `merge3`, `validate`. The pipeline
-executes from the given step through the end (including validate).
+Steps: `stage:1`, `merge:1`, `stage:2`, `merge:2`, ..., `validate`, `create-pr`. The pipeline
+executes from the given step through the end. Also supports space-separated syntax: `resume stage 2`.
 
 ## Environment Variables
 
@@ -159,19 +161,21 @@ Before launching any phase, **always commit all planning work** so there is a sa
 revert to if something goes wrong:
 1. Track any new untracked files (`git add` prompt files, docs/TASKS.md, config files, etc.)
 2. Commit with a descriptive message (e.g., "prep: phase 12 planning — prompts, tasks, launch config")
-3. Verify `git status` is clean before running `launch-phase.sh`
+3. Verify `git status` is clean before running `launch-phase.sh <config> all`
 
 This prevents `git reset --hard` from destroying planning work if a phase run needs to be reverted.
 
 ## Adding a New Phase
 
 1. Create a phase subdirectory `docs/prompts/phase<N>/` with prompt files (e.g., `groupA.md`, `groupB.md`, `groupC.md`)
-2. Define file ownership, interface contracts, and execution order in this file
+2. Define file ownership, interface contracts, and execution order in prompt files
 3. Add tasks to `docs/tasks/phase<N>.yaml`
-4. Update the config block at the top of `scripts/launch-phase.sh`:
-   - `PROMPTS_DIR` to point to `docs/prompts/phase<N>`
-   - `STAGE1_GROUPS`/`STAGE1_BRANCHES`/`STAGE1_MERGE_MESSAGES` for the first parallel set
-   - `STAGE2_GROUPS`/`STAGE2_BRANCHES`/`STAGE2_MERGE_MESSAGES` for the second parallel set (leave empty arrays if single-stage)
-   - `STAGE3_GROUPS`/`STAGE3_BRANCHES`/`STAGE3_MERGE_MESSAGES` for a third parallel set (leave empty arrays if not needed)
+4. Create `docs/prompts/phase<N>/launch-config.yaml` with:
+   - `phase:` — phase identifier (e.g., `phase15`)
+   - `merge_target:` — implementation branch (e.g., `feature/phase15`)
+   - `stages:` — ordered list of stages, each with groups (id, branch, merge_message)
+   - `pr:` — PR metadata (title, summary, test_plan)
 5. Optionally create `docs/prompts/phase<N>/validate.md` for post-merge validation
-6. Run `./scripts/launch-phase.sh all` (executes: stage1 → merge1 → ... → merge3 → validate)
+6. Run `./scripts/launch-phase.sh docs/prompts/phase<N>/launch-config.yaml all`
+
+See `docs/prompts/phase15/launch-config.yaml` for a complete example.

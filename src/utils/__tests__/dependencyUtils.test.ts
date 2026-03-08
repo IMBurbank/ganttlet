@@ -65,16 +65,20 @@ describe('dependencyUtils', () => {
   });
 
   describe('cascadeDependents', () => {
-    it('shifts dependent tasks by delta', () => {
+    it('shifts dependent tasks when constraint is violated', () => {
+      // The moved task (a) must already have its new dates in the tasks array.
+      // A moved +5 biz: old end Mar 10 → new end Mar 17 (Tue).
+      // required B.start = Mar 17 > B.start (Mar 11 Wed) → violation.
+      // B shifts by minimum 4 biz days to start Mar 17.
       const tasks: Task[] = [
-        makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10' }),
+        makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-17' }), // already moved +5 biz
         makeTask({ id: 'b', startDate: '2026-03-11', endDate: '2026-03-20', dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
       ];
       const result = cascadeDependents(tasks, 'a', 5);
       const b = result.find(t => t.id === 'b')!;
-      // delta=5 is now business days: Wed Mar 11 + 5 biz = Wed Mar 18, Fri Mar 20 + 5 biz = Fri Mar 27
-      expect(b.startDate).toBe('2026-03-18');
-      expect(b.endDate).toBe('2026-03-27');
+      // B shifts by minimum needed: starts Mar 17, ends add_biz(Mar 20, 4) = Mar 26 (Thu)
+      expect(b.startDate).toBe('2026-03-17');
+      expect(b.endDate).toBe('2026-03-26');
     });
 
     it('does not shift the moved task itself', () => {
@@ -88,15 +92,20 @@ describe('dependencyUtils', () => {
     });
 
     it('cascades through transitive dependencies', () => {
+      // A moved +3 biz: old end Mar 10 → new end Mar 13 (Fri).
+      // B starts Mar 11 < required Mar 13 → violation, shift 2 biz.
+      // B.new_end = add_biz(Mar 20, 2) = Mar 24 (Tue).
+      // C starts Mar 21 (Sat) < required add_biz(Mar 24, 0) = Mar 24 → violation.
+      // C shifts 2 biz: count_biz(Mar 21 Sat → Mar 24 Tue) = 2. C.new_start = Mar 24.
       const tasks: Task[] = [
-        makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10' }),
+        makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-13' }), // already moved +3 biz
         makeTask({ id: 'b', startDate: '2026-03-11', endDate: '2026-03-20', dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
         makeTask({ id: 'c', startDate: '2026-03-21', endDate: '2026-03-30', dependencies: [{ fromId: 'b', toId: 'c', type: 'FS', lag: 0 }] }),
       ];
       const result = cascadeDependents(tasks, 'a', 3);
       const c = result.find(t => t.id === 'c')!;
-      // delta=3 biz days: Sat Mar 21 + 3 biz = Wed Mar 25
-      expect(c.startDate).toBe('2026-03-25');
+      // C shifts by minimum needed: starts Tue Mar 24
+      expect(c.startDate).toBe('2026-03-24');
     });
 
     it('skips summary tasks', () => {

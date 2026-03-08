@@ -32,3 +32,25 @@ stages:
       - id: groupF
         branch: feature/phase14-ghost-bar
         merge_message: "Merge feature/phase14-ghost-bar: drag intent via awareness + ghost bar rendering (R6)"
+
+pr:
+  title: "Phase 14: Drag reliability & sync integrity (R1-R10)"
+  summary: |
+    Phase 14 implementation — drag reliability and CRDT sync integrity improvements.
+    - **R1**: RAF-throttled drag dispatch (~60fps local, ~10fps CRDT broadcast)
+    - **R2/R7/R9**: Duration derived from dates (never stored independently)
+    - **R3**: SET_TASKS guard prevents snap-back during active drag
+    - **R4**: Atomic COMPLETE_DRAG action (single undo entry per drag)
+    - **R5**: Arrow render consistency for collapsed/hidden tasks
+    - **R6**: Awareness-based ghost bars for remote drag intent
+    - **R8**: Adjacency-list cascade optimization O(n*d) → O(e*d)
+    - **R10**: Structural CRDT sync for add/delete/dependency operations
+  test_plan: |
+    - [ ] `npx tsc --noEmit` passes
+    - [ ] `npm run test` passes
+    - [ ] `cd crates/scheduler && cargo test` passes
+    - [ ] Manual drag test: drag a task, verify no snap-back
+    - [ ] Manual drag test: drag while remote user edits, verify no snap-back
+    - [ ] Undo after drag: single Ctrl-Z undoes entire drag
+    - [ ] Arrow rendering with collapsed tasks
+    - [ ] Ghost bar visible for remote drag

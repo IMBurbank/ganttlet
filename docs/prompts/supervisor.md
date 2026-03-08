@@ -145,19 +145,27 @@ Once the code review finds no issues:
    - Code review result (no issues found / issues fixed in N iterations)
    - Why the PR is ready to merge (all tests pass, review clean, no outstanding issues)
 
-2. Merge the PR:
+2. Check the PR is mergeable before attempting merge:
+   ```bash
+   gh pr view <number> --json mergeable --jq '.mergeable'
+   ```
+   - If `MERGEABLE` → proceed to merge
+   - If `UNKNOWN` → wait 10 seconds and re-check (GitHub hasn't computed merge status yet)
+   - If `CONFLICTING` → rebase onto main in the merge worktree, resolve conflicts, reverify (`./scripts/full-verify.sh` or at minimum `bash -n` for scripts + `npx tsc --noEmit` for TS), force-push, then re-run the code review loop (Step 4). Do NOT merge without reverifying and re-reviewing after conflict resolution.
+
+3. Merge the PR:
    ```bash
    gh pr merge <number> --squash --delete-branch
    ```
 
-3. **Verify the merge succeeded** before cleaning up anything:
+4. **Verify the merge succeeded** before cleaning up anything:
    ```bash
    gh pr view <number> --json state --jq '.state'
    ```
    - If `MERGED` → proceed to cleanup
    - If not merged → do NOT delete worktrees. Diagnose the failure, fix, and retry the merge. The worktree is your only working copy of the branch.
 
-4. Clean up all phase worktrees and branches:
+5. Clean up all phase worktrees and branches:
    ```bash
    ./scripts/launch-phase.sh <config> cleanup
    ```
@@ -171,7 +179,7 @@ Once the code review finds no issues:
    git worktree prune
    ```
 
-5. Update main (separate Bash call after cd):
+6. Update main (separate Bash call after cd):
    ```bash
    # Bash call 1:
    cd /workspace

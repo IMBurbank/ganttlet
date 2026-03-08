@@ -87,8 +87,15 @@ The validation step has its own retry loop (default 3 attempts). It runs the val
 - If OVERALL PASS → proceed to create-pr
 - If OVERALL FAIL after all attempts → read the specific failures and report them
 
-### Step 3: Create PR
+### Step 3: Mark Phase Complete & Create PR
 
+**Before creating the PR**, mark all completed work:
+1. Update `docs/tasks/phase<N>.yaml` — set all completed task statuses to `done`
+2. Update `docs/completed-phases.md` — add a Phase N section with group summaries
+3. Update `CLAUDE.md` Project Status — change "Phases 0-(N-1)" to "Phases 0-N"
+4. Commit these updates to the implementation branch (in the merge worktree)
+
+Then create the PR:
 ```bash
 ./scripts/launch-phase.sh <config> create-pr
 ```

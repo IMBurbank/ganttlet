@@ -1,4 +1,4 @@
-import type { Task, CriticalPathScope } from '../types';
+import type { Task, CriticalPathScope, ConflictResult } from '../types';
 import { workingDaysBetween } from './dateUtils';
 
 // Lazily loaded WASM module
@@ -173,6 +173,22 @@ export function cascadeDependents(
   } catch (err) {
     console.error('cascadeDependents failed:', err);
     return tasks;
+  }
+}
+
+/**
+ * Detect constraint conflicts — tasks whose scheduled dates violate their constraints.
+ * Returns a list of conflicts with details about the violation.
+ */
+export function detectConflicts(tasks: Task[]): ConflictResult[] {
+  if (!wasmModule) throw new Error('WASM scheduler not initialized');
+  try {
+    const wasmTasks = mapTasksToWasm(tasks);
+    const result = wasmModule.detect_conflicts(wasmTasks);
+    return result as ConflictResult[];
+  } catch (err) {
+    console.error('detectConflicts failed:', err);
+    return [];
   }
 }
 

@@ -1,4 +1,4 @@
-export type DependencyType = 'FS' | 'FF' | 'SS';
+export type DependencyType = 'FS' | 'FF' | 'SS' | 'SF';
 
 export interface Dependency {
   fromId: string;
@@ -29,8 +29,16 @@ export interface Task {
   isHidden: boolean;
   notes: string;
   okrs: string[];
-  constraintType?: 'ASAP' | 'SNET';
+  constraintType?: 'ASAP' | 'SNET' | 'ALAP' | 'SNLT' | 'FNET' | 'FNLT' | 'MSO' | 'MFO';
   constraintDate?: string;
+}
+
+export interface ConflictResult {
+  task_id: string;
+  conflict_type: string;
+  constraint_date: string;
+  actual_date: string;
+  message: string;
 }
 
 export type ColorByField = 'owner' | 'workStream' | 'project' | 'functionalArea';

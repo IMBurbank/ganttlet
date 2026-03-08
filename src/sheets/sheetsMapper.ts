@@ -6,7 +6,7 @@ export const SHEET_COLUMNS = [
   'id', 'name', 'startDate', 'endDate', 'duration', 'owner',
   'workStream', 'project', 'functionalArea', 'done', 'description',
   'isMilestone', 'isSummary', 'parentId', 'childIds', 'dependencies',
-  'notes', 'okrs',
+  'notes', 'okrs', 'constraintType', 'constraintDate',
 ] as const;
 
 export const HEADER_ROW = SHEET_COLUMNS.map(c => c as string);
@@ -31,6 +31,8 @@ export function taskToRow(task: Task): string[] {
     serializeDependencies(task.dependencies),
     task.notes,
     task.okrs.join('|'),
+    task.constraintType ?? '',
+    task.constraintDate ?? '',
   ];
 }
 
@@ -64,7 +66,33 @@ export function rowToTask(row: string[]): Task | null {
     isHidden: false,
     notes: get(16),
     okrs: get(17) ? get(17).split('|').filter(Boolean) : [],
+    ...parseConstraintFields(get(18), get(19)),
   };
+}
+
+const VALID_CONSTRAINT_TYPES = new Set(['ASAP', 'SNET', 'ALAP', 'SNLT', 'FNET', 'FNLT', 'MSO', 'MFO']);
+const DATE_FREE_CONSTRAINTS = new Set(['ASAP', 'ALAP']);
+
+function parseConstraintFields(
+  rawType: string,
+  rawDate: string,
+): { constraintType?: Task['constraintType']; constraintDate?: string } {
+  if (!rawType) return {};
+
+  const ct = rawType.trim().toUpperCase();
+  if (!VALID_CONSTRAINT_TYPES.has(ct)) {
+    console.warn(`Invalid constraintType "${rawType}", ignoring`);
+    return {};
+  }
+
+  const constraintType = ct as Task['constraintType'];
+
+  // ASAP and ALAP don't use dates
+  if (DATE_FREE_CONSTRAINTS.has(ct) || !rawDate) {
+    return { constraintType };
+  }
+
+  return { constraintType, constraintDate: rawDate };
 }
 
 function serializeDependencies(deps: Dependency[]): string {

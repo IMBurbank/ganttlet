@@ -37,7 +37,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 
 describe('sheetsMapper', () => {
   describe('taskToRow', () => {
-    it('serializes all 18 columns', () => {
+    it('serializes all 20 columns', () => {
       const task = makeTask();
       const row = taskToRow(task);
       expect(row).toHaveLength(SHEET_COLUMNS.length);
@@ -60,6 +60,20 @@ describe('sheetsMapper', () => {
       expect(row[15]).toBe(''); // no dependencies
       expect(row[16]).toBe('Some notes');
       expect(row[17]).toBe(''); // no okrs
+      expect(row[18]).toBe(''); // no constraintType
+      expect(row[19]).toBe(''); // no constraintDate
+    });
+
+    it('serializes constraintType and constraintDate', () => {
+      const row = taskToRow(makeTask({ constraintType: 'SNET', constraintDate: '2026-04-01' }));
+      expect(row[18]).toBe('SNET');
+      expect(row[19]).toBe('2026-04-01');
+    });
+
+    it('serializes ASAP constraint without date', () => {
+      const row = taskToRow(makeTask({ constraintType: 'ASAP' }));
+      expect(row[18]).toBe('ASAP');
+      expect(row[19]).toBe('');
     });
 
     it('serializes childIds as comma-separated', () => {
@@ -104,7 +118,7 @@ describe('sheetsMapper', () => {
         'task-1', 'Test Task', '2026-03-02', '2026-03-06', '4',
         'Alice', 'Engineering', 'Alpha', 'Backend', 'false',
         'A test task', 'false', 'false', '', '', '',
-        'Some notes', '',
+        'Some notes', '', '', '',
       ];
       const task = rowToTask(row);
       expect(task).not.toBeNull();
@@ -124,28 +138,28 @@ describe('sheetsMapper', () => {
     });
 
     it('parses done=true', () => {
-      const row = Array(18).fill('');
+      const row = Array(20).fill('');
       row[0] = 'x';
       row[9] = 'true';
       expect(rowToTask(row)!.done).toBe(true);
     });
 
     it('parses childIds from comma-separated string', () => {
-      const row = Array(18).fill('');
+      const row = Array(20).fill('');
       row[0] = 'x';
       row[14] = 'c1,c2,c3';
       expect(rowToTask(row)!.childIds).toEqual(['c1', 'c2', 'c3']);
     });
 
     it('parses okrs from pipe-separated string', () => {
-      const row = Array(18).fill('');
+      const row = Array(20).fill('');
       row[0] = 'x';
       row[17] = 'OKR-1|OKR-2';
       expect(rowToTask(row)!.okrs).toEqual(['OKR-1', 'OKR-2']);
     });
 
     it('parses dependencies', () => {
-      const row = Array(18).fill('');
+      const row = Array(20).fill('');
       row[0] = 'x';
       row[15] = 'a:FS:0;b:SS:2';
       const task = rowToTask(row)!;
@@ -155,7 +169,7 @@ describe('sheetsMapper', () => {
     });
 
     it('falls back to duration column when dates are missing', () => {
-      const row = Array(18).fill('');
+      const row = Array(20).fill('');
       row[0] = 'x';
       row[4] = '5';
       // No start/end dates → falls back to parsed duration column
@@ -173,11 +187,67 @@ describe('sheetsMapper', () => {
     });
 
     it('defaults dependency type to FS when missing', () => {
-      const row = Array(18).fill('');
+      const row = Array(20).fill('');
       row[0] = 'x';
       row[15] = 'a::0';
       const task = rowToTask(row)!;
       expect(task.dependencies[0].type).toBe('FS');
+    });
+
+    it('parses constraintType and constraintDate', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[18] = 'SNET';
+      row[19] = '2026-04-01';
+      const task = rowToTask(row)!;
+      expect(task.constraintType).toBe('SNET');
+      expect(task.constraintDate).toBe('2026-04-01');
+    });
+
+    it('parses all 8 constraint types', () => {
+      for (const ct of ['ASAP', 'SNET', 'ALAP', 'SNLT', 'FNET', 'FNLT', 'MSO', 'MFO']) {
+        const row = Array(20).fill('');
+        row[0] = 'x';
+        row[18] = ct;
+        row[19] = '2026-04-01';
+        const task = rowToTask(row)!;
+        expect(task.constraintType).toBe(ct);
+      }
+    });
+
+    it('ignores date for ASAP and ALAP constraints', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[18] = 'ALAP';
+      row[19] = '2026-04-01';
+      const task = rowToTask(row)!;
+      expect(task.constraintType).toBe('ALAP');
+      expect(task.constraintDate).toBeUndefined();
+    });
+
+    it('ignores invalid constraint type', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[18] = 'INVALID';
+      const task = rowToTask(row)!;
+      expect(task.constraintType).toBeUndefined();
+    });
+
+    it('returns no constraint fields for empty columns', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      const task = rowToTask(row)!;
+      expect(task.constraintType).toBeUndefined();
+      expect(task.constraintDate).toBeUndefined();
+    });
+
+    it('ignores constraintDate without constraintType', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[19] = '2026-04-01';
+      const task = rowToTask(row)!;
+      expect(task.constraintType).toBeUndefined();
+      expect(task.constraintDate).toBeUndefined();
     });
   });
 
@@ -216,6 +286,33 @@ describe('sheetsMapper', () => {
       expect(restored.dependencies[0].fromId).toBe('dep-1');
       expect(restored.dependencies[0].type).toBe('SS');
       expect(restored.dependencies[0].lag).toBe(3);
+    });
+
+    it('round-trips constraintType and constraintDate', () => {
+      const original = makeTask({
+        constraintType: 'FNLT',
+        constraintDate: '2026-05-15',
+      });
+      const row = taskToRow(original);
+      const restored = rowToTask(row)!;
+      expect(restored.constraintType).toBe('FNLT');
+      expect(restored.constraintDate).toBe('2026-05-15');
+    });
+
+    it('round-trips ASAP constraint (no date)', () => {
+      const original = makeTask({ constraintType: 'ASAP' });
+      const row = taskToRow(original);
+      const restored = rowToTask(row)!;
+      expect(restored.constraintType).toBe('ASAP');
+      expect(restored.constraintDate).toBeUndefined();
+    });
+
+    it('round-trips task without constraints', () => {
+      const original = makeTask();
+      const row = taskToRow(original);
+      const restored = rowToTask(row)!;
+      expect(restored.constraintType).toBeUndefined();
+      expect(restored.constraintDate).toBeUndefined();
     });
   });
 
@@ -274,7 +371,7 @@ describe('sheetsMapper', () => {
       const rows = [
         HEADER_ROW,
         taskToRow(makeTask({ id: 'a' })),
-        Array(18).fill(''), // empty row
+        Array(20).fill(''), // empty row
         taskToRow(makeTask({ id: 'b' })),
       ];
       const tasks = rowsToTasks(rows);

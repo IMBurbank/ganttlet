@@ -44,7 +44,7 @@ If you encounter an error, fix it and continue. If you cannot fix it after 3 dis
 
 **CRITICAL CONTEXT**: This is a Stage 2 agent. Stage 1 has already been merged. Before starting work:
 1. Read the recent git log (`git log --oneline -20`) to see what Stage 1 changed
-2. Read `claude-progress.txt` if it exists
+2. Read `.agent-status.json` (or `claude-progress.txt`) if it exists
 3. Read the CURRENT versions of all files you'll modify — they may have changed in Stage 1
 
 ## Success Criteria (you're done when ALL of these are true):

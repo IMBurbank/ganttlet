@@ -179,6 +179,10 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
   - `issue-workflow` — Single-agent issue procedures, error handling
   - `rust-wasm` — WASM build, wasm-pack, Rust→JS bindings
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
+- `.claude/agents/` — Subagents (auto-delegated, isolated context windows):
+  - `codebase-explorer` — Read-only exploration, returns structured reports (haiku)
+  - `rust-scheduler` — Scheduling engine specialist for crates/scheduler/ (sonnet)
+  - `verify-and-diagnose` — Runs tsc/vitest/cargo test, diagnoses failures (sonnet)
 
 ## Task Queue
 See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.

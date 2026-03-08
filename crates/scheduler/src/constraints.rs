@@ -956,6 +956,25 @@ mod tests {
     // ── recalculate_earliest with SF dep ────────────────────────────────
 
     #[test]
+    fn snet_with_sf_dep_constraint_wins() {
+        // A starts 2026-03-10 (Tue), 3d task. SF lag 0 to B (3d task).
+        // SF: required_end = pred.start + 0 = 2026-03-10
+        //     B start = 2026-03-10 - (3-1) biz days = 2026-03-06 (Fri)
+        // SNET on B = 2026-03-16 (Mon), which is later than 2026-03-06.
+        // SNET floor should win → earliest start = 2026-03-16.
+        let mut b = make_task("b", "2026-03-05", "2026-03-09", 3);
+        b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
+        b.constraint_type = Some(ConstraintType::SNET);
+        b.constraint_date = Some("2026-03-16".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-10", "2026-03-12", 3), b];
+        assert_eq!(
+            compute_earliest_start(&tasks, "b"),
+            Some("2026-03-16".to_string()) // SNET wins over SF-computed 2026-03-06
+        );
+    }
+
+    #[test]
     fn recalc_sf_dep() {
         // A starts 2026-03-10, 3d. SF lag 0 to B (2d).
         // B's earliest: required_end = 03-10, start = 03-10 - 1 biz = 03-09

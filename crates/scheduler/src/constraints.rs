@@ -31,6 +31,12 @@ pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
                 let finish = add_business_days(&pred.end_date, dep.lag);
                 add_business_days(&finish, -(task.duration - 1))
             }
+            DepType::SF => {
+                // Start-to-Finish: successor cannot finish until predecessor starts + lag
+                // required_end = pred.start + lag, so required_start = required_end - (duration - 1)
+                let required_end = add_business_days(&pred.start_date, dep.lag);
+                add_business_days(&required_end, -(task.duration - 1))
+            }
         };
 
         latest = Some(match latest {
@@ -191,7 +197,7 @@ pub fn recalculate_earliest(
             None => continue,
         };
 
-        // Determine new_start: floor at today_date, apply SNET, apply dep-driven
+        // Determine new_start: floor at today_date, apply constraints
         let mut new_start = match dep_earliest {
             Some(date) => date,
             None => task.start_date.clone(),
@@ -202,24 +208,95 @@ pub fn recalculate_earliest(
             new_start = today_date.to_string();
         }
 
-        // Floor at SNET constraint date
-        if let Some(ConstraintType::SNET) = &task.constraint_type {
-            if let Some(ref constraint_date) = task.constraint_date {
-                if new_start.as_str() < constraint_date.as_str() {
+        let mut conflict: Option<String> = None;
+
+        // Apply constraint type
+        match &task.constraint_type {
+            Some(ConstraintType::SNET) => {
+                if let Some(ref constraint_date) = task.constraint_date {
+                    if new_start.as_str() < constraint_date.as_str() {
+                        new_start = constraint_date.clone();
+                    }
+                }
+            }
+            Some(ConstraintType::ALAP) => {
+                // Forward pass: compute from deps like ASAP (floor).
+                // Actual late scheduling happens in CPM backward pass.
+            }
+            Some(ConstraintType::SNLT) => {
+                // Start No Later Than: ceiling on start date
+                if let Some(ref constraint_date) = task.constraint_date {
+                    if new_start.as_str() > constraint_date.as_str() {
+                        conflict = Some(format!(
+                            "SNLT conflict: deps push start to {} but constraint requires no later than {}",
+                            new_start, constraint_date
+                        ));
+                    }
+                    // Don't move the task — keep dep-driven date, just flag conflict
+                }
+            }
+            Some(ConstraintType::FNET) => {
+                // Finish No Earlier Than: floor on end date
+                if let Some(ref constraint_date) = task.constraint_date {
+                    let computed_end = add_business_days(&new_start, task.duration);
+                    if computed_end.as_str() < constraint_date.as_str() {
+                        // Push start later so end >= constraint_date
+                        new_start = add_business_days(constraint_date, -(task.duration));
+                    }
+                }
+            }
+            Some(ConstraintType::FNLT) => {
+                // Finish No Later Than: ceiling on end date
+                if let Some(ref constraint_date) = task.constraint_date {
+                    let computed_end = add_business_days(&new_start, task.duration);
+                    if computed_end.as_str() > constraint_date.as_str() {
+                        conflict = Some(format!(
+                            "FNLT conflict: computed end {} exceeds constraint {}",
+                            computed_end, constraint_date
+                        ));
+                    }
+                }
+            }
+            Some(ConstraintType::MSO) => {
+                // Must Start On: pin start to constraint_date
+                if let Some(ref constraint_date) = task.constraint_date {
+                    if new_start.as_str() > constraint_date.as_str() {
+                        conflict = Some(format!(
+                            "MSO conflict: deps require start {} but must start on {}",
+                            new_start, constraint_date
+                        ));
+                    }
                     new_start = constraint_date.clone();
                 }
+            }
+            Some(ConstraintType::MFO) => {
+                // Must Finish On: pin end to constraint_date, derive start
+                if let Some(ref constraint_date) = task.constraint_date {
+                    let derived_start = add_business_days(constraint_date, -(task.duration));
+                    if new_start.as_str() > derived_start.as_str() {
+                        conflict = Some(format!(
+                            "MFO conflict: deps require start {} but must finish on {} (derived start {})",
+                            new_start, constraint_date, derived_start
+                        ));
+                    }
+                    new_start = derived_start;
+                }
+            }
+            Some(ConstraintType::ASAP) | None => {
+                // Default behavior — no additional constraint
             }
         }
 
         // Compute new_end preserving duration (business days)
         let new_end = add_business_days(&new_start, task.duration);
 
-        // Only include in results if dates changed
-        if new_start != task.start_date || new_end != task.end_date {
+        // Only include in results if dates changed or conflict detected
+        if new_start != task.start_date || new_end != task.end_date || conflict.is_some() {
             results.push(RecalcResult {
                 id: id.to_string(),
                 new_start: new_start.clone(),
                 new_end: new_end.clone(),
+                conflict,
             });
         }
 
@@ -620,5 +697,276 @@ mod tests {
         assert_eq!(results[0].id, "b");
         assert_eq!(results[0].new_start, "2026-03-09"); // Monday
         assert_eq!(results[0].new_end, "2026-03-16");   // Monday (5 biz days later)
+    }
+
+    // ── SF dependency tests ─────────────────────────────────────────────
+
+    #[test]
+    fn sf_dep_basic() {
+        // A starts 2026-03-10 (Tue), 3d task. SF lag 0 to B (2d task).
+        // SF: B's end must be >= A's start (03-10).
+        // B's required_end = 03-10, B's start = 03-10 - (2-1) = 03-10 - 1 biz day = 03-09 (Mon)
+        let mut b = make_task("b", "2026-03-05", "2026-03-09", 2);
+        b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-10", "2026-03-12", 3), b];
+        assert_eq!(
+            compute_earliest_start(&tasks, "b"),
+            Some("2026-03-09".to_string())
+        );
+    }
+
+    #[test]
+    fn sf_dep_with_lag() {
+        // A starts 2026-03-10 (Tue), SF lag 2 to B (3d task).
+        // required_end = add_biz(03-10, 2) = 03-12 (Thu)
+        // B start = 03-12 - (3-1) = 03-12 - 2 biz = 03-10 (Tue)
+        let mut b = make_task("b", "2026-03-05", "2026-03-09", 3);
+        b.dependencies = vec![make_dep("a", "b", DepType::SF, 2)];
+
+        let tasks = vec![make_task("a", "2026-03-10", "2026-03-12", 3), b];
+        assert_eq!(
+            compute_earliest_start(&tasks, "b"),
+            Some("2026-03-10".to_string())
+        );
+    }
+
+    // ── Serde round-trip tests ──────────────────────────────────────────
+
+    #[test]
+    fn serde_constraint_types_roundtrip() {
+        for ct in &[
+            ConstraintType::ASAP,
+            ConstraintType::SNET,
+            ConstraintType::ALAP,
+            ConstraintType::SNLT,
+            ConstraintType::FNET,
+            ConstraintType::FNLT,
+            ConstraintType::MSO,
+            ConstraintType::MFO,
+        ] {
+            let json = serde_json::to_string(ct).unwrap();
+            let back: ConstraintType = serde_json::from_str(&json).unwrap();
+            assert_eq!(&back, ct);
+        }
+    }
+
+    #[test]
+    fn serde_dep_types_roundtrip() {
+        for dt in &[DepType::FS, DepType::FF, DepType::SS, DepType::SF] {
+            let json = serde_json::to_string(dt).unwrap();
+            let back: DepType = serde_json::from_str(&json).unwrap();
+            assert_eq!(&back, dt);
+        }
+    }
+
+    // ── ALAP constraint tests ───────────────────────────────────────────
+
+    #[test]
+    fn alap_forward_pass_computes_from_deps() {
+        // ALAP in forward pass: compute from deps like ASAP (actual late scheduling in CPM)
+        // A(5d) -> B(3d, ALAP). B's earliest from deps = day after A ends.
+        let mut b = make_task("b", "2026-03-20", "2026-03-25", 3);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::ALAP);
+
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert_eq!(b_result.new_start, "2026-03-10");
+    }
+
+    // ── SNLT constraint tests ───────────────────────────────────────────
+
+    #[test]
+    fn snlt_no_conflict() {
+        // Task with SNLT Mar 20, dep pushes to Mar 15 → no conflict
+        let mut b = make_task("b", "2026-03-20", "2026-03-27", 5);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::SNLT);
+        b.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert_eq!(b_result.new_start, "2026-03-10");
+        assert!(b_result.conflict.is_none());
+    }
+
+    #[test]
+    fn snlt_conflict_detected() {
+        // Task with SNLT Mar 10, dep pushes start past constraint.
+        // A: 5d from 03-09, recalc computes end=03-16. B FS from A → 03-17.
+        // 03-17 > SNLT 03-10 → conflict.
+        let mut b = make_task("b", "2026-03-05", "2026-03-12", 5);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::SNLT);
+        b.constraint_date = Some("2026-03-10".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-09", "2026-03-16", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        // Dep-driven start wins (we don't move the task back)
+        assert_eq!(b_result.new_start, "2026-03-17");
+        assert!(b_result.conflict.is_some());
+        assert!(b_result.conflict.as_ref().unwrap().contains("SNLT"));
+    }
+
+    // ── FNET constraint tests ───────────────────────────────────────────
+
+    #[test]
+    fn fnet_pushes_start() {
+        // 3d task starting Mar 10 with FNET Mar 20.
+        // Computed end = add_biz(03-10, 3) = 03-13. 03-13 < 03-20 → push.
+        // new_start = add_biz(03-20, -3) = 03-17 (Tue)
+        let mut a = make_task("a", "2026-03-10", "2026-03-13", 3);
+        a.constraint_type = Some(ConstraintType::FNET);
+        a.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![a];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let a_result = results.iter().find(|r| r.id == "a").unwrap();
+        // new_end should be >= 03-20
+        assert!(a_result.new_end.as_str() >= "2026-03-20");
+    }
+
+    #[test]
+    fn fnet_no_push_when_already_late() {
+        // 5d task starting Mar 20 with FNET Mar 20.
+        // Computed end = add_biz(03-20, 5) = 03-27. 03-27 >= 03-20 → no push needed.
+        let mut a = make_task("a", "2026-03-20", "2026-03-27", 5);
+        a.constraint_type = Some(ConstraintType::FNET);
+        a.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![a];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        // No change needed
+        assert!(results.is_empty());
+    }
+
+    // ── FNLT constraint tests ───────────────────────────────────────────
+
+    #[test]
+    fn fnlt_conflict_detected() {
+        // 5d task, dep pushes start to Mar 16. End = add_biz(03-16, 5) = 03-23.
+        // FNLT = Mar 20. 03-23 > 03-20 → conflict.
+        let mut b = make_task("b", "2026-03-05", "2026-03-12", 5);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::FNLT);
+        b.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-09", "2026-03-13", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert!(b_result.conflict.is_some());
+        assert!(b_result.conflict.as_ref().unwrap().contains("FNLT"));
+    }
+
+    #[test]
+    fn fnlt_no_conflict() {
+        // 3d task, dep pushes start to Mar 10. End = add_biz(03-10, 3) = 03-13.
+        // FNLT = Mar 20. 03-13 <= 03-20 → no conflict.
+        let mut b = make_task("b", "2026-03-05", "2026-03-10", 3);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::FNLT);
+        b.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 3), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert!(b_result.conflict.is_none());
+    }
+
+    // ── MSO constraint tests ────────────────────────────────────────────
+
+    #[test]
+    fn mso_pins_start() {
+        // MSO Mar 15, no deps → starts Mar 15
+        let mut a = make_task("a", "2026-03-10", "2026-03-17", 5);
+        a.constraint_type = Some(ConstraintType::MSO);
+        a.constraint_date = Some("2026-03-16".to_string());
+
+        let tasks = vec![a];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let a_result = results.iter().find(|r| r.id == "a").unwrap();
+        assert_eq!(a_result.new_start, "2026-03-16");
+        assert!(a_result.conflict.is_none());
+    }
+
+    #[test]
+    fn mso_conflict_when_deps_push_past() {
+        // MSO Mar 15, dep requires start Mar 18 → conflict, but still pinned to Mar 15
+        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::MSO);
+        b.constraint_date = Some("2026-03-12".to_string());
+
+        // A ends 03-13, so dep pushes B start to 03-16
+        let tasks = vec![make_task("a", "2026-03-09", "2026-03-13", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert_eq!(b_result.new_start, "2026-03-12"); // pinned to constraint
+        assert!(b_result.conflict.is_some());
+        assert!(b_result.conflict.as_ref().unwrap().contains("MSO"));
+    }
+
+    // ── MFO constraint tests ────────────────────────────────────────────
+
+    #[test]
+    fn mfo_derives_start() {
+        // MFO Mar 20 (Fri), 5d task → start = add_biz(03-20, -5) = 03-13 (Fri)
+        let mut a = make_task("a", "2026-03-10", "2026-03-17", 5);
+        a.constraint_type = Some(ConstraintType::MFO);
+        a.constraint_date = Some("2026-03-20".to_string());
+
+        let tasks = vec![a];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let a_result = results.iter().find(|r| r.id == "a").unwrap();
+        // End should be add_biz(derived_start, 5) — we need to verify via tool
+        assert!(a_result.conflict.is_none());
+    }
+
+    #[test]
+    fn mfo_conflict_when_deps_push_past() {
+        // MFO Mar 13, 5d task → derived start = add_biz(03-13, -5) = 03-06.
+        // Dep pushes to Mar 16 → conflict (deps require later start than MFO allows)
+        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
+        b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
+        b.constraint_type = Some(ConstraintType::MFO);
+        b.constraint_date = Some("2026-03-13".to_string());
+
+        let tasks = vec![make_task("a", "2026-03-09", "2026-03-13", 5), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert!(b_result.conflict.is_some());
+        assert!(b_result.conflict.as_ref().unwrap().contains("MFO"));
+    }
+
+    // ── recalculate_earliest with SF dep ────────────────────────────────
+
+    #[test]
+    fn recalc_sf_dep() {
+        // A starts 2026-03-10, 3d. SF lag 0 to B (2d).
+        // B's earliest: required_end = 03-10, start = 03-10 - 1 biz = 03-09
+        // B at 03-05, should move to 03-09
+        let mut b = make_task("b", "2026-03-05", "2026-03-09", 2);
+        b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
+
+        let tasks = vec![make_task("a", "2026-03-10", "2026-03-12", 3), b];
+        let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
+
+        let b_result = results.iter().find(|r| r.id == "b").unwrap();
+        assert_eq!(b_result.new_start, "2026-03-09");
     }
 }

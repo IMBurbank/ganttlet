@@ -126,6 +126,11 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
                         let new_start = add_business_days(&dep_curr_start, shift);
                         (new_start, required_end)
                     }
+                    DepType::SF => {
+                        // SF cascade: successor's finish must be >= pred start + lag.
+                        // Full implementation in Stage 2 (Group B).
+                        continue;
+                    }
                 };
 
                 // Update effective dates only if this path requires a larger

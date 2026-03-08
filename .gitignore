@@ -31,6 +31,7 @@ Thumbs.db
 
 # Agent ephemeral state (lives in worktrees, cleaned up with them)
 claude-progress.txt
+.agent-status.json
 .agent-summary.md
 
 # Docker

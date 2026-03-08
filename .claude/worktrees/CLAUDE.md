@@ -14,14 +14,15 @@ It does NOT apply to CI/workflow agents.
 
 ## Parallel Agent Awareness
 - Other agents may be running concurrently in sibling worktrees.
+- **Never remove a worktree you did not create.** Other agents' worktrees may be in active use — even if they look stale. Only clean up your own worktree, and only after your PR is merged. Only the user can authorize removal of other worktrees.
 - Never modify `/workspace` directly — it must stay on `main`.
 - If you need to read another agent's in-progress work, look in `/workspace/.claude/worktrees/`.
 - Coordinate via files in the repo (e.g. `.agent-status.json`), not by switching branches.
 
 ## Worktree Lifecycle
 - You are working in a worktree. All git operations (commit, push, rebase) happen here.
-- If you find stale worktrees from crashed agents: `git worktree prune`
-- **Clean up only after the PR is merged** — the worktree is your only working copy. If you delete it before the merge completes and the merge fails, you have no way to fix and retry. Verify first:
+- **Never remove worktrees you did not create** — another agent may be using them. Do not run `git worktree prune` or `git worktree remove` on others' worktrees unless the user explicitly asks.
+- **Clean up your own worktree only after its PR is merged** — the worktree is your only working copy. If you delete it before the merge completes and the merge fails, you have no way to fix and retry. Verify first:
   ```bash
   gh pr view <number> --json state --jq '.state'   # must be "MERGED"
   ```

@@ -265,8 +265,8 @@ validation:
   - {id: V10, summary: "Type consistency across Rust enum ↔ TS union ↔ Sheets column", status: done}
 
 follow_up:
-  - {summary: "Calendar support (holidays, resource calendars) — separate phase", status: done}
-  - {summary: "Duration mode toggle (business vs calendar days) — separate phase", status: done}
-  - {summary: "E2E test: constraint set via popover cascades across tabs", status: done}
-  - {summary: "E2E test: SF dependency renders correct arrow path", status: done}
-  - {summary: "E2E test: conflict indicator visible to collaborators", status: done}
+  - {summary: "Calendar support (holidays, resource calendars) — separate phase", status: pending}
+  - {summary: "Duration mode toggle (business vs calendar days) — separate phase", status: pending}
+  - {summary: "E2E test: constraint set via popover cascades across tabs", status: pending}
+  - {summary: "E2E test: SF dependency renders correct arrow path", status: pending}
+  - {summary: "E2E test: conflict indicator visible to collaborators", status: pending}

@@ -12,16 +12,22 @@ You are a codebase exploration specialist for the Ganttlet project.
 Your job is to investigate the codebase and return a structured report. You never
 modify files — you only read, search, and analyze.
 
-## Project structure
+## Project structure (verify with `ls` if unsure — this map may lag behind changes)
 - `crates/scheduler/src/` — Rust scheduling engine (CPM, cascade, constraints, WASM bindings)
 - `src/types/index.ts` — TypeScript type definitions (mirror of Rust types)
 - `src/state/` — React state management (actions.ts, ganttReducer.ts, GanttContext.tsx)
 - `src/utils/schedulerWasm.ts` — WASM bridge (TS ↔ Rust)
 - `src/components/gantt/` — Gantt chart UI components
+- `src/components/table/` — Task table (inline editing, predecessors, column headers)
 - `src/components/shared/` — Shared UI (DependencyEditorModal, etc.)
-- `src/sheets/` — Google Sheets sync (mapper, client, sync loop)
-- `src/collab/` — Real-time collaboration (Yjs/CRDT)
-- `scripts/` — Build, verify, launch infrastructure
+- `src/components/layout/` — App chrome (Header, Toolbar)
+- `src/components/panels/` — Side panels (change history, sync status, user presence)
+- `src/sheets/` — Google Sheets sync (mapper, client, sync loop, oauth)
+- `src/collab/` — Real-time collaboration (Yjs/CRDT, awareness, binding)
+- `src/data/` — Static data (color palettes, fake/demo data)
+- `server/src/` — Relay server (Axum, WebSocket, room management, auth)
+- `server/tests/` — Relay server integration tests (WebSocket auth, awareness)
+- `scripts/` — Build, verify, launch infrastructure (lib/ has modular helpers)
 - `.claude/skills/` — Domain-specific reference guides (read these for domain knowledge)
 
 ## Investigation approach

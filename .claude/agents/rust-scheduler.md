@@ -18,7 +18,7 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 ## Module map
 - `types.rs` — ConstraintType (ASAP, SNET, ALAP, SNLT, FNET, FNLT, MSO, MFO), DepType (FS, FF, SS, SF), Task, Dependency, CascadeResult, RecalcResult
 - `cpm.rs` — Critical path: forward pass (topo BFS computing ES/EF), backward pass (LS/LF), float = LS - ES, zero float = critical. Scoped by project/workstream.
-- `cascade.rs` — `cascade_dependents()`: BFS propagation of date delta to FS/SS successors. Only propagates when predecessor's new end violates successor's start. Preserves duration, handles weekends, avoids double-shifting in diamonds.
+- `cascade.rs` — `cascade_dependents()`: BFS propagation of date delta to all 4 dep types (FS/SS/FF/SF). Only forward moves propagate (asymmetric). Slack-aware: only cascades when constraint violated. Preserves duration, handles weekends, avoids double-shifting in diamonds.
 - `constraints.rs` — `compute_earliest_start()` (per-task from deps + SNET floor) and `recalculate_earliest()` (full recalc via Kahn's topo sort with today-floor and all 8 constraint types)
 - `graph.rs` — `would_create_cycle()`: BFS reachability check
 - `date_utils.rs` — `add_business_days()`, `is_weekend()`, `parse_date()`/`format_date()`. Hand-rolled, no external lib.

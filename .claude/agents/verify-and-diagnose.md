@@ -17,7 +17,8 @@ them. Return a structured report.
 1. `npx tsc --noEmit` — TypeScript type checking
 2. `npx vitest run --reporter=dot` — Unit tests
 3. `cd crates/scheduler && cargo test` — Rust scheduler tests
-4. Skip E2E tests (require deployment infrastructure)
+4. `./scripts/lint-agent-paths.sh` — Agent structure map freshness
+5. Skip E2E tests (require deployment infrastructure)
 
 Run each step independently. Capture both stdout and stderr.
 
@@ -49,6 +50,11 @@ Run each step independently. Capture both stdout and stderr.
 - Failures (max 10):
   - `module::test_name`: {panic message}
 
+#### Agent Structure Maps (lint-agent-paths)
+- Status: PASS | FAIL
+- Forward (stale paths): N warnings
+- Reverse (undocumented dirs): N warnings
+
 #### Overall: PASS | FAIL
 
 If FAIL:
@@ -58,8 +64,15 @@ If FAIL:
 - Suggested fix: {specific change needed}
 - Fix applied: YES | NO (if you attempted a fix)
 
-## Fix protocol
-If instructed to fix (or if the prompt says "fix issues"):
+## Modes
+
+**Verify-only** (default): Run all checks, return the report. Do NOT modify any files.
+Use when the caller just needs a pass/fail signal and diagnosis.
+
+**Verify-and-fix**: Run checks, then fix failures. Activated when the caller's prompt
+includes "fix", "fix issues", or "verify and fix".
+
+## Fix protocol (verify-and-fix mode only)
 1. Diagnose root cause from error output
 2. Read the relevant source file to understand context
 3. Apply the minimal fix

@@ -1,13 +1,11 @@
 {
-  "group": "D",
-  "phase": 15,
+  "group": "G",
+  "phase": "15b",
   "tasks": {
-    "D1": { "status": "done" },
-    "D2": { "status": "done", "tests_passing": 45, "tests_failing": 0 },
-    "D3": { "status": "done" },
-    "D4": { "status": "done" },
-    "D5": { "status": "done" },
-    "D6": { "status": "done", "notes": "SF already existed in DEP_TYPE_LABELS" }
+    "G1": { "status": "done" },
+    "G2": { "status": "done" },
+    "G3": { "status": "done" },
+    "G4": { "status": "in_progress" }
   },
-  "last_updated": "2026-03-08T20:50:00Z"
+  "last_updated": "2026-03-09T00:00:00Z"
 }

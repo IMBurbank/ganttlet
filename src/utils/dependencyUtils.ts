@@ -89,24 +89,28 @@ export function createBezierPath(start: Point, end: Point, depType?: DependencyT
       `L ${end.x} ${end.y}`;
   }
 
-  // Backward path: start stub goes right, end stub goes left, but end is behind start
-  // Route: right from start, down/up, left to end
+  // Backward path: end is behind start, need S-curve routing
+  // FS: start stub goes right, end stub goes left
+  // SF: start stub goes left, end stub goes right (reversed)
   const r = 6;
   const dirY = dy > 0 ? 1 : dy < 0 ? -1 : 1;
   const outset = 16;
-  const rightX = start.x + outset;
-  const leftX = end.x - outset;
+  const isSF = depType === 'SF';
+  const outX = isSF ? start.x - outset : start.x + outset;
+  const inX = isSF ? end.x + outset : end.x - outset;
   const midY = (start.y + end.y) / 2;
+  const dirOut = isSF ? -1 : 1;
+  const dirIn = isSF ? 1 : -1;
 
   return `M ${start.x} ${start.y} ` +
-    `L ${rightX - r} ${start.y} ` +
-    `Q ${rightX} ${start.y}, ${rightX} ${start.y + r * dirY} ` +
-    `L ${rightX} ${midY - r * dirY} ` +
-    `Q ${rightX} ${midY}, ${rightX - r} ${midY} ` +
-    `L ${leftX + r} ${midY} ` +
-    `Q ${leftX} ${midY}, ${leftX} ${midY + r * dirY} ` +
-    `L ${leftX} ${end.y - r * dirY} ` +
-    `Q ${leftX} ${end.y}, ${leftX + r} ${end.y} ` +
+    `L ${outX - r * dirOut} ${start.y} ` +
+    `Q ${outX} ${start.y}, ${outX} ${start.y + r * dirY} ` +
+    `L ${outX} ${midY - r * dirY} ` +
+    `Q ${outX} ${midY}, ${outX - r * dirOut} ${midY} ` +
+    `L ${inX - r * dirIn} ${midY} ` +
+    `Q ${inX} ${midY}, ${inX} ${midY + r * dirY} ` +
+    `L ${inX} ${end.y - r * dirY} ` +
+    `Q ${inX} ${end.y}, ${inX - r * dirIn} ${end.y} ` +
     `L ${end.x} ${end.y}`;
 }
 

@@ -201,6 +201,77 @@ test.describe('Ganttlet E2E', () => {
     }
   });
 
+  test('SF dependency renders correct arrow path', async ({ page }) => {
+    // pe-3 has a FS dependency on pe-1 in demo data.
+    // We'll change it to SF and verify the arrow renders correctly.
+
+    // Find the pe-3 task's predecessors cell and click to open the dependency editor.
+    // The predecessors cell for pe-3 shows "pe-1+2" (FS is hidden, lag=2 shown).
+    const predCell = page.locator('button').filter({ hasText: /^pe-1\+2$/ });
+    await predCell.click();
+
+    // Wait for the dependency editor modal to appear
+    const modal = page.locator('.fade-in');
+    await modal.waitFor({ timeout: 5_000 });
+
+    // Find the dependency type dropdown (second select in the row) and change to SF
+    const typeSelect = modal.locator('select').nth(1);
+    await typeSelect.selectOption('SF');
+
+    // Close modal by pressing Escape
+    await page.keyboard.press('Escape');
+
+    // Wait for re-render with new arrow
+    await page.waitForTimeout(500);
+
+    // Verify dependency arrows still exist and have valid path data
+    const arrows = page.locator('g.dependency-arrow');
+    const arrowCount = await arrows.count();
+    expect(arrowCount).toBeGreaterThan(0);
+
+    // Find the SF arrow by checking all arrows for the one with an arrowhead
+    // pointing left (tip x < base x). SF arrows point toward the successor's finish.
+    let foundSfArrow = false;
+    for (let i = 0; i < arrowCount; i++) {
+      const arrow = arrows.nth(i);
+      const headD = await arrow.locator('.dep-head').getAttribute('d');
+      if (!headD) continue;
+
+      // Parse arrowhead triangle path: M x1 y1 L x2 y2 L x3 y3 Z
+      // Extract x coordinates
+      const coords = headD.match(/[-\d.]+/g)?.map(Number);
+      if (!coords || coords.length < 6) continue;
+
+      // Triangle has 3 points: (x1,y1), (x2,y2), (x3,y3)
+      // For a left-pointing arrowhead, the tip x is the minimum x
+      const xs = [coords[0], coords[2], coords[4]];
+      const tipX = Math.min(...xs);
+      const baseXs = xs.filter(x => x !== tipX);
+
+      // Left-pointing: tip x is less than both base x values
+      if (baseXs.length === 2 && tipX < baseXs[0] && tipX < baseXs[1]) {
+        foundSfArrow = true;
+
+        // Verify the stroke path is also valid
+        const strokeD = await arrow.locator('.dep-stroke').getAttribute('d');
+        expect(strokeD).toBeTruthy();
+        expect(strokeD).toMatch(/[MC]/);
+        break;
+      }
+    }
+
+    expect(foundSfArrow).toBe(true);
+
+    // Restore: reopen and change back to FS
+    const restoredPredCell = page.locator('button').filter({ hasText: /pe-1/ }).first();
+    await restoredPredCell.click();
+    const restoreModal = page.locator('.fade-in');
+    await restoreModal.waitFor({ timeout: 5_000 });
+    const restoreTypeSelect = restoreModal.locator('select').nth(1);
+    await restoreTypeSelect.selectOption('FS');
+    await page.keyboard.press('Escape');
+  });
+
   test('MSO constraint with past date does not crash the app', async ({ page }) => {
     // Set MSO on a task to a date in the past — verifies the app handles
     // constraint violations gracefully without crashing

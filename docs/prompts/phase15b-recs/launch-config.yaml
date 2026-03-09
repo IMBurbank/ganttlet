@@ -1,0 +1,39 @@
+# Phase 15b-recs: Orchestration Process Improvements
+# Implements 6 recommendations from Phase 15b post-mortem
+
+phase: phase15b-recs
+merge_target: feature/phase15b-recs
+
+stages:
+  - name: "Script Changes"
+    groups:
+      - id: groupA
+        branch: feature/recs-validation-improvements
+        merge_message: "Merge feature/recs-validation-improvements: pipe mode for WATCH validation + wall-clock timeout"
+      - id: groupB
+        branch: feature/recs-merge-stall-detection
+        merge_message: "Merge feature/recs-merge-stall-detection: skip unnecessary WASM rebuild + stall detection in tmux_wait_stage"
+
+  - name: "Documentation Updates"
+    groups:
+      - id: groupC
+        branch: feature/recs-docs-updates
+        merge_message: "Merge feature/recs-docs-updates: piping warning, task scope guidance, documentation of script changes"
+
+pr:
+  title: "fix: orchestration improvements from phase 15b post-mortem"
+  summary: |
+    Implements 6 recommendations from phase 15b orchestration:
+    1. Validation uses pipe mode in WATCH to prevent background task stalls
+    2. Wall-clock timeout on validation attempts (default 10min)
+    3. Skip WASM rebuild during merges when no Rust files changed
+    4. Log-based stall detection in tmux_wait_stage
+    5. Documentation: piping warning (SIGPIPE kills pipelines)
+    6. Documentation: required vs stretch task labeling in prompts
+  test_plan: |
+    - [ ] `bash -n scripts/lib/watch.sh` passes (syntax check)
+    - [ ] `bash -n scripts/lib/validate.sh` passes
+    - [ ] `bash -n scripts/lib/merge.sh` passes
+    - [ ] `bash -n scripts/lib/tmux-supervisor.sh` passes
+    - [ ] Manual: `./scripts/launch-phase.sh <config> status` still works
+    - [ ] Verify docs are consistent with code changes

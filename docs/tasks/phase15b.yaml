@@ -1,0 +1,139 @@
+# Phase 15b: Scheduling Engine Follow-up — SF Arrow Fix + E2E Tests
+# Completes follow-up items from Phase 15 that are feasible without calendar support.
+
+phase: 15b
+status: pending
+context: >
+  Fix the SF dependency arrow rendering bug discovered during phase 15 review,
+  and add/complete E2E tests for constraints, conflicts, and SF arrows.
+  Calendar support and duration mode toggle are deferred to a future phase.
+
+stages:
+  - name: "Stage 1: SF Arrow Path Fix (single agent)"
+    groups:
+      - id: E
+        name: "SF Arrow Path Fix + Unit Tests"
+        scope:
+          modify:
+            - src/utils/dependencyUtils.ts
+            - src/utils/__tests__/dependencyUtils.test.ts
+          read_only:
+            - src/types/index.ts
+            - src/components/gantt/DependencyArrow.tsx
+            - src/components/gantt/DependencyLayer.tsx
+        tasks:
+          - id: E1
+            summary: "Read dependencyUtils.ts — understand getDependencyPoints, createBezierPath, createArrowHead"
+            status: pending
+          - id: E2
+            summary: "Fix createBezierPath backward path for SF — start stub points LEFT, end stub points RIGHT"
+            status: pending
+            exit_criteria: >
+              SF arrows with dx <= 10 render with correct stub directions.
+              Start stub goes left from predecessor start, end stub goes right from successor end.
+              The bezier path connects them without crossing through task bars.
+          - id: E3
+            summary: "Add/update unit tests for SF path geometry in dependencyUtils.test.ts"
+            status: pending
+            exit_criteria: >
+              Tests cover: SF with large dx (forward curve), SF with small dx (backward path),
+              SF with overlapping tasks, SF arrowhead direction. All 4 dep types tested.
+          - id: E4
+            summary: "Run full-verify.sh — ensure no regressions"
+            status: pending
+            exit_criteria: "tsc, vitest, cargo test all pass."
+
+  - name: "Stage 2: E2E Tests (parallel — 2 agents)"
+    groups:
+      - id: F
+        name: "SF Arrow Rendering E2E Test"
+        depends_on: [E]
+        scope:
+          modify:
+            - e2e/gantt.spec.ts
+          read_only:
+            - src/utils/dependencyUtils.ts
+            - src/components/gantt/DependencyArrow.tsx
+            - src/data/fakeData.ts
+        tasks:
+          - id: F1
+            summary: "Read gantt.spec.ts and fakeData.ts — understand existing arrow tests and demo data structure"
+            status: pending
+          - id: F2
+            summary: "Add E2E test: create SF dependency via UI, verify arrow path renders with correct geometry"
+            status: pending
+            exit_criteria: >
+              Test creates an SF dependency between two tasks using the DependencyEditorModal.
+              Verifies a g.dependency-arrow element appears with valid .dep-stroke path data.
+              Verifies .dep-head arrowhead points in the correct direction for SF.
+          - id: F3
+            summary: "Run E2E tests — verify new test passes"
+            status: pending
+            exit_criteria: "npm run e2e passes (single-tab tests, no relay needed)."
+
+      - id: G
+        name: "Constraint Cascade + Conflict Indicator Cross-Tab E2E"
+        depends_on: [E]
+        scope:
+          modify:
+            - e2e/collab.spec.ts
+          read_only:
+            - e2e/helpers/collab-harness.ts
+            - src/components/gantt/TaskBar.tsx
+            - src/components/gantt/TaskBarPopover.tsx
+        tasks:
+          - id: G1
+            summary: "Read collab.spec.ts and collab-harness — understand existing cross-tab test patterns"
+            status: pending
+          - id: G2
+            summary: "Complete constraint cascade cross-tab test — add cascade date verification to existing test"
+            status: pending
+            exit_criteria: >
+              Existing constraint cross-tab test (collab.spec.ts ~line 72) enhanced:
+              after setting SNET on task in pageA, verify in pageB that a dependent task's
+              start date moved forward (cascade propagated across CRDT sync).
+          - id: G3
+            summary: "Add conflict indicator cross-tab E2E test"
+            status: pending
+            exit_criteria: >
+              New test: in pageA set MSO constraint with past date to force conflict.
+              In pageB verify conflict indicator (circle[fill='#ef4444'] or rect[stroke='#ef4444'])
+              is visible on the conflicted task bar. Reset constraint in cleanup.
+          - id: G4
+            summary: "Run E2E collab tests — verify new/updated tests pass"
+            status: pending
+            exit_criteria: "npm run e2e:collab passes."
+
+validation_agent:
+  name: "Final Verification (runs after Stage 2 merge)"
+  scope:
+    modify: []
+    read_only:
+      - src/utils/dependencyUtils.ts
+      - e2e/gantt.spec.ts
+      - e2e/collab.spec.ts
+  tasks:
+    - id: V-1
+      summary: "Run full-verify.sh — tsc, vitest, cargo test"
+      status: pending
+    - id: V-2
+      summary: "Run npm run e2e — single-tab E2E tests pass"
+      status: pending
+    - id: V-3
+      summary: "Run npm run e2e:collab — cross-tab E2E tests pass"
+      status: pending
+    - id: V-4
+      summary: "Verify SF arrow renders visually (manual spot-check via screenshot if possible)"
+      status: pending
+
+validation:
+  - {id: V1, summary: "Build verification (tsc, vitest, cargo test)", status: pending}
+  - {id: V2, summary: "SF arrow path correct for all dx ranges", status: pending}
+  - {id: V3, summary: "E2E SF arrow test passes", status: pending}
+  - {id: V4, summary: "E2E constraint cascade cross-tab test passes", status: pending}
+  - {id: V5, summary: "E2E conflict indicator cross-tab test passes", status: pending}
+  - {id: V6, summary: "No regressions in existing tests", status: pending}
+
+follow_up:
+  - {summary: "Calendar support (holidays, resource calendars) — separate phase", status: pending}
+  - {summary: "Duration mode toggle (business vs calendar days) — separate phase", status: pending}

@@ -1,0 +1,36 @@
+# Phase 15b: Scheduling Engine Follow-up — SF Arrow Fix + E2E Tests
+# Config for launch-phase.sh
+
+phase: phase15b
+merge_target: feature/phase15b
+
+stages:
+  - name: "SF Arrow Path Fix"
+    groups:
+      - id: groupE
+        branch: feature/phase15b-sf-arrow-fix
+        merge_message: "Merge feature/phase15b-sf-arrow-fix: fix SF arrow backward path + unit tests"
+
+  - name: "E2E Tests"
+    groups:
+      - id: groupF
+        branch: feature/phase15b-sf-arrow-e2e
+        merge_message: "Merge feature/phase15b-sf-arrow-e2e: SF arrow rendering E2E test"
+      - id: groupG
+        branch: feature/phase15b-constraint-conflict-e2e
+        merge_message: "Merge feature/phase15b-constraint-conflict-e2e: constraint cascade + conflict cross-tab E2E tests"
+
+pr:
+  title: "Phase 15b: SF arrow fix + E2E tests for constraints/conflicts"
+  summary: |
+    Phase 15b follow-up — fixes SF arrow rendering bug and adds E2E test coverage.
+    - Fix SF backward path routing in createBezierPath (wrong stub directions)
+    - E2E: SF dependency arrow renders with correct geometry
+    - E2E: constraint cascade propagates across collaborator tabs
+    - E2E: conflict indicator visible to collaborators
+  test_plan: |
+    - [ ] `npx tsc --noEmit` passes
+    - [ ] `npm run test` passes (including new dependencyUtils SF tests)
+    - [ ] `cd crates/scheduler && cargo test` passes
+    - [ ] `npm run e2e` passes (SF arrow E2E)
+    - [ ] `npm run e2e:collab` passes (constraint cascade + conflict cross-tab)

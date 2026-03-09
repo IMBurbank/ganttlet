@@ -64,6 +64,24 @@ Every group prompt should include in its Error Handling section:
 - The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `node -e`, `python3 -c`, `date -d` with standard libraries (`date-fns`, Python stdlib). Prefer standard library functions over project wrappers.
 - Progress tracking in pipe-delimited format: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`
 
+## Subagent Delegation in Orchestrated Agents
+Orchestrated agents (spawned by `launch-phase.sh`) are full Claude Code sessions and **can use the Agent tool** to delegate to subagents defined in `.claude/agents/`. The agent definitions are visible from worktrees because worktrees share the repo's file content.
+
+### Available subagents
+- **codebase-explorer** (haiku, 20 turns): Delegate initial file investigation before editing. Preserves the orchestrated agent's context window. Read-only — cannot modify files.
+- **rust-scheduler** (sonnet, 40 turns): Delegate Rust scheduling engine work in `crates/scheduler/`. Can read, edit, write, and run cargo tests.
+- **verify-and-diagnose** (sonnet, 30 turns): Delegate verification (tsc, vitest, cargo test, lint-agent-paths). Returns a structured pass/fail report. Default is verify-only; include "fix" in the prompt for verify-and-fix mode.
+
+### When to delegate
+- **Exploration**: Use `codebase-explorer` before editing unfamiliar code. Saves ~40K tokens of context vs reading files directly.
+- **Verification**: Use `verify-and-diagnose` instead of running tsc/vitest/cargo inline. Gets structured diagnosis without polluting the agent's context with raw test output.
+- **Rust work**: Use `rust-scheduler` when the group's tasks include scheduling engine changes.
+
+### Constraints
+- Subagents have `disallowedTools: Agent` — they cannot spawn further subagents (no recursion).
+- Subagent turns/tokens count against the parent agent's `--max-budget-usd`. If a group prompt will use subagents heavily, increase the budget: `DEFAULT_MAX_BUDGET=15 ./scripts/launch-phase.sh <config> stage N`
+- Subagents inherit the worktree's working directory. All relative paths in structure maps resolve correctly.
+
 ## Lessons Learned
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.

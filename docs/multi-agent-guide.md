@@ -175,6 +175,39 @@ Prompts live in `docs/prompts/<phaseN>/` as standalone files (one per group). Ea
 - Instructs the agent to skip plan mode and execute without confirmation
 - Includes retry context so restarted agents resume where they left off
 
+## Subagent Delegation
+
+Orchestrated agents are full Claude Code sessions and can use the **Agent tool** to delegate
+work to subagents defined in `.claude/agents/`. Subagent definitions are visible from worktrees
+because worktrees share the repo's file content.
+
+**Available subagents:**
+| Subagent | Model | Turns | Best for | Can modify files? |
+|----------|-------|-------|----------|-------------------|
+| `codebase-explorer` | haiku | 20 | Initial file investigation before editing | No (read-only) |
+| `rust-scheduler` | sonnet | 40 | Scheduling engine work in `crates/scheduler/` | Yes |
+| `verify-and-diagnose` | sonnet | 30 | Running tsc/vitest/cargo test with structured diagnosis | Default no; yes with "fix" in prompt |
+
+**When to use:**
+- Use `codebase-explorer` before editing unfamiliar code — saves ~40K tokens of context
+  vs reading files directly in the main agent.
+- Use `verify-and-diagnose` instead of running test suites inline — gets structured
+  pass/fail reports without raw test output in the agent's context.
+- Use `rust-scheduler` when the group's tasks include `crates/scheduler/` changes.
+
+**Budget considerations:**
+Subagent turns/tokens count against the parent agent's `--max-budget-usd` (default $10).
+If prompts will delegate heavily, increase the budget:
+```bash
+DEFAULT_MAX_BUDGET=15 ./scripts/launch-phase.sh <config> stage N
+```
+
+**Constraints:**
+- Subagents have `disallowedTools: Agent` — no recursive delegation.
+- Subagents inherit the worktree's working directory; all paths resolve correctly.
+- File scope rules still apply: subagents should only modify files listed in the
+  parent prompt's `scope.modify` section.
+
 ## Validation Prompt
 
 The validation prompt (e.g., `docs/prompts/phase12/validate.md`) runs after merge. It:

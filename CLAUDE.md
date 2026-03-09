@@ -28,7 +28,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
   - **Only clean up worktrees you created.** Never remove, prune, or modify another agent's worktree — it may be in active use. Only the user can authorize removal of worktrees you did not create.
   - **Clean up your own worktree only after its PR is merged** (mandatory): verify merge succeeded first — see `.claude/worktrees/CLAUDE.md` for the exact procedure. Premature deletion loses your ability to fix a failed merge.
 - Do NOT add features, refactoring, or "improvements" beyond what was requested.
-- Write failing tests before implementation when feasible (unit, integration, AND E2E). Let the test define the expected behavior, then make it pass. E2E tests require the dev server and relay — see `docs/architecture.md` § E2E Testing & Relay for setup. Do not skip E2E coverage for new user-facing features or bug fixes.
+- Write failing tests before implementation when feasible (unit, integration). Let the test define the expected behavior, then make it pass. After implementation, write E2E tests for any new user-facing feature or bug fix — E2E coverage is required, not optional. E2E tests require the dev server and relay — see `docs/architecture.md` § E2E Testing & Relay for setup.
 - Rebase on main regularly during development (`git fetch origin && git rebase origin/main`). Always rebase and re-verify before creating a PR — the branch must pass against current HEAD, not a stale base.
 - Do NOT skip verification. Run `./scripts/full-verify.sh` before declaring work done.
 - Do NOT enter plan mode or ask for confirmation when executing from a prompt file.

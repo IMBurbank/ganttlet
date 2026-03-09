@@ -178,7 +178,7 @@ test.describe('Ganttlet E2E', () => {
     await expect(updatedSelect).toHaveValue('SNET');
   });
 
-  test('SF dependency renders an arrow with correct direction', async ({ page }) => {
+  test('dependency arrow heads render as triangles', async ({ page }) => {
     // Verify dependency arrows exist
     const arrows = page.locator('g.dependency-arrow');
     const arrowCount = await arrows.count();
@@ -201,9 +201,9 @@ test.describe('Ganttlet E2E', () => {
     }
   });
 
-  test('conflict indicator renders on task bars with constraint violations', async ({ page }) => {
-    // Set up a constraint that will conflict: set MSO on a task to a date
-    // in the past (before its dependencies allow)
+  test('MSO constraint with past date does not crash the app', async ({ page }) => {
+    // Set MSO on a task to a date in the past — verifies the app handles
+    // constraint violations gracefully without crashing
     const taskBar = page.locator('.task-bar').first();
     await taskBar.dblclick({ force: true });
 
@@ -231,13 +231,13 @@ test.describe('Ganttlet E2E', () => {
       return document.querySelectorAll('rect[stroke="#ef4444"]').length;
     });
 
-    // At least one conflict indicator should be present (circle or outline)
-    // If the task has dependencies that prevent the past date, MSO will conflict
-    const conflictCount = (await conflictCircles.count()) + conflictOutlines;
-    expect(conflictCount).toBeGreaterThanOrEqual(0); // app must not crash
-
-    // Verify the app is still functioning regardless of conflict state
+    // Verify the app is still functioning — task bars visible, no crash
     await expect(page.locator('.task-bar').first()).toBeVisible({ timeout: 5_000 });
+
+    // If the task has dependencies, MSO with a past date should produce
+    // at least one conflict indicator (red circle or dashed outline)
+    const conflictCount = (await conflictCircles.count()) + conflictOutlines;
+    expect(conflictCount).toBeGreaterThan(0);
 
     // Reset: remove constraint to clean up
     await taskBar.dblclick({ force: true });

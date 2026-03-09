@@ -53,11 +53,17 @@ ${prompt}"
 
     local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
     local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+    local validate_timeout="${VALIDATE_TIMEOUT:-600}"
     (
       cd "$MERGE_WORKTREE"
-      echo "$prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" -p - > "$logfile" 2>&1
+      timeout "$validate_timeout" bash -c \
+        'echo "$1" | claude --dangerously-skip-permissions --max-turns "$2" --max-budget-usd "$3" -p -' \
+        _ "$prompt" "$max_turns" "$max_budget" > "$logfile" 2>&1
     )
     local exit_code=$?
+    if [[ $exit_code -eq 124 ]]; then
+      warn "Validation attempt ${attempt} timed out after ${validate_timeout}s"
+    fi
 
     if [[ $exit_code -ne 0 ]]; then
       warn "Validation agent exited with code ${exit_code} on attempt ${attempt}"

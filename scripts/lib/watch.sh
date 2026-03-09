@@ -14,6 +14,7 @@
 
 AGENT_IDLE_THRESHOLD="${IDLE_THRESHOLD:-30}"  # seconds of stable log before killing agent
 VALIDATE_IDLE_THRESHOLD="${IDLE_THRESHOLD:-120}"  # validation needs longer (runs tsc/vitest/cargo)
+VALIDATE_TIMEOUT="${VALIDATE_TIMEOUT:-600}"  # wall-clock timeout per validation attempt (seconds)
 
 # Build wrapper script for a WATCH mode agent.
 # Returns path to the wrapper script via stdout.
@@ -357,7 +358,6 @@ cd "${MERGE_WORKTREE}"
 
 claude --dangerously-skip-permissions -p "echo ok" >/dev/null 2>&1 || true
 
-tmux pipe-pane -t "${tmux_target}" -o "cat >> ${logfile}" 2>/dev/null || true
 touch "${logfile}"
 
 echo \$\$ > "${logfile}.wrapper-pid"
@@ -403,8 +403,8 @@ get_all_descendants() {
 ) &
 MONITOR_PID=\$!
 
-claude --dangerously-skip-permissions --max-turns "${max_turns_val}" --max-budget-usd "${max_budget_val}" ${model_flag_val} "\$(cat '${prompt_to_use}')"
-EXIT_CODE=\$?
+cat '${prompt_to_use}' | claude --dangerously-skip-permissions --max-turns "${max_turns_val}" --max-budget-usd "${max_budget_val}" ${model_flag_val} -p - 2>&1 | tee -a '${logfile}'
+EXIT_CODE=\${PIPESTATUS[1]:-\$?}
 
 kill \$MONITOR_PID 2>/dev/null || true
 
@@ -413,7 +413,6 @@ if [[ \$EXIT_CODE -eq 143 ]] || [[ \$EXIT_CODE -eq 137 ]]; then
 fi
 
 rm -f "${logfile}.wrapper-pid"
-tmux pipe-pane -t "${tmux_target}" 2>/dev/null || true
 echo "\$EXIT_CODE" > "${exitcode_file}"
 VALIDATE_WRAPPER
     chmod +x "$wrapper"
@@ -425,8 +424,19 @@ VALIDATE_WRAPPER
     log "Validation attempt ${attempt}/${max_attempts} running in tmux session: ${tmux_session}"
     log "Attach to watch:  tmux attach -t ${tmux_session}"
 
+    local validate_start
+    validate_start=$(date +%s)
     while [[ ! -f "$exitcode_file" ]]; do
       sleep 5
+      local now_v
+      now_v=$(date +%s)
+      local elapsed_v=$(( now_v - validate_start ))
+      if [[ $elapsed_v -ge $VALIDATE_TIMEOUT ]]; then
+        warn "Validation attempt ${attempt} timed out after ${VALIDATE_TIMEOUT}s"
+        tmux kill-session -t "${tmux_session}" 2>/dev/null || true
+        echo "1" > "$exitcode_file"
+        break
+      fi
     done
 
     local exit_code

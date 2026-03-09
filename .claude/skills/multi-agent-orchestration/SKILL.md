@@ -87,6 +87,7 @@ A supervisor agent running inside tmux can launch, monitor, and control agent wi
 directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 - `tmux_create_session <name>` — create the session
 - `tmux_launch_agent <session> <group> <worktree> <prompt> <log> [turns] [budget] [model]`
+- `tmux_poll_agent <session> <group> [lines]` — capture pane output (useful if log hasn't flushed)
 - `tmux_poll_log <log_file> [lines]` — tail agent log
 - `tmux_agent_status <session> <group> <log_file>` — running/succeeded/failed/not_started
 - `tmux_stage_status <session> <log_dir> <worktree_base> <groups...>` — status table

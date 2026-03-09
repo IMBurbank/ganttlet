@@ -228,8 +228,8 @@ tmux send-keys -t <target> Enter
    automatically by `tmux_launch_agent`.
 
 2. **Pipe exit code via tee**: `$?` after `cmd | tee log` returns tee's exit code.
-   Mitigation: tee rarely fails; for precise claude exit codes, use `${PIPESTATUS[0]}`.
-   Current implementation is acceptable for production use.
+   Mitigation: tee rarely fails; for precise claude exit codes, use `${PIPESTATUS[1]}`
+   (pipeline: cat=0, claude=1, tee=2). Current implementation uses `PIPESTATUS[1]`.
 
 3. **Pane buffer size**: Default is 2000 lines. Mitigated by: (a) `history-limit 10000`
    in `tmux_create_session`, (b) primary monitoring via log files, not pane capture.
@@ -241,8 +241,9 @@ tmux send-keys -t <target> Enter
 5. **C-c doesn't stop claude in pipe mode**: Confirmed during testing. `kill-window`
    is the reliable fallback. The 3s C-c attempts are kept for non-claude processes.
 
-6. **tmux not available**: All functions check `command -v tmux` and fail with clear
-   error messages. Fallback: use existing `launch-phase.sh stage` approach.
+6. **tmux not available**: `tmux_launch_agent` checks `command -v tmux` and fails with
+   a clear error message. Other functions call tmux directly and rely on the shell's
+   "command not found" error. Fallback: use existing `launch-phase.sh stage` approach.
 
 7. **Worktree coordination**: The supervisor must set up worktrees before launching.
    This is explicit — no magic. The supervisor prompt documents the exact steps.

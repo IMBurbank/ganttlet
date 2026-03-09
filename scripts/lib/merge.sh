@@ -71,8 +71,8 @@ Do NOT enter plan mode. Do NOT ask for confirmation. Fix the conflicts and commi
     cat > "$wrapper" <<WRAPPER
 #!/usr/bin/env bash
 cd "${MERGE_WORKTREE}"
-cat '${fix_prompt_file}' | claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p -
-echo \$? > "$exitcode_file"
+set -o pipefail && cat '${fix_prompt_file}' | claude --dangerously-skip-permissions --max-turns "${MAX_TURNS:-$DEFAULT_MAX_TURNS}" --max-budget-usd "${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}" -p -
+echo \${PIPESTATUS[1]:-\$?} > "$exitcode_file"
 WRAPPER
     chmod +x "$wrapper"
 

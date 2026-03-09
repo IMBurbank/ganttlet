@@ -156,6 +156,40 @@ so budget is not capped by the CLI. Monitor usage manually during long-running p
 
 The supervisor prompt lives at `docs/prompts/supervisor.md` and is shared across all phases.
 
+## Tmux-Native Supervisor Mode
+
+`--tmux` mode gives the supervisor agent direct control over agent windows in tmux.
+Unlike standard mode (where `launch-phase.sh stage N` blocks), the supervisor can
+monitor, intervene, and make real-time decisions during agent execution.
+
+```bash
+./scripts/launch-supervisor.sh --tmux docs/prompts/phase16/launch-config.yaml
+```
+
+This creates a tmux session (`<phase>-supervisor`), launches the supervisor in
+window 0, and attaches. The supervisor then uses `scripts/lib/tmux-supervisor.sh`
+functions to manage agent windows:
+
+| Function | Purpose |
+|----------|---------|
+| `tmux_create_session` | Create session (auto-done by `--tmux` flag) |
+| `tmux_launch_agent` | Spawn agent in tmux window with worktree CWD |
+| `tmux_poll_log` | Tail agent log file |
+| `tmux_poll_agent` | Capture pane output |
+| `tmux_agent_status` | Check running/succeeded/failed/not_started |
+| `tmux_stage_status` | Status table for all agents |
+| `tmux_kill_agent` | Stop agent (C-c → kill-window escalation) |
+| `tmux_wait_stage` | Block until all agents finish or timeout |
+
+**Critical rules:**
+- Always pass the agent's worktree path as CWD (not `/workspace`)
+- `tmux_launch_agent` automatically unsets `CLAUDECODE` for nested sessions
+- Sleep 0.5s between `tmux send-keys` text and Enter to prevent race conditions
+- `claude -p` in a tee pipeline ignores C-c — `tmux_kill_agent` escalates to `kill-window`
+- Merge/validate/PR still use `launch-phase.sh` subcommands (unchanged)
+
+See `docs/plans/tmux-supervisor.md` for the full design and test results.
+
 ## WATCH Mode
 
 `WATCH=1` runs each agent in its own tmux window with streaming text output (not the full

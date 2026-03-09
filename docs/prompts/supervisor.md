@@ -213,6 +213,77 @@ MAX_STAGE_DURATION=3600 ./scripts/launch-phase.sh <config> stage 1   # 1 hour ti
 MODEL=sonnet ./scripts/launch-phase.sh <config> stage 1
 ```
 
+## Tmux-Native Mode
+
+When launched with `--tmux`, you run inside a tmux session with direct control over
+agent windows. Check with `echo $TMUX` — if set, you are in tmux mode.
+
+### How it differs from standard mode
+In standard mode, `launch-phase.sh stage N` blocks until all agents finish. You are
+blind during execution. In tmux mode, you launch agents individually and can monitor,
+intervene, and make real-time decisions.
+
+### Launching agents
+Source the library, then launch each group:
+```bash
+source scripts/lib/tmux-supervisor.sh
+
+# Get the tmux session name (it's your current session)
+SESSION=$(tmux display-message -p '#S')
+
+# For each group: set up worktree, then launch
+# (Use setup_worktree from worktree.sh, or create manually)
+git worktree add /workspace/.claude/worktrees/<phase>-<group> -b <branch> main
+tmux_launch_agent "$SESSION" "groupA" "/workspace/.claude/worktrees/<phase>-groupA" \
+  "/workspace/docs/prompts/<phase>/groupA.md" "/workspace/logs/<phase>/groupA.log" 80 10.00
+```
+
+**Critical**: Always pass the worktree path as the agent's CWD, not `/workspace`.
+Agents launched in `/workspace` cannot see files on their feature branch.
+
+### Monitoring (poll every 2-5 minutes)
+```bash
+source scripts/lib/tmux-supervisor.sh
+SESSION=$(tmux display-message -p '#S')
+
+# Quick overview of all agents
+tmux_stage_status "$SESSION" "logs/<phase>" groupA groupB groupC
+
+# Detailed check on one agent
+tmux_poll_log "logs/<phase>/groupA.log" 50
+
+# Pane capture (useful if log hasn't flushed yet)
+tmux_poll_agent "$SESSION" "groupA"
+```
+
+### Intervention
+```bash
+# Kill a stuck agent
+tmux_kill_agent "$SESSION" "groupA" "logs/<phase>/groupA.log"
+
+# Restart with fresh prompt (or modified prompt for retry)
+tmux_launch_agent "$SESSION" "groupA" "/workspace/.claude/worktrees/<phase>-groupA" \
+  "/workspace/docs/prompts/<phase>/groupA.md" "logs/<phase>/groupA.log" 80 10.00
+```
+
+### Merge/validate/PR
+These still use `launch-phase.sh` — only agent launching is replaced:
+```bash
+./scripts/launch-phase.sh <config> merge <N>
+./scripts/launch-phase.sh <config> validate
+./scripts/launch-phase.sh <config> create-pr
+```
+
+### tmux send-keys timing rule
+When sending any command to a tmux window manually, ALWAYS sleep 0.5s between
+the text and Enter:
+```bash
+tmux send-keys -t <target> '<command>'
+sleep 0.5
+tmux send-keys -t <target> Enter
+```
+This prevents the Enter from arriving before the command text is fully processed.
+
 ## Behavioral Rules
 
 - Do NOT enter plan mode. Execute immediately.

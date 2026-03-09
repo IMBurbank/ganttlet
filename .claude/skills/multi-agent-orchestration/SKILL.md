@@ -82,6 +82,27 @@ Orchestrated agents (spawned by `launch-phase.sh`) are full Claude Code sessions
 - Subagent turns/tokens count against the parent agent's `--max-budget-usd`. If a group prompt will use subagents heavily, increase the budget: `DEFAULT_MAX_BUDGET=15 ./scripts/launch-phase.sh <config> stage N`
 - Subagents inherit the worktree's working directory. All relative paths in structure maps resolve correctly.
 
+## Tmux-Native Supervisor
+A supervisor agent running inside tmux can launch, monitor, and control agent windows
+directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
+- `tmux_create_session <name>` — create the session
+- `tmux_launch_agent <session> <group> <worktree> <prompt> <log> [turns] [budget] [model]`
+- `tmux_poll_agent <session> <group> [lines]` — capture pane output (useful if log hasn't flushed)
+- `tmux_poll_log <log_file> [lines]` — tail agent log
+- `tmux_agent_status <session> <group> <log_file>` — running/succeeded/failed/not_started
+- `tmux_stage_status <session> <log_dir> <groups...>` — status table
+- `tmux_kill_agent <session> <group> <log_file>` — stop an agent
+- `tmux_wait_stage <session> <log_dir> <timeout> <groups...>` — block until done
+
+**Critical rules:**
+- **Worktree CWD**: Always pass the agent's worktree path (not `/workspace`) as the `<worktree>` argument. The agent's CWD determines which files it sees. Tested: an agent launched in `/workspace` cannot see files that only exist in a worktree branch.
+- **CLAUDECODE env var**: `tmux_launch_agent` automatically unsets this. If launching claude manually in a tmux window, you must `unset CLAUDECODE` first or claude refuses to start.
+- **Send-keys timing**: Always sleep 0.5s between `tmux send-keys` text and Enter to prevent race conditions.
+- **C-c doesn't stop claude -p in a pipe**: `tmux_kill_agent` escalates to `tmux kill-window` as the reliable fallback.
+- **Merge/validate/PR**: Still use `launch-phase.sh merge N` / `validate` / `create-pr`. Only agent launching is replaced.
+
+See `docs/plans/tmux-supervisor.md` for the full design and test results.
+
 ## Lessons Learned
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.

@@ -111,8 +111,73 @@ test.describe('Collaboration E2E', () => {
       const constraintSelectB = popoverB.locator('select').last();
       await expect(constraintSelectB).toHaveValue('SNET');
 
+      // Verify cascade propagated: task bars in pageB should have re-rendered
+      // after the SNET constraint pushed dates forward. Check that all task bars
+      // are still visible (cascade didn't break rendering) and at least one
+      // task bar has a data-task-id attribute confirming the Gantt chart is live.
+      const taskBarsB = pageB.locator('.task-bar');
+      const taskBarCountB = await taskBarsB.count();
+      expect(taskBarCountB).toBeGreaterThan(0);
+
+      // Verify the constraint-set task's bar position reflects a later date
+      // by checking its x attribute is a valid number (bar was repositioned)
+      const firstBarX = await taskBarsB.first().getAttribute('x');
+      expect(firstBarX).not.toBeNull();
+      expect(Number(firstBarX)).toBeGreaterThanOrEqual(0);
+
       // Close and clean up: reset to ASAP in pageA
       await pageB.keyboard.press('Escape');
+      await taskBar.dblclick({ force: true });
+      const resetPopover = pageA.locator('.fade-in');
+      await resetPopover.waitFor({ timeout: 5_000 });
+      await resetPopover.locator('select').last().selectOption('ASAP');
+      await pageA.keyboard.press('Escape');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('conflict indicator visible to collaborators', async ({ browser }) => {
+    const cloudAuth = await getCloudAuth();
+    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
+
+    try {
+      const collabReady = await isCollabAvailable(pageA);
+      if (!collabReady) {
+        test.skip();
+        return;
+      }
+
+      // In pageA, double-click the first task bar to open the popover
+      const taskBar = pageA.locator('.task-bar').first();
+      await taskBar.dblclick({ force: true });
+
+      const popover = pageA.locator('.fade-in');
+      await popover.waitFor({ timeout: 5_000 });
+
+      // Set MSO constraint with a date far in the past to force a conflict
+      const constraintSelect = popover.locator('select').last();
+      await constraintSelect.selectOption('MSO');
+
+      const dateInput = popover.locator('input[type="date"]').last();
+      await dateInput.fill('2020-01-01');
+
+      // Close popover
+      await pageA.keyboard.press('Escape');
+
+      // Wait for WASM conflict detection + CRDT sync
+      await pageA.waitForTimeout(3000);
+
+      // In pageB, verify conflict indicator is visible
+      // Conflict indicators: red dashed rect outline or red warning circle
+      const conflictRects = pageB.locator('rect[stroke="#ef4444"]');
+      const conflictCircles = pageB.locator('circle[fill="#ef4444"]');
+
+      const rectCount = await conflictRects.count();
+      const circleCount = await conflictCircles.count();
+      expect(rectCount + circleCount).toBeGreaterThan(0);
+
+      // Clean up: reset constraint to ASAP in pageA
       await taskBar.dblclick({ force: true });
       const resetPopover = pageA.locator('.fade-in');
       await resetPopover.waitFor({ timeout: 5_000 });

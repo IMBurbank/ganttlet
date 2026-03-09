@@ -45,6 +45,20 @@ result=$(my_func)
 - `script -q -c` wraps a command in a pseudo-TTY for logging but is fragile across platforms
 - Prefer `cmd 2>&1 | tee -a logfile` with `PIPESTATUS` for exit code capture
 
+## SIGPIPE in Pipelines
+Piping a long-running process through `head`, `less`, or any command that closes early
+sends SIGPIPE to the writer, killing it silently:
+```bash
+# DANGEROUS — kills the script after head reads 30 lines:
+./my-long-script.sh | head -30
+
+# SAFE — capture full output, read later:
+./my-long-script.sh 2>&1 | tee output.log
+tail -30 output.log
+```
+This is especially dangerous with orchestration scripts that manage child processes —
+SIGPIPE kills the parent, orphaning all children.
+
 ## Syntax Checking
 Always run `bash -n scriptname.sh` after editing any bash script to catch syntax errors
 before committing.

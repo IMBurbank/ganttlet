@@ -58,8 +58,8 @@ The merge step verifies the build **after each branch merge**, not just after al
 This catches breakage early — before merging more branches on top of broken code.
 
 After each successful branch merge, the pipeline:
-1. Rebuilds WASM (Rust source may have changed)
-2. Commits `Cargo.lock` if modified
+1. Checks if Rust source files changed (`git diff HEAD~1 --name-only | grep '^crates/'`). If yes, rebuilds WASM. If no, skips the WASM rebuild entirely — saves ~30s per non-Rust merge.
+2. Commits `Cargo.lock` if modified by the WASM rebuild
 3. Runs tsc, vitest, and cargo test **in parallel** (with `&` + `wait`)
 4. If verification fails, launches a merge-fix agent to resolve issues
 
@@ -87,10 +87,18 @@ This is useful after a failed pipeline run or when you want to start fresh. It r
 
 ## Stall Detection
 
-A watchdog process (`monitor_agent()`) runs alongside each agent in non-WATCH mode:
+**Non-WATCH mode:** A watchdog process (`monitor_agent()`) runs alongside each agent:
 - Checks the agent's log file size every 60 seconds
 - If no log output for `STALL_TIMEOUT` minutes (default: 30), emits a warning
 - Does not kill the agent — only warns so a human can investigate
+
+**WATCH/tmux mode:** `tmux_wait_stage()` includes active stall detection:
+- Tracks each agent's log file size every 10 seconds
+- If log is unchanged for `AGENT_STALL_THRESHOLD` seconds (default: 300), **kills the agent**
+- More aggressive than non-WATCH mode because the supervisor can relaunch killed agents
+
+**Validation:** Wall-clock timeout via `VALIDATE_TIMEOUT` (default: 600s). If a validation
+attempt exceeds this, it is killed and counted as a failed attempt (retries if attempts remain).
 
 ## Model Selection
 
@@ -120,8 +128,10 @@ executes from the given step through the end. Also supports space-separated synt
 | `MERGE_FIX_RETRIES` | `3` | Retries for merge conflict resolution |
 | `DEFAULT_MAX_TURNS` | `80` | Max conversation turns per agent |
 | `DEFAULT_MAX_BUDGET` | `10.00` | Max USD budget per agent |
-| `STALL_TIMEOUT` | `30` | Minutes of inactivity before stall warning |
+| `STALL_TIMEOUT` | `30` | Minutes of inactivity before stall warning (non-WATCH mode) |
+| `AGENT_STALL_THRESHOLD` | `300` | Seconds of log inactivity before killing agent (WATCH/tmux mode) |
 | `MAX_STAGE_DURATION` | `1800` | Max seconds per stage before killing agents (0=disabled) |
+| `VALIDATE_TIMEOUT` | `600` | Wall-clock timeout per validation attempt (seconds) |
 | `MODEL` | (unset) | Override Claude model (`opus`, `sonnet`, `haiku`) |
 
 ## Supervisor Mode
@@ -291,6 +301,43 @@ The `claude` binary in the dev container has specific constraints. When writing 
   the agent exits immediately with code 1.
 - **Key flags**: `--dangerously-skip-permissions`, `-p` (print/pipe mode), `-c` (continue),
   `-r` (resume session), `--system-prompt`, `--model`, `--max-turns`, `--max-budget-usd`
+
+## SIGPIPE Warning
+
+**Never pipe `launch-phase.sh` output through `head`, `less`, or any command that closes stdin early.**
+```bash
+# DANGEROUS — kills the entire pipeline:
+./scripts/launch-phase.sh <config> all | head -30
+
+# SAFE alternatives:
+./scripts/launch-phase.sh <config> all 2>&1 | tee pipeline.log  # full capture
+./scripts/launch-phase.sh <config> all > pipeline.log 2>&1       # redirect to file
+tail -30 pipeline.log                                             # read after
+```
+When the reader (`head`) closes after 30 lines, the writer (`launch-phase.sh`) receives
+SIGPIPE and terminates immediately — killing all agents mid-execution. This is silent and
+looks like the pipeline "finished early."
+
+## Task Priority in Prompts
+
+Group prompts should mark tasks with `priority: required` or `priority: stretch`:
+- **required**: Must be completed for the phase to succeed. Agent should focus here first.
+- **stretch**: Nice-to-have improvements. Agent should attempt only after all required tasks pass verification.
+
+This helps agents budget their turns and budget effectively — a 80-turn agent spending 60 turns
+on a stretch task before touching required work is a common failure mode.
+
+## Monitoring Agent Output
+
+When orchestrating agents (especially via supervisor or manual `launch-phase.sh` runs), **actively
+check agent output** rather than passively waiting for completion:
+
+- **WATCH mode**: `tmux attach -t <phase>-agents`, then `Ctrl-B N`/`P` to switch between agent windows. Check for error messages, stuck prompts, or agents looping on the same error.
+- **Tmux supervisor**: Use `tmux_poll_agent <session> <group>` or `tmux_poll_log <log_file>` to check agent progress without attaching.
+- **Non-WATCH mode**: `tail -f <log_dir>/<group>.log` to stream agent output.
+- **When to check**: At minimum, check within the first 2 minutes of launch to verify agents started correctly (parsing prompt, not stuck on CLI errors). Then check periodically (every 5-10 minutes).
+- **What to look for**: `error: unknown option` (prompt parsing failure), agents making no commits after 10+ minutes, agents in confused retry loops, agents working on the wrong files.
+- **Early intervention saves hours**: An agent stuck on a CLI parsing error for 8 hours produces zero useful work. Catching it in the first 2 minutes lets you fix the prompt and relaunch.
 
 ## Pre-Phase Checklist
 

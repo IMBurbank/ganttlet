@@ -2,7 +2,7 @@
 # Completes follow-up items from Phase 15 that are feasible without calendar support.
 
 phase: 15b
-status: pending
+status: done
 context: >
   Fix the SF dependency arrow rendering bug discovered during phase 15 review,
   and add/complete E2E tests for constraints, conflicts, and SF arrows.

@@ -109,6 +109,7 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 | `docker compose up --build relay` | Build + run relay server locally |
 | `claude --dangerously-skip-permissions` | Start Claude without permission checks |
 | `./scripts/launch-supervisor.sh <config>` | Supervisor agent drives phase pipeline |
+| `./scripts/launch-supervisor.sh --tmux <config>` | Supervisor with direct tmux agent control |
 | `./scripts/launch-phase.sh <config> <cmd>` | Run pipeline step (stage/merge/validate/create-pr) |
 
 ## Architecture Constraints (do not violate)

@@ -27,7 +27,8 @@ modify files — you only read, search, and analyze.
 - `src/data/` — Static data (color palettes, fake/demo data)
 - `server/src/` — Relay server (Axum, WebSocket, room management, auth)
 - `server/tests/` — Relay server integration tests (WebSocket auth, awareness)
-- `scripts/` — Build, verify, launch infrastructure (lib/ has modular helpers)
+- `scripts/` — Build, verify, launch infrastructure
+  - `scripts/lib/` — Modular helpers: `agent.sh`, `worktree.sh`, `stage.sh`, `merge.sh`, `validate.sh`, `pr.sh`, `config.sh`, `log.sh`, `watch.sh`, `tmux-supervisor.sh`
 - `.claude/skills/` — Domain-specific reference guides (read these for domain knowledge)
 
 ## Investigation approach

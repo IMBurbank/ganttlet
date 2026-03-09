@@ -69,6 +69,60 @@ test.describe('Collaboration E2E', () => {
     }
   });
 
+  test('constraint change in one tab propagates to the other', async ({ browser }) => {
+    const cloudAuth = await getCloudAuth();
+    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
+
+    try {
+      const collabReady = await isCollabAvailable(pageA);
+      if (!collabReady) {
+        test.skip();
+        return;
+      }
+
+      // In pageA, double-click a task bar to open the popover
+      const taskBar = pageA.locator('.task-bar').first();
+      await taskBar.dblclick({ force: true });
+
+      const popover = pageA.locator('.fade-in');
+      await popover.waitFor({ timeout: 5_000 });
+
+      // Change constraint to SNET
+      const constraintSelect = popover.locator('select').last();
+      await constraintSelect.selectOption('SNET');
+
+      // Set a constraint date
+      const dateInput = popover.locator('input[type="date"]').last();
+      await dateInput.fill('2026-07-01');
+
+      // Close popover
+      await pageA.keyboard.press('Escape');
+
+      // Wait for CRDT sync
+      await pageA.waitForTimeout(2000);
+
+      // In pageB, open the same task's popover and verify the constraint
+      const taskBarB = pageB.locator('.task-bar').first();
+      await taskBarB.dblclick({ force: true });
+
+      const popoverB = pageB.locator('.fade-in');
+      await popoverB.waitFor({ timeout: 5_000 });
+
+      const constraintSelectB = popoverB.locator('select').last();
+      await expect(constraintSelectB).toHaveValue('SNET');
+
+      // Close and clean up: reset to ASAP in pageA
+      await pageB.keyboard.press('Escape');
+      await taskBar.dblclick({ force: true });
+      const resetPopover = pageA.locator('.fade-in');
+      await resetPopover.waitFor({ timeout: 5_000 });
+      await resetPopover.locator('select').last().selectOption('ASAP');
+      await pageA.keyboard.press('Escape');
+    } finally {
+      await cleanup();
+    }
+  });
+
   test('single-user mode works without relay', async ({ page }) => {
     // Collect console errors during the test
     const consoleErrors: string[] = [];

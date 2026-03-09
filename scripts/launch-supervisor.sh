@@ -132,15 +132,21 @@ if [[ "$TMUX_MODE" -eq 1 ]]; then
   tmux new-session -d -s "$SESSION_NAME" -n "supervisor"
   tmux set-option -t "$SESSION_NAME" history-limit 10000
 
-  # Build the claude command for the tmux window
-  # Unset CLAUDECODE to allow nested sessions
-  local_claude_args="unset CLAUDECODE && claude --dangerously-skip-permissions"
-  local_claude_args+=" --system-prompt \"\$(cat '${SUPERVISOR_PROMPT}')\""
-  [[ -n "${MODEL:-}" ]] && local_claude_args+=" --model ${MODEL}"
-  local_claude_args+=" \"${initial_msg}\""
+  # Write a launcher script to avoid quoting issues with tmux send-keys.
+  # Direct send-keys breaks when the system prompt contains backticks, dollar
+  # signs, or double quotes (supervisor.md has all three). A temp script reads
+  # the prompt into a variable safely and passes it via "$VAR" expansion.
+  LAUNCH_SCRIPT=$(mktemp /tmp/supervisor-launch-XXXXXX.sh)
+  cat > "$LAUNCH_SCRIPT" <<LAUNCHER
+#!/usr/bin/env bash
+unset CLAUDECODE
+PROMPT_CONTENT="\$(cat '${SUPERVISOR_PROMPT}')"
+exec claude --dangerously-skip-permissions --system-prompt "\$PROMPT_CONTENT" ${MODEL:+--model "${MODEL}"} 'Orchestrate the phase launch using config: ${CONFIG_FILE}. Start by reading the config file and running status, then execute the full pipeline.'
+LAUNCHER
+  chmod +x "$LAUNCH_SCRIPT"
 
-  # Send the command to the supervisor window
-  tmux send-keys -t "${SESSION_NAME}:supervisor" "$local_claude_args"
+  # Send just the script path — no quoting issues
+  tmux send-keys -t "${SESSION_NAME}:supervisor" "bash '${LAUNCH_SCRIPT}'"
   sleep 0.5
   tmux send-keys -t "${SESSION_NAME}:supervisor" Enter
 

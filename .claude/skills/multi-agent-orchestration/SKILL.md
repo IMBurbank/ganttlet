@@ -90,7 +90,7 @@ directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 - `tmux_poll_agent <session> <group> [lines]` — capture pane output (useful if log hasn't flushed)
 - `tmux_poll_log <log_file> [lines]` — tail agent log
 - `tmux_agent_status <session> <group> <log_file>` — running/succeeded/failed/not_started
-- `tmux_stage_status <session> <log_dir> <worktree_base> <groups...>` — status table
+- `tmux_stage_status <session> <log_dir> <groups...>` — status table
 - `tmux_kill_agent <session> <group> <log_file>` — stop an agent
 - `tmux_wait_stage <session> <log_dir> <timeout> <groups...>` — block until done
 

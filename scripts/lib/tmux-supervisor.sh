@@ -4,8 +4,8 @@
 # Provides functions for a supervisor agent running inside tmux to launch,
 # monitor, and control agent windows directly. Source this file, don't execute it.
 #
-# All functions use a consistent pattern:
-#   - tmux send-keys with 0.5s sleep before Enter (prevents race conditions)
+# Key patterns:
+#   - tmux_launch_agent uses send-keys with 0.5s sleep before Enter (prevents race conditions)
 #   - Log files for reliable output capture (pane capture for quick checks)
 #   - .status files for completion detection
 
@@ -131,13 +131,12 @@ tmux_agent_status() {
 
 # Get a summary table of all agents in a stage.
 #
-# Usage: tmux_stage_status <session> <log_dir> <worktree_base> <groups...>
+# Usage: tmux_stage_status <session> <log_dir> <groups...>
 # Prints a formatted status table.
 tmux_stage_status() {
   local session="$1"
   local log_dir="$2"
-  local worktree_base="$3"
-  shift 3
+  shift 2
   local groups=("$@")
 
   printf "%-12s | %-10s | %-14s | %s\n" "GROUP" "STATUS" "LAST_ACTIVITY" "LOG_SIZE"

@@ -107,7 +107,7 @@ Tested: correctly returned "succeeded" for completed agents, "running" for in-pr
 ### Function: `tmux_stage_status`
 
 ```bash
-# Usage: tmux_stage_status <session> <log_dir> <worktree_base> <groups...>
+# Usage: tmux_stage_status <session> <log_dir> <groups...>
 # Prints a formatted status table.
 ```
 

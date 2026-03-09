@@ -247,7 +247,7 @@ source scripts/lib/tmux-supervisor.sh
 SESSION=$(tmux display-message -p '#S')
 
 # Quick overview of all agents
-tmux_stage_status "$SESSION" "logs/<phase>" "/workspace/.claude/worktrees" groupA groupB groupC
+tmux_stage_status "$SESSION" "logs/<phase>" groupA groupB groupC
 
 # Detailed check on one agent
 tmux_poll_log "logs/<phase>/groupA.log" 50

@@ -217,6 +217,8 @@ tmux_kill_agent() {
 #
 # Usage: tmux_wait_stage <session> <log_dir> <timeout_seconds> <groups...>
 # Polls every 10 seconds. Returns 0 if all succeeded, 1 if any failed.
+# Stall detection: kills agents whose log is unchanged for AGENT_STALL_THRESHOLD seconds (default 300).
+# Timeout: kills all remaining agents after <timeout_seconds>.
 tmux_wait_stage() {
   local session="$1"
   local log_dir="$2"
@@ -239,10 +241,11 @@ tmux_wait_stage() {
     local all_done=true
     local any_failed=false
 
+    # Cache status per group to avoid duplicate tmux_agent_status calls
+    declare -A _cached_status
     for group in "${groups[@]}"; do
-      local status
-      status=$(tmux_agent_status "$session" "$group" "${log_dir}/${group}.log")
-      case "$status" in
+      _cached_status["$group"]=$(tmux_agent_status "$session" "$group" "${log_dir}/${group}.log")
+      case "${_cached_status[$group]}" in
         running|not_started) all_done=false ;;
         failed) any_failed=true ;;
       esac
@@ -260,9 +263,7 @@ tmux_wait_stage() {
 
     # Stall detection: check log file growth for running agents
     for group in "${groups[@]}"; do
-      local status
-      status=$(tmux_agent_status "$session" "$group" "${log_dir}/${group}.log")
-      if [[ "$status" == "running" ]]; then
+      if [[ "${_cached_status[$group]}" == "running" ]]; then
         local current_size
         current_size=$(stat -c %s "${log_dir}/${group}.log" 2>/dev/null || echo 0)
         if [[ "$current_size" != "${_last_sizes[$group]}" ]]; then

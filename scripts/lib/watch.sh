@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # scripts/lib/watch.sh — WATCH mode: tmux-based interactive agent output
 #
-# WATCH mode runs agents in tmux windows with full rich TUI output.
-# Uses pipe-pane for log capture and idle monitor for auto-exit detection.
+# WATCH mode runs agents in tmux windows with visible output.
+# - Agents: interactive mode with pipe-pane for log capture + idle monitor for auto-exit
+# - Validation: pipe mode (cat | claude -p - | tee) for reliable exit codes + wall-clock timeout
 #
 # Lessons learned:
-# 1. Claude interactive (no -p flag) = full rich TUI output
-# 2. tmux pipe-pane captures logs WITHOUT breaking TUI rendering
-# 3. Idle monitor (background child) kills claude when output stabilizes
-# 4. tmux send-keys (not command string) keeps shell alive for scrollback
-# 5. Pre-trust workspace via quick -p dry run (interactive shows trust dialog)
-# 6. Explicit -t TMUX_TARGET for pipe-pane (avoids wrong-pane bug)
+# 1. Agents use interactive mode (no -p) for full rich TUI; validation uses -p for auto-exit
+# 2. Agent logs: tmux pipe-pane captures output WITHOUT breaking TUI rendering
+# 3. Validation logs: tee in pipeline (pipe-pane not needed since -p mode has no TUI)
+# 4. Idle monitor (background child) kills agents when output stabilizes
+# 5. tmux send-keys (not command string) keeps shell alive for scrollback
+# 6. Pre-trust workspace via quick -p dry run (interactive shows trust dialog)
+# 7. Explicit -t TMUX_TARGET for pipe-pane (avoids wrong-pane bug)
+# 8. YAML frontmatter --- in prompts is parsed as CLI flags — use pipe mode to avoid
 
 AGENT_IDLE_THRESHOLD="${IDLE_THRESHOLD:-30}"  # seconds of stable log before killing agent
 VALIDATE_IDLE_THRESHOLD="${IDLE_THRESHOLD:-120}"  # validation needs longer (runs tsc/vitest/cargo)
-VALIDATE_TIMEOUT="${VALIDATE_TIMEOUT:-600}"  # wall-clock timeout per validation attempt (seconds)
 
 # Build wrapper script for a WATCH mode agent.
 # Returns path to the wrapper script via stdout.
@@ -305,6 +307,7 @@ watch_validate() {
   local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/validate.md"
   local max_attempts="${VALIDATE_MAX_ATTEMPTS:-3}"
   local exitcode_file="${LOG_DIR}/validate.exit"
+  local validate_timeout="${VALIDATE_TIMEOUT:-600}"
 
   if [[ ! -f "$prompt_file" ]]; then
     warn "No validation prompt found at $prompt_file — skipping."
@@ -431,8 +434,8 @@ VALIDATE_WRAPPER
       local now_v
       now_v=$(date +%s)
       local elapsed_v=$(( now_v - validate_start ))
-      if [[ $elapsed_v -ge $VALIDATE_TIMEOUT ]]; then
-        warn "Validation attempt ${attempt} timed out after ${VALIDATE_TIMEOUT}s"
+      if [[ $elapsed_v -ge $validate_timeout ]]; then
+        warn "Validation attempt ${attempt} timed out after ${validate_timeout}s"
         tmux kill-session -t "${tmux_session}" 2>/dev/null || true
         echo "1" > "$exitcode_file"
         break

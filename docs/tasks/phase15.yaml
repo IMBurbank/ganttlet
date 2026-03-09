@@ -267,6 +267,6 @@ validation:
 follow_up:
   - {summary: "Calendar support (holidays, resource calendars) — separate phase", status: pending}
   - {summary: "Duration mode toggle (business vs calendar days) — separate phase", status: pending}
-  - {summary: "E2E test: constraint set via popover cascades across tabs", status: pending}
-  - {summary: "E2E test: SF dependency renders correct arrow path", status: pending}
-  - {summary: "E2E test: conflict indicator visible to collaborators", status: pending}
+  - {summary: "E2E test: constraint set via popover cascades across tabs", status: done}
+  - {summary: "E2E test: SF dependency renders correct arrow path", status: done}
+  - {summary: "E2E test: conflict indicator visible to collaborators", status: done}

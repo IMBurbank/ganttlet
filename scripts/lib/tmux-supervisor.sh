@@ -231,7 +231,7 @@ tmux_wait_stage() {
   start=$(date +%s)
 
   # Track log sizes for stall detection
-  declare -A _last_sizes _last_change
+  declare -A _last_sizes _last_change _cached_status
   for group in "${groups[@]}"; do
     _last_sizes["$group"]=0
     _last_change["$group"]=$start
@@ -242,7 +242,6 @@ tmux_wait_stage() {
     local any_failed=false
 
     # Cache status per group to avoid duplicate tmux_agent_status calls
-    declare -A _cached_status
     for group in "${groups[@]}"; do
       _cached_status["$group"]=$(tmux_agent_status "$session" "$group" "${log_dir}/${group}.log")
       case "${_cached_status[$group]}" in
@@ -282,9 +281,7 @@ tmux_wait_stage() {
     if [[ $elapsed -ge $timeout ]]; then
       echo "TIMEOUT after ${timeout}s — killing remaining agents"
       for group in "${groups[@]}"; do
-        local status
-        status=$(tmux_agent_status "$session" "$group" "${log_dir}/${group}.log")
-        if [[ "$status" == "running" ]]; then
+        if [[ "${_cached_status[$group]}" == "running" ]]; then
           tmux_kill_agent "$session" "$group" "${log_dir}/${group}.log"
         fi
       done

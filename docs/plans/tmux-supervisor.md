@@ -179,10 +179,10 @@ tmux send-keys -t <target> Enter
 |------|--------|--------|
 | `scripts/lib/tmux-supervisor.sh` | New file — 8 functions | **Done, tested** |
 | `docs/plans/tmux-supervisor.md` | This plan document | **Done** |
-| `scripts/launch-supervisor.sh` | Add `--tmux` flag | Planned |
-| `docs/prompts/supervisor.md` | Add tmux-native mode section | Planned |
-| `.claude/skills/multi-agent-orchestration/SKILL.md` | Add tmux-supervisor ref | Planned |
-| `docs/multi-agent-guide.md` | Add tmux-supervisor section | Planned |
+| `scripts/launch-supervisor.sh` | Add `--tmux` flag | **Done** |
+| `docs/prompts/supervisor.md` | Add tmux-native mode section | **Done** |
+| `.claude/skills/multi-agent-orchestration/SKILL.md` | Add tmux-supervisor ref | **Done** |
+| `docs/multi-agent-guide.md` | Add tmux-supervisor section | **Done** |
 
 ## What Does NOT Change
 

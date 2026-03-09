@@ -282,14 +282,19 @@ do_merge() {
     log "Verifying after merging ${group}..."
     cd "$MERGE_WORKTREE"
 
-    # Rebuild WASM (Rust source may have changed in this branch)
-    source "$HOME/.cargo/env" 2>/dev/null || true
-    npm run build:wasm 2>/dev/null || warn "WASM build failed after merging ${group}"
+    # Only rebuild WASM if Rust source files changed in this merge
+    if git diff HEAD~1 --name-only 2>/dev/null | grep -q '^crates/'; then
+      log "Rust files changed — rebuilding WASM"
+      source "$HOME/.cargo/env" 2>/dev/null || true
+      npm run build:wasm 2>/dev/null || warn "WASM build failed after merging ${group}"
 
-    # Commit Cargo.lock if it was modified by the build
-    if [[ -n "$(git diff --name-only -- crates/scheduler/Cargo.lock 2>/dev/null)" ]]; then
-      git add crates/scheduler/Cargo.lock
-      git commit -m "chore: update Cargo.lock after merging ${group}"
+      # Commit Cargo.lock if it was modified by the build
+      if [[ -n "$(git diff --name-only -- crates/scheduler/Cargo.lock 2>/dev/null)" ]]; then
+        git add crates/scheduler/Cargo.lock
+        git commit -m "chore: update Cargo.lock after merging ${group}"
+      fi
+    else
+      log "No Rust files changed — skipping WASM rebuild"
     fi
 
     if ! run_parallel_verification "after merging ${group}"; then

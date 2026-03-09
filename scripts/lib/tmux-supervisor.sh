@@ -224,8 +224,16 @@ tmux_wait_stage() {
   shift 3
   local groups=("$@")
 
+  local stall_threshold="${AGENT_STALL_THRESHOLD:-300}"  # 5 min default
   local start
   start=$(date +%s)
+
+  # Track log sizes for stall detection
+  declare -A _last_sizes _last_change
+  for group in "${groups[@]}"; do
+    _last_sizes["$group"]=0
+    _last_change["$group"]=$start
+  done
 
   while true; do
     local all_done=true
@@ -249,6 +257,26 @@ tmux_wait_stage() {
 
     local now
     now=$(date +%s)
+
+    # Stall detection: check log file growth for running agents
+    for group in "${groups[@]}"; do
+      local status
+      status=$(tmux_agent_status "$session" "$group" "${log_dir}/${group}.log")
+      if [[ "$status" == "running" ]]; then
+        local current_size
+        current_size=$(stat -c %s "${log_dir}/${group}.log" 2>/dev/null || echo 0)
+        if [[ "$current_size" != "${_last_sizes[$group]}" ]]; then
+          _last_sizes["$group"]=$current_size
+          _last_change["$group"]=$now
+        fi
+        local stall_duration=$(( now - ${_last_change[$group]} ))
+        if [[ $stall_duration -ge $stall_threshold ]]; then
+          echo "STALL: ${group} log unchanged for ${stall_duration}s — killing agent"
+          tmux_kill_agent "$session" "$group" "${log_dir}/${group}.log"
+        fi
+      fi
+    done
+
     local elapsed=$(( now - start ))
     if [[ $elapsed -ge $timeout ]]; then
       echo "TIMEOUT after ${timeout}s — killing remaining agents"

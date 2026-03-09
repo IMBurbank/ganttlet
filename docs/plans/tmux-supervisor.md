@@ -65,9 +65,10 @@ Tested with:
 - Real claude agent in /workspace: ran but file not found (correctly — file only in worktree)
 - Real claude agent in worktree: found all 8 functions, status=succeeded, log captured
 
-**Note on tee + pipe exit code**: `echo "EXIT:$?" > .status` captures tee's exit code,
-not claude's. This is acceptable because tee only fails on write errors. If precise
-claude exit codes are needed, use `PIPESTATUS[0]` — but this requires bash (not sh)
+**Note on tee + pipe exit code**: The pipeline is `cat | claude | tee`, so
+`PIPESTATUS[1]` captures claude's exit code (index 0=cat, 1=claude, 2=tee).
+The `set -o pipefail` ensures the pipeline returns the first non-zero exit code,
+but `PIPESTATUS[1]` explicitly targets claude regardless. This requires bash (not sh)
 in the tmux window, which is the default.
 
 ### Function: `tmux_poll_agent`

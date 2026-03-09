@@ -54,9 +54,13 @@ tmux_launch_agent() {
   tmux new-window -t "$session" -n "$group"
   sleep 0.5
 
+  # Clear any stale status file from a previous run (prevents tmux_agent_status
+  # from immediately returning the old result when relaunching a killed agent).
+  rm -f "${log_file}.status"
+
   # Build the command — unset CLAUDECODE, cd to worktree, run claude with tee.
-  # Use PIPESTATUS[0] to capture claude's exit code, not tee's.
-  local cmd="unset CLAUDECODE && cd '${worktree}' && set -o pipefail && cat '${prompt_file}' | claude --dangerously-skip-permissions --max-turns ${max_turns} --max-budget-usd ${max_budget} ${model_flag} -p - 2>&1 | tee '${log_file}'; echo \"EXIT:\${PIPESTATUS[0]:-\$?}\" > '${log_file}.status'"
+  # Pipeline: cat | claude | tee — PIPESTATUS[1] is claude's exit code.
+  local cmd="unset CLAUDECODE && cd '${worktree}' && set -o pipefail && cat '${prompt_file}' | claude --dangerously-skip-permissions --max-turns ${max_turns} --max-budget-usd ${max_budget} ${model_flag} -p - 2>&1 | tee '${log_file}'; echo \"EXIT:\${PIPESTATUS[1]:-\$?}\" > '${log_file}.status'"
 
   # Send keys with sleep before Enter (prevents race condition)
   tmux send-keys -t "${session}:${group}" "$cmd"

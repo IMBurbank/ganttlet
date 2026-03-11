@@ -38,3 +38,6 @@ Output goes to `src/wasm/scheduler/`:
 - Each `#[wasm_bindgen]` pub function becomes a JS export
 - Structs with `#[wasm_bindgen]` get a JS class wrapper
 - Methods on `#[wasm_bindgen]` structs become class methods in JS
+
+## Lessons Learned
+<!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->

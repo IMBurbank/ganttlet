@@ -62,3 +62,9 @@ SIGPIPE kills the parent, orphaning all children.
 ## Syntax Checking
 Always run `bash -n scriptname.sh` after editing any bash script to catch syntax errors
 before committing.
+
+## Lessons Learned
+<!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->
+- 2026-03-09: Never chain `cd` with `&&` — if a later command fails, the `cd` does not persist and subsequent calls run in the wrong directory.
+- 2026-03-09: `grep -oP` is not portable. Use `sed` or `node -e` instead.
+- 2026-03-09: Always capture `PIPESTATUS` immediately — it's overwritten by the next command.

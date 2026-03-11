@@ -59,6 +59,11 @@ preflight_check() {
     fi
   fi
 
+  # Suggest plan review before launch
+  if [[ "${SKIP_PLAN_REVIEW:-}" != "1" ]]; then
+    log "Tip: Consider running plan-reviewer agent on config before launching phase"
+  fi
+
   ok "Preflight check passed"
 }
 

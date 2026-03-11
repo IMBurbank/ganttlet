@@ -72,3 +72,6 @@ See `docs/cloud-verification-plan.md` for the staged verification plan:
 6. **Dev and production deploy jobs share the same GCP secrets.** Both `deploy-dev` and `deploy-production` reference `secrets.WIF_PROVIDER`, `secrets.WIF_SERVICE_ACCOUNT`, and `secrets.GCP_PROJECT_ID`. There are no per-environment secret variants (`_DEV` / `_PROD`) for WIF — staging will need separate secrets (`WIF_PROVIDER_STAGING`, etc.) as noted in `docs/cloud-verification-plan.md` Step 4.
 
 7. **The `deploy.yml` job named `deploy-dev` actually deploys to the ganttlet-dev project, not staging.** The cloud-verification-plan notes this naming confusion. The job condition `github.event_name == 'push'` means every merge to `main` auto-deploys to dev. Production requires `workflow_dispatch` with explicit environment selection plus GitHub environment approval.
+
+## Lessons Learned
+<!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->

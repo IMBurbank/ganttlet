@@ -98,8 +98,7 @@ test("Allow redirect to worktree", 1, 3, JSON.stringify({tool_input:{command:"ec
 test("Allow normal bash commands", 1, 3, JSON.stringify({tool_input:{command:"git status"}}), false);
 test("Fail-closed on bad JSON", 1, 3, "not-json", true);
 
-// ENXIO simulation: when /dev/stdin is unavailable, hooks must allow (not block)
-process.stdout.write("--- ENXIO passthrough (infrastructure error → allow) ---\n");
+// Infrastructure error simulation: when /dev/stdin is unavailable, hooks must allow (not block)
 
 function runHookWithStdinError(matcherIdx, hookIdx, errorCode) {
   const cmd = getHookCmd(matcherIdx, hookIdx);

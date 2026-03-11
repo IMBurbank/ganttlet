@@ -32,6 +32,27 @@ if [[ -z "$STAGED" ]]; then
   exit 0
 fi
 
+# ── Auto-format staged files ─────────────────────────────────────────────
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx')
+STAGED_JSON=$(git diff --cached --name-only --diff-filter=ACM -- '*.json')
+STAGED_RS=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+
+if [[ -n "$STAGED_TS" || -n "$STAGED_JSON" ]]; then
+  # Format TS/TSX/JSON with prettier, re-stage formatted files
+  echo "$STAGED_TS $STAGED_JSON" | tr ' ' '\n' | grep -v '^$' | \
+    xargs -r npx prettier --write 2>/dev/null || true
+  echo "$STAGED_TS $STAGED_JSON" | tr ' ' '\n' | grep -v '^$' | \
+    xargs -r git add 2>/dev/null || true
+fi
+
+if [[ -n "$STAGED_RS" ]]; then
+  # Format Rust files with rustfmt, re-stage formatted files
+  echo "$STAGED_RS" | tr ' ' '\n' | grep -v '^$' | \
+    xargs -r rustfmt 2>/dev/null || true
+  echo "$STAGED_RS" | tr ' ' '\n' | grep -v '^$' | \
+    xargs -r git add 2>/dev/null || true
+fi
+
 # Check for todo!() / unimplemented!() in Rust files
 if echo "$STAGED" | grep -q '\.rs$'; then
   if git diff --cached | grep -qE '^\+.*todo!\(\)|^\+.*unimplemented!\(\)'; then

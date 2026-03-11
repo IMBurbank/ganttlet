@@ -50,6 +50,15 @@ preflight_check() {
     return 1
   fi
 
+  # Verify worktree isolation hooks
+  if [[ -f "${WORKSPACE}/scripts/test-hooks.sh" ]]; then
+    log "Running hook integration tests..."
+    if ! bash "${WORKSPACE}/scripts/test-hooks.sh"; then
+      err "Hook integration tests failed. Fix .claude/settings.json before launching agents."
+      return 1
+    fi
+  fi
+
   ok "Preflight check passed"
 }
 

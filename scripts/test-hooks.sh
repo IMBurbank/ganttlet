@@ -98,6 +98,58 @@ test("Allow redirect to worktree", 1, 3, JSON.stringify({tool_input:{command:"ec
 test("Allow normal bash commands", 1, 3, JSON.stringify({tool_input:{command:"git status"}}), false);
 test("Fail-closed on bad JSON", 1, 3, "not-json", true);
 
+// ENXIO simulation: when /dev/stdin is unavailable, hooks must allow (not block)
+process.stdout.write("--- ENXIO passthrough (infrastructure error → allow) ---\n");
+
+function runHookWithENXIO(matcherIdx, hookIdx) {
+  const cmd = getHookCmd(matcherIdx, hookIdx);
+  const origRead = fs.readFileSync;
+  fs.readFileSync = function(p, enc) {
+    if (p === "/dev/stdin") {
+      const err = new Error("ENXIO: no such device or address, open \"/dev/stdin\"");
+      err.code = "ENXIO";
+      throw err;
+    }
+    return origRead.call(fs, p, enc);
+  };
+  let output = "";
+  let exitCode = null;
+  const origLog = console.log;
+  console.log = function(s) { output = s; };
+  const origExit = process.exit;
+  // Simulate process termination by throwing a sentinel
+  const EXIT_SENTINEL = Symbol("EXIT");
+  process.exit = function(code) { exitCode = code; throw EXIT_SENTINEL; };
+  try {
+    vm.runInThisContext(cmd);
+  } catch(e) {
+    if (e !== EXIT_SENTINEL) output = "EXCEPTION: " + e.message;
+  }
+  console.log = origLog;
+  process.exit = origExit;
+  fs.readFileSync = origRead;
+  return { output, exitCode };
+}
+
+function testENXIO(desc, matcherIdx, hookIdx) {
+  const result = runHookWithENXIO(matcherIdx, hookIdx);
+  const blocked = typeof result.output === "string" && result.output.includes("\"decision\":\"block\"");
+  if (!blocked) {
+    PASS++;
+    process.stdout.write("  PASS: " + desc + "\n");
+  } else {
+    FAIL++;
+    process.stdout.write("  FAIL: " + desc + " (ENXIO caused block — this bricks the session!)\n");
+  }
+}
+
+testENXIO("ENXIO on protected file guard (Edit/Write hook 0)", 0, 0);
+testENXIO("ENXIO on worktree edit guard (Edit/Write hook 1)", 0, 1);
+testENXIO("ENXIO on push-to-main guard (Bash hook 0)", 1, 0);
+testENXIO("ENXIO on checkout guard (Bash hook 1)", 1, 1);
+testENXIO("ENXIO on worktree removal guard (Bash hook 2)", 1, 2);
+testENXIO("ENXIO on bash file-mod guard (Bash hook 3)", 1, 3);
+
 process.stdout.write("\nResults: " + PASS + " passed, " + FAIL + " failed\n");
 if (FAIL > 0) process.exit(1);
 '

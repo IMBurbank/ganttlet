@@ -68,3 +68,5 @@ before committing.
 - 2026-03-09: Never chain `cd` with `&&` — if a later command fails, the `cd` does not persist and subsequent calls run in the wrong directory.
 - 2026-03-09: `grep -oP` is not portable. Use `sed` or `node -e` instead.
 - 2026-03-09: Always capture `PIPESTATUS` immediately — it's overwritten by the next command.
+- 2026-03-11: `((var++))` returns exit code 1 when var is 0 (because `((0))` is falsy in bash). Under `set -e` this kills the script. Use `var=$((var + 1))` instead.
+- 2026-03-11: PreToolUse hooks that read `/dev/stdin` must passthrough ENXIO/EAGAIN/ENOENT errors via `process.exit(0)` — these are infrastructure failures (stdin unavailable), not logic errors. Fail-closed on infrastructure errors bricks the entire session with no self-recovery path.

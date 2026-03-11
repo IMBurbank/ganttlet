@@ -101,13 +101,13 @@ test("Fail-closed on bad JSON", 1, 3, "not-json", true);
 // ENXIO simulation: when /dev/stdin is unavailable, hooks must allow (not block)
 process.stdout.write("--- ENXIO passthrough (infrastructure error → allow) ---\n");
 
-function runHookWithENXIO(matcherIdx, hookIdx) {
+function runHookWithStdinError(matcherIdx, hookIdx, errorCode) {
   const cmd = getHookCmd(matcherIdx, hookIdx);
   const origRead = fs.readFileSync;
   fs.readFileSync = function(p, enc) {
     if (p === "/dev/stdin") {
-      const err = new Error("ENXIO: no such device or address, open \"/dev/stdin\"");
-      err.code = "ENXIO";
+      const err = new Error(errorCode + ": simulated stdin error");
+      err.code = errorCode;
       throw err;
     }
     return origRead.call(fs, p, enc);
@@ -117,7 +117,6 @@ function runHookWithENXIO(matcherIdx, hookIdx) {
   const origLog = console.log;
   console.log = function(s) { output = s; };
   const origExit = process.exit;
-  // Simulate process termination by throwing a sentinel
   const EXIT_SENTINEL = Symbol("EXIT");
   process.exit = function(code) { exitCode = code; throw EXIT_SENTINEL; };
   try {
@@ -131,24 +130,33 @@ function runHookWithENXIO(matcherIdx, hookIdx) {
   return { output, exitCode };
 }
 
-function testENXIO(desc, matcherIdx, hookIdx) {
-  const result = runHookWithENXIO(matcherIdx, hookIdx);
+function testStdinError(desc, matcherIdx, hookIdx, errorCode) {
+  const result = runHookWithStdinError(matcherIdx, hookIdx, errorCode);
   const blocked = typeof result.output === "string" && result.output.includes("\"decision\":\"block\"");
-  if (!blocked) {
+  const exception = typeof result.output === "string" && result.output.startsWith("EXCEPTION:");
+  if (!blocked && !exception && result.exitCode === 0) {
     PASS++;
     process.stdout.write("  PASS: " + desc + "\n");
   } else {
     FAIL++;
-    process.stdout.write("  FAIL: " + desc + " (ENXIO caused block — this bricks the session!)\n");
+    let reason = "";
+    if (blocked) reason = "caused block — bricks the session";
+    else if (exception) reason = "unexpected exception: " + result.output;
+    else if (result.exitCode !== 0) reason = "exitCode=" + result.exitCode + ", expected 0";
+    process.stdout.write("  FAIL: " + desc + " (" + reason + ")\n");
   }
 }
 
-testENXIO("ENXIO on protected file guard (Edit/Write hook 0)", 0, 0);
-testENXIO("ENXIO on worktree edit guard (Edit/Write hook 1)", 0, 1);
-testENXIO("ENXIO on push-to-main guard (Bash hook 0)", 1, 0);
-testENXIO("ENXIO on checkout guard (Bash hook 1)", 1, 1);
-testENXIO("ENXIO on worktree removal guard (Bash hook 2)", 1, 2);
-testENXIO("ENXIO on bash file-mod guard (Bash hook 3)", 1, 3);
+// Test all three infrastructure error codes across all 6 hooks
+["ENXIO", "EAGAIN", "ENOENT"].forEach(function(code) {
+  process.stdout.write("--- " + code + " passthrough (infrastructure error → allow) ---\n");
+  testStdinError(code + " on protected file guard (Edit/Write hook 0)", 0, 0, code);
+  testStdinError(code + " on worktree edit guard (Edit/Write hook 1)", 0, 1, code);
+  testStdinError(code + " on push-to-main guard (Bash hook 0)", 1, 0, code);
+  testStdinError(code + " on checkout guard (Bash hook 1)", 1, 1, code);
+  testStdinError(code + " on worktree removal guard (Bash hook 2)", 1, 2, code);
+  testStdinError(code + " on bash file-mod guard (Bash hook 3)", 1, 3, code);
+});
 
 process.stdout.write("\nResults: " + PASS + " passed, " + FAIL + " failed\n");
 if (FAIL > 0) process.exit(1);

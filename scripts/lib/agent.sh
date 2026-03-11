@@ -118,7 +118,7 @@ run_agent() {
     warn "${group}: exited with code ${exit_code}"
 
     if [[ $attempt -lt $MAX_RETRIES ]]; then
-      ((retry_count++))
+      retry_count=$((retry_count + 1))
       log "${group}: retrying in ${RETRY_DELAY}s..."
       sleep "$RETRY_DELAY"
     fi

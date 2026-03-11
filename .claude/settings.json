@@ -37,7 +37,7 @@
           },
           {
             "type": "command",
-            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const c=d.tool_input?.command||'';if(/(?:sed\\s+-i\\s+.*\\/workspace\\/(?!\\.claude\\/worktrees)|>\\s*\\/workspace\\/(?!\\.claude\\/worktrees)|tee\\s+\\/workspace\\/(?!\\.claude\\/worktrees))/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Do not modify files directly in /workspace via Bash. Use a worktree.'}))}}catch(e){console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
+            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const c=d.tool_input?.command||'';if(/(?:sed\\s+-i\\s+.*\\/workspace\\/(?!\\.claude\\/worktrees)|>\\s*\\/workspace\\/(?!\\.claude\\/worktrees)|tee\\s+.*\\/workspace\\/(?!\\.claude\\/worktrees))/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Do not modify files directly in /workspace via Bash. Use a worktree.'}))}}catch(e){console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
           }
         ]
       }

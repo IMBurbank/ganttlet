@@ -23,10 +23,10 @@ classify_pr() {
 
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    [[ "$line" == *"files changed"* ]] && continue
+    [[ "$line" == *"file"*"changed"* ]] && continue
     local file
     file=$(echo "$line" | awk '{print $1}')
-    ((file_count++))
+    file_count=$((file_count + 1))
 
     # Check if non-docs files exist
     [[ "$file" != *.md ]] && md_only=false
@@ -39,6 +39,12 @@ classify_pr() {
   done <<< "$diff_stat"
 
   [[ $file_count -eq 1 ]] && single_file=true
+
+  # Fail-closed: if no files were parsed (git error, empty diff), default to full review
+  if [[ $file_count -eq 0 ]]; then
+    echo "full"
+    return
+  fi
 
   # Classification logic
   if [[ "$has_security" == "true" ]]; then

@@ -1,13 +1,12 @@
 # Agent Performance Metrics Schema
 
-## Metrics from agent-metrics.jsonl (collected automatically via F2)
+## Metrics from agent-metrics.jsonl (collected automatically via `log_agent_metrics()` in `scripts/lib/agent.sh`)
 
 | Metric | Field | Query |
 |--------|-------|-------|
 | Agent success rate | `status` | `jq -s '[.[] | .status] | group_by(.) | map({s: .[0], n: length})' .claude/logs/agent-metrics.jsonl` |
 | Average duration | `duration_seconds` | `jq -s '(map(.duration_seconds) | add) / length' .claude/logs/agent-metrics.jsonl` |
 | Retry rate | `retries` | `jq -s '[.[] | select(.retries > 0)] | length' .claude/logs/agent-metrics.jsonl` |
-| Stall rate | `stall_detected` | `jq -s '[.[] | select(.stall_detected == true)] | length' .claude/logs/agent-metrics.jsonl` |
 
 ## Metrics from external sources (collected manually)
 

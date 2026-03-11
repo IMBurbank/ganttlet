@@ -33,25 +33,24 @@ if [[ -z "$STAGED" ]]; then
 fi
 
 # ── Auto-format staged files ─────────────────────────────────────────────
+# Only format files that are fully staged (no unstaged changes) to avoid
+# accidentally committing unstaged hunks from partial `git add -p`.
 STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx')
 STAGED_JSON=$(git diff --cached --name-only --diff-filter=ACM -- '*.json')
 STAGED_RS=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
 
-if [[ -n "$STAGED_TS" || -n "$STAGED_JSON" ]]; then
-  # Format TS/TSX/JSON with prettier, re-stage formatted files
-  echo "$STAGED_TS $STAGED_JSON" | tr ' ' '\n' | grep -v '^$' | \
-    xargs -r npx prettier --write 2>/dev/null || true
-  echo "$STAGED_TS $STAGED_JSON" | tr ' ' '\n' | grep -v '^$' | \
-    xargs -r git add 2>/dev/null || true
-fi
+for file in $STAGED_TS $STAGED_JSON; do
+  [[ -z "$file" ]] && continue
+  # Skip files with unstaged changes (partial staging)
+  git diff --quiet -- "$file" 2>/dev/null || continue
+  npx prettier --write "$file" 2>/dev/null && git add "$file" 2>/dev/null || true
+done
 
-if [[ -n "$STAGED_RS" ]]; then
-  # Format Rust files with rustfmt, re-stage formatted files
-  echo "$STAGED_RS" | tr ' ' '\n' | grep -v '^$' | \
-    xargs -r rustfmt 2>/dev/null || true
-  echo "$STAGED_RS" | tr ' ' '\n' | grep -v '^$' | \
-    xargs -r git add 2>/dev/null || true
-fi
+for file in $STAGED_RS; do
+  [[ -z "$file" ]] && continue
+  git diff --quiet -- "$file" 2>/dev/null || continue
+  rustfmt "$file" 2>/dev/null && git add "$file" 2>/dev/null || true
+done
 
 # Check for todo!() / unimplemented!() in Rust files
 if echo "$STAGED" | grep -q '\.rs$'; then

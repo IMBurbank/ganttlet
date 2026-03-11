@@ -29,7 +29,11 @@ modify files — you only read, search, and analyze.
 - `server/tests/` — Relay server integration tests (WebSocket auth, awareness)
 - `scripts/` — Build, verify, launch infrastructure
   - `scripts/lib/` — Modular helpers: `agent.sh`, `worktree.sh`, `stage.sh`, `merge.sh`, `validate.sh`, `pr.sh`, `config.sh`, `log.sh`, `watch.sh`, `tmux-supervisor.sh`
+  - `scripts/test-hooks.sh` — Integration tests for worktree isolation hooks
+- `.claude/agents/` — Subagents: `codebase-explorer.md`, `rust-scheduler.md`, `verify-and-diagnose.md`, `plan-reviewer.md`
 - `.claude/skills/` — Domain-specific reference guides (read these for domain knowledge)
+- `.claude/metrics/` — Agent performance metrics schema
+- Scoped `CLAUDE.md` files in: `crates/scheduler/`, `server/`, `src/`, `src/sheets/`, `e2e/`
 
 ## Investigation approach
 1. Use `LSP documentSymbol` to understand file structure without reading entire files

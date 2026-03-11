@@ -6,7 +6,7 @@
 LOG_METRICS_DIR="${LOG_METRICS_DIR:-.claude/logs}"
 
 log_agent_metrics() {
-  local group="$1" duration_secs="$2" retries="$3" exit_code="$4" stall="$5"
+  local group="$1" duration_secs="$2" retries="$3" exit_code="$4"
   local status="success"
   [[ "$exit_code" -ne 0 ]] && status="failure"
 
@@ -21,8 +21,7 @@ log_agent_metrics() {
       duration_seconds: ${duration_secs},
       retries: ${retries},
       exit_code: ${exit_code},
-      status: '${status}',
-      stall_detected: ${stall}
+      status: '${status}'
     };
     require('fs').appendFileSync('${metrics_file}', JSON.stringify(entry) + '\n');
   "
@@ -77,7 +76,6 @@ run_agent() {
   local logfile="${LOG_DIR}/${group}.log"
   local start_seconds=$SECONDS
   local retry_count=0
-  local stall_detected=false
 
   if [[ ! -f "$prompt_file" ]]; then
     err "Prompt file not found: $prompt_file"
@@ -112,7 +110,7 @@ run_agent() {
 
     if [[ $exit_code -eq 0 ]]; then
       local duration=$(( SECONDS - start_seconds ))
-      log_agent_metrics "$group" "$duration" "$retry_count" 0 "$stall_detected"
+      log_agent_metrics "$group" "$duration" "$retry_count" 0
       ok "${group}: completed successfully"
       return 0
     fi
@@ -127,7 +125,7 @@ run_agent() {
   done
 
   local duration=$(( SECONDS - start_seconds ))
-  log_agent_metrics "$group" "$duration" "$retry_count" "${exit_code:-1}" "$stall_detected"
+  log_agent_metrics "$group" "$duration" "$retry_count" "${exit_code:-1}"
 
   err "${group}: failed after ${MAX_RETRIES} attempts. Check ${logfile}"
   return 1

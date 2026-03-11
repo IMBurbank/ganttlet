@@ -4,6 +4,56 @@
 # Operates from the merge worktree (MERGE_WORKTREE) for git push,
 # but gh commands work from anywhere.
 
+# ── PR Classification ─────────────────────────────────────────────────────
+
+classify_pr() {
+  # Classify a PR for review depth based on changed files.
+  # Returns: "light" or "full"
+  # Usage: tier=$(classify_pr)
+
+  local diff_stat
+  diff_stat=$(git diff --stat "origin/main...HEAD" -- 2>/dev/null || echo "")
+
+  # Count file types changed
+  local md_only=true
+  local test_only=true
+  local single_file=false
+  local file_count=0
+  local has_security=false
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ "$line" == *"files changed"* ]] && continue
+    local file
+    file=$(echo "$line" | awk '{print $1}')
+    ((file_count++))
+
+    # Check if non-docs files exist
+    [[ "$file" != *.md ]] && md_only=false
+
+    # Check if non-test files exist
+    [[ "$file" != *.test.* && "$file" != *.spec.* && "$file" != *__tests__* ]] && test_only=false
+
+    # Check for security-relevant files
+    [[ "$file" == *auth* || "$file" == *oauth* || "$file" == *cors* || "$file" == *.env* || "$file" == *Cargo.toml || "$file" == *package.json ]] && has_security=true
+  done <<< "$diff_stat"
+
+  [[ $file_count -eq 1 ]] && single_file=true
+
+  # Classification logic
+  if [[ "$has_security" == "true" ]]; then
+    echo "full"
+  elif [[ "$md_only" == "true" ]]; then
+    echo "light"
+  elif [[ "$test_only" == "true" ]]; then
+    echo "light"
+  elif [[ "$single_file" == "true" ]]; then
+    echo "light"
+  else
+    echo "full"
+  fi
+}
+
 # Create a PR from the implementation branch to main.
 # Uses PR metadata from the YAML config if available, otherwise generates from commit log.
 create_pr() {
@@ -79,16 +129,28 @@ ${PR_TEST_PLAN}"
 
   ok "PR created: ${pr_url}"
 
-  # Trigger code-review agent
+  # Trigger code-review agent with tier-based depth
   log "Triggering code review..."
   local pr_number
   pr_number=$(echo "$pr_url" | grep -o '[0-9]*$')
 
   if [[ -n "$pr_number" ]]; then
-    local review_prompt="Review PR #${pr_number} for the Ganttlet project. Use /code-review to review the PR at ${pr_url}"
-    echo "$review_prompt" | claude --dangerously-skip-permissions --max-turns 40 --max-budget-usd 5.00 -p - >> "${LOG_DIR}/code-review.log" 2>&1 &
+    # Determine review depth
+    local review_tier
+    review_tier=$(classify_pr)
+    log "PR classified as: ${review_tier} review"
+
+    if [[ "$review_tier" == "light" ]]; then
+      # Light review: 1 agent, fewer turns
+      local review_prompt="Review PR #${pr_number} for correctness. Focus on: logic errors, constraint violations, test coverage. PR: ${pr_url}"
+      echo "$review_prompt" | claude --dangerously-skip-permissions --max-turns 20 --max-budget-usd 2.00 -p - >> "${LOG_DIR}/code-review.log" 2>&1 &
+    else
+      # Full review: existing multi-agent review via /code-review skill
+      local review_prompt="Review PR #${pr_number} for the Ganttlet project. Use /code-review to review the PR at ${pr_url}"
+      echo "$review_prompt" | claude --dangerously-skip-permissions --max-turns 40 --max-budget-usd 5.00 -p - >> "${LOG_DIR}/code-review.log" 2>&1 &
+    fi
     local review_pid=$!
-    log "Code review agent launched (PID: ${review_pid}, log: ${LOG_DIR}/code-review.log)"
+    log "Code review agent launched (PID: ${review_pid}, tier: ${review_tier}, log: ${LOG_DIR}/code-review.log)"
     log "Review running in background — check log or PR comments for results."
   else
     warn "Could not extract PR number from: ${pr_url} — skipping code review"

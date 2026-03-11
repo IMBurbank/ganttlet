@@ -1,6 +1,33 @@
 #!/usr/bin/env bash
 # scripts/lib/agent.sh — Agent runner with retry loop and stall detection
 
+# ── Agent Metrics Logging ─────────────────────────────────────────────────
+
+LOG_METRICS_DIR="${LOG_METRICS_DIR:-.claude/logs}"
+
+log_agent_metrics() {
+  local group="$1" duration_secs="$2" retries="$3" exit_code="$4" stall="$5"
+  local status="success"
+  [[ "$exit_code" -ne 0 ]] && status="failure"
+
+  mkdir -p "$LOG_METRICS_DIR"
+  local metrics_file="${LOG_METRICS_DIR}/agent-metrics.jsonl"
+
+  node -e "
+    const entry = {
+      timestamp: new Date().toISOString(),
+      phase: '${PHASE:-unknown}',
+      group: '${group}',
+      duration_seconds: ${duration_secs},
+      retries: ${retries},
+      exit_code: ${exit_code},
+      status: '${status}',
+      stall_detected: ${stall}
+    };
+    require('fs').appendFileSync('${metrics_file}', JSON.stringify(entry) + '\n');
+  "
+}
+
 # Build the retry context for a crashed agent restart.
 build_retry_context() {
   local workdir="$1"
@@ -48,6 +75,9 @@ run_agent() {
   local workdir="$2"
   local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/${group}.md"
   local logfile="${LOG_DIR}/${group}.log"
+  local start_seconds=$SECONDS
+  local retry_count=0
+  local stall_detected=false
 
   if [[ ! -f "$prompt_file" ]]; then
     err "Prompt file not found: $prompt_file"
@@ -81,6 +111,8 @@ run_agent() {
     set -e
 
     if [[ $exit_code -eq 0 ]]; then
+      local duration=$(( SECONDS - start_seconds ))
+      log_agent_metrics "$group" "$duration" "$retry_count" 0 "$stall_detected"
       ok "${group}: completed successfully"
       return 0
     fi
@@ -88,10 +120,14 @@ run_agent() {
     warn "${group}: exited with code ${exit_code}"
 
     if [[ $attempt -lt $MAX_RETRIES ]]; then
+      ((retry_count++))
       log "${group}: retrying in ${RETRY_DELAY}s..."
       sleep "$RETRY_DELAY"
     fi
   done
+
+  local duration=$(( SECONDS - start_seconds ))
+  log_agent_metrics "$group" "$duration" "$retry_count" "${exit_code:-1}" "$stall_detected"
 
   err "${group}: failed after ${MAX_RETRIES} attempts. Check ${logfile}"
   return 1

@@ -27,6 +27,7 @@ Thumbs.db
 !.claude/settings.json
 !.claude/agents/
 !.claude/skills/
+!.claude/metrics/
 !.claude/worktrees/
 .claude/worktrees/*
 !.claude/worktrees/CLAUDE.md

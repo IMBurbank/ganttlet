@@ -42,6 +42,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
   - **Date/time math**: `date -d '2026-03-06 + 17 days' +%Y-%m-%d` or `node -e "..."` with `date-fns`
   - **Business days / weekends**: `node -e "const d=require('date-fns'); console.log(d.differenceInBusinessDays(d.parseISO('2026-03-20'), d.parseISO('2026-03-06')))"` — prefer `date-fns` functions (`differenceInBusinessDays`, `addBusinessDays`, `isWeekend`) over project wrappers
   - **In code**: prefer `date-fns` directly (`differenceInCalendarDays`, `addDays`, `addBusinessDays`, `format`, `parseISO`) — project helpers in `src/utils/dateUtils.ts` and `crates/scheduler/src/date_utils.rs` exist but are thin wrappers; use the standard library when writing new code to minimize bug surface
+- When you discover a non-obvious gotcha or debugging insight, append it to the relevant skill's "Lessons Learned" section (`.claude/skills/<skill>/SKILL.md`). Only append if you've confirmed the behavior by reading the relevant source or running a test — do not write speculative lessons.
 
 ## Error Handling Protocol
 - **Level 1** (fixable): Read the error, fix the code, re-run. Try up to 3 distinct approaches.
@@ -187,6 +188,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
   - `codebase-explorer` — Read-only exploration, returns structured reports (haiku)
   - `rust-scheduler` — Scheduling engine specialist for crates/scheduler/ (sonnet)
   - `verify-and-diagnose` — Runs tsc/vitest/cargo test, diagnoses failures (sonnet)
+  - `plan-reviewer` — Pre-launch phase review for scope overlap, dependencies, completeness (haiku)
 
 ## Task Queue
 See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.

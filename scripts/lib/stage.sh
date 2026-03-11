@@ -44,10 +44,24 @@ preflight_check() {
     log "Merge target ${MERGE_TARGET} already exists"
   fi
 
+  # Verify worktree isolation hooks (fast, safety-critical — run before slow WASM build)
+  if [[ -f "${WORKSPACE}/scripts/test-hooks.sh" ]]; then
+    log "Running hook integration tests..."
+    if ! bash "${WORKSPACE}/scripts/test-hooks.sh"; then
+      err "Hook integration tests failed. Fix .claude/settings.json before launching agents."
+      return 1
+    fi
+  fi
+
   log "Checking WASM build..."
   if ! (cd "$WORKSPACE" && npm run build:wasm > /dev/null 2>&1); then
     err "WASM build broken — fix before launching agents"
     return 1
+  fi
+
+  # Suggest plan review before launch
+  if [[ "${SKIP_PLAN_REVIEW:-}" != "1" ]]; then
+    log "Tip: Consider running plan-reviewer agent on config before launching phase"
   fi
 
   ok "Preflight check passed"

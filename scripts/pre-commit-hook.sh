@@ -32,6 +32,26 @@ if [[ -z "$STAGED" ]]; then
   exit 0
 fi
 
+# ── Auto-format staged files ─────────────────────────────────────────────
+# Only format files that are fully staged (no unstaged changes) to avoid
+# accidentally committing unstaged hunks from partial `git add -p`.
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx')
+STAGED_JSON=$(git diff --cached --name-only --diff-filter=ACM -- '*.json')
+STAGED_RS=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+
+for file in $STAGED_TS $STAGED_JSON; do
+  [[ -z "$file" ]] && continue
+  # Skip files with unstaged changes (partial staging)
+  git diff --quiet -- "$file" 2>/dev/null || continue
+  npx prettier --write "$file" 2>/dev/null && git add "$file" 2>/dev/null || true
+done
+
+for file in $STAGED_RS; do
+  [[ -z "$file" ]] && continue
+  git diff --quiet -- "$file" 2>/dev/null || continue
+  rustfmt "$file" 2>/dev/null && git add "$file" 2>/dev/null || true
+done
+
 # Check for todo!() / unimplemented!() in Rust files
 if echo "$STAGED" | grep -q '\.rs$'; then
   if git diff --cached | grep -qE '^\+.*todo!\(\)|^\+.*unimplemented!\(\)'; then

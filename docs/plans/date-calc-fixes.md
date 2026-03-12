@@ -261,6 +261,52 @@ retain stale duration values after children move.
 
 **Fix:** `task.duration = taskDuration(minStart, maxEnd)` after setting dates.
 
+### Bug 14: Yjs binding `UPDATE_TASK_FIELD` doesn't recompute duration
+
+**File:** `src/collab/yjsBinding.ts:185-198`
+
+```typescript
+case 'UPDATE_TASK_FIELD': {
+  // ...
+  ymap.set(action.field, action.value);  // ← Writes field, no duration recompute!
+}
+```
+
+When a user edits start or end date via `TaskRow` inline edit, the component dispatches
+`UPDATE_TASK_FIELD`. The reducer correctly recomputes duration (ganttReducer.ts:59), but
+the Yjs binding writes only the single field to the Yjs map — it never updates `duration`.
+
+**Path to bug:**
+1. User A edits endDate in TaskRow → dispatches `UPDATE_TASK_FIELD(endDate)`
+2. Reducer updates duration locally ✓
+3. yjsBinding writes `ymap.set('endDate', newValue)` — duration NOT written to Yjs
+4. Remote User B receives the Yjs update → `SET_TASKS` fires with stale duration from Yjs
+5. User B sees wrong duration until next full sync
+
+**Fix:** In yjsBinding `UPDATE_TASK_FIELD`, when field is `startDate` or `endDate`,
+also write the recomputed duration to the Yjs map:
+```typescript
+if (action.field === 'startDate' || action.field === 'endDate') {
+  const start = (action.field === 'startDate' ? action.value : ymap.get('startDate')) as string;
+  const end = (action.field === 'endDate' ? action.value : ymap.get('endDate')) as string;
+  ymap.set('duration', taskDuration(start, end));
+}
+```
+
+### Bug 15: No validation at WASM boundary
+
+**Files:** `src/utils/schedulerWasm.ts:24-43`, `crates/scheduler/src/lib.rs`
+
+Dates cross from TypeScript to Rust as raw strings with no validation. If a bug upstream
+(reducer, Yjs, Sheets import) produces an invalid date, weekend date, or end < start,
+Rust code receives it silently and may compute wrong results.
+
+Similarly, WASM results flow back to TS without validation — invalid dates from Rust
+are accepted blindly.
+
+**Fix:** Add debug-mode invariant assertions at the WASM boundary (see Architectural
+Prevention § Debug Invariant Assertions).
+
 ---
 
 ## What's Already Correct
@@ -399,7 +445,7 @@ The UI must make it **impossible** to set a weekend start or end date. Prevent, 
 8. Verify collapsed-weekend mode still works with inclusive bar width
 9. Migrate remaining `workingDaysBetween` calls in TaskBar.tsx:131 and TaskRow.tsx:90
 
-### Phase 5: Sheets + CRDT Sync (weekend warning)
+### Phase 5: Sheets + CRDT Sync (weekend warning + Yjs fix)
 
 **Scope:** `src/sheets/sheetsMapper.ts`, `src/collab/yjsBinding.ts`, `src/types/index.ts`
 
@@ -408,11 +454,13 @@ Weekend dates from Sheets are NOT silently fixed. They are surfaced as warnings.
 1. Migrate sheetsMapper `workingDaysBetween` → `taskDuration` (lines 20, 51)
 2. Migrate yjsBinding `workingDaysBetween` → `taskDuration` (lines 175, 282, 296)
 3. Fix end-date derivations in yjsBinding to use `taskEndDate`
-4. Add `WEEKEND_VIOLATION` to ConflictResult types (TS side, matching Rust)
-5. `find_conflicts` (already updated in Phase 2) detects weekend start/end dates
+4. Fix yjsBinding `UPDATE_TASK_FIELD` (Bug 14): when field is `startDate` or `endDate`,
+   also write recomputed duration to Yjs map so remote collaborators see correct duration
+5. Add `WEEKEND_VIOLATION` to ConflictResult types (TS side, matching Rust)
+6. `find_conflicts` (already updated in Phase 2) detects weekend start/end dates
    and returns `WEEKEND_VIOLATION` conflicts. The existing conflict indicator UI
    (red dashed border + message on click) handles display — no new UI component needed.
-6. Sheets import does NOT snap or reject weekend dates. The task is imported as-is,
+7. Sheets import does NOT snap or reject weekend dates. The task is imported as-is,
    and `detectConflicts()` (called on every render in GanttChart.tsx) shows the warning.
    User fixes it via the UI or in the sheet.
 
@@ -464,6 +512,168 @@ the test file sees the convention immediately. See Phase 1 items 13 for details.
 
 ---
 
+## Architectural Prevention (Structural Bug Prevention)
+
+Beyond fixing individual bugs, these changes make entire categories of bugs structurally
+impossible. Prioritized by impact-to-effort ratio.
+
+### A1. Centralize duration recomputation (Phase 3 — implement with reducer fixes)
+
+**Problem:** Duration is recomputed inline at 12+ callsites, each calling
+`workingDaysBetween(start, end)` independently. If any callsite forgets to recompute,
+duration silently goes stale (Bugs 10, 13, 14 are all instances of this).
+
+**Fix:** Create a `withDuration(task)` helper that always recomputes duration from dates:
+
+```typescript
+// src/utils/dateUtils.ts
+export function withDuration<T extends { startDate: string; endDate: string }>(
+  task: T
+): T & { duration: number } {
+  return { ...task, duration: taskDuration(task.startDate, task.endDate) };
+}
+```
+
+Use everywhere a task's dates change: reducer actions, Yjs binding, cascade results,
+summary recalc. This makes it impossible to update dates without updating duration —
+the helper enforces the invariant at the call site.
+
+Not a type-system guarantee (TS can't enforce "you must call this"), but eliminates
+the manual `duration: taskDuration(...)` line that's easy to forget.
+
+### A2. Debug invariant assertions at WASM boundary (Phase 6 — implement with tests)
+
+**Problem:** Invalid dates cross the WASM boundary silently (Bug 15). A bug in the
+reducer or Yjs binding can produce end < start, weekend dates, or stale durations, and
+Rust code silently computes wrong results.
+
+**Fix:** Add `assertTaskInvariants(task)` that runs in development mode only:
+
+```typescript
+// src/utils/schedulerWasm.ts — called before sending tasks to WASM
+function assertTaskInvariants(task: Task): void {
+  if (process.env.NODE_ENV === 'production') return;
+  if (task.isSummary || task.isMilestone) return;
+
+  const computed = taskDuration(task.startDate, task.endDate);
+  console.assert(computed === task.duration,
+    `Task ${task.id}: duration ${task.duration} != computed ${computed}`);
+  console.assert(task.startDate <= task.endDate,
+    `Task ${task.id}: start ${task.startDate} > end ${task.endDate}`);
+  console.assert(!isWeekendDate(task.startDate),
+    `Task ${task.id}: starts on weekend ${task.startDate}`);
+  console.assert(!isWeekendDate(task.endDate),
+    `Task ${task.id}: ends on weekend ${task.endDate}`);
+}
+```
+
+Tree-shaken in production. Catches bugs during development immediately instead of
+letting them propagate silently through the WASM boundary.
+
+### A3. Cross-language consistency tests (Phase 6 — implement with tests)
+
+**Problem:** TypeScript and Rust implement date arithmetic independently. If a fix is
+made in one language but not the other, they silently diverge. There are currently
+zero tests that verify TS and Rust agree.
+
+**Fix:** Add a Vitest test that calls WASM functions and compares results to TS:
+
+```typescript
+describe('cross-language consistency', () => {
+  const cases = [
+    { start: '2026-03-02', dur: 5 },  // Mon, full week
+    { start: '2026-03-06', dur: 1 },  // Fri, single day
+    { start: '2026-03-06', dur: 3 },  // Fri, crosses weekend
+  ];
+
+  for (const { start, dur } of cases) {
+    it(`task_end_date agrees for ${start}, dur=${dur}`, () => {
+      const tsEnd = taskEndDate(start, dur);
+      const rustEnd = wasmModule.task_end_date(start, dur);
+      expect(tsEnd).toBe(rustEnd);
+    });
+
+    it(`task_duration agrees for ${start} → end`, () => {
+      const end = taskEndDate(start, dur);
+      const tsDur = taskDuration(start, end);
+      const rustDur = wasmModule.task_duration(start, end);
+      expect(tsDur).toBe(rustDur);
+    });
+  }
+});
+```
+
+These tests break immediately if the languages diverge, catching the exact class of
+bug that caused the original FS formula disagreement.
+
+### A4. Cascade/recalculate agreement test (Phase 6 — implement with tests)
+
+**Problem:** Cascade and recalculate are independent implementations of "where should
+this task start?" For the same input, they must agree — but they diverged for FS
+(Bugs 3-5). No test catches this.
+
+**Fix:** Add a Rust test that runs both and asserts agreement:
+
+```rust
+#[test]
+fn cascade_and_recalculate_agree_on_all_dep_types() {
+    for dep_type in [FS, SS, FF, SF] {
+        for lag in [0, 1, 2] {
+            let tasks = make_two_task_chain(dep_type, lag);
+            // Move pred forward 3 business days
+            let cascade_result = cascade_dependents(&tasks, "pred", 3);
+            let recalc_result = recalculate_earliest(&updated_tasks, ...);
+            assert_eq!(cascade_result[0].start_date, recalc_result[0].new_start,
+                "Mismatch for {:?} lag={}", dep_type, lag);
+        }
+    }
+}
+```
+
+This is the most impactful structural test — it directly prevents the class of bug
+that caused the user-visible symptom (Bug 5).
+
+### A5. find_conflicts/recalculate agreement test (Phase 6)
+
+**Problem:** `find_conflicts` reports a violation that `recalculate_earliest` resolves
+with a different formula, causing the error message to show the wrong date (Bug 5).
+
+**Fix:** Add a test that verifies: for any task that `find_conflicts` reports as
+violating, `recalculate_earliest` moves it to exactly the date reported in the conflict.
+
+```rust
+#[test]
+fn conflict_date_matches_recalculate_resolution() {
+    for dep_type in [FS, SS, FF, SF] {
+        let tasks = make_violating_chain(dep_type);
+        let conflicts = find_conflicts(&tasks);
+        let recalc = recalculate_earliest(&tasks, ...);
+        for conflict in &conflicts {
+            let resolved = recalc.iter().find(|r| r.id == conflict.task_id).unwrap();
+            assert_eq!(conflict.constraint_date, resolved.new_start,
+                "Conflict says {} but recalculate moves to {}", ...);
+        }
+    }
+}
+```
+
+### Not recommended now (high effort, lower ROI):
+
+**Branded types** (`InclusiveDate & { __brand }`) — Appealing in theory, but would
+require touching every function signature in both languages. The convention-encoding
+functions (`taskDuration`, `taskEndDate`, shared helpers) achieve the same goal with
+less churn: if you always use the right function, you always get the right result. The
+risk is "forgetting to call the function," which the pre-commit hook and debug
+assertions catch. Branded types could be a future improvement once the core fixes land.
+
+**Shared WASM date library** (single implementation for both languages) — Would
+eliminate the cross-language divergence risk entirely, but adds WASM call overhead for
+every date operation in TS (currently microsecond-level JS). The cross-language
+consistency tests (A3) catch divergence at test time with zero runtime cost. Better
+trade-off for now.
+
+---
+
 ## Risk Notes
 
 - Phase 0 (docs) must land FIRST — implementing agents need the convention visible
@@ -477,6 +687,8 @@ the test file sees the convention immediately. See Phase 1 items 13 for details.
   will produce different end dates. Bug 10 and Bug 13 fixes address this by ensuring
   duration is always recomputed after date changes.
 - CPM stays as standard exclusive integer model — no changes needed, no risk
+- Yjs binding `UPDATE_TASK_FIELD` (Bug 14) is a live collaboration bug — remote users
+  see stale duration when dates are edited via table cells
 
 ---
 

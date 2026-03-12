@@ -120,10 +120,31 @@ must also include the end date's column: width should be `+ columnWidth`.
 
 ### Bug 9: No systematic weekend enforcement
 
-No validation prevents start/end dates from being weekends when:
-- User edits dates inline in TaskRow
-- Dates imported from Google Sheets
-- `xToDate` converts pixel position to date during drag
+Weekends don't count against duration (already correct — business day counting).
+But the system doesn't prevent tasks from having weekend start/end dates.
+
+**Two enforcement modes depending on source:**
+
+**A. UI prevention (Gantt chart + left pane table):**
+The UI must make it impossible to set a weekend start or end date. This means:
+- **Drag (TaskBar move):** `xToDateCollapsed` and `xToDate` can return weekend dates.
+  Must snap to nearest business day during drag, not after.
+- **Resize (TaskBar resize):** Same — end date must snap to business day during resize.
+- **Inline date edit (TaskRow):** Date input should reject weekends. Either use a date
+  picker that disables weekends, or validate on change and revert/snap.
+- **Popover edit (TaskBarPopover):** Same as inline edit.
+- **ADD_TASK:** `new Date()` on a weekend must snap forward to Monday.
+
+**B. Sheets import → constraint violation warning (NOT silent fix):**
+When a task is imported from Google Sheets with a weekend start or end date, do NOT
+silently snap the date. Instead, surface it as a constraint violation warning using the
+same pattern as existing warnings (SNLT, FNLT, MSO, MFO conflicts):
+- Add a new conflict type: `WEEKEND_VIOLATION`
+- Message: "Task X starts/ends on a weekend (Sat 2026-03-14)"
+- The red conflict indicator appears on the task bar, same as other violations
+- User must fix it in the sheet or manually in the UI
+
+This matches the existing constraint violation UX — the system warns, the user decides.
 
 ---
 
@@ -163,43 +184,67 @@ These functions were written for the inclusive convention and do NOT need changi
 3. Fix FNET: `-(duration - 1)`
 4. Fix MFO: `-(duration - 1)`
 5. Fix `find_conflicts` FS/SS: match cascade fix
-6. Fix CPM: `ef = es + duration - 1`, adjust backward pass
-7. Update all test data to use inclusive end dates, fix expected values
+6. Add `WEEKEND_VIOLATION` conflict type to `find_conflicts` — detect tasks with
+   weekend start or end dates and surface as conflict (same pattern as SNLT/FNLT/MSO/MFO)
+7. Fix CPM: `ef = es + duration - 1`, adjust backward pass
+8. Update all test data to use inclusive end dates, fix expected values
 
 ### Phase 3: TypeScript State + Reducer
 
 **Scope:** `src/state/ganttReducer.ts`, `src/utils/schedulerWasm.ts`
 
-1. Fix ADD_TASK: `end = addBusinessDays(today, duration - 1)`
+1. Fix ADD_TASK: `end = addBusinessDays(today, duration - 1)`. If today is a weekend,
+   snap start forward to Monday before computing end.
 2. Fix MOVE_TASK / RESIZE_TASK: inclusive duration recalculation
 3. Fix UPDATE_TASK_FIELD: `end = addBusinessDays(newStart, duration - 1)`
 4. Fix schedulerWasm cascade result merging: inclusive duration
-5. Weekend guard on all date mutations
+5. No weekend guard needed here — UI layer prevents weekend dates (Phase 4)
 
-### Phase 4: Rendering + UI
+### Phase 4: Rendering + UI (weekend prevention)
 
 **Scope:** `src/components/gantt/TaskBar.tsx`, `GanttChart.tsx`, `TaskRow.tsx`, `TaskBarPopover.tsx`
 
+The UI must make it **impossible** to set a weekend start or end date. Prevent, don't fix after.
+
 1. Fix bar width: `+ columnWidth` to include end-date column
-2. Fix drag: snap to business days
-3. Fix resize: snap end to business day
-4. Fix inline date editing: validate no weekends
-5. Verify collapsed-weekend mode still works
+2. Fix drag move (TaskBar): `xToDate`/`xToDateCollapsed` results must snap to nearest
+   business day during the drag — the ghost bar should never sit on a weekend column.
+   In non-collapsed mode, snap forward for start, backward for end. In collapsed mode,
+   weekends aren't visible so this is automatic.
+3. Fix drag resize (TaskBar): end date snaps to previous business day if it would land
+   on weekend. Minimum 1-day duration enforced.
+4. Fix inline date edit (TaskRow): reject weekend dates on change. If user types a
+   Saturday, show validation error / revert to previous value. Don't silently snap.
+5. Fix popover date edit (TaskBarPopover): same as inline edit.
+6. Verify collapsed-weekend mode still works with inclusive bar width.
 
-### Phase 5: Sheets + CRDT Sync
+### Phase 5: Sheets + CRDT Sync (weekend warning)
 
-**Scope:** `src/sheets/sheetsMapper.ts`, `src/collab/yjsBinding.ts`
+**Scope:** `src/sheets/sheetsMapper.ts`, `src/collab/yjsBinding.ts`, `src/types/index.ts`
+
+Weekend dates from Sheets are NOT silently fixed. They are surfaced as warnings.
 
 1. Fix sheetsMapper: inclusive duration on import/export
 2. Fix yjsBinding: inclusive duration from Yjs maps
-3. Weekend validation on Sheets import
+3. Add `WEEKEND_VIOLATION` to ConflictResult types (TS side, matching Rust)
+4. `find_conflicts` (already updated in Phase 2) detects weekend start/end dates
+   and returns `WEEKEND_VIOLATION` conflicts. The existing conflict indicator UI
+   (red dashed border + message on click) handles display — no new UI component needed.
+5. Sheets import does NOT snap or reject weekend dates. The task is imported as-is,
+   and `detectConflicts()` (called on every render in GanttChart.tsx) shows the warning.
+   User fixes it via the UI or in the sheet.
 
 ### Phase 6: Cross-cutting Tests
 
 1. Consistency tests: cascade and recalculate produce identical results
 2. Roundtrip tests: edit → cascade → recalculate → no drift
-3. Weekend boundary tests
-4. E2E: bar width matches duration, no weekend start/end
+3. Weekend enforcement tests:
+   - Drag to weekend column → snaps to business day
+   - Resize to weekend → snaps to previous business day
+   - Inline edit weekend date → rejected
+   - Sheets import with weekend date → WEEKEND_VIOLATION conflict shown
+   - ADD_TASK on weekend → start snaps to Monday
+4. E2E: bar width matches duration, no weekend start/end in UI-created tasks
 
 ---
 

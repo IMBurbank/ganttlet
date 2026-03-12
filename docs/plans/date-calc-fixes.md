@@ -244,3 +244,114 @@ These functions were written for the inclusive convention and do NOT need changi
 - `src/components/gantt/MilestoneMarker.tsx` — milestone position
 - `src/data/fakeData.ts` — seed data end dates
 - `e2e/*.spec.ts` — E2E assertions
+
+---
+
+## Documentation & Agent Infrastructure Updates
+
+These files guide agent behavior. If they reference old function names, old conventions,
+or wrong semantics, agents will reintroduce the bugs we're fixing.
+
+### Must update (actively misleads agents):
+
+**`src/types/index.ts:15`** — Task.duration doc comment
+```typescript
+// CURRENT (wrong):
+/** Number of business days (Mon-Fri) from startDate to endDate, inclusive of start, exclusive of end. Always derived — never edit directly. */
+// FIXED:
+/** Business days in [startDate, endDate] inclusive of both. Always derived via taskDuration() — never edit directly. */
+```
+
+**`crates/scheduler/src/types.rs`** — Task struct
+- Add doc comment on `start_date`, `end_date`, `duration` establishing the inclusive
+  convention. Currently undocumented.
+
+**`crates/scheduler/CLAUDE.md:6`** — Scheduler constraints
+```
+// CURRENT:
+- All lag values in business days — always use `add_business_days()`
+// ADD:
+- end_date is INCLUSIVE — the last working day the task occupies
+- duration = business days in [start_date, end_date] counting both endpoints
+- Derive end from duration: `task_end_date(start, dur)` (NOT `add_business_days(start, dur)`)
+- Derive duration from dates: `task_duration(start, end)` (NOT manual counting)
+- FS successor start: use `fs_successor_start()` helper (NOT raw `add_business_days`)
+```
+
+**`.claude/skills/scheduling-engine/SKILL.md`** — Scheduling engine guide
+- Line 26: "Cascade: Propagate date delta to FS successors only" — add note that cascade
+  now uses shared `fs_successor_start` helper for all dep types
+- Add to Known Gotchas:
+  - end_date is inclusive — `task_end_date()` and `task_duration()` encode this
+  - Never use raw `add_business_days(start, duration)` to derive end dates
+  - Never write FS/SS/FF/SF earliest-start logic inline — use the shared helpers
+- Add to Lessons Learned:
+  - Off-by-one root cause: three functions computed FS earliest start with different
+    formulas (cascade used exclusive, constraints used inclusive, find_conflicts used
+    exclusive). Unified into shared `fs_successor_start` helper.
+
+**`.claude/agents/rust-scheduler.md`** — Rust scheduler subagent prompt
+- Line 24: `date_utils.rs` description lists `add_business_days()`, `is_weekend()`,
+  `parse_date()`/`format_date()` — add `task_duration()`, `task_end_date()`,
+  `ensure_business_day()`, `fs_successor_start()`/etc.
+- Line 35: MFO description says "derives start from constraint_date - duration" — fix to
+  "derives start from constraint_date via `task_end_date` inverse"
+- Line 41: "All lag values are in business days — always use `add_business_days()`" — add
+  "For end-date derivation use `task_end_date()`, not raw `add_business_days()`"
+- Add to Critical rules:
+  - end_date is inclusive. Duration convention encoded in `task_duration()`/`task_end_date()`.
+  - FS/SS/FF/SF successor start must use shared helpers, never raw arithmetic.
+
+**`CLAUDE.md:43-44`** — Root project instructions
+```
+// CURRENT:
+- **In code**: prefer `date-fns` directly ... project helpers in `src/utils/dateUtils.ts`
+  and `crates/scheduler/src/date_utils.rs` exist but are thin wrappers; use the standard
+  library when writing new code to minimize bug surface
+// FIXED — add exception for convention-encoding functions:
+- **In code**: prefer `date-fns` directly for generic date operations. EXCEPTION: always
+  use `taskDuration()`/`taskEndDate()` for duration and end-date derivation — these encode
+  the inclusive convention and must not be replaced with raw `addBusinessDays` arithmetic.
+```
+
+**`docs/unplanned-issues.md:29`** — Duration mode toggle feature
+```
+// CURRENT:
+Currently `duration` is always derived via `workingDaysBetween()` (business days, Mon-Fri)
+// FIXED:
+Currently `duration` is always derived via `taskDuration()` (business days, Mon-Fri, inclusive of start and end)
+```
+
+### Should update (stale references, low risk but confusing):
+
+**`.claude/skills/google-sheets-sync/SKILL.md:33`** — Column layout table
+- Column 4 (`duration`): add note that duration is inclusive business day count
+- No function name references to update (doesn't mention `workingDaysBetween`)
+
+**`.claude/skills/e2e-testing/SKILL.md:47`** — Lessons learned
+- Line 47: "Date-dependent tests can flake near midnight or weekend boundaries" — still
+  valid, no change needed
+- Consider adding: "Tasks must never have start or end dates on weekends. E2E tests
+  should verify this invariant."
+
+**`.claude/agents/codebase-explorer.md`** — No date-specific content. OK as-is.
+
+**`.claude/agents/verify-and-diagnose.md`** — No date-specific content. OK as-is.
+
+**`docs/completed-phases.md:182`** — Historical reference
+- Line 182: "Made `duration` always derived from `daysBetween(startDate, endDate)`"
+- This is historical record, but it's wrong (was actually `workingDaysBetween` at that
+  point, not `daysBetween`). Add a note: "Note: duration derivation updated in Phase 16
+  to use `taskDuration()` with inclusive [start, end] semantics."
+
+### No change needed:
+
+- `.claude/agents/plan-reviewer.md` — no date content
+- `.claude/skills/cloud-deployment/SKILL.md` — no date content
+- `.claude/skills/rust-wasm/SKILL.md` — no date content
+- `.claude/skills/shell-scripting/SKILL.md` — no date content
+- `.claude/skills/multi-agent-orchestration/SKILL.md` — no date content
+- `.claude/skills/issue-workflow/SKILL.md` — no date content
+- `.claude/worktrees/CLAUDE.md` — no date content
+- `src/CLAUDE.md` — says "prefer date-fns directly", no function names to update
+- Phase prompt files — excluded per user instruction

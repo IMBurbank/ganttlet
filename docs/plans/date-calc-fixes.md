@@ -64,7 +64,23 @@ types::DepType::FS => {
 
 Same problem as cascade — allows successor to start on predecessor's last day.
 
-### Bug 5: CPM forward pass uses exclusive convention
+### Bug 5: Conflict message says one date, recalculate pushes to another
+
+**User-reported:** Constraint violation indicator says "dependency requires no earlier
+than 3/26" but clicking to fix pushes the task to 3/27.
+
+This is Bugs 3+4 manifesting together:
+- `find_conflicts` (lib.rs:160-162) computes the required date using the EXCLUSIVE FS
+  formula → says 3/26
+- `compute_earliest_start` (constraints.rs:22-23) resolves it using the INCLUSIVE FS
+  formula → pushes to 3/27
+
+The error message and the fix use different formulas. The task overshoots by 1 business
+day every time.
+
+**Fix:** Both must call the same `fs_successor_start` helper (see date-conventions.md).
+
+### Bug 6: CPM forward pass uses exclusive convention
 
 **File:** `crates/scheduler/src/cpm.rs:118-123`
 
@@ -78,7 +94,7 @@ With inclusive end, `ef` represents the last occupied unit. FS successor should 
 `cur_ef + 1 + lag`, not `cur_ef + lag`. FF/SF need similar adjustment since `succ_dur`
 is used to back up from an inclusive end.
 
-### Bug 6: FNET and MFO constraint derivation off by one
+### Bug 7: FNET and MFO constraint derivation off by one
 
 **File:** `crates/scheduler/src/constraints.rs:238-283`
 
@@ -95,14 +111,14 @@ let derived_start = add_business_days(constraint_date, -(task.duration));
 With inclusive convention, backing up from an inclusive end by `duration - 1` business
 days gives the correct start. Using `duration` overshoots by one day.
 
-### Bug 7: Bar rendering doesn't include end-date column
+### Bug 8: Bar rendering doesn't include end-date column
 
 **Files:** `src/components/gantt/TaskBar.tsx`, `GanttChart.tsx`
 
 Bar width = `dateToX(endDate) - dateToX(startDate)`. With inclusive end dates, the bar
 must also include the end date's column: width should be `+ columnWidth`.
 
-### Bug 8: No systematic weekend enforcement
+### Bug 9: No systematic weekend enforcement
 
 No validation prevents start/end dates from being weekends when:
 - User edits dates inline in TaskRow

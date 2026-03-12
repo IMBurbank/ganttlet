@@ -152,7 +152,7 @@ and extract it:
 ```rust
 /// Earliest start for successor given FS dependency with inclusive pred.end_date.
 /// Successor starts the next business day after predecessor's last working day, plus lag.
-fn fs_earliest_start(pred_end: &str, lag: i32) -> String {
+fn fs_successor_start(pred_end: &str, lag: i32) -> String {
     add_business_days(pred_end, 1 + lag)
 }
 ```
@@ -160,8 +160,8 @@ fn fs_earliest_start(pred_end: &str, lag: i32) -> String {
 Used by: `compute_earliest_start`, `cascade_dependents`, `find_conflicts`.
 No more divergence.
 
-Similarly for SS, FF, SF — extract `ss_earliest_start`, `ff_earliest_start`,
-`sf_earliest_start` as shared helpers.
+Similarly for SS, FF, SF — extract `ss_successor_start`, `ff_successor_start`,
+`sf_successor_start` as shared helpers.
 
 ---
 
@@ -179,8 +179,8 @@ pub fn prev_business_day(date: &str) -> String { ... }  // new: snap backward
 // RENAME: count_biz_days_to → keep as internal, or inline into cascade.rs
 
 // ADD: FS/SS/FF/SF earliest-start helpers (shared by cascade + constraints + conflicts)
-pub fn fs_successor_start(pred_end: &str, lag: i32) -> String { ... }
-pub fn ss_successor_start(pred_start: &str, lag: i32) -> String { ... }
+pub fn fs_successor_start(pred_end: &str, lag: i32) -> String { add_business_days(pred_end, 1 + lag) }
+pub fn ss_successor_start(pred_start: &str, lag: i32) -> String { add_business_days(pred_start, lag) }
 pub fn ff_successor_start(pred_end: &str, lag: i32, succ_duration: i32) -> String { ... }
 pub fn sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> String { ... }
 ```

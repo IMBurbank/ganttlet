@@ -246,6 +246,100 @@ Weekend dates from Sheets are NOT silently fixed. They are surfaced as warnings.
    - ADD_TASK on weekend → start snaps to Monday
 4. E2E: bar width matches duration, no weekend start/end in UI-created tasks
 
+### Phase 7: Documentation & Agent Guard Rails
+
+This phase is **mandatory, not optional**. Without it, agents will reintroduce the bugs.
+
+**7a. Update all CLAUDE.md files, skills, and agent prompts** (see inventory below).
+Every item in the "Must update" list is a deliverable, not a suggestion.
+
+**7b. Add date convention section to root `CLAUDE.md`:**
+
+A new `## Date Conventions` section (visible to every agent on every conversation)
+that states the rules concisely:
+
+```markdown
+## Date Conventions (Non-Negotiable)
+- **end_date is INCLUSIVE** — the last working day the task occupies.
+- **duration** = business days in [startDate, endDate] counting both endpoints.
+- **No task starts or ends on a weekend** — UI prevents it; Sheets violations are
+  surfaced via WEEKEND_VIOLATION conflict indicator.
+- **Always use convention-encoding functions:**
+  - Duration from dates: `taskDuration(start, end)` / `task_duration(start, end)`
+  - End from start+duration: `taskEndDate(start, dur)` / `task_end_date(start, dur)`
+  - FS/SS/FF/SF successor start: `fs_successor_start()` etc. (Rust shared helpers)
+- **Never derive end dates with raw `addBusinessDays(start, duration)`** — this gives
+  an exclusive end, off by one day. Use `taskEndDate()` which handles the `-1`.
+- **Never write dep-type earliest-start arithmetic inline** — use the shared helpers
+  in `crates/scheduler/src/date_utils.rs`. Three functions diverged once; don't repeat it.
+```
+
+**7c. Add automated enforcement to pre-commit hook:**
+
+Extend `scripts/pre-commit-hook.sh` to catch common regressions:
+
+```bash
+# Banned patterns: raw end-date derivation that skips the convention function
+# Catches: addBusinessDays(start, duration) without the -1
+# Catches: add_business_days(&start, task.duration) without -1
+# Catches: workingDaysBetween (deprecated function name)
+if git diff --cached --name-only | grep -qE '\.(ts|tsx|rs)$'; then
+  if git diff --cached -U0 | grep -E '^\+' | grep -qE 'workingDaysBetween'; then
+    echo "ERROR: workingDaysBetween is deprecated. Use taskDuration() instead."
+    exit 1
+  fi
+fi
+```
+
+Keep it lightweight — only check added lines (`^\+`), only in staged TS/Rust files.
+False positive rate should be near zero since `workingDaysBetween` is deleted.
+
+**7d. Add convention test in Rust (compile-time documentation):**
+
+A test in `date_utils.rs` that encodes the convention as assertions future agents will
+read when they look at the test file:
+
+```rust
+#[test]
+fn convention_end_date_is_inclusive() {
+    // A 5-day task starting Monday 2026-03-02:
+    // Works: Mon, Tue, Wed, Thu, Fri
+    // end_date = Friday 2026-03-06 (INCLUSIVE — last working day)
+    assert_eq!(task_end_date("2026-03-02", 5), "2026-03-06");
+    assert_eq!(task_duration("2026-03-02", "2026-03-06"), 5);
+
+    // 1-day task: start == end
+    assert_eq!(task_end_date("2026-03-02", 1), "2026-03-02");
+    assert_eq!(task_duration("2026-03-02", "2026-03-02"), 1);
+}
+
+#[test]
+fn convention_no_weekend_dates() {
+    // end_date for a task ending at week boundary is Friday, not Monday
+    assert_eq!(task_end_date("2026-03-02", 5), "2026-03-06"); // Fri, not Mon 03-09
+    // task_duration across a weekend
+    assert_eq!(task_duration("2026-03-06", "2026-03-09"), 2); // Fri + Mon = 2
+}
+```
+
+Same in TypeScript `dateUtils.test.ts`. These tests serve as executable documentation —
+an agent reading the test file sees the convention immediately.
+
+**7e. Convention test in TypeScript (mirror of Rust):**
+
+```typescript
+describe('convention: inclusive end dates', () => {
+  it('taskEndDate returns the last working day', () => {
+    expect(taskEndDate('2026-03-02', 5)).toBe('2026-03-06'); // Friday
+    expect(taskEndDate('2026-03-02', 1)).toBe('2026-03-02'); // same day
+  });
+  it('taskDuration counts both endpoints', () => {
+    expect(taskDuration('2026-03-02', '2026-03-06')).toBe(5);
+    expect(taskDuration('2026-03-02', '2026-03-02')).toBe(1);
+  });
+});
+```
+
 ---
 
 ## Risk Notes

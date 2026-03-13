@@ -226,19 +226,32 @@ is violated, no warning is shown to the user. This means:
 
 **Fix:** Add FF/SF conflict detection. FF checks `task.end_date < required_end`, SF same.
 
-### Bug 12: TodayLine uses `dateToX` instead of `dateToXCollapsed`
+### Bug 12: `dateToX`/`xToDate` naming invites wrong usage
 
-**File:** `src/components/gantt/TodayLine.tsx:3,15`
+**File:** `src/components/gantt/TodayLine.tsx:3,15` (symptom)
+**Root cause:** `src/utils/dateUtils.ts:84-94,157-181` (API design)
 
-```typescript
-import { dateToX, formatDate } from '../../utils/dateUtils';
-const x = dateToX(todayStr, timelineStart, colWidth, zoom);
-```
+TodayLine uses `dateToX` (no collapse awareness) instead of `dateToXCollapsed`. But the
+real problem is the naming: `dateToXCollapsed` is the correct default that handles both
+modes internally (delegates to `dateToX` when weekends are expanded). Every component
+except TodayLine already uses the `Collapsed` variant — the "simple" name is the wrong one.
 
-When `collapseWeekends` is enabled, the today line renders at the wrong X position because
-it doesn't account for collapsed weekends. Should use `dateToXCollapsed`.
+**Fix:** Rename to make the weekend-aware version the default:
 
-**Fix:** Pass `collapseWeekends` prop and use `dateToXCollapsed`.
+| Current (wrong default) | New (correct default) |
+|---|---|
+| `dateToX(str, start, w, zoom)` | `dateToXCalendar(str, start, w, zoom)` — internal, includes weekends |
+| `xToDate(x, start, w, zoom)` | `xToDateCalendar(x, start, w, zoom)` — internal, includes weekends |
+| `dateToXCollapsed(str, start, w, zoom, collapse)` | `dateToX(str, start, w, zoom, collapse)` — the one to use |
+| `xToDateCollapsed(x, start, w, zoom, collapse)` | `xToDate(x, start, w, zoom, collapse)` — the one to use |
+
+After rename:
+- Every existing `dateToXCollapsed` call becomes `dateToX` (shorter, obviously correct)
+- TodayLine calls `dateToX(todayStr, ..., collapseWeekends)` — fixed automatically
+- `dateToXCalendar` is private/internal — used only inside `dateToX` as fallback
+- No component can accidentally skip weekend handling — the simple name does it right
+- `xToDate` always returns a valid date for the current collapse mode — drag handlers
+  that need weekend snapping get it from the right function
 
 ### Bug 13: `recalcSummaryDates` doesn't recompute summary duration
 
@@ -434,7 +447,10 @@ The UI must make it **impossible** to set a weekend start or end date. Prevent, 
 6. Fix TaskRow end-date derivation (Bug 2 locations):
    - Line 77: `taskEndDate(value, task.duration)` instead of `addBusinessDaysToDate(value, task.duration)`
    - Line 111: `taskEndDate(task.startDate, newDuration)` instead of `addBusinessDaysToDate(task.startDate, newDuration)`
-7. Fix TodayLine (Bug 12): use `dateToXCollapsed` with collapseWeekends prop
+7. Rename `dateToXCollapsed` → `dateToX`, `xToDateCollapsed` → `xToDate` (Bug 12).
+   Rename old `dateToX` → `dateToXCalendar`, `xToDate` → `xToDateCalendar` (internal).
+   All 23+ callsites in GanttChart, TaskBar, dependencyUtils get shorter names.
+   TodayLine now calls `dateToX(todayStr, ..., collapseWeekends)` — fixed automatically.
 8. Verify collapsed-weekend mode still works with inclusive bar width
 9. Migrate remaining `workingDaysBetween` calls in TaskBar.tsx:131 and TaskRow.tsx:90
 
@@ -879,6 +895,10 @@ to use:
 | `businessDaysBetween(start, end)` | TS | **KEEP** | Pixel mapping in collapsed-weekend mode ONLY |
 | `businessDaysDelta(start, end)` | TS | **KEEP** | Signed shift delta for cascade |
 | `daysBetween(start, end)` | TS | **KEEP** | Calendar day difference |
+| `dateToX(str, start, w, zoom, collapse)` | TS | **RENAME** | `dateToXCollapsed` → `dateToX` (weekend-aware default) |
+| `xToDate(x, start, w, zoom, collapse)` | TS | **RENAME** | `xToDateCollapsed` → `xToDate` (weekend-aware default) |
+| `dateToXCalendar(str, start, w, zoom)` | TS | **RENAME** | old `dateToX` → internal, includes weekends |
+| `xToDateCalendar(x, start, w, zoom)` | TS | **RENAME** | old `xToDate` → internal, includes weekends |
 | `workingDaysBetween(start, end)` | TS | **DELETE** | ~~Duration~~ → replaced by `taskDuration` |
 | `count_biz_days_to(from, to)` | Rust | **KEEP** | Cascade shift calculation (start-exclusive, end-inclusive) |
 | `next_biz_day_on_or_after(date)` | Rust | **DEPRECATE** | → `ensure_business_day()` |

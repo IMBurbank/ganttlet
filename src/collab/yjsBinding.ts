@@ -32,6 +32,8 @@ function taskToYMap(task: Task): Y.Map<unknown> {
   ymap.set('isHidden', task.isHidden);
   ymap.set('notes', task.notes);
   ymap.set('okrs', JSON.stringify(task.okrs));
+  if (task.constraintType) ymap.set('constraintType', task.constraintType);
+  if (task.constraintDate) ymap.set('constraintDate', task.constraintDate);
   return ymap;
 }
 
@@ -82,6 +84,8 @@ function yMapToTask(ymap: Y.Map<unknown>): Task {
     isHidden: (ymap.get('isHidden') as boolean) ?? false,
     notes: (ymap.get('notes') as string) ?? '',
     okrs,
+    constraintType: (ymap.get('constraintType') as Task['constraintType']) ?? undefined,
+    constraintDate: (ymap.get('constraintDate') as string) ?? undefined,
   };
 }
 

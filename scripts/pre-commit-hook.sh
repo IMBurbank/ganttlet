@@ -68,6 +68,15 @@ if git diff --cached | grep -qE '^\+\s*//\s*(#\[test\]|it\(|describe\(|test\()';
   ERRORS=$((ERRORS + 1))
 fi
 
+# Reject deprecated date function names in new code
+if git diff --cached --name-only | grep -qE '\.(ts|tsx|rs)$'; then
+  if git diff --cached -U0 | grep -E '^\+' | grep -qE 'workingDaysBetween'; then
+    echo "ERROR: workingDaysBetween is deprecated. Use taskDuration() instead."
+    echo "See docs/plans/date-calc-fixes.md for migration guide."
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
 # Check for empty function bodies in TypeScript (heuristic — warn only)
 if echo "$STAGED" | grep -q '\.\(ts\|tsx\)$'; then
   EMPTY_BODIES=$(git diff --cached | grep -cE '^\+.*\{\s*\}\s*$' || true)

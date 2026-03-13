@@ -1,0 +1,381 @@
+# Phase 16b: Type-Safe Date Semantics
+# Eliminate primitive obsession in date/duration handling via Rust newtypes,
+# TS branded types, cross-language contract tests, and lint enforcement.
+# Builds on Phase 16's inclusive convention — makes wrong code fail to compile.
+
+phase: 16b
+status: pending
+context: >
+  Phase 16 established the inclusive end-date convention with convention-encoding
+  functions (taskDuration, taskEndDate) and visibility layering (pub(crate) shift_date).
+  But dates are still &str/string and durations are i32/number everywhere. Nothing
+  prevents swapped arguments, weekend dates, negative durations, or mixing semantic
+  types (lag vs duration vs calendar days). Phase 16b makes these errors impossible
+  at compile time via Rust newtypes and TS branded types, adds cross-language contract
+  tests, and documents the type system for agents.
+
+  Design principles (from analysis of NumPy NEP 52, Jiff, TC39 Temporal, DDD):
+  - Invalid states should be unrepresentable (construction-time validation)
+  - Convention encoded in types, not just docs (compiler catches misuse)
+  - Zero-cost abstractions (newtypes in Rust, branded types in TS)
+  - One function, one location (no duplicate conversion paths)
+  - Cross-language consistency verified by contract tests, not just docs
+
+  Blast radius (from exploration):
+  - Rust: ~20 date_utils functions, 3 Task fields, 4 result structs, 7 WASM exports
+  - TS: ~50+ Task field references, 5 cross-boundary routes, 20+ dateUtils callers
+  - CPM excluded (uses abstract integer model internally — no date strings)
+
+stages:
+  - name: "Stage 1: Foundation — Types, Docs, Contract Tests"
+    description: >
+      Define the new types, document the type system for agents, and write
+      cross-language contract tests BEFORE migrating any callers. Tests define
+      the expected behavior; implementation makes them pass.
+    groups:
+      - id: A
+        name: "Rust Newtypes + Serde"
+        description: >
+          Define BusinessDate, WorkingDays, and CalendarDays newtypes in types.rs.
+          BusinessDate wraps String, validates Mon-Fri on construction (returns Result).
+          WorkingDays wraps i32, enforces >= 0. CalendarDays wraps i32 (signed, for shifts).
+          All derive Serialize/Deserialize with transparent serde to preserve JSON compat.
+          Implement Display, PartialOrd, Eq, Clone. Implement From/AsRef for ergonomic
+          conversion at trust boundaries (WASM deserialization).
+        scope:
+          modify:
+            - crates/scheduler/src/types.rs
+          verify:
+            - cargo test (new type construction tests)
+            - "BusinessDate::new('2026-03-07') returns Err (Saturday)"
+            - "BusinessDate::new('2026-03-09') returns Ok (Monday)"
+            - "WorkingDays::new(-1) returns Err"
+            - "WorkingDays::new(0) returns Ok (milestones)"
+            - "serde round-trip: BusinessDate serializes as plain string in JSON"
+        tasks:
+          - id: A1
+            name: "Define BusinessDate newtype"
+            details: >
+              struct BusinessDate(String). Constructor validates weekday via is_weekend().
+              Returns Result<BusinessDate, DateError>. Implement Deref<Target=str> for
+              read access, AsRef<str>, Display, Clone, PartialEq, Eq, PartialOrd, Ord.
+              Serde: #[serde(transparent)] for JSON compat. Add BusinessDate::unchecked(s)
+              for internal use where validation already happened (e.g., shift_date output
+              is guaranteed to be a weekday).
+          - id: A2
+            name: "Define WorkingDays newtype"
+            details: >
+              struct WorkingDays(i32). Constructor: WorkingDays::new(n) -> Result if n >= 0.
+              Milestones have duration 0. Implement Into<i32>, From<i32> (panics on negative
+              for infallible contexts), Add, Sub. Serde: #[serde(transparent)].
+          - id: A3
+            name: "Define CalendarDays newtype"
+            details: >
+              struct CalendarDays(i32). Signed — used for shift_date and add_days.
+              No validation (can be negative for backward shifts). Serde: transparent.
+              This distinguishes "calendar day offset" from "business day duration".
+          - id: A4
+            name: "Define DateError enum"
+            details: >
+              enum DateError { WeekendDate(String), NegativeDuration(i32), InvalidFormat(String) }.
+              Implement Display, std::error::Error. Used by BusinessDate::new and WorkingDays::new.
+          - id: A5
+            name: "Migrate Task, Dependency, CascadeResult, RecalcResult structs"
+            details: >
+              Task: start_date -> BusinessDate, end_date -> BusinessDate, duration -> WorkingDays,
+              constraint_date -> Option<BusinessDate>. Dependency: lag -> WorkingDays (lag can be 0).
+              CascadeResult/RecalcResult: start_date/end_date/new_start/new_end -> BusinessDate.
+              Serde transparent means JSON schema unchanged — no TS-side breakage from this alone.
+          - id: A6
+            name: "Unit tests for newtypes"
+            details: >
+              Test construction (valid/invalid), serde round-trip, Ord/Eq, Display,
+              From/Into conversions, Deref to &str. Test that BusinessDate::new rejects
+              weekends and WorkingDays::new rejects negatives.
+
+      - id: B
+        name: "Documentation for Agents"
+        description: >
+          Update all agent-facing documentation BEFORE code migration begins.
+          Agents must see the type system in CLAUDE.md, skill files, and agent
+          definitions before they touch any caller code.
+        scope:
+          modify:
+            - CLAUDE.md
+            - crates/scheduler/CLAUDE.md
+            - .claude/agents/rust-scheduler.md
+            - .claude/skills/scheduling-engine/SKILL.md
+            - docs/architecture.md
+        tasks:
+          - id: B1
+            name: "Update crates/scheduler/CLAUDE.md with type system reference"
+            details: >
+              Add a "Type System" section documenting BusinessDate, WorkingDays,
+              CalendarDays — what each wraps, when to use which, construction patterns.
+              Add "NEVER use raw &str for dates or i32 for durations in new code."
+              Add migration examples: before/after function signatures.
+          - id: B2
+            name: "Update rust-scheduler agent definition"
+            details: >
+              Add types to module map. Update "Critical rules" with newtype usage.
+              Add: "All date parameters must be BusinessDate, not &str. All durations
+              must be WorkingDays, not i32. Use .as_ref() to pass to string-based
+              internal functions during migration."
+          - id: B3
+            name: "Update root CLAUDE.md Date Conventions section"
+            details: >
+              Add section on type safety: BusinessDate (Rust) / BrandedDate (TS),
+              WorkingDays (Rust) / BrandedDuration (TS). Explain that the convention
+              is now enforced by the type system, not just docs.
+          - id: B4
+            name: "Update scheduling-engine skill"
+            details: >
+              Add "Type Safety" section with newtype reference, construction patterns,
+              common errors and how the compiler catches them. Add worked examples.
+          - id: B5
+            name: "Write docs/type-safe-dates.md"
+            details: >
+              Comprehensive reference document: motivation (off-by-one history from
+              phase 16), type inventory, migration guide, FAQ (why not chrono? why
+              transparent serde? why unchecked constructors?), cross-language mapping
+              table (Rust BusinessDate <-> TS BrandedDate <-> JSON string).
+
+      - id: C
+        name: "Cross-Language Contract Tests"
+        description: >
+          Property-based tests that generate random (start, duration) pairs, compute
+          results in both Rust (via WASM) and TS (via date-fns), and assert they match.
+          Catches drift between the two implementations.
+        scope:
+          create:
+            - src/utils/__tests__/crossLanguageContracts.test.ts
+          modify:
+            - crates/scheduler/src/date_utils.rs (add test helpers if needed)
+        tasks:
+          - id: C1
+            name: "Contract test: taskDuration consistency"
+            details: >
+              For 50 random business-day date pairs, assert
+              WASM taskDuration(start, end) === TS taskDuration(start, end).
+              Generate dates using date-fns addBusinessDays to guarantee valid inputs.
+          - id: C2
+            name: "Contract test: taskEndDate consistency"
+            details: >
+              For 50 random (start, duration) pairs, assert
+              WASM taskEndDate(start, dur) === TS taskEndDate(start, dur).
+          - id: C3
+            name: "Contract test: round-trip invariant"
+            details: >
+              For random (start, duration):
+              end = taskEndDate(start, duration)
+              assert taskDuration(start, end) === duration
+              Must hold in BOTH Rust and TS independently.
+          - id: C4
+            name: "Contract test: dependency helpers"
+            details: >
+              For each dep type (FS/SS/FF/SF), with random (pred_date, lag, duration):
+              Assert WASM and TS (if TS equivalents exist) produce same successor start.
+              If TS doesn't have dep helpers, test WASM output against manual date-fns
+              computation using the documented formulas.
+
+  - name: "Stage 2: Rust Migration — Internal Modules"
+    description: >
+      Migrate date_utils.rs and internal callers to use newtypes. Start from the
+      leaves (date_utils) and work toward the trunk (lib.rs). Each group can
+      proceed independently since they modify different files.
+    groups:
+      - id: D
+        name: "Migrate date_utils.rs"
+        description: >
+          Change all pub function signatures to accept/return BusinessDate and
+          WorkingDays. Internal functions (shift_date, add_days, parse_date,
+          format_date) can stay as &str/i32 since they're pub(crate) — they're
+          the "unsafe" internals that the newtypes wrap.
+        scope:
+          modify:
+            - crates/scheduler/src/date_utils.rs
+          verify:
+            - cargo test
+            - "All existing tests still pass (via .as_ref() adapter or type change)"
+        tasks:
+          - id: D1
+            name: "Migrate convention functions"
+            details: >
+              task_duration(BusinessDate, BusinessDate) -> WorkingDays
+              task_end_date(BusinessDate, WorkingDays) -> BusinessDate
+              ensure_business_day(&str) -> BusinessDate (input is untrusted, output is validated)
+              prev_business_day(&str) -> BusinessDate (same)
+              business_day_delta(BusinessDate, BusinessDate) -> WorkingDays
+              is_weekend_date stays as &str (it's a predicate on raw input).
+          - id: D2
+            name: "Migrate dependency helpers"
+            details: >
+              fs_successor_start(BusinessDate, WorkingDays) -> BusinessDate
+              ss_successor_start(BusinessDate, WorkingDays) -> BusinessDate
+              ff_successor_start(BusinessDate, WorkingDays, WorkingDays) -> BusinessDate
+              sf_successor_start(BusinessDate, WorkingDays, WorkingDays) -> BusinessDate
+          - id: D3
+            name: "Update all date_utils tests"
+            details: >
+              Migrate test inputs to use BusinessDate::new(...).unwrap() and
+              WorkingDays::new(...).unwrap(). Add tests for type-level rejection
+              (weekend dates, negative durations passed to convention functions).
+
+      - id: E
+        name: "Migrate cascade.rs"
+        description: >
+          Update cascade_dependents to use typed parameters. Internal BFS logic
+          works with BusinessDate fields from Task struct (already migrated in A5).
+        scope:
+          modify:
+            - crates/scheduler/src/cascade.rs
+          verify:
+            - cargo test
+        tasks:
+          - id: E1
+            name: "Update cascade_dependents signature and internals"
+            details: >
+              cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: WorkingDays)
+              Internal: pred.end_date is now BusinessDate, use .as_ref() for string comparisons.
+              CascadeResult fields are already BusinessDate from A5.
+
+      - id: F
+        name: "Migrate constraints.rs"
+        description: >
+          Update compute_earliest_start and recalculate_earliest to use typed
+          parameters. Constraint date comparisons need BusinessDate ordering.
+        scope:
+          modify:
+            - crates/scheduler/src/constraints.rs
+          verify:
+            - cargo test
+        tasks:
+          - id: F1
+            name: "Update compute_earliest_start"
+            details: >
+              Return type: Option<BusinessDate>. Internal dep-type helpers already
+              return BusinessDate from D2. SNET floor comparison uses BusinessDate Ord.
+          - id: F2
+            name: "Update recalculate_earliest"
+            details: >
+              today_date parameter: BusinessDate. RecalcResult fields already
+              BusinessDate from A5. Constraint date comparisons use Ord.
+
+      - id: G
+        name: "Migrate lib.rs (WASM boundary)"
+        description: >
+          Update WASM exports. JsValue deserialization produces Task with BusinessDate
+          fields (via serde transparent). The WASM boundary is the trust boundary where
+          unchecked construction may be needed for performance.
+        scope:
+          modify:
+            - crates/scheduler/src/lib.rs
+          verify:
+            - cargo test
+            - "npm run build:wasm succeeds"
+        tasks:
+          - id: G1
+            name: "Update WASM export signatures"
+            details: >
+              cascade_dependents: days_delta stays i32 at WASM boundary (wasm_bindgen
+              doesn't support newtypes). Convert to WorkingDays inside the function.
+              recalculate_earliest: today_date stays &str at WASM boundary. Convert
+              to BusinessDate inside. All Task deserialization goes through serde
+              transparent — no changes needed there.
+          - id: G2
+            name: "Update find_conflicts internals"
+            details: >
+              Conflict detection comparisons use BusinessDate fields from Task.
+              ConflictResult fields become BusinessDate (constraint_date, actual_date).
+          - id: G3
+            name: "Verify WASM build + TS integration"
+            details: >
+              npm run build:wasm, npx tsc --noEmit, npx vitest run.
+              JSON schema unchanged (serde transparent), so TS side should work
+              without modifications at this point.
+
+  - name: "Stage 3: TypeScript Branded Types + Lint Rules"
+    description: >
+      Add branded types to TS, migrate key boundary points, and add lint rules
+      to prevent regression. Lower priority than Rust newtypes (TS already
+      funnels through dateUtils well), but completes the type safety story.
+    groups:
+      - id: H
+        name: "TS Branded Types"
+        description: >
+          Define branded types in src/types/index.ts. Migrate dateUtils.ts
+          exports to return branded types. Key boundary functions (taskDuration,
+          taskEndDate) become the only way to construct branded values.
+        scope:
+          modify:
+            - src/types/index.ts
+            - src/utils/dateUtils.ts
+          verify:
+            - npx tsc --noEmit
+            - npx vitest run
+        tasks:
+          - id: H1
+            name: "Define branded types"
+            details: >
+              type BusinessDate = string & { readonly __brand: unique symbol }
+              type WorkingDays = number & { readonly __brand: unique symbol }
+              Constructor functions: asBusinessDate(s: string): BusinessDate (validates
+              weekday), asWorkingDays(n: number): WorkingDays (validates >= 0).
+              Update Task interface: startDate -> BusinessDate, endDate -> BusinessDate,
+              duration -> WorkingDays.
+          - id: H2
+            name: "Migrate dateUtils.ts exports"
+            details: >
+              taskDuration returns WorkingDays. taskEndDate returns BusinessDate.
+              ensureBusinessDay returns BusinessDate. prevBusinessDay returns BusinessDate.
+              Input parameters that accept user/external data stay as string (trust boundary).
+          - id: H3
+            name: "Fix type errors across codebase"
+            details: >
+              The TS compiler will flag every place that assigns a plain string to
+              BusinessDate or a plain number to WorkingDays. Fix each by routing
+              through the constructor functions. This is the mechanical migration.
+              Expect ~50-80 type errors across reducer, components, Yjs, Sheets.
+
+      - id: I
+        name: "Lint Rules"
+        description: >
+          ESLint rule to flag direct addBusinessDays/differenceInBusinessDays usage
+          outside dateUtils.ts. Clippy or grep-based check for raw &str date params
+          in new Rust code.
+        scope:
+          create:
+            - eslint-rules/no-direct-date-fns.js (or .eslintrc.js update)
+          modify:
+            - scripts/pre-commit-hook.sh
+        tasks:
+          - id: I1
+            name: "ESLint rule: no-restricted-imports for date-fns in non-dateUtils files"
+            details: >
+              Use ESLint no-restricted-imports to flag addBusinessDays and
+              differenceInBusinessDays imports outside of dateUtils.ts.
+              Allow in test files and dateUtils.ts itself.
+          - id: I2
+            name: "Pre-commit hook: reject raw date patterns in Rust"
+            details: >
+              Add grep check to pre-commit hook: reject new pub fn signatures
+              that take &str where the parameter name contains "date" or "start"
+              or "end". Exceptions: date_utils.rs internals, lib.rs WASM boundary.
+
+      - id: J
+        name: "E2E Smoke Test"
+        description: >
+          Verify the full stack works end-to-end after type changes.
+          No new E2E tests needed — existing 15 tests cover the flows.
+        scope:
+          verify:
+            - "./scripts/full-verify.sh (all 15 E2E pass)"
+            - "cargo test (all Rust tests pass)"
+            - "npx vitest run (all TS tests pass)"
+        tasks:
+          - id: J1
+            name: "Full verification"
+            details: >
+              Run ./scripts/full-verify.sh. All existing tests must pass.
+              The type changes are internal — JSON schema unchanged, so E2E
+              tests exercise the full stack without modification.

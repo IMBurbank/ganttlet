@@ -105,6 +105,8 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 | `npm run test` | Unit tests (Vitest) |
 | `npm run e2e:collab` | E2E tests with relay server |
 | `./scripts/full-verify.sh` | **Full verification** (tsc + vitest + cargo test + E2E) |
+| `ATTEST_E2E=1 ./scripts/full-verify.sh` | Full verify + post E2E attestation (skips CI re-run) |
+| `./scripts/attest-e2e.sh` | Post E2E attestation for HEAD (after verify passes) |
 | `cd crates/scheduler && cargo test` | Rust unit tests |
 | `docker compose run --service-ports dev` | Enter dev container |
 | `docker compose up --build relay` | Build + run relay server locally |
@@ -154,6 +156,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
 **Verification:**
 - Run `./scripts/full-verify.sh` before declaring done.
 - E2E tests run automatically as part of full-verify (sets `E2E_RELAY=1`).
+- After pushing, run `./scripts/attest-e2e.sh` to post the `e2e-verified` commit status. This satisfies the merge requirement without waiting for CI to re-run E2E. Or use `ATTEST_E2E=1 ./scripts/full-verify.sh` to auto-attest on success.
 - If E2E tests fail due to infrastructure (relay build, Chromium), note this in your summary — but never skip writing E2E tests for new features.
 
 **PR Creation:**

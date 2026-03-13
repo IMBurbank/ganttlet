@@ -22,3 +22,10 @@ E2E_RELAY=1 npx playwright test
 
 echo ""
 echo "=== All checks passed ==="
+
+# Post E2E attestation if requested (skips redundant CI E2E run on PR)
+if [[ "${ATTEST_E2E:-}" == "1" ]] && command -v gh &>/dev/null; then
+  echo ""
+  echo "=== Posting E2E attestation ==="
+  "$(dirname "$0")/attest-e2e.sh"
+fi

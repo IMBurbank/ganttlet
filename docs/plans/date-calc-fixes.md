@@ -1,6 +1,6 @@
-# Date Calculation Bug Fixes — Plan (TENTATIVE)
+# Date Calculation Bug Fixes — Plan
 
-> **Status:** TENTATIVE — under active discussion, not yet finalized.
+> **Status:** Ready for implementation.
 > **Branch:** `agent/date-calc-fixes`
 > **Created:** 2026-03-12
 > **Last verified:** 2026-03-13 (deep review with 4 parallel subagents + item-by-item verification)
@@ -354,23 +354,23 @@ These functions use the inclusive convention and do NOT need changing:
 convention** — no code change needed. However, they are currently **wrong under the existing
 exclusive convention** (`addBiz(finish, -(dur-1))` gives a start 1 biz day too late because
 exclusive `duration` is 1 less than inclusive). They will automatically become correct when
-`task.duration` switches to inclusive counting in Phase 3. During implementation, if an agent
-sees FF/SF tests failing before Phase 3 lands, this is expected — the formulas are correct
+`task.duration` switches to inclusive counting in Stage 3. During implementation, if an agent
+sees FF/SF tests failing before Stage 3 lands, this is expected — the formulas are correct
 for the target state, not the intermediate state.
 
 ---
 
-## Fix Plan (Phases)
+## Fix Plan (Stages)
 
-### Phase 0: Documentation Foundation (FIRST — before any code changes)
+### Stage 0: Documentation Foundation (FIRST — before any code changes)
 
 **Scope:** CLAUDE.md files, skills, agent prompts
 
 Why first: implementing agents must know the convention BEFORE touching code. Without
-this, Phase 1-5 agents will read `src/types/index.ts:15` ("exclusive of end") and
+this, Stage 1-5 agents will read `src/types/index.ts:15` ("exclusive of end") and
 encode the wrong convention.
 
-1. Add `## Date Conventions (Non-Negotiable)` section to root `CLAUDE.md` (see Phase 7b content)
+1. Add `## Date Conventions (Non-Negotiable)` section to root `CLAUDE.md` (see Stage 7b content)
 2. Update `src/types/index.ts:15` — change duration doc comment to inclusive
 3. Add convention doc comments to `crates/scheduler/src/types.rs` Task struct
 4. Update `crates/scheduler/CLAUDE.md` — add end_date convention rules
@@ -381,7 +381,7 @@ encode the wrong convention.
 These are pure documentation changes — no functional code changes, no test updates.
 Commit separately so the convention is visible in git history before the fix lands.
 
-### Phase 1: Convention-Encoding Functions
+### Stage 1: Convention-Encoding Functions
 
 **Scope:** `src/utils/dateUtils.ts`, `crates/scheduler/src/date_utils.rs`
 
@@ -410,10 +410,10 @@ these are purely additive.
 12. `ff_successor_start(pred_end: &str, lag: i32, succ_duration: i32) -> String`
 13. `sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> String`
 
-14. Add comprehensive tests for all new functions (convention tests from Phase 7d/7e)
+14. Add comprehensive tests for all new functions (convention tests from Stage 7d/7e)
 15. Add `WEEKEND_VIOLATION` to Rust `ConflictResult` types
 
-### Phase 2: Rust Scheduler Fixes
+### Stage 2: Rust Scheduler Fixes
 
 **Scope:** `crates/scheduler/src/` — cascade.rs, constraints.rs, lib.rs
 
@@ -435,15 +435,15 @@ these are purely additive.
 11. Add CPM doc comment explaining the exclusive integer model is intentional (Bug 6)
 12. Update all Rust test data to use inclusive end dates, fix expected values
 
-> **⚠ Phase 2+3 ordering dependency:** Rust formulas in Phase 2 depend on `task.duration`
-> values sent from TypeScript. After Phase 2, formulas like `task_end_date(start, dur)` use
-> `add_biz(start, dur - 1)` which is correct only with **inclusive** duration values. Phase 3
+> **⚠ Stage 2+3 ordering dependency:** Rust formulas in Stage 2 depend on `task.duration`
+> values sent from TypeScript. After Stage 2, formulas like `task_end_date(start, dur)` use
+> `add_biz(start, dur - 1)` which is correct only with **inclusive** duration values. Stage 3
 > is where TS switches from exclusive to inclusive (`workingDaysBetween` → `taskDuration`).
-> If Phase 2 lands without Phase 3, Rust receives old exclusive durations and computes wrong
-> end dates (off by 1). **Phases 2 and 3 must ship in the same PR.** Rust unit tests can be
+> If Stage 2 lands without Stage 3, Rust receives old exclusive durations and computes wrong
+> end dates (off by 1). **Stages 2 and 3 must ship in the same PR.** Rust unit tests can be
 > updated independently (they use hardcoded test data), but runtime correctness requires both.
 
-### Phase 3: TypeScript State + Reducer
+### Stage 3: TypeScript State + Reducer
 
 **Scope:** `src/state/ganttReducer.ts`, `src/utils/schedulerWasm.ts`, `src/utils/summaryUtils.ts`
 
@@ -460,7 +460,7 @@ these are purely additive.
 3. Fix recalcSummaryDates (Bug 13): add `task.duration = taskDuration(minStart, maxEnd)`
 5. Fix schedulerWasm cascade result merging: use `taskDuration` for duration
 
-### Phase 4: Rendering + UI (weekend prevention + bar width)
+### Stage 4: Rendering + UI (weekend prevention + bar width)
 
 **Scope:** `src/components/gantt/TaskBar.tsx`, `GanttChart.tsx`, `TodayLine.tsx`,
 `TaskRow.tsx`, `TaskBarPopover.tsx`, `taskFieldValidation.ts`
@@ -492,7 +492,7 @@ The UI must make it **impossible** to set a weekend start or end date. Prevent, 
 9. Migrate remaining `workingDaysBetween` calls in TaskBar.tsx:131, TaskRow.tsx:90,
    and TaskBarPopover.tsx:87
 
-### Phase 5: Sheets + CRDT Sync (weekend warning + Yjs fix)
+### Stage 5: Sheets + CRDT Sync (weekend warning + Yjs fix)
 
 **Scope:** `src/sheets/sheetsMapper.ts`, `src/collab/yjsBinding.ts`, `src/types/index.ts`
 
@@ -504,14 +504,14 @@ Weekend dates from Sheets are NOT silently fixed. They are surfaced as warnings.
 4. Fix yjsBinding `UPDATE_TASK_FIELD` (Bug 14): when field is `startDate` or `endDate`,
    also write recomputed duration to Yjs map so remote collaborators see correct duration
 5. Add `WEEKEND_VIOLATION` to ConflictResult types (TS side, matching Rust)
-6. `find_conflicts` (already updated in Phase 2) detects weekend start/end dates
+6. `find_conflicts` (already updated in Stage 2) detects weekend start/end dates
    and returns `WEEKEND_VIOLATION` conflicts. The existing conflict indicator UI
    (red dashed border + message on click) handles display — no new UI component needed.
 7. Sheets import does NOT snap or reject weekend dates. The task is imported as-is,
    and `detectConflicts()` (called on every render in GanttChart.tsx) shows the warning.
    User fixes it via the UI or in the sheet.
 
-### Phase 6: Cross-cutting Tests + Cleanup
+### Stage 6: Cross-cutting Tests + Cleanup
 
 1. **Consistency tests:** cascade and recalculate produce identical start dates for all
    dep types (FS/SS/FF/SF) with lag 0, 1, 2
@@ -528,9 +528,9 @@ Weekend dates from Sheets are NOT silently fixed. They are surfaced as warnings.
 6. **Cleanup:** Delete `workingDaysBetween` (all callers migrated). Remove
    `next_biz_day_on_or_after` if fully replaced by `ensure_business_day`.
 
-### Phase 7: Remaining Documentation & Agent Guard Rails
+### Stage 7: Remaining Documentation & Agent Guard Rails
 
-This phase covers documentation updates not done in Phase 0. It is **mandatory, not optional**.
+This stage covers documentation updates not done in Stage 0. It is **mandatory, not optional**.
 
 **7a. Update remaining docs** (see inventory below).
 Every item in the "Must update" list is a deliverable, not a suggestion.
@@ -552,10 +552,10 @@ fi
 Keep it lightweight — only check added lines (`^\+`), only in staged TS/Rust files.
 False positive rate should be near zero since `workingDaysBetween` is deleted.
 
-**7c. Convention tests (already added in Phase 1):**
+**7c. Convention tests (already added in Stage 1):**
 
-The convention tests from Phase 1 serve as executable documentation — an agent reading
-the test file sees the convention immediately. See Phase 1 items 13 for details.
+The convention tests from Stage 1 serve as executable documentation — an agent reading
+the test file sees the convention immediately. See Stage 1 items 13 for details.
 
 ---
 
@@ -564,7 +564,7 @@ the test file sees the convention immediately. See Phase 1 items 13 for details.
 Beyond fixing individual bugs, these changes make entire categories of bugs structurally
 impossible. Prioritized by impact-to-effort ratio.
 
-### A1. Centralize duration recomputation (Phase 3 — implement with reducer fixes)
+### A1. Centralize duration recomputation (Stage 3 — implement with reducer fixes)
 
 **Problem:** Duration is recomputed inline at 14+ callsites, each calling
 `workingDaysBetween(start, end)` independently. If any callsite forgets to recompute,
@@ -593,7 +593,7 @@ be used.
 Not a type-system guarantee (TS can't enforce "you must call this"), but eliminates
 the manual `duration: taskDuration(...)` line that's easy to forget.
 
-### A2. Debug invariant assertions at WASM boundary (Phase 6 — implement with tests)
+### A2. Debug invariant assertions at WASM boundary (Stage 6 — implement with tests)
 
 **Problem:** Invalid dates cross the WASM boundary silently (Bug 15). A bug in the
 reducer or Yjs binding can produce end < start, weekend dates, or stale durations, and
@@ -622,7 +622,7 @@ function assertTaskInvariants(task: Task): void {
 Tree-shaken in production. Catches bugs during development immediately instead of
 letting them propagate silently through the WASM boundary.
 
-### A3. Cross-language consistency tests (Phase 6 — implement with tests)
+### A3. Cross-language consistency tests (Stage 6 — implement with tests)
 
 **Problem:** TypeScript and Rust implement date arithmetic independently. If a fix is
 made in one language but not the other, they silently diverge. There are currently
@@ -658,7 +658,7 @@ describe('cross-language consistency', () => {
 These tests break immediately if the languages diverge, catching the exact class of
 bug that caused the original FS formula disagreement.
 
-### A4. Cascade/recalculate agreement test (Phase 6 — implement with tests)
+### A4. Cascade/recalculate agreement test (Stage 6 — implement with tests)
 
 **Problem:** Cascade and recalculate are independent implementations of "where should
 this task start?" For the same input, they must agree — but they diverged for FS
@@ -685,7 +685,7 @@ fn cascade_and_recalculate_agree_on_all_dep_types() {
 This is the most impactful structural test — it directly prevents the class of bug
 that caused the user-visible symptom (Bug 5).
 
-### A5. find_conflicts/recalculate agreement test (Phase 6)
+### A5. find_conflicts/recalculate agreement test (Stage 6)
 
 **Problem:** `find_conflicts` reports a violation that `recalculate_earliest` resolves
 with a different formula, causing the error message to show the wrong date (Bug 5).
@@ -728,14 +728,14 @@ trade-off for now.
 
 ## Risk Notes
 
-- Phase 0 (docs) must land FIRST — implementing agents need the convention visible
-- Phase 1 is purely additive (new functions, no breaking changes)
-- **Phases 2+3 must ship together** — Rust formulas (Phase 2) expect inclusive duration
-  values from TS (Phase 3). Shipping Phase 2 alone produces off-by-one end dates.
-- Phases 2-5 are the breaking changes — all existing test assertions need updating
-- Phase 5 (Sheets) is highest risk — convention mismatch could corrupt user data
+- Stage 0 (docs) must land FIRST — implementing agents need the convention visible
+- Stage 1 is purely additive (new functions, no breaking changes)
+- **Stages 2+3 must ship together** — Rust formulas (Stage 2) expect inclusive duration
+  values from TS (Stage 3). Shipping Stage 2 alone produces off-by-one end dates.
+- Stages 2-5 are the breaking changes — all existing test assertions need updating
+- Stage 5 (Sheets) is highest risk — convention mismatch could corrupt user data
 - `workingDaysBetween` migration has **14 callsites** — must update all atomically
-  within each phase
+  within each stage
 - Cascade preserves `business_day_delta(start, end)` date gap, NOT `task.duration` field.
   If duration and date gap are out of sync (stale duration), cascade and recalculate
   will produce different end dates. Bug 13 and Bug 14 fixes address this by ensuring
@@ -789,7 +789,7 @@ trade-off for now.
 These files guide agent behavior. If they reference old function names, old conventions,
 or wrong semantics, agents will reintroduce the bugs we're fixing.
 
-### Must update — Phase 0 (before any code changes):
+### Must update — Stage 0 (before any code changes):
 
 **`src/types/index.ts:15`** — Task.duration doc comment
 ```typescript
@@ -853,7 +853,7 @@ or wrong semantics, agents will reintroduce the bugs we're fixing.
 - Fix MFO description: "derives start from constraint_date via `task_end_date` inverse"
 - Add critical rule: end_date is inclusive, use convention functions
 
-### Must update — Phase 7 (after code changes):
+### Must update — Stage 7 (after code changes):
 
 **`docs/unplanned-issues.md:29`** — Duration mode toggle feature
 ```
@@ -892,7 +892,7 @@ Currently `duration` is always derived via `taskDuration()` (business days, Mon-
 - Add: "Tasks must never have start or end dates on weekends. E2E tests should verify this invariant."
 
 **`docs/completed-phases.md:182`** — Historical reference
-- Add note: "Note: duration derivation updated in Phase 16 to use `taskDuration()` with
+- Add note: "Note: duration derivation updated in Stage 16 to use `taskDuration()` with
   inclusive [start, end] semantics."
 
 ### No change needed:

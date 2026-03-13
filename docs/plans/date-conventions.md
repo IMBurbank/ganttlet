@@ -1,6 +1,6 @@
-# Date Convention Unification — Analysis & Proposal (TENTATIVE)
+# Date Convention Unification — Analysis & Proposal
 
-> **Status:** TENTATIVE — under active discussion.
+> **Status:** Ready for implementation.
 > **Parent plan:** `docs/plans/date-calc-fixes.md`
 
 ## Current State: Three Names, Four Boundaries, Zero Clarity

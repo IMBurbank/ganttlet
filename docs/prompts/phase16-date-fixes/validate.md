@@ -108,6 +108,20 @@ Check if cross-language tests exist and pass:
 npm run test -- --reporter=verbose 2>&1 | grep -A2 'cross-language' || echo "No cross-language tests found"
 ```
 
+### V7: Spot-check "may need change" files
+
+These files were flagged as potentially needing updates. Verify they still work:
+```bash
+echo "=== Check bar width in DependencyLayer/SlackIndicator/SummaryBar ==="
+grep -n 'taskEndX\|endX.*taskX\|width.*endX' src/components/gantt/DependencyLayer.tsx src/components/gantt/SlackIndicator.tsx src/components/gantt/SummaryBar.tsx 2>/dev/null || echo "No bar width patterns found"
+
+echo "=== Check fakeData end dates are business days ==="
+grep -n 'endDate' src/data/fakeData.ts | head -10
+```
+
+Visually inspect: do any of these look broken by the inclusive convention change?
+Report any concerns but do NOT fix code.
+
 ## Final Report
 
 After all checks, output a summary:
@@ -119,6 +133,7 @@ After all checks, output a summary:
 - [ ] taskDuration/taskEndDate roundtrip: PASS/FAIL
 - [ ] cascade/recalculate agreement: PASS/FAIL
 - [ ] cross-language consistency: PASS/FAIL
+- [ ] "may need change" files: OK/CONCERNS
 ```
 
 Report results. Do NOT fix code — report only.

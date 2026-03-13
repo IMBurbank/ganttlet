@@ -173,6 +173,7 @@ stages:
       - id: D
         name: "Rust Scheduler Fixes"
         depends_on: [C]
+        merge_with: E  # MUST ship in same PR — Rust expects inclusive durations from TS
         scope:
           modify:
             - crates/scheduler/src/cascade.rs
@@ -230,6 +231,7 @@ stages:
       - id: E
         name: "TypeScript State + Reducer Fixes"
         depends_on: [B]
+        merge_with: D  # MUST ship in same PR — TS inclusive durations required by Rust
         scope:
           modify:
             - src/state/ganttReducer.ts

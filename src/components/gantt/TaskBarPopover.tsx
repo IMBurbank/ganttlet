@@ -2,12 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import type { Task } from '../../types';
-import {
-  addBusinessDaysToDate,
-  businessDaysDelta,
-  taskEndDate,
-  taskDuration,
-} from '../../utils/dateUtils';
+import { businessDaysDelta, taskEndDate, taskDuration } from '../../utils/dateUtils';
 
 const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
   ASAP: 'As Soon As Possible',

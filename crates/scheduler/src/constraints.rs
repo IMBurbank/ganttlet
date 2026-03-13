@@ -1,4 +1,4 @@
-use crate::date_utils::{add_business_days, task_end_date};
+use crate::date_utils::{shift_date, task_end_date};
 use crate::types::{ConstraintType, DepType, RecalcResult, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -19,23 +19,23 @@ pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
         let earliest = match dep.dep_type {
             DepType::FS => {
                 // Start after predecessor finishes: next business day after end_date, then + lag business days
-                let next_biz = add_business_days(&pred.end_date, 1);
-                add_business_days(&next_biz, dep.lag)
+                let next_biz = shift_date(&pred.end_date, 1);
+                shift_date(&next_biz, dep.lag)
             }
             DepType::SS => {
                 // Start when predecessor starts + lag business days
-                add_business_days(&pred.start_date, dep.lag)
+                shift_date(&pred.start_date, dep.lag)
             }
             DepType::FF => {
                 // Finish together: predecessor end_date + lag business days, then back up by duration
-                let finish = add_business_days(&pred.end_date, dep.lag);
-                add_business_days(&finish, -(task.duration - 1))
+                let finish = shift_date(&pred.end_date, dep.lag);
+                shift_date(&finish, -(task.duration - 1))
             }
             DepType::SF => {
                 // Start-to-Finish: successor cannot finish until predecessor starts + lag
                 // required_end = pred.start + lag, so required_start = required_end - (duration - 1)
-                let required_end = add_business_days(&pred.start_date, dep.lag);
-                add_business_days(&required_end, -(task.duration - 1))
+                let required_end = shift_date(&pred.start_date, dep.lag);
+                shift_date(&required_end, -(task.duration - 1))
             }
         };
 
@@ -239,7 +239,7 @@ pub fn recalculate_earliest(
                     if computed_end.as_str() < constraint_date.as_str() {
                         // Push start later so end >= constraint_date.
                         // Under inclusive convention: start = end - (duration - 1) biz days.
-                        new_start = add_business_days(constraint_date, -(task.duration - 1));
+                        new_start = shift_date(constraint_date, -(task.duration - 1));
                     }
                 }
             }
@@ -271,7 +271,7 @@ pub fn recalculate_earliest(
                 // Must Finish On: pin end to constraint_date, derive start.
                 // Under inclusive convention: start = end - (duration - 1) biz days.
                 if let Some(ref constraint_date) = task.constraint_date {
-                    let derived_start = add_business_days(constraint_date, -(task.duration - 1));
+                    let derived_start = shift_date(constraint_date, -(task.duration - 1));
                     if new_start.as_str() > derived_start.as_str() {
                         conflict = Some(format!(
                             "MFO conflict: deps require start {} but must finish on {} (derived start {})",

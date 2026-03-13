@@ -22,7 +22,6 @@ import PredecessorsCell from './PredecessorsCell';
 import OKRPickerModal from '../shared/OKRPickerModal';
 import {
   formatDisplayDate,
-  addBusinessDaysToDate,
   businessDaysDelta,
   taskEndDate,
   taskDuration,

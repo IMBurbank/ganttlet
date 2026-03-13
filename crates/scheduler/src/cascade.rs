@@ -1,5 +1,5 @@
 use crate::date_utils::{
-    add_business_days, count_biz_days_to, fs_successor_start, next_biz_day_on_or_after,
+    count_biz_days_to, fs_successor_start, next_biz_day_on_or_after, shift_date,
 };
 use crate::types::{CascadeResult, DepType, Dependency, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -104,43 +104,43 @@ pub fn cascade_dependents(
                             continue;
                         }
                         let shift = count_biz_days_to(&dep_curr_start, &required);
-                        let new_end = add_business_days(&dep_curr_end, shift);
+                        let new_end = shift_date(&dep_curr_end, shift);
                         (required, new_end)
                     }
                     DepType::SS => {
                         // B must start no earlier than the first business day on or after
                         // (pred.start + lag business days).
-                        let raw = add_business_days(&pred_eff_start, dep_link.lag);
+                        let raw = shift_date(&pred_eff_start, dep_link.lag);
                         let required = next_biz_day_on_or_after(&raw);
                         if required <= dep_curr_start {
                             continue;
                         }
                         let shift = count_biz_days_to(&dep_curr_start, &required);
-                        let new_end = add_business_days(&dep_curr_end, shift);
+                        let new_end = shift_date(&dep_curr_end, shift);
                         (required, new_end)
                     }
                     DepType::FF => {
                         // B must end no earlier than the first business day on or after
                         // (pred.end + lag business days).
-                        let raw_end = add_business_days(&pred_eff_end, dep_link.lag);
+                        let raw_end = shift_date(&pred_eff_end, dep_link.lag);
                         let required_end = next_biz_day_on_or_after(&raw_end);
                         if required_end <= dep_curr_end {
                             continue;
                         }
                         let shift = count_biz_days_to(&dep_curr_end, &required_end);
-                        let new_start = add_business_days(&dep_curr_start, shift);
+                        let new_start = shift_date(&dep_curr_start, shift);
                         (new_start, required_end)
                     }
                     DepType::SF => {
                         // SF: successor's end must be no earlier than the first business day
                         // on or after (pred.start + lag business days).
-                        let raw_end = add_business_days(&pred_eff_start, dep_link.lag);
+                        let raw_end = shift_date(&pred_eff_start, dep_link.lag);
                         let required_end = next_biz_day_on_or_after(&raw_end);
                         if required_end <= dep_curr_end {
                             continue;
                         }
                         let shift = count_biz_days_to(&dep_curr_end, &required_end);
-                        let new_start = add_business_days(&dep_curr_start, shift);
+                        let new_start = shift_date(&dep_curr_start, shift);
                         (new_start, required_end)
                     }
                 };
@@ -176,7 +176,7 @@ pub fn cascade_dependents(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::date_utils::add_business_days;
+    use crate::date_utils::shift_date;
     use crate::types::Dependency;
 
     // Helper: task with given id/start/end and default duration=7.
@@ -431,7 +431,7 @@ mod tests {
         let mut start = "2026-01-05".to_string(); // Mon Jan 5
         let mut tasks: Vec<Task> = Vec::with_capacity(50);
         for i in 0..50usize {
-            let end = add_business_days(&start, 4); // 4 biz days later
+            let end = shift_date(&start, 4); // 4 biz days later
             let t = make_task(&format!("t{}", i), &start, &end);
             // Next task starts on the same day this one ends (zero slack)
             start = end;
@@ -442,7 +442,7 @@ mod tests {
         }
 
         // Move t0 forward by +2 biz: update its end date in-place
-        let new_t0_end = add_business_days(&tasks[0].end_date, 2);
+        let new_t0_end = shift_date(&tasks[0].end_date, 2);
         tasks[0].end_date = new_t0_end;
 
         let results = cascade_dependents(&tasks, "t0", 2);

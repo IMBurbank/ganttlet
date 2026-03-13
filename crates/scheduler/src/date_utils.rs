@@ -48,9 +48,12 @@ pub fn is_weekend_date(date: &str) -> bool {
     is_weekend(y, m, d)
 }
 
-/// Add `n` business days (Mon-Fri) to a date string. Matches date-fns/addBusinessDays.
-/// Positive values go forward, negative values go backward.
-pub fn add_business_days(date_str: &str, n: i32) -> String {
+/// Shift a date by `n` business days (Mon-Fri). Positive = forward, negative = backward.
+///
+/// This is a low-level shift primitive — crate-internal only. External code should use
+/// `task_end_date(start, duration)` for end-date derivation (inclusive convention) or
+/// the dep-type helpers (`fs_successor_start`, etc.) for dependency calculations.
+pub(crate) fn shift_date(date_str: &str, n: i32) -> String {
     let mut result = date_str.to_string();
     let mut remaining = n.abs();
     let step = if n >= 0 { 1 } else { -1 };
@@ -69,7 +72,7 @@ pub fn add_business_days(date_str: &str, n: i32) -> String {
 pub fn next_biz_day_on_or_after(date: &str) -> String {
     let (y, m, d) = parse_date(date);
     if is_weekend(y, m, d) {
-        add_business_days(date, 1)
+        shift_date(date, 1)
     } else {
         date.to_string()
     }
@@ -146,7 +149,7 @@ pub fn task_duration(start: &str, end: &str) -> i32 {
 /// Derive end date from start + duration using inclusive convention.
 /// task_end_date(start, 1) returns start (same-day task).
 pub fn task_end_date(start: &str, duration: i32) -> String {
-    add_business_days(start, duration - 1)
+    shift_date(start, duration - 1)
 }
 
 /// Snap forward to next Monday if date falls on a weekend. No-op if already a weekday.
@@ -167,26 +170,26 @@ pub fn prev_business_day(date: &str) -> String {
 
 /// FS: successor starts the next business day after predecessor's end, plus lag.
 pub fn fs_successor_start(pred_end: &str, lag: i32) -> String {
-    add_business_days(pred_end, 1 + lag)
+    shift_date(pred_end, 1 + lag)
 }
 
 /// SS: successor starts on same day as predecessor's start, plus lag.
 pub fn ss_successor_start(pred_start: &str, lag: i32) -> String {
-    add_business_days(pred_start, lag)
+    shift_date(pred_start, lag)
 }
 
 /// FF: successor must finish on same day as predecessor's end, plus lag.
 /// Derives successor start from the required finish date.
 pub fn ff_successor_start(pred_end: &str, lag: i32, succ_duration: i32) -> String {
-    let required_finish = add_business_days(pred_end, lag);
-    add_business_days(&required_finish, -(succ_duration - 1))
+    let required_finish = shift_date(pred_end, lag);
+    shift_date(&required_finish, -(succ_duration - 1))
 }
 
 /// SF: successor must finish on or after predecessor's start, plus lag.
 /// Derives successor start from the required finish date.
 pub fn sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> String {
-    let required_finish = add_business_days(pred_start, lag);
-    add_business_days(&required_finish, -(succ_duration - 1))
+    let required_finish = shift_date(pred_start, lag);
+    shift_date(&required_finish, -(succ_duration - 1))
 }
 
 /// Signed business day difference. Positive if `to` is after `from`.
@@ -309,29 +312,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn add_business_days_forward() {
+    fn shift_date_forward() {
         // Wed Mar 11 + 10 business days = Wed Mar 25
-        assert_eq!(add_business_days("2026-03-11", 10), "2026-03-25");
+        assert_eq!(shift_date("2026-03-11", 10), "2026-03-25");
         // Fri Mar 20 + 10 business days = Fri Apr 3
-        assert_eq!(add_business_days("2026-03-20", 10), "2026-04-03");
+        assert_eq!(shift_date("2026-03-20", 10), "2026-04-03");
         // Sun Mar 1 + 10 business days = Fri Mar 13
-        assert_eq!(add_business_days("2026-03-01", 10), "2026-03-13");
+        assert_eq!(shift_date("2026-03-01", 10), "2026-03-13");
     }
 
     #[test]
-    fn add_business_days_backward() {
+    fn shift_date_backward() {
         // Wed Mar 25 - 10 business days = Wed Mar 11
-        assert_eq!(add_business_days("2026-03-25", -10), "2026-03-11");
+        assert_eq!(shift_date("2026-03-25", -10), "2026-03-11");
     }
 
     #[test]
-    fn add_business_days_from_weekend() {
+    fn shift_date_from_weekend() {
         // Sat 2026-03-21 + 5 should match date-fns: 2026-03-27
-        assert_eq!(add_business_days("2026-03-21", 5), "2026-03-27");
+        assert_eq!(shift_date("2026-03-21", 5), "2026-03-27");
         // Sun 2026-03-01 + 10 should match date-fns: 2026-03-13
-        assert_eq!(add_business_days("2026-03-01", 10), "2026-03-13");
+        assert_eq!(shift_date("2026-03-01", 10), "2026-03-13");
         // Fri 2026-03-20 + 5 should be: 2026-03-27
-        assert_eq!(add_business_days("2026-03-20", 5), "2026-03-27");
+        assert_eq!(shift_date("2026-03-20", 5), "2026-03-27");
     }
 
     #[test]

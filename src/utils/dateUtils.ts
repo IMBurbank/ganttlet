@@ -41,10 +41,6 @@ export function addDaysToDate(dateStr: string, days: number): string {
   return formatDate(addDays(parseISO(dateStr), days));
 }
 
-export function addBusinessDaysToDate(dateStr: string, days: number): string {
-  return formatDate(addBusinessDays(parseISO(dateStr), days));
-}
-
 /**
  * Signed business-day difference between two date strings.
  * Used for cascade deltas so shifts skip weekends.

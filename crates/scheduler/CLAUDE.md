@@ -15,5 +15,14 @@
 - Add external date/time crates
 - Do arithmetic in your head — use `node -e` or `python3 -c`
 
+## Date Convention
+- `end_date` is INCLUSIVE — last working day of the task.
+- `duration` = business days in [start_date, end_date] counting both.
+- End from start+dur: `task_end_date(start, duration)` = `add_business_days(start, duration - 1)`.
+- Duration from dates: `task_duration(start, end)`.
+- Dep-type helpers: `fs_successor_start`, `ss_successor_start`, `ff_successor_start`, `sf_successor_start`.
+  NEVER hand-write FS/SS/FF/SF arithmetic.
+- CPM uses exclusive integer model internally — do NOT apply inclusive convention to cpm.rs.
+
 ## Skill
 See `.claude/skills/scheduling-engine/` for detailed domain knowledge.

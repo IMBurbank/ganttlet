@@ -888,4 +888,96 @@ mod tests {
             );
         }
     }
+
+    /// Roundtrip invariant: edit → cascade → recalculate should produce zero additional drift.
+    ///
+    /// After cascade correctly positions all dependents, a subsequent call to
+    /// recalculate_earliest on the cascaded tasks must return empty results (no task moves).
+    ///
+    /// Setup:
+    ///   A → B → C (all FS lag=0)
+    ///   A: start=2026-03-02 (Mon), end=2026-03-06 (Fri), dur=5
+    ///   B: start=2026-03-09 (Mon), end=2026-03-13 (Fri), dur=5 (tight FS from A)
+    ///   C: start=2026-03-16 (Mon), end=2026-03-20 (Fri), dur=5 (tight FS from B)
+    ///
+    /// A moves +2 biz: new_start=2026-03-04 (Wed), new_end=2026-03-10 (Mon)
+    /// After cascade:
+    ///   B: start=2026-03-11 (Wed), end=2026-03-17 (Tue) — shifted +2 biz to satisfy FS
+    ///   C: start=2026-03-18 (Wed), end=2026-03-24 (Tue) — shifted +2 biz from B
+    ///
+    /// All date values verified via node -e with date-fns addBusinessDays.
+    #[test]
+    fn edit_cascade_recalculate_no_drift() {
+        use crate::constraints::recalculate_earliest;
+
+        // Initial task chain: A → B → C (tight FS, no slack)
+        let mut tasks = vec![
+            {
+                let mut t = make_task("a", "2026-03-02", "2026-03-06");
+                t.duration = 5;
+                t
+            },
+            {
+                let mut t = make_task("b", "2026-03-09", "2026-03-13");
+                t.duration = 5;
+                t.dependencies = vec![make_dep("a", "b")];
+                t
+            },
+            {
+                let mut t = make_task("c", "2026-03-16", "2026-03-20");
+                t.duration = 5;
+                t.dependencies = vec![make_dep("b", "c")];
+                t
+            },
+        ];
+
+        // Step 1: Move A forward 2 biz days (caller updates A's dates before cascade)
+        // A.new_start = addBiz('2026-03-02', 2) = 2026-03-04 (Wed)
+        // A.new_end   = addBiz('2026-03-06', 2) = 2026-03-10 (Mon)
+        tasks[0].start_date = "2026-03-04".to_string();
+        tasks[0].end_date = "2026-03-10".to_string();
+
+        // Step 2: Cascade — propagate A's move to B and C
+        let cascade_results = cascade_dependents(&tasks, "a", 2);
+
+        // Apply cascade results back to tasks (simulating what ganttReducer.ts does)
+        for result in &cascade_results {
+            if let Some(task) = tasks.iter_mut().find(|t| t.id == result.id) {
+                task.start_date = result.start_date.clone();
+                task.end_date = result.end_date.clone();
+            }
+        }
+
+        // Verify cascade produced the expected dates
+        // B: required_start = addBiz(A.new_end, 1) = addBiz('2026-03-10', 1) = 2026-03-11 (Wed)
+        // B: new_end = addBiz('2026-03-13', 2) = 2026-03-17 (Tue)
+        let b = tasks.iter().find(|t| t.id == "b").unwrap();
+        assert_eq!(b.start_date, "2026-03-11", "cascade B start incorrect");
+        assert_eq!(b.end_date, "2026-03-17", "cascade B end incorrect");
+
+        // C: required_start = addBiz(B.new_end, 1) = addBiz('2026-03-17', 1) = 2026-03-18 (Wed)
+        // C: new_end = addBiz('2026-03-20', 2) = 2026-03-24 (Tue)
+        let c = tasks.iter().find(|t| t.id == "c").unwrap();
+        assert_eq!(c.start_date, "2026-03-18", "cascade C start incorrect");
+        assert_eq!(c.end_date, "2026-03-24", "cascade C end incorrect");
+
+        // Step 3: Recalculate on the cascaded tasks — should produce ZERO changes
+        // (cascade already placed tasks at their earliest valid positions)
+        let recalc_results = recalculate_earliest(
+            &tasks,
+            None,
+            None,
+            None,
+            "2026-01-01", // far in past so today-floor doesn't affect
+        );
+
+        assert!(
+            recalc_results.is_empty(),
+            "recalculate after cascade should produce no changes (no drift), but got: {:?}",
+            recalc_results
+                .iter()
+                .map(|r| format!("{}: {} → {}", r.id, r.new_start, r.new_end))
+                .collect::<Vec<_>>()
+        );
+    }
 }

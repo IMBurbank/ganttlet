@@ -13,6 +13,12 @@ import {
   businessDaysBetween,
   businessDaysDelta,
   workingDaysBetween,
+  taskDuration,
+  taskEndDate,
+  ensureBusinessDay,
+  prevBusinessDay,
+  isWeekendDate,
+  withDuration,
 } from '../dateUtils';
 
 describe('dateUtils', () => {
@@ -134,20 +140,33 @@ describe('dateUtils', () => {
      * but end uses the unclamped dx, causing the task to shrink.
      */
     function simulateBuggyDrag(
-      origStart: string, origEnd: string, dxColumns: number, earliestStart: string
+      origStart: string,
+      origEnd: string,
+      dxColumns: number,
+      earliestStart: string
     ) {
       const dx = dxColumns * colWidth;
-      const origStartX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origStartX = dateToXCollapsed(
+        origStart,
+        timelineStart,
+        colWidth,
+        zoom,
+        collapseWeekends
+      );
       const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
 
       // Compute new start, then clamp
-      let newStart = formatDate(xToDateCollapsed(origStartX + dx, timelineStart, colWidth, zoom, collapseWeekends));
+      let newStart = formatDate(
+        xToDateCollapsed(origStartX + dx, timelineStart, colWidth, zoom, collapseWeekends)
+      );
       if (newStart < earliestStart) {
         newStart = earliestStart;
       }
 
       // Bug: end uses unclamped dx
-      const newEnd = formatDate(xToDateCollapsed(origEndX + dx, timelineStart, colWidth, zoom, collapseWeekends));
+      const newEnd = formatDate(
+        xToDateCollapsed(origEndX + dx, timelineStart, colWidth, zoom, collapseWeekends)
+      );
 
       return { newStart, newEnd };
     }
@@ -157,23 +176,42 @@ describe('dateUtils', () => {
      * is applied to end as well, preserving task duration.
      */
     function simulateFixedDrag(
-      origStart: string, origEnd: string, dxColumns: number, earliestStart: string
+      origStart: string,
+      origEnd: string,
+      dxColumns: number,
+      earliestStart: string
     ) {
       const dx = dxColumns * colWidth;
-      const origStartX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origStartX = dateToXCollapsed(
+        origStart,
+        timelineStart,
+        colWidth,
+        zoom,
+        collapseWeekends
+      );
       const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
 
       // Compute new start, then clamp
       let newStartX = origStartX + dx;
-      let newStart = formatDate(xToDateCollapsed(newStartX, timelineStart, colWidth, zoom, collapseWeekends));
+      let newStart = formatDate(
+        xToDateCollapsed(newStartX, timelineStart, colWidth, zoom, collapseWeekends)
+      );
       if (newStart < earliestStart) {
         newStart = earliestStart;
-        newStartX = dateToXCollapsed(earliestStart, timelineStart, colWidth, zoom, collapseWeekends);
+        newStartX = dateToXCollapsed(
+          earliestStart,
+          timelineStart,
+          colWidth,
+          zoom,
+          collapseWeekends
+        );
       }
 
       // Fixed: use clamped dx for end
       const clampedDx = newStartX - origStartX;
-      const newEnd = formatDate(xToDateCollapsed(origEndX + clampedDx, timelineStart, colWidth, zoom, collapseWeekends));
+      const newEnd = formatDate(
+        xToDateCollapsed(origEndX + clampedDx, timelineStart, colWidth, zoom, collapseWeekends)
+      );
 
       return { newStart, newEnd };
     }
@@ -214,6 +252,127 @@ describe('dateUtils', () => {
     });
   });
 
+  describe('inclusive convention functions', () => {
+    describe('taskDuration', () => {
+      it('same-day task has duration 1', () => {
+        expect(taskDuration('2026-03-10', '2026-03-10')).toBe(1);
+      });
+
+      it('Mon-Fri is 5 business days', () => {
+        expect(taskDuration('2026-03-09', '2026-03-13')).toBe(5);
+      });
+
+      it('Fri-Tue spanning weekend is 3 business days', () => {
+        // Fri(1) + Mon(2) + Tue(3) = 3
+        expect(taskDuration('2026-03-06', '2026-03-10')).toBe(3);
+      });
+
+      it('2 weeks Mon-Fri is 10 business days', () => {
+        expect(taskDuration('2026-03-09', '2026-03-20')).toBe(10);
+      });
+    });
+
+    describe('taskEndDate', () => {
+      it('duration 1 returns start date (same-day task)', () => {
+        expect(taskEndDate('2026-03-09', 1)).toBe('2026-03-09');
+      });
+
+      it('duration 5 from Monday returns Friday', () => {
+        expect(taskEndDate('2026-03-09', 5)).toBe('2026-03-13');
+      });
+
+      it('duration 3 from Friday returns Tuesday (skips weekend)', () => {
+        expect(taskEndDate('2026-03-06', 3)).toBe('2026-03-10');
+      });
+    });
+
+    describe('roundtrip: taskDuration(start, taskEndDate(start, d)) === d', () => {
+      const start = '2026-03-09';
+      it('d=1', () => {
+        expect(taskDuration(start, taskEndDate(start, 1))).toBe(1);
+      });
+      it('d=3', () => {
+        expect(taskDuration(start, taskEndDate(start, 3))).toBe(3);
+      });
+      it('d=5', () => {
+        expect(taskDuration(start, taskEndDate(start, 5))).toBe(5);
+      });
+      it('d=10', () => {
+        expect(taskDuration(start, taskEndDate(start, 10))).toBe(10);
+      });
+    });
+
+    describe('ensureBusinessDay', () => {
+      it('weekday unchanged', () => {
+        const mon = new Date('2026-03-09');
+        expect(formatDate(ensureBusinessDay(mon))).toBe('2026-03-09');
+      });
+
+      it('Saturday snaps to Monday', () => {
+        const sat = new Date('2026-03-07');
+        expect(formatDate(ensureBusinessDay(sat))).toBe('2026-03-09');
+      });
+
+      it('Sunday snaps to Monday', () => {
+        const sun = new Date('2026-03-08');
+        expect(formatDate(ensureBusinessDay(sun))).toBe('2026-03-09');
+      });
+    });
+
+    describe('prevBusinessDay', () => {
+      it('weekday unchanged', () => {
+        const mon = new Date('2026-03-09');
+        expect(formatDate(prevBusinessDay(mon))).toBe('2026-03-09');
+      });
+
+      it('Saturday snaps to Friday', () => {
+        const sat = new Date('2026-03-07');
+        expect(formatDate(prevBusinessDay(sat))).toBe('2026-03-06');
+      });
+
+      it('Sunday snaps to Friday', () => {
+        const sun = new Date('2026-03-08');
+        expect(formatDate(prevBusinessDay(sun))).toBe('2026-03-06');
+      });
+    });
+
+    describe('isWeekendDate', () => {
+      it('Monday is not a weekend', () => {
+        expect(isWeekendDate('2026-03-09')).toBe(false);
+      });
+
+      it('Saturday is a weekend', () => {
+        expect(isWeekendDate('2026-03-07')).toBe(true);
+      });
+
+      it('Sunday is a weekend', () => {
+        expect(isWeekendDate('2026-03-08')).toBe(true);
+      });
+    });
+
+    describe('withDuration', () => {
+      it('recomputes duration correctly from dates', () => {
+        const task = { startDate: '2026-03-09', endDate: '2026-03-13', name: 'My task' };
+        const result = withDuration(task);
+        expect(result.duration).toBe(5);
+      });
+
+      it('preserves other fields', () => {
+        const task = { startDate: '2026-03-09', endDate: '2026-03-13', name: 'My task', id: 42 };
+        const result = withDuration(task);
+        expect(result.name).toBe('My task');
+        expect(result.id).toBe(42);
+        expect(result.startDate).toBe('2026-03-09');
+        expect(result.endDate).toBe('2026-03-13');
+      });
+
+      it('recomputes for a Fri-Tue spanning task', () => {
+        const task = { startDate: '2026-03-06', endDate: '2026-03-10' };
+        expect(withDuration(task).duration).toBe(3);
+      });
+    });
+  });
+
   describe('move-drag must preserve visual width with collapsed weekends', () => {
     const timelineStart = new Date('2026-03-02'); // Monday
     const colWidth = 36;
@@ -228,7 +387,9 @@ describe('dateUtils', () => {
     function simulateCorrectDrag(origStart: string, origEnd: string, columnsDragged: number) {
       const dx = columnsDragged * colWidth;
       const startX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, true);
-      const newStart = formatDate(xToDateCollapsed(startX + dx, timelineStart, colWidth, zoom, true));
+      const newStart = formatDate(
+        xToDateCollapsed(startX + dx, timelineStart, colWidth, zoom, true)
+      );
       const endX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, true);
       const newEnd = formatDate(xToDateCollapsed(endX + dx, timelineStart, colWidth, zoom, true));
       return { newStart, newEnd };

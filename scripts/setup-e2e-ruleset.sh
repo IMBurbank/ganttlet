@@ -2,11 +2,12 @@
 # setup-e2e-ruleset.sh — Create GitHub Ruleset requiring e2e-verified status.
 #
 # Run once by a repo admin after the e2e.yml workflow changes are merged.
-# Creates the ruleset in "evaluate" (dry-run) mode.
+# Creates the ruleset in "active" mode. (evaluate/dry-run requires Enterprise.)
+# Repo admins are bypass actors and can merge without E2E if needed.
 #
-# To activate after validation:
+# To disable temporarily:
 #   RULESET_ID=$(gh api repos/OWNER/REPO/rulesets --jq '.[] | select(.name == "Require E2E verification") | .id')
-#   gh api repos/OWNER/REPO/rulesets/$RULESET_ID --method PUT -f enforcement=active
+#   gh api repos/OWNER/REPO/rulesets/$RULESET_ID --method PUT -f enforcement=disabled
 #
 # Requires: gh CLI with admin access to the repo.
 set -euo pipefail
@@ -15,7 +16,7 @@ REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
 OWNER=$(echo "$REPO" | cut -d/ -f1)
 REPO_NAME=$(echo "$REPO" | cut -d/ -f2)
 
-echo "Creating E2E required status ruleset for $REPO in evaluate mode..."
+echo "Creating E2E required status ruleset for $REPO..."
 
 RESULT=$(gh api "repos/$OWNER/$REPO_NAME/rulesets" \
   --method POST \
@@ -23,7 +24,7 @@ RESULT=$(gh api "repos/$OWNER/$REPO_NAME/rulesets" \
 {
   "name": "Require E2E verification",
   "target": "branch",
-  "enforcement": "evaluate",
+  "enforcement": "active",
   "conditions": {
     "ref_name": {
       "include": ["refs/heads/main"],
@@ -41,11 +42,11 @@ RESULT=$(gh api "repos/$OWNER/$REPO_NAME/rulesets" \
     {
       "type": "required_status_checks",
       "parameters": {
-        "strict_status_checks_policy": false,
-        "do_not_enforce_on_create": true,
+        "strict_required_status_checks_policy": false,
         "required_status_checks": [
           {
-            "context": "e2e-verified"
+            "context": "e2e-verified",
+            "integration_id": 15368
           }
         ]
       }
@@ -58,12 +59,9 @@ EOF
 RULESET_ID=$(echo "$RESULT" | jq -r '.id')
 
 echo ""
-echo "Ruleset created (ID: $RULESET_ID) in evaluate mode."
+echo "Ruleset created (ID: $RULESET_ID), enforcement: active."
+echo "Repo admins can bypass when needed."
 echo ""
-echo "Next steps:"
-echo "  1. Open a test PR and verify the ruleset shows in the merge checks"
-echo "  2. Confirm e2e-verified status is posted by CI or agent attestation"
-echo "  3. Activate: gh api repos/$OWNER/$REPO_NAME/rulesets/$RULESET_ID --method PUT -f enforcement=active"
-echo ""
-echo "To list rulesets:  gh api repos/$OWNER/$REPO_NAME/rulesets"
-echo "To delete:         gh api repos/$OWNER/$REPO_NAME/rulesets/$RULESET_ID --method DELETE"
+echo "To disable:  gh api repos/$OWNER/$REPO_NAME/rulesets/$RULESET_ID --method PUT -f enforcement=disabled"
+echo "To list:     gh api repos/$OWNER/$REPO_NAME/rulesets"
+echo "To delete:   gh api repos/$OWNER/$REPO_NAME/rulesets/$RULESET_ID --method DELETE"

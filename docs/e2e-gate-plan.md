@@ -20,8 +20,10 @@ The `e2e.yml` workflow checks at startup whether `e2e-verified` already exists f
 ### Bypass
 Repo admins are bypass actors on the ruleset (native, auditable).
 
-### Evaluate mode
-Ruleset starts in `evaluate` (dry-run) mode. Switch to `active` after confirming it works.
+### Enforcement
+Ruleset is created in `active` mode. (`evaluate`/dry-run requires GitHub Enterprise.)
+Repo admins are bypass actors and can merge without E2E when needed.
+To temporarily disable: `gh api repos/OWNER/REPO/rulesets/$ID --method PUT -f enforcement=disabled`
 
 ## Edge cases
 
@@ -49,4 +51,4 @@ Ruleset starts in `evaluate` (dry-run) mode. Switch to `active` after confirming
 3. Create `setup-e2e-ruleset.sh`
 4. Modify `full-verify.sh`
 5. Update CLAUDE.md
-6. After merge, admin runs `setup-e2e-ruleset.sh` once
+6. After merge, admin runs `setup-e2e-ruleset.sh` once (already done — ruleset ID 13864801)

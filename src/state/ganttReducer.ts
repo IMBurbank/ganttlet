@@ -1,17 +1,31 @@
+import { format } from 'date-fns';
 import type { GanttState, Task, CascadeShift } from '../types';
 import type { GanttAction } from './actions';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
-import { workingDaysBetween } from '../utils/dateUtils';
-import { computeInheritedFields, generatePrefixedId, getHierarchyRole, getAllDescendantIds, isDescendantOf } from '../utils/hierarchyUtils';
+import { taskDuration, taskEndDate, ensureBusinessDay } from '../utils/dateUtils';
+import {
+  computeInheritedFields,
+  generatePrefixedId,
+  getHierarchyRole,
+  getAllDescendantIds,
+  isDescendantOf,
+} from '../utils/hierarchyUtils';
 import { validateDependencyHierarchy } from '../utils/dependencyValidation';
 import { checkMoveConflicts } from '../utils/dependencyValidation';
 
 const UNDOABLE_ACTIONS = new Set([
-  'RESIZE_TASK', 'CASCADE_DEPENDENTS', 'COMPLETE_DRAG',
-  'ADD_DEPENDENCY', 'UPDATE_DEPENDENCY', 'REMOVE_DEPENDENCY',
-  'ADD_TASK', 'DELETE_TASK', 'REPARENT_TASK',
-  'RECALCULATE_EARLIEST', 'SET_CONSTRAINT',
+  'RESIZE_TASK',
+  'CASCADE_DEPENDENTS',
+  'COMPLETE_DRAG',
+  'ADD_DEPENDENCY',
+  'UPDATE_DEPENDENCY',
+  'REMOVE_DEPENDENCY',
+  'ADD_TASK',
+  'DELETE_TASK',
+  'REPARENT_TASK',
+  'RECALCULATE_EARLIEST',
+  'SET_CONSTRAINT',
 ]);
 
 export function ganttReducer(state: GanttState, action: GanttAction): GanttState {
@@ -28,9 +42,9 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
 function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
   switch (action.type) {
     case 'MOVE_TASK': {
-      let tasks = state.tasks.map(t => {
+      let tasks = state.tasks.map((t) => {
         if (t.id !== action.taskId) return t;
-        const duration = workingDaysBetween(action.newStartDate, action.newEndDate);
+        const duration = taskDuration(action.newStartDate, action.newEndDate);
         return { ...t, startDate: action.newStartDate, endDate: action.newEndDate, duration };
       });
       tasks = recalcSummaryDates(tasks);
@@ -38,9 +52,9 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'RESIZE_TASK': {
-      let tasks = state.tasks.map(t => {
+      let tasks = state.tasks.map((t) => {
         if (t.id !== action.taskId) return t;
-        const duration = workingDaysBetween(t.startDate, action.newEndDate);
+        const duration = taskDuration(t.startDate, action.newEndDate);
         return { ...t, endDate: action.newEndDate, duration };
       });
       tasks = recalcSummaryDates(tasks);
@@ -48,15 +62,15 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'UPDATE_TASK_FIELD': {
-      const taskMap = new Map(state.tasks.map(t => [t.id, t]));
+      const taskMap = new Map(state.tasks.map((t) => [t.id, t]));
       const targetTask = taskMap.get(action.taskId);
 
-      let tasks = state.tasks.map(t => {
+      let tasks = state.tasks.map((t) => {
         if (t.id !== action.taskId) return t;
         const updated = { ...t, [action.field]: action.value };
         // Recompute duration when dates change
         if (action.field === 'startDate' || action.field === 'endDate') {
-          updated.duration = workingDaysBetween(updated.startDate, updated.endDate);
+          updated.duration = taskDuration(updated.startDate, updated.endDate);
         }
         return updated;
       });
@@ -68,7 +82,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         if (role === 'project') {
           // Update own project field + all descendants' project field
           const descendantIds = getAllDescendantIds(action.taskId, taskMap);
-          tasks = tasks.map(t => {
+          tasks = tasks.map((t) => {
             if (t.id === action.taskId) return { ...t, project: action.value as string };
             if (descendantIds.has(t.id)) return { ...t, project: action.value as string };
             return t;
@@ -76,7 +90,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         } else if (role === 'workstream') {
           // Update own workStream field + all child tasks' workStream field
           const descendantIds = getAllDescendantIds(action.taskId, taskMap);
-          tasks = tasks.map(t => {
+          tasks = tasks.map((t) => {
             if (t.id === action.taskId) return { ...t, workStream: action.value as string };
             if (descendantIds.has(t.id)) return { ...t, workStream: action.value as string };
             return t;
@@ -89,10 +103,8 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'TOGGLE_EXPAND': {
-      const tasks = state.tasks.map(t =>
-        t.id === action.taskId
-          ? { ...t, isExpanded: !t.isExpanded }
-          : t
+      const tasks = state.tasks.map((t) =>
+        t.id === action.taskId ? { ...t, isExpanded: !t.isExpanded } : t
       );
       return { ...state, tasks };
     }
@@ -107,7 +119,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, searchQuery: action.query };
 
     case 'TOGGLE_COLUMN': {
-      const columns = state.columns.map(c =>
+      const columns = state.columns.map((c) =>
         c.key === action.columnKey ? { ...c, visible: !c.visible } : c
       );
       return { ...state, columns };
@@ -117,14 +129,12 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, columns: action.columns };
 
     case 'HIDE_TASK': {
-      const tasks = state.tasks.map(t =>
-        t.id === action.taskId ? { ...t, isHidden: true } : t
-      );
+      const tasks = state.tasks.map((t) => (t.id === action.taskId ? { ...t, isHidden: true } : t));
       return { ...state, tasks };
     }
 
     case 'SHOW_ALL_TASKS': {
-      const tasks = state.tasks.map(t => ({ ...t, isHidden: false }));
+      const tasks = state.tasks.map((t) => ({ ...t, isHidden: false }));
       return { ...state, tasks };
     }
 
@@ -158,7 +168,9 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'CASCADE_DEPENDENTS': {
-      const preCascadeDates = new Map(state.tasks.map(t => [t.id, { start: t.startDate, end: t.endDate }]));
+      const preCascadeDates = new Map(
+        state.tasks.map((t) => [t.id, { start: t.startDate, end: t.endDate }])
+      );
       let tasks = cascadeDependents(state.tasks, action.taskId, action.daysDelta);
       const changedIds: string[] = [];
       const shifts: CascadeShift[] = [];
@@ -198,24 +210,20 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       );
       if (hierarchyError) return state; // Silently reject — UI filters invalid options
 
-      let tasks = state.tasks.map(t =>
-        t.id === action.taskId
-          ? { ...t, dependencies: [...t.dependencies, action.dependency] }
-          : t
+      let tasks = state.tasks.map((t) =>
+        t.id === action.taskId ? { ...t, dependencies: [...t.dependencies, action.dependency] } : t
       );
       tasks = recalcSummaryDates(tasks);
       return { ...state, tasks };
     }
 
     case 'UPDATE_DEPENDENCY': {
-      let tasks = state.tasks.map(t =>
+      let tasks = state.tasks.map((t) =>
         t.id === action.taskId
           ? {
               ...t,
-              dependencies: t.dependencies.map(d =>
-                d.fromId === action.fromId
-                  ? { ...d, type: action.newType, lag: action.newLag }
-                  : d
+              dependencies: t.dependencies.map((d) =>
+                d.fromId === action.fromId ? { ...d, type: action.newType, lag: action.newLag } : d
               ),
             }
           : t
@@ -225,9 +233,9 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'REMOVE_DEPENDENCY': {
-      let tasks = state.tasks.map(t =>
+      let tasks = state.tasks.map((t) =>
         t.id === action.taskId
-          ? { ...t, dependencies: t.dependencies.filter(d => d.fromId !== action.fromId) }
+          ? { ...t, dependencies: t.dependencies.filter((d) => d.fromId !== action.fromId) }
           : t
       );
       tasks = recalcSummaryDates(tasks);
@@ -239,10 +247,10 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
     case 'MERGE_EXTERNAL_TASKS': {
       const { externalTasks } = action;
-      const localMap = new Map(state.tasks.map(t => [t.id, t]));
+      const localMap = new Map(state.tasks.map((t) => [t.id, t]));
 
       // Start with all external tasks (source of truth for additions/deletions)
-      const merged = externalTasks.map(ext => {
+      const merged = externalTasks.map((ext) => {
         const local = localMap.get(ext.id);
         if (!local) return ext; // New task from sheets
         // If local task exists, keep local version (preserves in-progress edits)
@@ -259,28 +267,26 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, theme: action.theme };
 
     case 'ADD_TASK': {
-      const addTaskMap = new Map(state.tasks.map(t => [t.id, t]));
+      const addTaskMap = new Map(state.tasks.map((t) => [t.id, t]));
       const parent = action.parentId ? addTaskMap.get(action.parentId) : undefined;
 
       // Generate ID: prefixed if parent is summary, otherwise timestamp
-      const newId = parent && parent.isSummary
-        ? generatePrefixedId(parent, state.tasks)
-        : `task-${Date.now()}`;
+      const newId =
+        parent && parent.isSummary ? generatePrefixedId(parent, state.tasks) : `task-${Date.now()}`;
 
       // Inherit fields from parent
       const inherited = computeInheritedFields(action.parentId, addTaskMap);
 
-      const today = new Date().toISOString().split('T')[0];
-      const endDate = new Date();
-      endDate.setDate(endDate.getDate() + 5);
-      const endDateStr = endDate.toISOString().split('T')[0];
+      const startDate = format(ensureBusinessDay(new Date()), 'yyyy-MM-dd');
+      const duration = 5;
+      const endDateStr = taskEndDate(startDate, duration);
 
       const newTask: Task = {
         id: newId,
         name: 'New Task',
-        startDate: today,
+        startDate: startDate,
         endDate: endDateStr,
-        duration: workingDaysBetween(today, endDateStr),
+        duration: duration,
         owner: '',
         workStream: inherited.workStream,
         project: inherited.project,
@@ -302,16 +308,14 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
       // If it has a parent, add to parent's childIds
       if (action.parentId) {
-        tasks = tasks.map(t =>
-          t.id === action.parentId
-            ? { ...t, childIds: [...t.childIds, newId] }
-            : t
+        tasks = tasks.map((t) =>
+          t.id === action.parentId ? { ...t, childIds: [...t.childIds, newId] } : t
         );
       }
 
       // Insert after the specified task, or at the end
       if (action.afterTaskId) {
-        const idx = tasks.findIndex(t => t.id === action.afterTaskId);
+        const idx = tasks.findIndex((t) => t.id === action.afterTaskId);
         if (idx !== -1) {
           let insertIdx = idx + 1;
           const afterTask = tasks[idx];
@@ -321,7 +325,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
             while (queue.length > 0) {
               const cid = queue.pop()!;
               descendants.add(cid);
-              const child = tasks.find(t => t.id === cid);
+              const child = tasks.find((t) => t.id === cid);
               if (child) queue.push(...child.childIds);
             }
             while (insertIdx < tasks.length && descendants.has(tasks[insertIdx].id)) {
@@ -346,16 +350,16 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       while (queue.length > 0) {
         const id = queue.pop()!;
         toDelete.add(id);
-        const task = state.tasks.find(t => t.id === id);
+        const task = state.tasks.find((t) => t.id === id);
         if (task) queue.push(...task.childIds);
       }
 
       let tasks = state.tasks
-        .filter(t => !toDelete.has(t.id))
-        .map(t => ({
+        .filter((t) => !toDelete.has(t.id))
+        .map((t) => ({
           ...t,
-          childIds: t.childIds.filter(cid => !toDelete.has(cid)),
-          dependencies: t.dependencies.filter(d => !toDelete.has(d.fromId)),
+          childIds: t.childIds.filter((cid) => !toDelete.has(cid)),
+          dependencies: t.dependencies.filter((d) => !toDelete.has(d.fromId)),
         }));
 
       tasks = recalcSummaryDates(tasks);
@@ -407,7 +411,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'REPARENT_TASK': {
-      const rTaskMap = new Map(state.tasks.map(t => [t.id, t]));
+      const rTaskMap = new Map(state.tasks.map((t) => [t.id, t]));
       const rTask = rTaskMap.get(action.taskId);
       if (!rTask) return state;
 
@@ -429,9 +433,9 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
       // 1. Remove from old parent's childIds
       if (rTask.parentId) {
-        tasks = tasks.map(t =>
+        tasks = tasks.map((t) =>
           t.id === rTask.parentId
-            ? { ...t, childIds: t.childIds.filter(cid => cid !== action.taskId) }
+            ? { ...t, childIds: t.childIds.filter((cid) => cid !== action.taskId) }
             : t
         );
       }
@@ -441,11 +445,11 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       const oldId = action.taskId;
 
       // 3. Compute inherited fields from new parent
-      const updatedTaskMap = new Map(tasks.map(t => [t.id, t]));
+      const updatedTaskMap = new Map(tasks.map((t) => [t.id, t]));
       const rInherited = computeInheritedFields(action.newParentId, updatedTaskMap);
 
       // 4. Update the task itself
-      tasks = tasks.map(t => {
+      tasks = tasks.map((t) => {
         if (t.id === oldId) {
           return {
             ...t,
@@ -460,16 +464,14 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
       // 5. Add to new parent's childIds
       if (action.newParentId) {
-        tasks = tasks.map(t =>
-          t.id === action.newParentId
-            ? { ...t, childIds: [...t.childIds, newId] }
-            : t
+        tasks = tasks.map((t) =>
+          t.id === action.newParentId ? { ...t, childIds: [...t.childIds, newId] } : t
         );
       }
 
       // 6. If ID changed, update all references
       if (newId !== oldId) {
-        tasks = tasks.map(t => {
+        tasks = tasks.map((t) => {
           let updated = t;
 
           // Update parentId references
@@ -479,11 +481,14 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
           // Update childIds references
           if (t.childIds.includes(oldId)) {
-            updated = { ...updated, childIds: updated.childIds.map(cid => cid === oldId ? newId : cid) };
+            updated = {
+              ...updated,
+              childIds: updated.childIds.map((cid) => (cid === oldId ? newId : cid)),
+            };
           }
 
           // Update dependency references (fromId and toId)
-          const newDeps = t.dependencies.map(d => ({
+          const newDeps = t.dependencies.map((d) => ({
             ...d,
             fromId: d.fromId === oldId ? newId : d.fromId,
             toId: d.toId === oldId ? newId : d.toId,
@@ -497,11 +502,15 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       }
 
       // 7. Also update descendants' inherited fields
-      const rDescendantIds = getAllDescendantIds(newId, new Map(tasks.map(t => [t.id, t])));
+      const rDescendantIds = getAllDescendantIds(newId, new Map(tasks.map((t) => [t.id, t])));
       if (rDescendantIds.size > 0) {
-        tasks = tasks.map(t => {
+        tasks = tasks.map((t) => {
           if (rDescendantIds.has(t.id)) {
-            return { ...t, project: rInherited.project, workStream: rInherited.workStream || t.workStream };
+            return {
+              ...t,
+              project: rInherited.project,
+              workStream: rInherited.workStream || t.workStream,
+            };
           }
           return t;
         });
@@ -509,15 +518,18 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
       // 8. Reposition task in array after new parent
       if (action.newParentId) {
-        const taskToMove = tasks.find(t => t.id === newId);
+        const taskToMove = tasks.find((t) => t.id === newId);
         if (taskToMove) {
-          tasks = tasks.filter(t => t.id !== newId);
-          const parentIdx = tasks.findIndex(t => t.id === action.newParentId);
+          tasks = tasks.filter((t) => t.id !== newId);
+          const parentIdx = tasks.findIndex((t) => t.id === action.newParentId);
           if (parentIdx !== -1) {
             // Insert after parent's last descendant
             let insertIdx = parentIdx + 1;
             const parentTask = tasks[parentIdx];
-            const parentDescendants = getAllDescendantIds(parentTask.id, new Map(tasks.map(t => [t.id, t])));
+            const parentDescendants = getAllDescendantIds(
+              parentTask.id,
+              new Map(tasks.map((t) => [t.id, t]))
+            );
             while (insertIdx < tasks.length && parentDescendants.has(tasks[insertIdx].id)) {
               insertIdx++;
             }
@@ -543,14 +555,16 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
     case 'COMPLETE_DRAG': {
       // Atomic: set final position + cascade dependents in one reducer pass
-      const duration = workingDaysBetween(action.newStartDate, action.newEndDate);
-      let tasks = state.tasks.map(t =>
+      const duration = taskDuration(action.newStartDate, action.newEndDate);
+      let tasks = state.tasks.map((t) =>
         t.id === action.taskId
           ? { ...t, startDate: action.newStartDate, endDate: action.newEndDate, duration }
           : t
       );
       if (action.daysDelta !== 0) {
-        const preCascadeDates = new Map(tasks.map(t => [t.id, { start: t.startDate, end: t.endDate }]));
+        const preCascadeDates = new Map(
+          tasks.map((t) => [t.id, { start: t.startDate, end: t.endDate }])
+        );
         tasks = cascadeDependents(tasks, action.taskId, action.daysDelta);
         const changedIds: string[] = [];
         const shifts: CascadeShift[] = [];
@@ -572,14 +586,15 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'SET_CONSTRAINT': {
-      let tasks = state.tasks.map(t =>
+      let tasks = state.tasks.map((t) =>
         t.id === action.taskId
           ? {
               ...t,
               constraintType: action.constraintType,
-              constraintDate: action.constraintType === 'ASAP' || action.constraintType === 'ALAP'
-                ? undefined
-                : action.constraintDate,
+              constraintDate:
+                action.constraintType === 'ASAP' || action.constraintType === 'ALAP'
+                  ? undefined
+                  : action.constraintDate,
             }
           : t
       );
@@ -593,12 +608,12 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         state.tasks,
         scope.project,
         scope.workstream,
-        scope.taskId,
+        scope.taskId
       );
       if (results.length === 0) return state;
-      const recalcMap = new Map(results.map(r => [r.id, r]));
+      const recalcMap = new Map(results.map((r) => [r.id, r]));
       const changedIds: string[] = [];
-      let tasks = state.tasks.map(t => {
+      let tasks = state.tasks.map((t) => {
         const r = recalcMap.get(t.id);
         if (r && (t.startDate !== r.newStart || t.endDate !== r.newEnd)) {
           changedIds.push(t.id);

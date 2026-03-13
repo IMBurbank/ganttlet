@@ -411,7 +411,8 @@ these are purely additive.
 13. `sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> String`
 
 14. Add comprehensive tests for all new functions (convention tests from Stage 7d/7e)
-15. Add `WEEKEND_VIOLATION` to Rust `ConflictResult` types
+15. `ConflictResult` (lib.rs:76) uses `conflict_type: String` — `"WEEKEND_VIOLATION"` is a
+    string value, not a type change. No Rust type modification needed.
 
 ### Stage 2: Rust Scheduler Fixes
 
@@ -486,7 +487,7 @@ The UI must make it **impossible** to set a weekend start or end date. Prevent, 
    - TaskBarPopover.tsx:73: `taskEndDate(value, task!.duration)` instead of `addBusinessDaysToDate(value, task!.duration)`
 7. Rename `dateToXCollapsed` → `dateToX`, `xToDateCollapsed` → `xToDate` (Bug 12).
    Rename old `dateToX` → `dateToXCalendar`, `xToDate` → `xToDateCalendar` (internal).
-   All 23+ callsites in GanttChart, TaskBar, dependencyUtils get shorter names.
+   All ~42 references (including imports, tests) in GanttChart, TaskBar, dependencyUtils, dateUtils.test.ts get shorter names.
    TodayLine now calls `dateToX(todayStr, ..., collapseWeekends)` — fixed automatically.
 8. Verify collapsed-weekend mode still works with inclusive bar width
 9. Migrate remaining `workingDaysBetween` calls in TaskBar.tsx:131, TaskRow.tsx:90,
@@ -503,7 +504,8 @@ Weekend dates from Sheets are NOT silently fixed. They are surfaced as warnings.
 3. Fix end-date derivations in yjsBinding to use `taskEndDate`
 4. Fix yjsBinding `UPDATE_TASK_FIELD` (Bug 14): when field is `startDate` or `endDate`,
    also write recomputed duration to Yjs map so remote collaborators see correct duration
-5. Add `WEEKEND_VIOLATION` to ConflictResult types (TS side, matching Rust)
+5. TS `ConflictResult` (types/index.ts:36) uses `conflictType: string` — no type change
+   needed. `"WEEKEND_VIOLATION"` flows through WASM deserialization automatically.
 6. `find_conflicts` (already updated in Stage 2) detects weekend start/end dates
    and returns `WEEKEND_VIOLATION` conflicts. The existing conflict indicator UI
    (red dashed border + message on click) handles display — no new UI component needed.
@@ -765,8 +767,8 @@ trade-off for now.
 - `src/components/gantt/TodayLine.tsx` — use `dateToXCollapsed` (Bug 12)
 - `src/components/table/TaskRow.tsx` — end-date derivation (Bug 2), migrate `workingDaysBetween`, weekend validation
 - `src/components/gantt/TaskBarPopover.tsx` — weekend validation
-- `src/types/index.ts` — document inclusive convention, add `WEEKEND_VIOLATION` type
-- `crates/scheduler/src/types.rs` — document inclusive convention, add WEEKEND_VIOLATION
+- `src/types/index.ts` — document inclusive convention (ConflictResult already accepts any string)
+- `crates/scheduler/src/types.rs` — document inclusive convention (ConflictResult in lib.rs, string-based)
 - `crates/scheduler/src/date_utils.rs` — add convention-encoding functions and dep-type helpers
 - `crates/scheduler/src/cascade.rs` — FS formula fix (SS/FF/SF: remove `next_biz_on_or_after` wrappers only)
 - `crates/scheduler/src/constraints.rs` — recalculate_earliest end (line 291), FNET, MFO

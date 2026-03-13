@@ -11,8 +11,10 @@ scope:
     - src/components/table/TaskRow.tsx
     - src/components/gantt/TaskBarPopover.tsx
     - src/utils/dateUtils.ts
+    - src/utils/dependencyUtils.ts
     - src/utils/taskFieldValidation.ts
     - src/utils/__tests__/taskFieldValidation.test.ts
+    - src/utils/__tests__/dateUtils.test.ts
   read_only:
     - docs/plans/date-calc-fixes.md
     - src/types/index.ts
@@ -70,8 +72,10 @@ The UI layer needs three categories of fixes:
 - `src/components/table/TaskRow.tsx` — inline date editing, end-date derivation
 - `src/components/gantt/TaskBarPopover.tsx` — popover date editing
 - `src/utils/dateUtils.ts` — rename dateToX functions
+- `src/utils/dependencyUtils.ts` — rename dateToXCollapsed→dateToX (4 callsites)
 - `src/utils/taskFieldValidation.ts` — add weekend validation
 - `src/utils/__tests__/taskFieldValidation.test.ts` — validation tests
+- `src/utils/__tests__/dateUtils.test.ts` — rename dateToXCollapsed→dateToX in tests
 
 **Read-only:**
 - `docs/plans/date-calc-fixes.md` — §Stage 4, §Bug 8, §Bug 9, §Bug 12
@@ -247,8 +251,16 @@ Then update ALL callsites across the codebase:
 - `TodayLine.tsx` currently uses old `dateToX` → now calls new `dateToX` which is weekend-aware
 - The old `dateToX` (now `dateToXCalendar`) should only be called from within the new `dateToX`
 
+**Files with callsites (~42 references total):**
+- `GanttChart.tsx` — 10 `dateToXCollapsed`
+- `TaskBar.tsx` — 7 `dateToXCollapsed` + 4 `xToDateCollapsed`
+- `dependencyUtils.ts` — 5 `dateToXCollapsed` (1 import + 4 calls)
+- `dateUtils.test.ts` — 10 `dateToXCollapsed` + 7 `xToDateCollapsed` + 1 `dateToX` + 1 `xToDate`
+- `TodayLine.tsx` — 1 `dateToX` (old, becomes the correct name automatically)
+- `dateUtils.ts` — 1 definition of each (rename these first)
+
 **Strategy:** Do the rename in `dateUtils.ts` first, then use grep to find and fix all imports
-and callsites. The compiler (`tsc`) will catch any you miss.
+and callsites across all files above. The compiler (`tsc`) will catch any you miss.
 
 Commit: `"refactor: rename dateToXCollapsed→dateToX — weekend-aware is default (Bug 12)"`
 

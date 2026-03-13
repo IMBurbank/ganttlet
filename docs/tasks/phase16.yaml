@@ -33,6 +33,7 @@ stages:
             - .claude/agents/rust-scheduler.md
           read_only:
             - docs/plans/date-calc-fixes.md
+            - docs/plans/date-conventions.md
         tasks:
           - id: A1
             summary: "Read docs/plans/date-calc-fixes.md §Documentation Updates — understand all doc changes needed"
@@ -77,6 +78,7 @@ stages:
             - src/utils/__tests__/dateUtils.test.ts
           read_only:
             - docs/plans/date-calc-fixes.md
+            - docs/plans/date-conventions.md
             - src/types/index.ts
         tasks:
           - id: B1
@@ -118,11 +120,12 @@ stages:
         scope:
           modify:
             - crates/scheduler/src/date_utils.rs
-            - crates/scheduler/src/types.rs
           read_only:
             - docs/plans/date-calc-fixes.md
+            - docs/plans/date-conventions.md
             - crates/scheduler/src/constraints.rs
             - crates/scheduler/src/cascade.rs
+            - crates/scheduler/src/lib.rs
         tasks:
           - id: C1
             summary: "Read date_utils.rs — understand add_business_days, next_biz_day_on_or_after, count_biz_days_to"
@@ -152,7 +155,7 @@ stages:
               fs_successor_start("2026-03-06", 0) returns "2026-03-09" (Mon after Fri).
               ff_successor_start("2026-03-06", 0, 5) returns "2026-03-02" (Mon, so end = Fri).
           - id: C7
-            summary: "Add WEEKEND_VIOLATION variant to ConflictResult types"
+            summary: "Verify ConflictResult (lib.rs:76) supports WEEKEND_VIOLATION string — no type change needed"
             status: pending
           - id: C8
             summary: "Rename count_biz_days_to → business_day_delta (keep old as alias during migration)"
@@ -279,8 +282,10 @@ stages:
             - src/components/table/TaskRow.tsx
             - src/components/gantt/TaskBarPopover.tsx
             - src/utils/dateUtils.ts
+            - src/utils/dependencyUtils.ts
             - src/utils/taskFieldValidation.ts
             - src/utils/__tests__/taskFieldValidation.test.ts
+            - src/utils/__tests__/dateUtils.test.ts
           read_only:
             - docs/plans/date-calc-fixes.md
             - src/types/index.ts
@@ -311,8 +316,10 @@ stages:
             summary: "Rename dateToXCollapsed→dateToX, xToDateCollapsed→xToDate, old→Calendar variants (Bug 12)"
             status: pending
             exit_criteria: >
-              All 23+ callsites use dateToX (weekend-aware). TodayLine uses dateToX.
-              dateToXCalendar is internal only.
+              All ~42 references renamed (dateToXCollapsed→dateToX in GanttChart, TaskBar,
+              dependencyUtils, tests; xToDateCollapsed→xToDate in TaskBar, tests;
+              old dateToX→dateToXCalendar; old xToDate→xToDateCalendar).
+              TodayLine uses dateToX. dateToXCalendar is internal only.
           - id: F9
             summary: "Verify collapsed-weekend mode still works with inclusive bar width"
             status: pending
@@ -328,11 +335,11 @@ stages:
             - src/sheets/sheetsMapper.ts
             - src/sheets/__tests__/sheetsMapper.test.ts
             - src/collab/yjsBinding.ts
-            - src/types/index.ts
           read_only:
             - docs/plans/date-calc-fixes.md
             - src/utils/dateUtils.ts
             - src/state/ganttReducer.ts
+            - src/types/index.ts
         tasks:
           - id: G1
             summary: "Read sheetsMapper.ts, yjsBinding.ts — understand workingDaysBetween callsites and sync paths"
@@ -352,7 +359,7 @@ stages:
             exit_criteria: >
               When User A edits endDate, User B sees correct duration via Yjs.
           - id: G6
-            summary: "Add WEEKEND_VIOLATION to TS ConflictResult types (matching Rust)"
+            summary: "Verify TS ConflictResult (types/index.ts:36) accepts WEEKEND_VIOLATION string — no type change needed"
             status: pending
           - id: G7
             summary: "Update sheetsMapper.test.ts — fix duration assertions for inclusive convention"

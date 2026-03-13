@@ -94,7 +94,7 @@ Read all three files carefully:
    - Lines 251: FNLT constraint
    - Lines 275: MFO constraint
    - Line 291: `recalculate_earliest` end computation
-3. `lib.rs` — focus on lines 155-170: `find_conflicts`
+3. `lib.rs` — focus on `find_conflicts` (starts line 85; dep-violation match at lines 159-168)
 
 Note which formulas are correct and which need changing (see §What's Already Correct in the plan).
 

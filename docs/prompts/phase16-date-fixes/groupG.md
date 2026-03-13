@@ -8,11 +8,11 @@ scope:
     - src/sheets/sheetsMapper.ts
     - src/sheets/__tests__/sheetsMapper.test.ts
     - src/collab/yjsBinding.ts
-    - src/types/index.ts
   read_only:
     - docs/plans/date-calc-fixes.md
     - src/utils/dateUtils.ts
     - src/state/ganttReducer.ts
+    - src/types/index.ts
 depends_on: [B, E]
 tasks:
   - id: G1
@@ -165,21 +165,18 @@ the Yjs update, they see the correct duration via `SET_TASKS`.
 
 Commit: `"fix: UPDATE_TASK_FIELD syncs duration on date change (Bug 14)"`
 
-### G6: Add WEEKEND_VIOLATION to TS ConflictResult types
+### G6: Verify TS ConflictResult supports WEEKEND_VIOLATION
 
-In `src/types/index.ts`, find the ConflictResult type/interface and add weekend violation support.
-Match the pattern of existing conflict types. Look at how FS/SS dependency conflicts are typed
-and add a similar entry for WEEKEND.
+`ConflictResult` in `src/types/index.ts:36` uses `conflictType: string` — no type change needed.
+The `"WEEKEND_VIOLATION"` string value from Rust `find_conflicts` (Group D, task D10) flows
+through WASM deserialization automatically.
 
-The Rust side (Group C/D) already has the `WEEKEND_VIOLATION` variant. The TS type must match
-so that WASM results can be deserialized.
+Verify by reading `src/types/index.ts` lines 36-42. The existing conflict types are string
+values like `"SNLT_VIOLATED"`, `"NEGATIVE_FLOAT"`, etc. No enum or union — just strings.
 
-```typescript
-// In the ConflictResult type or related union:
-// Add 'WEEKEND' to whatever dep_type field exists, or add a new variant
-```
+**No code change needed** — just verify the TS type accepts any string as conflictType.
 
-Commit: `"feat: add WEEKEND_VIOLATION to TS ConflictResult types"`
+Commit: (no commit needed — verification only)
 
 ### G7: Update sheetsMapper.test.ts
 

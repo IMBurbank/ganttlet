@@ -6,7 +6,6 @@ agent_count: 1
 scope:
   modify:
     - crates/scheduler/src/date_utils.rs
-    - crates/scheduler/src/types.rs
   read_only:
     - docs/plans/date-calc-fixes.md
     - docs/plans/date-conventions.md
@@ -63,7 +62,7 @@ purely **additive** — no existing callers change. Group D will migrate callers
 - `docs/plans/date-conventions.md` — function naming glossary
 - `crates/scheduler/src/constraints.rs` — understand how FF/SF formulas work (read lines 29-39)
 - `crates/scheduler/src/cascade.rs` — understand cascade FS/SS/FF/SF (read lines 92-140)
-- `crates/scheduler/src/lib.rs` — understand find_conflicts (read lines 155-170)
+- `crates/scheduler/src/lib.rs` — understand find_conflicts (starts at line 85; dep-violation match at lines 159-168)
 
 ## Tasks — execute in order:
 
@@ -209,19 +208,23 @@ pub fn sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> Str
 - `fs_successor_start("2026-03-06", 1)` → `"2026-03-10"` (Fri + 2 biz = Tue)
 - `ss_successor_start("2026-03-02", 0)` → `"2026-03-02"` (same day)
 - `ff_successor_start("2026-03-06", 0, 5)` → `"2026-03-02"` (Fri end, dur=5, start=Mon)
-- `sf_successor_start("2026-03-02", 0, 5)` → `"2025-02-24"` — **verify with tool!**
+- `sf_successor_start("2026-03-02", 0, 5)` → `"2026-02-24"` (Tue, so finish=Mon 3/2, start=Tue 2/24)
 
 Commit: `"feat: add fs/ss/ff/sf_successor_start — shared dep-type helpers (Rust)"`
 
-### C7: Add WEEKEND_VIOLATION to ConflictResult types
+### C7: Verify ConflictResult supports WEEKEND_VIOLATION
 
-In `types.rs`, find the `ConflictResult` struct (or enum) and add a weekend violation variant.
-Read the existing conflict types to match the pattern.
+`ConflictResult` is defined in `lib.rs` (NOT `types.rs`) at line 76 as a struct with
+`conflict_type: String`. WEEKEND_VIOLATION is just a string value — no type change needed.
 
-The goal: `find_conflicts` (updated in Group D) will detect tasks with weekend start/end dates
-and return this conflict type so the UI shows a warning.
+Verify by reading `lib.rs` lines 73-82. The existing conflict types use string values like
+`"SNLT_VIOLATED"`, `"FNLT_VIOLATED"`, `"MSO_CONFLICT"`, `"MFO_CONFLICT"`, `"NEGATIVE_FLOAT"`.
+Group D (task D10) will add `"WEEKEND_VIOLATION"` as a new conflict_type string value.
 
-Commit: `"feat: add WEEKEND_VIOLATION conflict type to Rust types"`
+**No code change needed in this task** — just verify the struct can accommodate it (it can,
+since conflict_type is a String).
+
+Commit: (no commit needed — verification only)
 
 ### C8: Rename count_biz_days_to → business_day_delta
 

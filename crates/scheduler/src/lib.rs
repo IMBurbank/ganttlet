@@ -8,8 +8,7 @@ pub mod graph;
 pub mod types;
 
 use date_utils::{
-    add_business_days, ff_successor_start, fs_successor_start, sf_successor_start,
-    ss_successor_start,
+    ff_successor_start, fs_successor_start, is_weekend_date, sf_successor_start, ss_successor_start,
 };
 use serde::{Deserialize, Serialize};
 use types::{ConstraintType, Task};
@@ -189,6 +188,24 @@ fn find_conflicts(tasks: &[Task]) -> Vec<ConflictResult> {
                     });
                 }
             }
+        }
+    }
+
+    // Check for weekend violations: tasks must not start or end on Sat/Sun.
+    for task in tasks {
+        if is_weekend_date(&task.start_date) || is_weekend_date(&task.end_date) {
+            let (bad_date, which) = if is_weekend_date(&task.start_date) {
+                (task.start_date.clone(), "starts")
+            } else {
+                (task.end_date.clone(), "ends")
+            };
+            conflicts.push(ConflictResult {
+                task_id: task.id.clone(),
+                conflict_type: "WEEKEND_VIOLATION".to_string(),
+                constraint_date: bad_date.clone(),
+                actual_date: bad_date.clone(),
+                message: format!("Task {} {} on a weekend ({})", task.id, which, bad_date),
+            });
         }
     }
 

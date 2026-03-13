@@ -42,6 +42,12 @@ fn is_weekend(y: i32, m: u32, d: u32) -> bool {
     dow == 0 || dow == 6
 }
 
+/// Returns true if the date string falls on a Saturday or Sunday.
+pub fn is_weekend_date(date: &str) -> bool {
+    let (y, m, d) = parse_date(date);
+    is_weekend(y, m, d)
+}
+
 /// Add `n` business days (Mon-Fri) to a date string. Matches date-fns/addBusinessDays.
 /// Positive values go forward, negative values go backward.
 pub fn add_business_days(date_str: &str, n: i32) -> String {

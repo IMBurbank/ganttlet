@@ -1,3 +1,16 @@
+//! Critical Path Method (CPM) implementation.
+//!
+//! This module uses a standard exclusive integer model where:
+//! - early_start and late_start are inclusive
+//! - early_finish and late_finish are exclusive (day AFTER the task)
+//! - duration = finish - start (integer arithmetic)
+//!
+//! This is the standard CPM convention used in scheduling literature.
+//! Do NOT apply the project's inclusive end-date convention here —
+//! CPM is an abstract graph algorithm, not a date calculation.
+//! The conversion between CPM integers and calendar dates happens
+//! at the boundaries (input: date→int, output: int→date).
+
 use crate::types::{ConstraintType, DepType, Task};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -60,14 +73,11 @@ pub fn compute_critical_path(tasks: &[Task]) -> CriticalPathResult {
             }
             let dep_type = dep.dep_type.clone();
             *in_degree.entry(&t.id).or_insert(0) += 1;
-            successors
-                .entry(&dep.from_id)
-                .or_default()
-                .push(SuccEdge {
-                    task_id: t.id.clone(),
-                    lag: dep.lag,
-                    dep_type,
-                });
+            successors.entry(&dep.from_id).or_default().push(SuccEdge {
+                task_id: t.id.clone(),
+                lag: dep.lag,
+                dep_type,
+            });
         }
     }
 
@@ -276,9 +286,7 @@ pub fn compute_critical_path_scoped(
     let edges: Vec<(String, String)> = full_result
         .edges
         .into_iter()
-        .filter(|(from, to)| {
-            scoped_set.contains(from.as_str()) && scoped_set.contains(to.as_str())
-        })
+        .filter(|(from, to)| scoped_set.contains(from.as_str()) && scoped_set.contains(to.as_str()))
         .collect();
 
     CriticalPathResult { task_ids, edges }
@@ -314,13 +322,7 @@ mod tests {
         }
     }
 
-    fn make_project_task(
-        id: &str,
-        start: &str,
-        end: &str,
-        duration: i32,
-        project: &str,
-    ) -> Task {
+    fn make_project_task(id: &str, start: &str, end: &str, duration: i32, project: &str) -> Task {
         Task {
             project: project.to_string(),
             ..make_task(id, start, end, duration)
@@ -665,19 +667,12 @@ mod tests {
     #[test]
     fn scoped_workstream_filters() {
         // Engineering chain: e1 -> e2
-        let mut e2 = make_workstream_task(
-            "e2",
-            "2026-03-11",
-            "2026-03-20",
-            10,
-            "Alpha",
-            "Engineering",
-        );
+        let mut e2 =
+            make_workstream_task("e2", "2026-03-11", "2026-03-20", 10, "Alpha", "Engineering");
         e2.dependencies = vec![make_dep("e1", "e2", DepType::FS, 0)];
 
         // Design chain: d1 -> d2
-        let mut d2 =
-            make_workstream_task("d2", "2026-03-11", "2026-03-20", 10, "Alpha", "Design");
+        let mut d2 = make_workstream_task("d2", "2026-03-11", "2026-03-20", 10, "Alpha", "Design");
         d2.dependencies = vec![make_dep("d1", "d2", DepType::FS, 0)];
 
         let tasks = vec![
@@ -724,14 +719,8 @@ mod tests {
         // Engineering: e1 (dur 5, depends on d1 FS)
         // Full critical path: d1→e1 (both critical)
         // Scope to Engineering: e1 is critical, d1 filtered out (Design scope)
-        let mut e1 = make_workstream_task(
-            "e1",
-            "2026-03-11",
-            "2026-03-16",
-            5,
-            "Alpha",
-            "Engineering",
-        );
+        let mut e1 =
+            make_workstream_task("e1", "2026-03-11", "2026-03-16", 5, "Alpha", "Engineering");
         e1.dependencies = vec![make_dep("d1", "e1", DepType::FS, 0)];
 
         let tasks = vec![

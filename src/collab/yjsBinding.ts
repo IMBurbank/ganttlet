@@ -196,6 +196,17 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
           if (idx !== -1) {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set(action.field, action.value);
+
+            // Sync duration when date fields change (Bug 14 fix)
+            if (action.field === 'startDate' || action.field === 'endDate') {
+              const start = (
+                action.field === 'startDate' ? action.value : ymap.get('startDate')
+              ) as string;
+              const end = (
+                action.field === 'endDate' ? action.value : ymap.get('endDate')
+              ) as string;
+              ymap.set('duration', taskDuration(start, end));
+            }
           }
         });
       } finally {

@@ -31,7 +31,9 @@ test.describe('Ganttlet E2E', () => {
 
     // Verify the new name appears and the input is gone
     await expect(input).toBeHidden();
-    await expect(page.getByTitle('Double-click to edit').filter({ hasText: newName })).toBeVisible();
+    await expect(
+      page.getByTitle('Double-click to edit').filter({ hasText: newName })
+    ).toBeVisible();
 
     // Restore original name to avoid side effects
     if (originalText) {
@@ -59,12 +61,15 @@ test.describe('Ganttlet E2E', () => {
     // Wait for WASM computation and re-render
     // Critical elements (task bars or milestones) get fill="#ef4444"
     // Use page.evaluate since SVG elements may be off-viewport
-    await page.waitForFunction(() => {
-      return document.querySelectorAll('.task-bar[fill="#ef4444"]').length > 0;
-    }, { timeout: 5_000 });
+    await page.waitForFunction(
+      () => {
+        return document.querySelectorAll('.task-bar[fill="#ef4444"]').length > 0;
+      },
+      { timeout: 5_000 }
+    );
 
-    const count = await page.evaluate(() =>
-      document.querySelectorAll('.task-bar[fill="#ef4444"]').length
+    const count = await page.evaluate(
+      () => document.querySelectorAll('.task-bar[fill="#ef4444"]').length
     );
     expect(count).toBeGreaterThanOrEqual(1);
 
@@ -99,7 +104,9 @@ test.describe('Ganttlet E2E', () => {
 
     // Look for workstream items in the dropdown menu
     // The scope menu has sections: PROJECTS, WORKSTREAMS, MILESTONES
-    const workstreamItems = page.locator('button').filter({ hasText: /^(Platform Engineering|UX Redesign|Go-to-Market)/ });
+    const workstreamItems = page
+      .locator('button')
+      .filter({ hasText: /^(Platform Engineering|UX Redesign|Go-to-Market)/ });
 
     if ((await workstreamItems.count()) > 0) {
       // Click the first workstream to scope to it
@@ -147,7 +154,7 @@ test.describe('Ganttlet E2E', () => {
   test('constraint set via popover cascades to dependent tasks', async ({ page }) => {
     // Open a task bar popover by double-clicking
     const taskBar = page.locator('.task-bar').first();
-    await taskBar.dblclick({ force: true });
+    await taskBar.dispatchEvent('dblclick');
 
     // Wait for popover to appear
     const popover = page.locator('.fade-in');
@@ -171,7 +178,7 @@ test.describe('Ganttlet E2E', () => {
     await expect(page.locator('.task-bar').first()).toBeVisible({ timeout: 5_000 });
 
     // Verify constraint was applied: reopen the same task and check the value
-    await taskBar.dblclick({ force: true });
+    await taskBar.dispatchEvent('dblclick');
     const reopenedPopover = page.locator('.fade-in');
     await reopenedPopover.waitFor({ timeout: 5_000 });
     const updatedSelect = reopenedPopover.locator('select').last();
@@ -246,7 +253,7 @@ test.describe('Ganttlet E2E', () => {
       // For a left-pointing arrowhead, the tip x is the minimum x
       const xs = [coords[0], coords[2], coords[4]];
       const tipX = Math.min(...xs);
-      const baseXs = xs.filter(x => x !== tipX);
+      const baseXs = xs.filter((x) => x !== tipX);
 
       // Left-pointing: tip x is less than both base x values
       if (baseXs.length === 2 && tipX < baseXs[0] && tipX < baseXs[1]) {
@@ -276,7 +283,7 @@ test.describe('Ganttlet E2E', () => {
     // Set MSO on a task to a date in the past — verifies the app handles
     // constraint violations gracefully without crashing
     const taskBar = page.locator('.task-bar').first();
-    await taskBar.dblclick({ force: true });
+    await taskBar.dispatchEvent('dblclick');
 
     const popover = page.locator('.fade-in');
     await popover.waitFor({ timeout: 5_000 });
@@ -311,7 +318,7 @@ test.describe('Ganttlet E2E', () => {
     expect(conflictCount).toBeGreaterThan(0);
 
     // Reset: remove constraint to clean up
-    await taskBar.dblclick({ force: true });
+    await taskBar.dispatchEvent('dblclick');
     const resetPopover = page.locator('.fade-in');
     await resetPopover.waitFor({ timeout: 5_000 });
     const resetSelect = resetPopover.locator('select').last();

@@ -215,6 +215,27 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
       break;
     }
 
+    case 'SET_CONSTRAINT': {
+      isLocalUpdate = true;
+      try {
+        doc.transact(() => {
+          const idx = findTaskIndex(yarray, action.taskId);
+          if (idx !== -1) {
+            const ymap = yarray.get(idx) as Y.Map<unknown>;
+            ymap.set('constraintType', action.constraintType);
+            if (action.constraintDate) {
+              ymap.set('constraintDate', action.constraintDate);
+            } else {
+              ymap.delete('constraintDate');
+            }
+          }
+        });
+      } finally {
+        isLocalUpdate = false;
+      }
+      break;
+    }
+
     case 'TOGGLE_EXPAND': {
       isLocalUpdate = true;
       try {

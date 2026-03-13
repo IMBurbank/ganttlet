@@ -9,7 +9,9 @@ async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
   const keyA = process.env.GCP_SA_KEY_WRITER1_DEV;
   const keyB = process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV;
   if (!keyA || !keyB) {
-    throw new Error('E2E_CLOUD requires GCP_SA_KEY_WRITER1_DEV and GCP_SA_KEY_WRITER2_DEV or GCP_SA_KEY_READER1_DEV');
+    throw new Error(
+      'E2E_CLOUD requires GCP_SA_KEY_WRITER1_DEV and GCP_SA_KEY_WRITER2_DEV or GCP_SA_KEY_READER1_DEV'
+    );
   }
   const [tokenA, tokenB] = await Promise.all([getAccessToken(keyA), getAccessToken(keyB)]);
   return { tokenA, tokenB };
@@ -62,7 +64,7 @@ test.describe('Collaboration E2E', () => {
 
       // In pageB, verify the new task name appears within 5 seconds
       await expect(
-        pageB.getByTitle('Double-click to edit').filter({ hasText: newName }),
+        pageB.getByTitle('Double-click to edit').filter({ hasText: newName })
       ).toBeVisible({ timeout: 5_000 });
     } finally {
       await cleanup();
@@ -82,7 +84,7 @@ test.describe('Collaboration E2E', () => {
 
       // In pageA, double-click a task bar to open the popover
       const taskBar = pageA.locator('.task-bar').first();
-      await taskBar.dblclick({ force: true });
+      await taskBar.dispatchEvent('dblclick');
 
       const popover = pageA.locator('.fade-in');
       await popover.waitFor({ timeout: 5_000 });
@@ -98,18 +100,19 @@ test.describe('Collaboration E2E', () => {
       // Close popover
       await pageA.keyboard.press('Escape');
 
-      // Wait for CRDT sync
-      await pageA.waitForTimeout(2000);
-
-      // In pageB, open the same task's popover and verify the constraint
+      // Wait for CRDT sync — poll until pageB reflects the constraint change.
+      // The popover snapshots state at mount time, so we must confirm sync
+      // arrived before opening the popover.
       const taskBarB = pageB.locator('.task-bar').first();
-      await taskBarB.dblclick({ force: true });
 
-      const popoverB = pageB.locator('.fade-in');
-      await popoverB.waitFor({ timeout: 5_000 });
-
-      const constraintSelectB = popoverB.locator('select').last();
-      await expect(constraintSelectB).toHaveValue('SNET');
+      // Retry: open popover on pageB, check constraint, close if stale
+      await expect(async () => {
+        await taskBarB.dispatchEvent('dblclick');
+        const pop = pageB.locator('.fade-in');
+        await pop.waitFor({ timeout: 3_000 });
+        const sel = pop.locator('select').last();
+        await expect(sel).toHaveValue('SNET', { timeout: 1_000 });
+      }).toPass({ timeout: 10_000 });
 
       // Verify cascade propagated: task bars in pageB should have re-rendered
       // after the SNET constraint pushed dates forward. Check that all task bars
@@ -127,7 +130,7 @@ test.describe('Collaboration E2E', () => {
 
       // Close and clean up: reset to ASAP in pageA
       await pageB.keyboard.press('Escape');
-      await taskBar.dblclick({ force: true });
+      await taskBar.dispatchEvent('dblclick');
       const resetPopover = pageA.locator('.fade-in');
       await resetPopover.waitFor({ timeout: 5_000 });
       await resetPopover.locator('select').last().selectOption('ASAP');
@@ -150,7 +153,7 @@ test.describe('Collaboration E2E', () => {
 
       // In pageA, double-click the first task bar to open the popover
       const taskBar = pageA.locator('.task-bar').first();
-      await taskBar.dblclick({ force: true });
+      await taskBar.dispatchEvent('dblclick');
 
       const popover = pageA.locator('.fade-in');
       await popover.waitFor({ timeout: 5_000 });
@@ -178,7 +181,7 @@ test.describe('Collaboration E2E', () => {
       expect(rectCount + circleCount).toBeGreaterThan(0);
 
       // Clean up: reset constraint to ASAP in pageA
-      await taskBar.dblclick({ force: true });
+      await taskBar.dispatchEvent('dblclick');
       const resetPopover = pageA.locator('.fade-in');
       await resetPopover.waitFor({ timeout: 5_000 });
       await resetPopover.locator('select').last().selectOption('ASAP');
@@ -217,13 +220,13 @@ test.describe('Collaboration E2E', () => {
     await input.fill(testName);
     await page.locator('header').click();
 
-    await expect(
-      page.getByTitle('Double-click to edit').filter({ hasText: testName }),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTitle('Double-click to edit').filter({ hasText: testName })).toBeVisible(
+      { timeout: 5_000 }
+    );
 
     // Filter out expected WebSocket connection errors (relay not running)
     const unexpectedErrors = consoleErrors.filter(
-      (msg) => !msg.includes('WebSocket') && !msg.includes('ws://'),
+      (msg) => !msg.includes('WebSocket') && !msg.includes('ws://')
     );
     expect(unexpectedErrors).toHaveLength(0);
   });

@@ -246,7 +246,7 @@ pub fn recalculate_earliest(
             Some(ConstraintType::FNLT) => {
                 // Finish No Later Than: ceiling on end date
                 if let Some(ref constraint_date) = task.constraint_date {
-                    let computed_end = add_business_days(&new_start, task.duration);
+                    let computed_end = task_end_date(&new_start, task.duration);
                     if computed_end.as_str() > constraint_date.as_str() {
                         conflict = Some(format!(
                             "FNLT conflict: computed end {} exceeds constraint {}",

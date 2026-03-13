@@ -7,7 +7,10 @@ pub mod date_utils;
 pub mod graph;
 pub mod types;
 
-use date_utils::{add_business_days, fs_successor_start, ss_successor_start};
+use date_utils::{
+    add_business_days, ff_successor_start, fs_successor_start, sf_successor_start,
+    ss_successor_start,
+};
 use serde::{Deserialize, Serialize};
 use types::{ConstraintType, Task};
 
@@ -157,7 +160,7 @@ fn find_conflicts(tasks: &[Task]) -> Vec<ConflictResult> {
     }
 
     // Check for dependency violations (negative float proxy):
-    // A task's start date is before what its dependencies require.
+    // A task's start date (or for FF/SF, start derived from required end) violates the constraint.
     let task_map: std::collections::HashMap<&str, &Task> =
         tasks.iter().map(|t| (t.id.as_str(), t)).collect();
     for task in tasks {
@@ -166,12 +169,17 @@ fn find_conflicts(tasks: &[Task]) -> Vec<ConflictResult> {
                 let required_start = match dep.dep_type {
                     types::DepType::FS => fs_successor_start(&pred.end_date, dep.lag),
                     types::DepType::SS => ss_successor_start(&pred.start_date, dep.lag),
-                    _ => continue, // FF and SF constrain end, handled separately
+                    types::DepType::FF => {
+                        ff_successor_start(&pred.end_date, dep.lag, task.duration)
+                    }
+                    types::DepType::SF => {
+                        sf_successor_start(&pred.start_date, dep.lag, task.duration)
+                    }
                 };
                 if task.start_date < required_start {
                     conflicts.push(ConflictResult {
                         task_id: task.id.clone(),
-                        conflict_type: "NEGATIVE_FLOAT".to_string(),
+                        conflict_type: "DEP_VIOLATED".to_string(),
                         constraint_date: required_start.clone(),
                         actual_date: task.start_date.clone(),
                         message: format!(

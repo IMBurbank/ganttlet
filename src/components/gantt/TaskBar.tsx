@@ -104,6 +104,8 @@ export default function TaskBar({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, mode: 'move' | 'resize') => {
+      // Don't initiate drag on double-click (detail >= 2) — let onDoubleClick handle it
+      if (e.detail >= 2) return;
       e.preventDefault();
       e.stopPropagation();
       dragRef.current = {
@@ -436,6 +438,7 @@ export default function TaskBar({
           fill={isCritical ? '#ef4444' : color}
           opacity={isCritical ? 0.35 : 0.6}
           className="task-bar"
+          data-testid={`task-bar-${taskId}`}
           onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />
@@ -451,6 +454,7 @@ export default function TaskBar({
           strokeWidth={isCritical ? 2 : 1.5}
           opacity={isCritical ? 1 : 0.6}
           className="task-bar"
+          data-testid={`task-bar-${taskId}`}
           onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />

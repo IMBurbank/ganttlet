@@ -157,8 +157,8 @@ export function getMonthLabel(date: Date): string {
   return format(date, 'MMMM yyyy');
 }
 
-/** Count business days (Mon-Fri) between two dates (exclusive of end). Used for pixel mapping. */
-export function businessDaysBetween(start: Date, end: Date): number {
+/** @internal — pixel mapping only. For duration, use taskDuration. */
+function businessDaysBetween(start: Date, end: Date): number {
   let count = 0;
   const current = new Date(start);
   while (current < end) {

@@ -8,7 +8,6 @@ import {
   getColumnWidth,
   dateToX,
   xToDate,
-  businessDaysBetween,
   businessDaysDelta,
   taskDuration,
   taskEndDate,
@@ -100,11 +99,6 @@ describe('dateUtils', () => {
   describe('duration should be business days, not calendar days', () => {
     it('daysBetween counts calendar days (still used for cascade delta)', () => {
       expect(daysBetween('2026-03-06', '2026-03-10')).toBe(4);
-    });
-
-    it('businessDaysBetween counts only weekdays (used for pixel mapping)', () => {
-      // Mar 6 (Fri) to Mar 10 (Tue): Fri, [Sat, Sun], Mon = 2 business days
-      expect(businessDaysBetween(new Date('2026-03-06'), new Date('2026-03-10'))).toBe(2);
     });
 
     it('businessDaysDelta returns business days between two date strings', () => {

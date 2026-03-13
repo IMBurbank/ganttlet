@@ -8,8 +8,6 @@ import {
   getColumnWidth,
   dateToX,
   xToDate,
-  dateToXCollapsed,
-  xToDateCollapsed,
   businessDaysBetween,
   businessDaysDelta,
   workingDaysBetween,
@@ -146,18 +144,12 @@ describe('dateUtils', () => {
       earliestStart: string
     ) {
       const dx = dxColumns * colWidth;
-      const origStartX = dateToXCollapsed(
-        origStart,
-        timelineStart,
-        colWidth,
-        zoom,
-        collapseWeekends
-      );
-      const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
+      const origStartX = dateToX(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origEndX = dateToX(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
 
       // Compute new start, then clamp
       let newStart = formatDate(
-        xToDateCollapsed(origStartX + dx, timelineStart, colWidth, zoom, collapseWeekends)
+        xToDate(origStartX + dx, timelineStart, colWidth, zoom, collapseWeekends)
       );
       if (newStart < earliestStart) {
         newStart = earliestStart;
@@ -165,7 +157,7 @@ describe('dateUtils', () => {
 
       // Bug: end uses unclamped dx
       const newEnd = formatDate(
-        xToDateCollapsed(origEndX + dx, timelineStart, colWidth, zoom, collapseWeekends)
+        xToDate(origEndX + dx, timelineStart, colWidth, zoom, collapseWeekends)
       );
 
       return { newStart, newEnd };
@@ -182,35 +174,23 @@ describe('dateUtils', () => {
       earliestStart: string
     ) {
       const dx = dxColumns * colWidth;
-      const origStartX = dateToXCollapsed(
-        origStart,
-        timelineStart,
-        colWidth,
-        zoom,
-        collapseWeekends
-      );
-      const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
+      const origStartX = dateToX(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origEndX = dateToX(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
 
       // Compute new start, then clamp
       let newStartX = origStartX + dx;
       let newStart = formatDate(
-        xToDateCollapsed(newStartX, timelineStart, colWidth, zoom, collapseWeekends)
+        xToDate(newStartX, timelineStart, colWidth, zoom, collapseWeekends)
       );
       if (newStart < earliestStart) {
         newStart = earliestStart;
-        newStartX = dateToXCollapsed(
-          earliestStart,
-          timelineStart,
-          colWidth,
-          zoom,
-          collapseWeekends
-        );
+        newStartX = dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends);
       }
 
       // Fixed: use clamped dx for end
       const clampedDx = newStartX - origStartX;
       const newEnd = formatDate(
-        xToDateCollapsed(origEndX + clampedDx, timelineStart, colWidth, zoom, collapseWeekends)
+        xToDate(origEndX + clampedDx, timelineStart, colWidth, zoom, collapseWeekends)
       );
 
       return { newStart, newEnd };
@@ -379,19 +359,17 @@ describe('dateUtils', () => {
     const zoom = 'day' as const;
 
     function getVisualWidth(start: string, end: string): number {
-      const startX = dateToXCollapsed(start, timelineStart, colWidth, zoom, true);
-      const endX = dateToXCollapsed(end, timelineStart, colWidth, zoom, true);
+      const startX = dateToX(start, timelineStart, colWidth, zoom, true);
+      const endX = dateToX(end, timelineStart, colWidth, zoom, true);
       return (endX - startX) / colWidth;
     }
 
     function simulateCorrectDrag(origStart: string, origEnd: string, columnsDragged: number) {
       const dx = columnsDragged * colWidth;
-      const startX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, true);
-      const newStart = formatDate(
-        xToDateCollapsed(startX + dx, timelineStart, colWidth, zoom, true)
-      );
-      const endX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, true);
-      const newEnd = formatDate(xToDateCollapsed(endX + dx, timelineStart, colWidth, zoom, true));
+      const startX = dateToX(origStart, timelineStart, colWidth, zoom, true);
+      const newStart = formatDate(xToDate(startX + dx, timelineStart, colWidth, zoom, true));
+      const endX = dateToX(origEnd, timelineStart, colWidth, zoom, true);
+      const newEnd = formatDate(xToDate(endX + dx, timelineStart, colWidth, zoom, true));
       return { newStart, newEnd };
     }
 

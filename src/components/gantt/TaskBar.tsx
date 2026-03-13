@@ -9,8 +9,8 @@ import {
 } from '../../state/GanttContext';
 import { setDragIntent } from '../../collab/awareness';
 import {
-  dateToXCollapsed,
-  xToDateCollapsed,
+  dateToX,
+  xToDate,
   formatDate,
   daysBetween,
   businessDaysDelta,
@@ -122,8 +122,8 @@ export default function TaskBar({
 
         if (dragRef.current.mode === 'move') {
           let newStart = ensureBusinessDay(
-            xToDateCollapsed(
-              dateToXCollapsed(
+            xToDate(
+              dateToX(
                 dragRef.current.origStartDate,
                 timelineStart,
                 colWidth,
@@ -145,8 +145,8 @@ export default function TaskBar({
             newStart = parseISO(earliestStart);
             // Recompute the effective dx so end shifts by the same clamped amount
             clampedDx =
-              dateToXCollapsed(earliestStart, timelineStart, colWidth, zoom, collapseWeekends) -
-              dateToXCollapsed(
+              dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends) -
+              dateToX(
                 dragRef.current.origStartDate,
                 timelineStart,
                 colWidth,
@@ -157,8 +157,8 @@ export default function TaskBar({
 
           // Shift end by same (possibly clamped) pixel delta as start to preserve visual width
           const newEnd = prevBusinessDay(
-            xToDateCollapsed(
-              dateToXCollapsed(
+            xToDate(
+              dateToX(
                 dragRef.current.origEndDate,
                 timelineStart,
                 colWidth,
@@ -211,14 +211,9 @@ export default function TaskBar({
           }
         } else {
           const newEndX =
-            dateToXCollapsed(
-              dragRef.current.origEndDate,
-              timelineStart,
-              colWidth,
-              zoom,
-              collapseWeekends
-            ) + dx;
-          const origStartX = dateToXCollapsed(
+            dateToX(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) +
+            dx;
+          const origStartX = dateToX(
             dragRef.current.origStartDate,
             timelineStart,
             colWidth,
@@ -227,7 +222,7 @@ export default function TaskBar({
           );
           if (newEndX - origStartX < minWidth) return;
           const newEnd = prevBusinessDay(
-            xToDateCollapsed(newEndX, timelineStart, colWidth, zoom, collapseWeekends)
+            xToDate(newEndX, timelineStart, colWidth, zoom, collapseWeekends)
           );
           let newEndStr = format(newEnd, 'yyyy-MM-dd');
           // Enforce minimum 1-day duration

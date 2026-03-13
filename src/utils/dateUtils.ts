@@ -102,7 +102,7 @@ export function isSameDayCheck(d1: Date, d2: Date): boolean {
   return isSameDay(d1, d2);
 }
 
-export function dateToX(
+function dateToXCalendar(
   dateStr: string,
   timelineStart: Date,
   colWidth: number,
@@ -119,7 +119,7 @@ export function dateToX(
   }
 }
 
-export function xToDate(x: number, timelineStart: Date, colWidth: number, zoom: ZoomLevel): Date {
+function xToDateCalendar(x: number, timelineStart: Date, colWidth: number, zoom: ZoomLevel): Date {
   let daysDiff: number;
   if (zoom === 'day') {
     daysDiff = Math.round(x / colWidth);
@@ -186,28 +186,29 @@ export function workingDaysBetween(startStr: string, endStr: string): number {
   return count;
 }
 
-/** dateToX that skips weekends when collapseWeekends is true and zoom is 'day'. */
-export function dateToXCollapsed(
+/** Date to X position, skipping weekends when collapseWeekends is true and zoom is 'day'. */
+export function dateToX(
   dateStr: string,
   timelineStart: Date,
   colWidth: number,
   zoom: ZoomLevel,
-  collapseWeekends: boolean
+  collapseWeekends: boolean = false
 ): number {
-  if (!collapseWeekends || zoom !== 'day') return dateToX(dateStr, timelineStart, colWidth, zoom);
+  if (!collapseWeekends || zoom !== 'day')
+    return dateToXCalendar(dateStr, timelineStart, colWidth, zoom);
   const date = parseISO(dateStr);
   return businessDaysBetween(timelineStart, date) * colWidth;
 }
 
-/** Inverse: x to date, skipping weekends. */
-export function xToDateCollapsed(
+/** Inverse: x to date, skipping weekends when collapseWeekends is true and zoom is 'day'. */
+export function xToDate(
   x: number,
   timelineStart: Date,
   colWidth: number,
   zoom: ZoomLevel,
-  collapseWeekends: boolean
+  collapseWeekends: boolean = false
 ): Date {
-  if (!collapseWeekends || zoom !== 'day') return xToDate(x, timelineStart, colWidth, zoom);
+  if (!collapseWeekends || zoom !== 'day') return xToDateCalendar(x, timelineStart, colWidth, zoom);
   const bizDays = Math.round(x / colWidth);
   let count = 0;
   const current = new Date(timelineStart);

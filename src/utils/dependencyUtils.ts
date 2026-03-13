@@ -1,7 +1,10 @@
 import type { Task, Dependency, DependencyType, ZoomLevel } from '../types';
-import { dateToXCollapsed } from './dateUtils';
+import { dateToX } from './dateUtils';
 
-interface Point { x: number; y: number; }
+interface Point {
+  x: number;
+  y: number;
+}
 
 // Stub offset so arrows don't overlap the bar edges
 const STUB = 12;
@@ -15,16 +18,16 @@ export function getDependencyPoints(
   colWidth: number,
   zoom: ZoomLevel,
   rowHeight: number,
-  collapseWeekends: boolean = false,
+  collapseWeekends: boolean = false
 ): { start: Point; end: Point } | null {
   const fromY = taskYPositions.get(dep.fromId);
   const toY = taskYPositions.get(dep.toId);
   if (fromY === undefined || toY === undefined) return null;
 
-  const fromStartX = dateToXCollapsed(fromTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-  const fromEndX = dateToXCollapsed(fromTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-  const toStartX = dateToXCollapsed(toTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-  const toEndX = dateToXCollapsed(toTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const fromStartX = dateToX(fromTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const fromEndX = dateToX(fromTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const toStartX = dateToX(toTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const toEndX = dateToX(toTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
   const midRow = rowHeight / 2;
 
   let start: Point;
@@ -72,21 +75,23 @@ export function createBezierPath(start: Point, end: Point, depType?: DependencyT
     const outset = 20;
     // For FF: both stubs go right; for SS: both stubs go left
     const dir = depType === 'FF' ? 1 : -1;
-    const peakX = Math.max(start.x, end.x) * dir > 0
-      ? Math.max(start.x, end.x) + outset
-      : Math.min(start.x, end.x) - outset;
-    const farX = depType === 'FF'
-      ? Math.max(start.x, end.x) + outset
-      : Math.min(start.x, end.x) - outset;
+    const peakX =
+      Math.max(start.x, end.x) * dir > 0
+        ? Math.max(start.x, end.x) + outset
+        : Math.min(start.x, end.x) - outset;
+    const farX =
+      depType === 'FF' ? Math.max(start.x, end.x) + outset : Math.min(start.x, end.x) - outset;
     const r = 6;
     const dirY = dy > 0 ? 1 : dy < 0 ? -1 : 1;
 
-    return `M ${start.x} ${start.y} ` +
+    return (
+      `M ${start.x} ${start.y} ` +
       `L ${farX - r * dir} ${start.y} ` +
       `Q ${farX} ${start.y}, ${farX} ${start.y + r * dirY} ` +
       `L ${farX} ${end.y - r * dirY} ` +
       `Q ${farX} ${end.y}, ${farX - r * dir} ${end.y} ` +
-      `L ${end.x} ${end.y}`;
+      `L ${end.x} ${end.y}`
+    );
   }
 
   // Backward path: end is behind start, need S-curve routing
@@ -102,7 +107,8 @@ export function createBezierPath(start: Point, end: Point, depType?: DependencyT
   const dirOut = isSF ? -1 : 1;
   const dirIn = isSF ? 1 : -1;
 
-  return `M ${start.x} ${start.y} ` +
+  return (
+    `M ${start.x} ${start.y} ` +
     `L ${outX - r * dirOut} ${start.y} ` +
     `Q ${outX} ${start.y}, ${outX} ${start.y + r * dirY} ` +
     `L ${outX} ${midY - r * dirY} ` +
@@ -111,7 +117,8 @@ export function createBezierPath(start: Point, end: Point, depType?: DependencyT
     `Q ${inX} ${midY}, ${inX} ${midY + r * dirY} ` +
     `L ${inX} ${end.y - r * dirY} ` +
     `Q ${inX} ${end.y}, ${inX - r * dirIn} ${end.y} ` +
-    `L ${end.x} ${end.y}`;
+    `L ${end.x} ${end.y}`
+  );
 }
 
 export function createArrowHead(end: Point, depType?: DependencyType): string {
@@ -126,4 +133,3 @@ export function createArrowHead(end: Point, depType?: DependencyType): string {
   // Tip points right (toward bar start), base at end.x (FS, SS, or default)
   return `M ${end.x + size} ${end.y} L ${end.x} ${end.y - size} L ${end.x} ${end.y + size} Z`;
 }
-

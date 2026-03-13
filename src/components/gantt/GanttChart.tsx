@@ -4,7 +4,6 @@ import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } 
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import {
   dateToX,
-  dateToXCollapsed,
   getTimelineRange,
   getColumnWidth,
   getTimelineDays,
@@ -164,20 +163,8 @@ export default function GanttChart({
             if (yPos === undefined) return null;
 
             const earliest = computeEarliestStart(allTasks, task.id);
-            const taskX = dateToXCollapsed(
-              task.startDate,
-              timelineStart,
-              colWidth,
-              zoom,
-              collapseWeekends
-            );
-            const taskEndX = dateToXCollapsed(
-              task.endDate,
-              timelineStart,
-              colWidth,
-              zoom,
-              collapseWeekends
-            );
+            const taskX = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const taskEndX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
             const taskWidth = Math.max(taskEndX - taskX + colWidth, 0);
 
             const shift = cascadeShifts.find((s) => s.taskId === task.id);
@@ -186,13 +173,7 @@ export default function GanttChart({
               <React.Fragment key={`indicators-${task.id}`}>
                 {earliest && (
                   <SlackIndicator
-                    earliestX={dateToXCollapsed(
-                      earliest,
-                      timelineStart,
-                      colWidth,
-                      zoom,
-                      collapseWeekends
-                    )}
+                    earliestX={dateToX(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
                     actualX={taskX}
                     y={yPos}
                     height={ROW_HEIGHT}
@@ -200,7 +181,7 @@ export default function GanttChart({
                 )}
                 {shift && (
                   <CascadeHighlight
-                    originalX={dateToXCollapsed(
+                    originalX={dateToX(
                       shift.fromStartDate,
                       timelineStart,
                       colWidth,
@@ -210,14 +191,8 @@ export default function GanttChart({
                     currentX={taskX}
                     y={yPos}
                     originalWidth={Math.max(
-                      dateToXCollapsed(
-                        shift.fromEndDate,
-                        timelineStart,
-                        colWidth,
-                        zoom,
-                        collapseWeekends
-                      ) -
-                        dateToXCollapsed(
+                      dateToX(shift.fromEndDate, timelineStart, colWidth, zoom, collapseWeekends) -
+                        dateToX(
                           shift.fromStartDate,
                           timelineStart,
                           colWidth,
@@ -239,20 +214,8 @@ export default function GanttChart({
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
             const color = getTaskColor(colorBy, task[colorBy] as string);
-            const x = dateToXCollapsed(
-              task.startDate,
-              timelineStart,
-              colWidth,
-              zoom,
-              collapseWeekends
-            );
-            const endX = dateToXCollapsed(
-              task.endDate,
-              timelineStart,
-              colWidth,
-              zoom,
-              collapseWeekends
-            );
+            const x = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const endX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
             const width = Math.max(endX - x + colWidth, 0);
             const viewer = viewingMap.get(task.id);
             const earliest = computeEarliestStart(allTasks, task.id);
@@ -329,20 +292,8 @@ export default function GanttChart({
                 return null;
               const yPos = taskYPositions.get(drag.taskId);
               if (yPos === undefined) return null;
-              const gx = dateToXCollapsed(
-                drag.startDate,
-                timelineStart,
-                colWidth,
-                zoom,
-                collapseWeekends
-              );
-              const gEndX = dateToXCollapsed(
-                drag.endDate,
-                timelineStart,
-                colWidth,
-                zoom,
-                collapseWeekends
-              );
+              const gx = dateToX(drag.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+              const gEndX = dateToX(drag.endDate, timelineStart, colWidth, zoom, collapseWeekends);
               const gw = Math.max(gEndX - gx + colWidth, 0);
               const barH = 28;
               const barY = yPos + (ROW_HEIGHT - barH) / 2;

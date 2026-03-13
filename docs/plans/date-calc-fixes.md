@@ -900,5 +900,5 @@ to use:
 | `dateToXCalendar(str, start, w, zoom)` | TS | **RENAME** | old `dateToX` → internal, includes weekends |
 | `xToDateCalendar(x, start, w, zoom)` | TS | **RENAME** | old `xToDate` → internal, includes weekends |
 | `workingDaysBetween(start, end)` | TS | **DELETE** | ~~Duration~~ → replaced by `taskDuration` |
-| `count_biz_days_to(from, to)` | Rust | **KEEP** | Cascade shift calculation (start-exclusive, end-inclusive) |
+| `business_day_shift(from, to)` | Rust | **RENAME** | `count_biz_days_to` → `business_day_shift` (cascade shift amount) |
 | `next_biz_day_on_or_after(date)` | Rust | **DEPRECATE** | → `ensure_business_day()` |

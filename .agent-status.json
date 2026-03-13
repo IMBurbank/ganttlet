@@ -1,5 +1,5 @@
 {
-  "group": "E",
+  "group": "F",
   "phase": 16,
   "tasks": {
     "E1": {
@@ -62,7 +62,38 @@
     },
     "D11": {
       "status": "done"
+    },
+    "F1": {
+      "status": "done"
+    },
+    "F2": {
+      "status": "in_progress"
+    },
+    "G1": {
+      "status": "done"
+    },
+    "G2": {
+      "status": "done"
+    },
+    "G3": {
+      "status": "done"
+    },
+    "G4": {
+      "status": "done",
+      "notes": "no addBusinessDays callsites in yjsBinding.ts"
+    },
+    "G5": {
+      "status": "done"
+    },
+    "G6": {
+      "status": "done",
+      "notes": "ConflictResult.conflictType is string - no change needed"
+    },
+    "G7": {
+      "status": "done",
+      "tests_passing": 34,
+      "tests_failing": 0
     }
   },
-  "last_updated": "2026-03-13T04:38:18.944Z"
+  "last_updated": "2026-03-13T04:43:45.208Z"
 }

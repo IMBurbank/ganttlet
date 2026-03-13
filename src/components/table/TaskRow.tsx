@@ -20,8 +20,18 @@ import { getHierarchyRole, findWorkstreamAncestor } from '../../utils/hierarchyU
 import InlineEdit from './InlineEdit';
 import PredecessorsCell from './PredecessorsCell';
 import OKRPickerModal from '../shared/OKRPickerModal';
-import { formatDisplayDate, addBusinessDaysToDate, businessDaysDelta, workingDaysBetween } from '../../utils/dateUtils';
-import { validateTaskName, validateDuration, validateEndDate } from '../../utils/taskFieldValidation';
+import {
+  formatDisplayDate,
+  addBusinessDaysToDate,
+  businessDaysDelta,
+  workingDaysBetween,
+  taskEndDate,
+} from '../../utils/dateUtils';
+import {
+  validateTaskName,
+  validateDuration,
+  validateEndDate,
+} from '../../utils/taskFieldValidation';
 
 interface TaskRowProps {
   task: Task;
@@ -32,7 +42,14 @@ interface TaskRowProps {
   autoFocusName?: boolean;
 }
 
-export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoFocusName }: TaskRowProps) {
+export default function TaskRow({
+  task,
+  columns,
+  colorBy,
+  taskMap,
+  viewer,
+  autoFocusName,
+}: TaskRowProps) {
   const dispatch = useGanttDispatch();
   const rowRef = useRef<HTMLDivElement>(null);
   const setViewingTask = useSetViewingTask();
@@ -45,7 +62,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
   }, [autoFocusName]);
 
   const depth = getTaskDepth(task, taskMap);
-  const visibleColumns = columns.filter(c => c.visible);
+  const visibleColumns = columns.filter((c) => c.visible);
   const color = getTaskColor(colorBy, task[colorBy] as string);
 
   function handleContextMenu(e: React.MouseEvent) {
@@ -74,13 +91,17 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
   function handleDateUpdate(field: 'startDate' | 'endDate', value: string) {
     const oldValue = task[field];
     if (field === 'startDate') {
-      const newEndDate = addBusinessDaysToDate(value, task.duration);
+      const newEndDate = taskEndDate(value, task.duration);
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'startDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
       dispatch({
         type: 'ADD_CHANGE_RECORD',
-        taskId: task.id, taskName: task.name, field: 'startDate',
-        oldValue, newValue: value, user: 'You',
+        taskId: task.id,
+        taskName: task.name,
+        field: 'startDate',
+        oldValue,
+        newValue: value,
+        user: 'You',
       });
       const delta = businessDaysDelta(oldValue, value);
       if (delta !== 0) {
@@ -90,11 +111,20 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
       const newDuration = workingDaysBetween(task.startDate, value);
       if (newDuration < 0) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value });
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
+      dispatch({
+        type: 'UPDATE_TASK_FIELD',
+        taskId: task.id,
+        field: 'duration',
+        value: newDuration,
+      });
       dispatch({
         type: 'ADD_CHANGE_RECORD',
-        taskId: task.id, taskName: task.name, field: 'endDate',
-        oldValue, newValue: value, user: 'You',
+        taskId: task.id,
+        taskName: task.name,
+        field: 'endDate',
+        oldValue,
+        newValue: value,
+        user: 'You',
       });
       const endDelta = businessDaysDelta(oldValue, value);
       if (endDelta !== 0) {
@@ -108,13 +138,17 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
     if (isNaN(newDuration) || newDuration < 0) return;
     const oldEndDate = task.endDate;
     const oldValue = String(task.duration);
-    const newEndDate = addBusinessDaysToDate(task.startDate, newDuration);
+    const newEndDate = taskEndDate(task.startDate, newDuration);
     dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
     dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
     dispatch({
       type: 'ADD_CHANGE_RECORD',
-      taskId: task.id, taskName: task.name, field: 'duration',
-      oldValue, newValue: value, user: 'You',
+      taskId: task.id,
+      taskName: task.name,
+      field: 'duration',
+      oldValue,
+      newValue: value,
+      user: 'You',
     });
     const endDelta = businessDaysDelta(oldEndDate, newEndDate);
     if (endDelta !== 0) {
@@ -135,7 +169,10 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
                 className="shrink-0 w-4 h-4 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
               >
                 <svg
-                  width="10" height="10" viewBox="0 0 10 10" fill="currentColor"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 10 10"
+                  fill="currentColor"
                   className={`transition-transform duration-150 ${task.isExpanded ? 'rotate-90' : ''}`}
                 >
                   <path d="M3 1 L8 5 L3 9 Z" />
@@ -144,54 +181,52 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
             ) : (
               <span className="shrink-0 w-4" />
             )}
-            <div
-              className="w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: color }}
-            />
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
             <InlineEdit
               value={task.name}
-              onSave={v => handleFieldUpdate('name', v)}
+              onSave={(v) => handleFieldUpdate('name', v)}
               autoEdit={autoFocusName}
               validate={validateTaskName}
             />
           </div>
         );
       case 'owner':
-        return (
-          <InlineEdit
-            value={task.owner}
-            onSave={v => handleFieldUpdate('owner', v)}
-          />
-        );
+        return <InlineEdit value={task.owner} onSave={(v) => handleFieldUpdate('owner', v)} />;
       case 'startDate':
         if (task.isSummary) {
-          return <span className="text-text-secondary text-xs">{formatDisplayDate(task.startDate)}</span>;
+          return (
+            <span className="text-text-secondary text-xs">{formatDisplayDate(task.startDate)}</span>
+          );
         }
         return (
           <InlineEdit
             value={task.startDate}
             displayValue={formatDisplayDate(task.startDate)}
             type="date"
-            onSave={v => handleDateUpdate('startDate', v)}
+            onSave={(v) => handleDateUpdate('startDate', v)}
           />
         );
       case 'endDate':
         if (task.isSummary) {
-          return <span className="text-text-secondary text-xs">{formatDisplayDate(task.endDate)}</span>;
+          return (
+            <span className="text-text-secondary text-xs">{formatDisplayDate(task.endDate)}</span>
+          );
         }
         return (
           <InlineEdit
             value={task.endDate}
             displayValue={formatDisplayDate(task.endDate)}
             type="date"
-            onSave={v => handleDateUpdate('endDate', v)}
-            validate={v => validateEndDate(task.startDate, v)}
+            onSave={(v) => handleDateUpdate('endDate', v)}
+            validate={(v) => validateEndDate(task.startDate, v)}
           />
         );
       case 'duration':
         if (task.isSummary || task.isMilestone) {
           return (
-            <span className="text-text-secondary text-xs">{task.isMilestone ? '0' : `${task.duration}d`}</span>
+            <span className="text-text-secondary text-xs">
+              {task.isMilestone ? '0' : `${task.duration}d`}
+            </span>
           );
         }
         return (
@@ -210,10 +245,12 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
             <input
               type="checkbox"
               checked={task.done}
-              onChange={e => handleFieldUpdate('done', e.target.checked)}
+              onChange={(e) => handleFieldUpdate('done', e.target.checked)}
               disabled={task.isSummary}
               className="w-4 h-4 rounded border-border-strong bg-surface-sunken text-blue-500 focus:ring-blue-500/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              title={task.isSummary ? 'Summary tasks are auto-calculated from children' : 'Mark as done'}
+              title={
+                task.isSummary ? 'Summary tasks are auto-calculated from children' : 'Mark as done'
+              }
             />
           </div>
         );
@@ -221,14 +258,14 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         return (
           <InlineEdit
             value={task.description}
-            onSave={v => handleFieldUpdate('description', v)}
+            onSave={(v) => handleFieldUpdate('description', v)}
           />
         );
       case 'functionalArea':
         return (
           <InlineEdit
             value={task.functionalArea}
-            onSave={v => handleFieldUpdate('functionalArea', v)}
+            onSave={(v) => handleFieldUpdate('functionalArea', v)}
           />
         );
       case 'workStream': {
@@ -237,7 +274,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         return (
           <InlineEdit
             value={task.workStream}
-            onSave={v => handleFieldUpdate('workStream', v)}
+            onSave={(v) => handleFieldUpdate('workStream', v)}
             readOnly={wsReadOnly}
           />
         );
@@ -248,7 +285,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         return (
           <InlineEdit
             value={task.project}
-            onSave={v => handleFieldUpdate('project', v)}
+            onSave={(v) => handleFieldUpdate('project', v)}
             readOnly={projReadOnly}
           />
         );
@@ -275,11 +312,20 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
                 availableOkrs={availableOkrs}
                 onSave={(okrs) => {
                   const oldValue = task.okrs.join(', ');
-                  dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'okrs', value: okrs });
+                  dispatch({
+                    type: 'UPDATE_TASK_FIELD',
+                    taskId: task.id,
+                    field: 'okrs',
+                    value: okrs,
+                  });
                   dispatch({
                     type: 'ADD_CHANGE_RECORD',
-                    taskId: task.id, taskName: task.name, field: 'okrs',
-                    oldValue, newValue: okrs.join(', '), user: 'You',
+                    taskId: task.id,
+                    taskName: task.name,
+                    field: 'okrs',
+                    oldValue,
+                    newValue: okrs.join(', '),
+                    user: 'You',
                   });
                 }}
                 onClose={() => setOkrPickerOpen(false)}
@@ -289,17 +335,12 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
         );
       }
       case 'notes':
-        return (
-          <InlineEdit
-            value={task.notes}
-            onSave={v => handleFieldUpdate('notes', v)}
-          />
-        );
+        return <InlineEdit value={task.notes} onSave={(v) => handleFieldUpdate('notes', v)} />;
       case 'constraintType':
         return (
           <select
             value={task.constraintType ?? 'ASAP'}
-            onChange={e => {
+            onChange={(e) => {
               const ct = e.target.value as NonNullable<Task['constraintType']>;
               dispatch({
                 type: 'SET_CONSTRAINT',
@@ -312,8 +353,10 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
             }}
             className="bg-transparent border-none text-text-secondary text-xs cursor-pointer focus:outline-none hover:text-text-primary"
           >
-            {CONSTRAINT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            {CONSTRAINT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
             ))}
           </select>
         );
@@ -339,7 +382,7 @@ export default function TaskRow({ task, columns, colorBy, taskMap, viewer, autoF
       onMouseEnter={() => setViewingTask(task.id, null)}
       onMouseLeave={() => setViewingTask(null, null)}
     >
-      {visibleColumns.map(col => {
+      {visibleColumns.map((col) => {
         const isCellViewed = isViewed && viewerCellColumn === col.key;
         return (
           <PresenceCell
@@ -401,7 +444,9 @@ function PresenceCell({
       onMouseLeave={handleMouseLeave}
     >
       {children}
-      {isHighlighted && hovered && viewerName &&
+      {isHighlighted &&
+        hovered &&
+        viewerName &&
         createPortal(
           <div
             className="fixed z-50 px-2 py-1 text-xs rounded shadow-lg pointer-events-none fade-in whitespace-nowrap"
@@ -415,9 +460,8 @@ function PresenceCell({
           >
             {viewerName}
           </div>,
-          document.body,
-        )
-      }
+          document.body
+        )}
     </div>
   );
 }

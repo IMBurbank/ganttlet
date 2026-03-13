@@ -10,7 +10,6 @@ import {
   xToDate,
   businessDaysBetween,
   businessDaysDelta,
-  workingDaysBetween,
   taskDuration,
   taskEndDate,
   ensureBusinessDay,
@@ -119,11 +118,6 @@ describe('dateUtils', () => {
       expect(businessDaysDelta('2026-03-02', '2026-03-02')).toBe(0);
       // Negative (moving backward)
       expect(businessDaysDelta('2026-03-09', '2026-03-06')).toBe(-1);
-    });
-
-    it('Mar 6 (Fri) to Mar 10 (Tue) = 2 working days (Fri, Mon)', () => {
-      // Start-inclusive, end-exclusive: Fri(1), [Sat skip], [Sun skip], Mon(2)
-      expect(workingDaysBetween('2026-03-06', '2026-03-10')).toBe(2);
     });
   });
 

@@ -31,7 +31,7 @@ export function formatDisplayDate(dateStr: string): string {
 /**
  * Returns the number of calendar days between two date strings.
  * Used for cascade deltas (relative positioning), NOT for duration.
- * For duration, use workingDaysBetween() instead.
+ * For duration, use taskDuration() instead.
  */
 export function daysBetween(start: string, end: string): number {
   return differenceInCalendarDays(parseISO(end), parseISO(start));
@@ -159,24 +159,6 @@ export function getMonthLabel(date: Date): string {
 
 /** Count business days (Mon-Fri) between two dates (exclusive of end). Used for pixel mapping. */
 export function businessDaysBetween(start: Date, end: Date): number {
-  let count = 0;
-  const current = new Date(start);
-  while (current < end) {
-    if (!isWeekend(current)) count++;
-    current.setDate(current.getDate() + 1);
-  }
-  return count;
-}
-
-/**
- * Count working days (Mon-Fri) between two ISO date strings, inclusive of start,
- * exclusive of end. This is the canonical duration calculation.
- * Example: '2026-03-06' (Fri) to '2026-03-10' (Tue) → 2 (Fri, Mon).
- */
-export function workingDaysBetween(startStr: string, endStr: string): number {
-  const start = parseISO(startStr);
-  const end = parseISO(endStr);
-  if (start >= end) return 0;
   let count = 0;
   const current = new Date(start);
   while (current < end) {

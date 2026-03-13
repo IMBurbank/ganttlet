@@ -227,9 +227,15 @@ export default function TaskBar({
             collapseWeekends
           );
           if (newEndX - origStartX < minWidth) return;
-          const newEnd = xToDateCollapsed(newEndX, timelineStart, colWidth, zoom, collapseWeekends);
-          const newEndStr = formatDate(newEnd);
-          const newDuration = workingDaysBetween(dragRef.current.origStartDate, newEndStr);
+          const newEnd = prevBusinessDay(
+            xToDateCollapsed(newEndX, timelineStart, colWidth, zoom, collapseWeekends)
+          );
+          let newEndStr = format(newEnd, 'yyyy-MM-dd');
+          // Enforce minimum 1-day duration
+          if (newEndStr < dragRef.current.origStartDate) {
+            newEndStr = dragRef.current.origStartDate;
+          }
+          const newDuration = taskDuration(dragRef.current.origStartDate, newEndStr);
           if (newDuration < 1) return;
 
           // Skip if end date hasn't changed

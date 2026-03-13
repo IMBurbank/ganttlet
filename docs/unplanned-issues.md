@@ -26,7 +26,7 @@ items from **Backlog**, moves them to **Claimed**, and once planned into
 - [x] Feature: Negative float / conflict detection → Phase 15, Group B
 - [ ] Feature: Calendar support — working days vs calendar days, holiday definitions. Duration calculations currently assume all weekdays are workdays. Needs project calendar, task calendar, and resource calendar support.
 - [x] Feature: SF (Start-to-Finish) dependency type → Phase 15, Groups A + B
-- [ ] Feature: Duration mode preference toggle — let users choose between calendar days and business days for duration display/calculation. Currently `duration` is always derived via `workingDaysBetween()` (business days, Mon-Fri) regardless of settings. Allow toggle per sheet, project, workstream or task.
+- [ ] Feature: Duration mode preference toggle — let users choose between calendar days and business days for duration display/calculation. Currently `duration` is always derived via `taskDuration()` (business days, Mon-Fri) regardless of settings. Allow toggle per sheet, project, workstream or task.
 
 ### Collaboration & UX
 

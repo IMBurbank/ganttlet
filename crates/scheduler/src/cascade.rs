@@ -760,4 +760,132 @@ mod tests {
                                                 // End: add_biz(Mar 13, 2) = Tue Mar 17
         assert_eq!(b.end_date, "2026-03-17"); // Tue
     }
+
+    // ── Agreement tests: cascade_dependents vs recalculate_earliest ────────
+    // These invariant tests verify that cascade and recalculate produce the
+    // same dates for all dependency types and lags. They catch regressions where
+    // one function diverges from the other.
+    //
+    // Setup for all subtests:
+    //   A: start=2026-03-02 (Mon), end=2026-03-06 (Fri), duration=5
+    //   A moves +3 biz → new_start=2026-03-05 (Thu), new_end=2026-03-11 (Wed)
+    //   B: start=2026-02-02 (Mon), end=2026-02-06 (Fri), duration=5
+    //   B has internally consistent dates (end = taskEndDate(start, dur))
+    //   so both cascade and recalculate can agree.
+    //
+    // Cascade computes: shift = count_biz(B.curr_start_or_end, required), then
+    //                   new_dates = B.curr + shift (duration preserved).
+    // Recalculate computes: new_start directly from dep formula (ASAP forward pass).
+    // They agree iff B.curr dates are internally consistent AND both see A's new dates.
+
+    fn make_dep_typed(from: &str, to: &str, dep_type: DepType, lag: i32) -> Dependency {
+        Dependency {
+            from_id: from.to_string(),
+            to_id: to.to_string(),
+            dep_type,
+            lag,
+        }
+    }
+
+    /// Build a two-task scenario with A at its new position (already moved)
+    /// and B at a fixed old position that violates any dep constraint.
+    /// A: start=2026-03-05 (Thu), end=2026-03-11 (Wed), dur=5 (moved +3 biz from Mon)
+    /// B: start=2026-02-02 (Mon), end=2026-02-06 (Fri), dur=5 (old position, violates all deps)
+    fn make_ab_scenario(dep_type: DepType, lag: i32) -> Vec<Task> {
+        vec![
+            // A already at moved position
+            {
+                let mut t = make_task("a", "2026-03-05", "2026-03-11");
+                t.duration = 5;
+                t
+            },
+            // B at old position (will violate any dep constraint with A's new dates)
+            {
+                let mut t = make_task("b", "2026-02-02", "2026-02-06");
+                t.duration = 5;
+                t.dependencies = vec![make_dep_typed("a", "b", dep_type, lag)];
+                t
+            },
+        ]
+    }
+
+    #[test]
+    fn cascade_and_recalculate_agree_on_all_dep_types() {
+        use crate::constraints::recalculate_earliest;
+
+        // (dep_type, lag, expected cascade start, expected recalc start)
+        // All expected values verified via node -e with date-fns addBusinessDays.
+        //
+        // A.new_start=2026-03-05 (Thu), A.new_end=2026-03-11 (Wed)
+        // B.curr_start=2026-02-02, B.curr_end=2026-02-06, B.dur=5
+        //
+        // FS lag=0: required_start = addBiz(A.end, 1) = 2026-03-12 (Thu)
+        // FS lag=1: required_start = addBiz(A.end, 2) = 2026-03-13 (Fri)
+        // FS lag=2: required_start = addBiz(A.end, 3) = 2026-03-16 (Mon)
+        // SS lag=0: required_start = addBiz(A.start, 0) = 2026-03-05 (Thu)
+        // SS lag=1: required_start = addBiz(A.start, 1) = 2026-03-06 (Fri)
+        // SS lag=2: required_start = addBiz(A.start, 2) = 2026-03-09 (Mon)
+        // FF lag=0: required_end = addBiz(A.end, 0) = 2026-03-11, start = addBiz(end, -4) = 2026-03-05
+        // FF lag=1: required_end = addBiz(A.end, 1) = 2026-03-12, start = addBiz(end, -4) = 2026-03-06
+        // SF lag=0: required_end = addBiz(A.start, 0) = 2026-03-05, start = addBiz(end, -4) = 2026-02-27
+        // SF lag=1: required_end = addBiz(A.start, 1) = 2026-03-06, start = addBiz(end, -4) = 2026-03-02
+        let cases: &[(DepType, i32, &str)] = &[
+            (DepType::FS, 0, "2026-03-12"),
+            (DepType::FS, 1, "2026-03-13"),
+            (DepType::FS, 2, "2026-03-16"),
+            (DepType::SS, 0, "2026-03-05"),
+            (DepType::SS, 1, "2026-03-06"),
+            (DepType::SS, 2, "2026-03-09"),
+            (DepType::FF, 0, "2026-03-05"),
+            (DepType::FF, 1, "2026-03-06"),
+            (DepType::SF, 0, "2026-02-27"),
+            (DepType::SF, 1, "2026-03-02"),
+        ];
+
+        for (dep_type, lag, expected_start) in cases {
+            let tasks = make_ab_scenario(dep_type.clone(), *lag);
+
+            // Run cascade: A moved +3 biz to its new position
+            let cascade_results = cascade_dependents(&tasks, "a", 3);
+            let cascade_b = cascade_results
+                .iter()
+                .find(|r| r.id == "b")
+                .expect(&format!(
+                    "cascade should move B for dep={:?} lag={}",
+                    dep_type, lag
+                ));
+
+            // Run recalculate_earliest: A already at new position, recalc from scratch
+            let recalc_results = recalculate_earliest(
+                &tasks,
+                None,
+                None,
+                None,
+                "2026-01-01", // today far in past so no floor affects the result
+            );
+            let recalc_b = recalc_results.iter().find(|r| r.id == "b").expect(&format!(
+                "recalculate should move B for dep={:?} lag={}",
+                dep_type, lag
+            ));
+
+            // Both should agree on B's new start date
+            assert_eq!(
+                cascade_b.start_date, recalc_b.new_start,
+                "cascade and recalculate disagree for dep={:?} lag={}: cascade={} recalc={}",
+                dep_type, lag, cascade_b.start_date, recalc_b.new_start
+            );
+
+            // Both should land B at the expected start
+            assert_eq!(
+                cascade_b.start_date, *expected_start,
+                "cascade B.start mismatch for dep={:?} lag={}: got {} expected {}",
+                dep_type, lag, cascade_b.start_date, expected_start
+            );
+            assert_eq!(
+                recalc_b.new_start, *expected_start,
+                "recalculate B.start mismatch for dep={:?} lag={}: got {} expected {}",
+                dep_type, lag, recalc_b.new_start, expected_start
+            );
+        }
+    }
 }

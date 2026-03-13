@@ -203,19 +203,13 @@ same pattern as existing warnings (SNLT, FNLT, MSO, MFO conflicts):
 
 This matches the existing constraint violation UX — the system warns, the user decides.
 
-### Bug 10: RECALCULATE_EARLIEST reducer doesn't recompute duration
+### ~~Bug 10~~ (Not a bug)
 
-**File:** `src/state/ganttReducer.ts:605`
-
-```typescript
-return { ...t, startDate: r.newStart, endDate: r.newEnd };
-```
-
-After WASM `recalculate_earliest` sets new start/end dates, the `duration` field is NOT
-updated. It retains its old value, which may no longer match the new date range. This
-causes stale duration display and divergence between `duration` and date-derived values.
-
-**Fix:** `return { ...t, startDate: r.newStart, endDate: r.newEnd, duration: taskDuration(r.newStart, r.newEnd) }`
+`RECALCULATE_EARLIEST` reducer (ganttReducer.ts:605) doesn't recompute duration — but
+this is correct. Rust `recalculate_earliest` always derives `new_end` from
+`add_business_days(new_start, task.duration)` (constraints.rs:291), preserving duration.
+Start and end always shift together. No constraint independently pins end to a different
+value. The TS reducer correctly leaves `duration` unchanged.
 
 ### Bug 11: `find_conflicts` skips FF/SF dependency violations entirely
 
@@ -414,8 +408,7 @@ these are purely additive.
    - ADD_TASK: `end = taskEndDate(today, duration)`. If today is a weekend, snap start
      forward to Monday before computing end.
    - UPDATE_TASK_FIELD when start changes and end must follow
-3. Fix RECALCULATE_EARLIEST (Bug 10, line 605): recompute duration from new dates
-4. Fix recalcSummaryDates (Bug 13): add `task.duration = taskDuration(minStart, maxEnd)`
+3. Fix recalcSummaryDates (Bug 13): add `task.duration = taskDuration(minStart, maxEnd)`
 5. Fix schedulerWasm cascade result merging: use `taskDuration` for duration
 
 ### Phase 4: Rendering + UI (weekend prevention + bar width)
@@ -521,7 +514,7 @@ impossible. Prioritized by impact-to-effort ratio.
 
 **Problem:** Duration is recomputed inline at 12+ callsites, each calling
 `workingDaysBetween(start, end)` independently. If any callsite forgets to recompute,
-duration silently goes stale (Bugs 10, 13, 14 are all instances of this).
+duration silently goes stale (Bugs 13 and 14 are instances of this).
 
 **Fix:** Create a `withDuration(task)` helper that always recomputes duration from dates:
 
@@ -537,6 +530,11 @@ export function withDuration<T extends { startDate: string; endDate: string }>(
 Use everywhere a task's dates change: reducer actions, Yjs binding, cascade results,
 summary recalc. This makes it impossible to update dates without updating duration —
 the helper enforces the invariant at the call site.
+
+Note: `RECALCULATE_EARLIEST` is an exception — Rust preserves duration internally
+(constraints.rs:291), so the reducer correctly leaves `duration` unchanged. But
+everywhere else (cascade results, summary recalc, Yjs binding), `withDuration` should
+be used.
 
 Not a type-system guarantee (TS can't enforce "you must call this"), but eliminates
 the manual `duration: taskDuration(...)` line that's easy to forget.
@@ -684,7 +682,7 @@ trade-off for now.
   within each phase
 - Cascade preserves `count_biz_days_to(start, end)` date gap, NOT `task.duration` field.
   If duration and date gap are out of sync (stale duration), cascade and recalculate
-  will produce different end dates. Bug 10 and Bug 13 fixes address this by ensuring
+  will produce different end dates. Bug 13 and Bug 14 fixes address this by ensuring
   duration is always recomputed after date changes.
 - CPM stays as standard exclusive integer model — no changes needed, no risk
 - Yjs binding `UPDATE_TASK_FIELD` (Bug 14) is a live collaboration bug — remote users
@@ -699,7 +697,7 @@ trade-off for now.
 - `src/utils/__tests__/dateUtils.test.ts` — convention tests, update all duration assertions
 - `src/utils/taskFieldValidation.ts` — add weekend rejection to `validateEndDate`, add `validateStartDate`
 - `src/utils/__tests__/taskFieldValidation.test.ts` — weekend validation tests
-- `src/state/ganttReducer.ts` — RECALCULATE_EARLIEST (Bug 10), migrate 5 `workingDaysBetween` calls
+- `src/state/ganttReducer.ts` — migrate 5 `workingDaysBetween` calls
 - `src/state/__tests__/ganttReducer.test.ts`
 - `src/utils/schedulerWasm.ts` — migrate `workingDaysBetween`, fix end-date derivation
 - `src/utils/summaryUtils.ts` — recompute summary duration (Bug 13)

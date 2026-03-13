@@ -131,6 +131,173 @@ pub fn add_days(date_str: &str, delta: i32) -> String {
     format_date(y, m, d)
 }
 
+/// Inclusive business day count: [start, end] counting both endpoints.
+/// A same-day task returns 1.
+pub fn task_duration(start: &str, end: &str) -> i32 {
+    count_biz_days_to(start, end) + 1
+}
+
+/// Derive end date from start + duration using inclusive convention.
+/// task_end_date(start, 1) returns start (same-day task).
+pub fn task_end_date(start: &str, duration: i32) -> String {
+    add_business_days(start, duration - 1)
+}
+
+/// Snap forward to next Monday if date falls on a weekend. No-op if already a weekday.
+pub fn ensure_business_day(date: &str) -> String {
+    next_biz_day_on_or_after(date)
+}
+
+/// Snap backward to previous Friday if date falls on a weekend. No-op if already a weekday.
+pub fn prev_business_day(date: &str) -> String {
+    let (y, m, d) = parse_date(date);
+    let wd = day_of_week(y, m, d);
+    match wd {
+        6 => add_days(date, -1), // Saturday → Friday
+        0 => add_days(date, -2), // Sunday → Friday
+        _ => date.to_string(),
+    }
+}
+
+/// FS: successor starts the next business day after predecessor's end, plus lag.
+pub fn fs_successor_start(pred_end: &str, lag: i32) -> String {
+    add_business_days(pred_end, 1 + lag)
+}
+
+/// SS: successor starts on same day as predecessor's start, plus lag.
+pub fn ss_successor_start(pred_start: &str, lag: i32) -> String {
+    add_business_days(pred_start, lag)
+}
+
+/// FF: successor must finish on same day as predecessor's end, plus lag.
+/// Derives successor start from the required finish date.
+pub fn ff_successor_start(pred_end: &str, lag: i32, succ_duration: i32) -> String {
+    let required_finish = add_business_days(pred_end, lag);
+    add_business_days(&required_finish, -(succ_duration - 1))
+}
+
+/// SF: successor must finish on or after predecessor's start, plus lag.
+/// Derives successor start from the required finish date.
+pub fn sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> String {
+    let required_finish = add_business_days(pred_start, lag);
+    add_business_days(&required_finish, -(succ_duration - 1))
+}
+
+/// Signed business day difference. Positive if `to` is after `from`.
+pub fn business_day_delta(from: &str, to: &str) -> i32 {
+    count_biz_days_to(from, to)
+}
+
+#[cfg(test)]
+mod convention_tests {
+    use super::*;
+
+    #[test]
+    fn task_duration_cases() {
+        // Mon–Fri = 5
+        assert_eq!(task_duration("2026-03-02", "2026-03-06"), 5);
+        // Same day = 1
+        assert_eq!(task_duration("2026-03-02", "2026-03-02"), 1);
+        // Fri to next Tue = 3 (Fri, Mon, Tue)
+        assert_eq!(task_duration("2026-03-06", "2026-03-10"), 3);
+        // Two weeks = 10
+        assert_eq!(task_duration("2026-03-11", "2026-03-24"), 10);
+    }
+
+    #[test]
+    fn task_end_date_cases() {
+        // Mon + dur=5 → Fri
+        assert_eq!(task_end_date("2026-03-02", 5), "2026-03-06");
+        // Mon + dur=1 → Mon (same day)
+        assert_eq!(task_end_date("2026-03-02", 1), "2026-03-02");
+    }
+
+    #[test]
+    fn roundtrip_duration_end() {
+        let start = "2026-03-02";
+        for dur in [1, 3, 5, 10] {
+            let end = task_end_date(start, dur);
+            assert_eq!(
+                task_duration(start, &end),
+                dur,
+                "roundtrip failed for dur={}",
+                dur
+            );
+        }
+    }
+
+    #[test]
+    fn ensure_business_day_cases() {
+        // Weekday → no-op
+        assert_eq!(ensure_business_day("2026-03-09"), "2026-03-09"); // Monday
+                                                                     // Saturday → Monday
+        assert_eq!(ensure_business_day("2026-03-07"), "2026-03-09");
+        // Sunday → Monday
+        assert_eq!(ensure_business_day("2026-03-08"), "2026-03-09");
+    }
+
+    #[test]
+    fn prev_business_day_cases() {
+        // Weekday → no-op
+        assert_eq!(prev_business_day("2026-03-09"), "2026-03-09"); // Monday
+                                                                   // Saturday → Friday
+        assert_eq!(prev_business_day("2026-03-07"), "2026-03-06");
+        // Sunday → Friday
+        assert_eq!(prev_business_day("2026-03-08"), "2026-03-06");
+    }
+
+    #[test]
+    fn fs_successor_start_cases() {
+        // Fri lag=0 → Mon
+        assert_eq!(fs_successor_start("2026-03-06", 0), "2026-03-09");
+        // Fri lag=1 → Tue
+        assert_eq!(fs_successor_start("2026-03-06", 1), "2026-03-10");
+        // Fri lag=2 → Wed
+        assert_eq!(fs_successor_start("2026-03-06", 2), "2026-03-11");
+    }
+
+    #[test]
+    fn ss_successor_start_cases() {
+        // Mon lag=0 → Mon (same day)
+        assert_eq!(ss_successor_start("2026-03-02", 0), "2026-03-02");
+        // Mon lag=1 → Tue
+        assert_eq!(ss_successor_start("2026-03-02", 1), "2026-03-03");
+        // Mon lag=2 → Wed
+        assert_eq!(ss_successor_start("2026-03-02", 2), "2026-03-04");
+    }
+
+    #[test]
+    fn ff_successor_start_cases() {
+        // Fri end, lag=0, dur=5 → start=Mon
+        assert_eq!(ff_successor_start("2026-03-06", 0, 5), "2026-03-02");
+        // Fri end, lag=1, dur=3 → required_finish=Mon, start=Thu
+        assert_eq!(ff_successor_start("2026-03-06", 1, 3), "2026-03-05");
+    }
+
+    #[test]
+    fn sf_successor_start_cases() {
+        // Mon start, lag=0, dur=5 → required_finish=Mon, start=2026-02-24
+        assert_eq!(sf_successor_start("2026-03-02", 0, 5), "2026-02-24");
+        // Mon start, lag=1, dur=3 → required_finish=Tue, start=2026-02-27
+        assert_eq!(sf_successor_start("2026-03-02", 1, 3), "2026-02-27");
+    }
+
+    #[test]
+    fn business_day_delta_cases() {
+        // Mon to Fri = 4 (matches count_biz_days_to)
+        assert_eq!(business_day_delta("2026-03-09", "2026-03-13"), 4);
+        // Fri to Mon = 1
+        assert_eq!(business_day_delta("2026-03-06", "2026-03-09"), 1);
+        // Same day = 0
+        assert_eq!(business_day_delta("2026-03-09", "2026-03-09"), 0);
+        // Matches count_biz_days_to for same inputs
+        assert_eq!(
+            business_day_delta("2026-03-02", "2026-03-13"),
+            count_biz_days_to("2026-03-02", "2026-03-13")
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

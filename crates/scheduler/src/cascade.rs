@@ -1,5 +1,7 @@
-use crate::date_utils::{add_business_days, count_biz_days_to, next_biz_day_on_or_after};
-use crate::types::{CascadeResult, Dependency, DepType, Task};
+use crate::date_utils::{
+    add_business_days, count_biz_days_to, fs_successor_start, next_biz_day_on_or_after,
+};
+use crate::types::{CascadeResult, DepType, Dependency, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Cascade dependent tasks after moving a task.
@@ -18,7 +20,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 ///
 /// Slack is respected: if sufficient slack exists between predecessor and
 /// successor, no cascade occurs even when the predecessor moves later.
-pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) -> Vec<CascadeResult> {
+pub fn cascade_dependents(
+    tasks: &[Task],
+    moved_task_id: &str,
+    days_delta: i32,
+) -> Vec<CascadeResult> {
     // Asymmetric cascade: only forward moves propagate
     if days_delta <= 0 {
         return Vec::new();
@@ -90,10 +96,9 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
                 // the constraint.
                 let (new_start, new_end) = match dep_link.dep_type {
                     DepType::FS => {
-                        // B must start no earlier than the first business day on or after
-                        // (pred.end + lag business days).
-                        let raw = add_business_days(&pred_eff_end, dep_link.lag);
-                        let required = next_biz_day_on_or_after(&raw);
+                        // B must start no earlier than the first business day after
+                        // pred.end (inclusive), plus lag business days.
+                        let required = fs_successor_start(&pred_eff_end, dep_link.lag);
                         if required <= dep_curr_start {
                             // Constraint still satisfied — slack absorbs the move.
                             continue;
@@ -143,7 +148,8 @@ pub fn cascade_dependents(tasks: &[Task], moved_task_id: &str, days_delta: i32) 
                 // Update effective dates only if this path requires a larger
                 // shift than a previous path (diamond dependency support).
                 let needs_update = new_start > dep_curr_start
-                    || (matches!(dep_link.dep_type, DepType::FF | DepType::SF) && new_end > dep_curr_end);
+                    || (matches!(dep_link.dep_type, DepType::FF | DepType::SF)
+                        && new_end > dep_curr_end);
 
                 if needs_update {
                     eff_start.insert(dep_id.to_string(), new_start.clone());
@@ -241,14 +247,11 @@ mod tests {
 
     #[test]
     fn does_not_shift_moved_task() {
-        let tasks = vec![
-            make_task("a", "2026-03-01", "2026-03-17"),
-            {
-                let mut t = make_task("b", "2026-03-11", "2026-03-20");
-                t.dependencies = vec![make_dep("a", "b")];
-                t
-            },
-        ];
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-17"), {
+            let mut t = make_task("b", "2026-03-11", "2026-03-20");
+            t.dependencies = vec![make_dep("a", "b")];
+            t
+        }];
         let results = cascade_dependents(&tasks, "a", 5);
         // The moved task itself should not appear in results
         assert!(results.iter().all(|r| r.id != "a"));
@@ -404,19 +407,19 @@ mod tests {
             },
         ];
         let results = cascade_dependents(&tasks, "a", -3);
-        assert!(results.is_empty(), "Backward cascade should return empty vec");
+        assert!(
+            results.is_empty(),
+            "Backward cascade should return empty vec"
+        );
     }
 
     #[test]
     fn zero_delta_returns_empty() {
-        let tasks = vec![
-            make_task("a", "2026-03-01", "2026-03-10"),
-            {
-                let mut t = make_task("b", "2026-03-11", "2026-03-20");
-                t.dependencies = vec![make_dep("a", "b")];
-                t
-            },
-        ];
+        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10"), {
+            let mut t = make_task("b", "2026-03-11", "2026-03-20");
+            t.dependencies = vec![make_dep("a", "b")];
+            t
+        }];
         let results = cascade_dependents(&tasks, "a", 0);
         assert!(results.is_empty(), "Zero delta should return empty vec");
     }
@@ -438,8 +441,7 @@ mod tests {
             tasks.push(t);
         }
         for i in 1..50usize {
-            tasks[i].dependencies =
-                vec![make_dep(&format!("t{}", i - 1), &format!("t{}", i))];
+            tasks[i].dependencies = vec![make_dep(&format!("t{}", i - 1), &format!("t{}", i))];
         }
 
         // Move t0 forward by +2 biz: update its end date in-place
@@ -566,15 +568,12 @@ mod tests {
     /// SF with lag: A starts Mar 10, SF lag 2 → B must end >= add_biz(Mar 10, 2) = Mar 12.
     #[test]
     fn sf_cascade_with_lag() {
-        let tasks = vec![
-            make_task("a", "2026-03-10", "2026-03-17"),
-            {
-                let mut t = make_task("b", "2026-03-02", "2026-03-06");
-                t.duration = 5;
-                t.dependencies = vec![make_sf_dep_with_lag("a", "b", 2)];
-                t
-            },
-        ];
+        let tasks = vec![make_task("a", "2026-03-10", "2026-03-17"), {
+            let mut t = make_task("b", "2026-03-02", "2026-03-06");
+            t.duration = 5;
+            t.dependencies = vec![make_sf_dep_with_lag("a", "b", 2)];
+            t
+        }];
         let results = cascade_dependents(&tasks, "a", 3);
         let b = results.iter().find(|r| r.id == "b").unwrap();
         // required_end = add_biz(Mar 10, 2) = Mar 12 (Thu). B.end Mar 06 < Mar 12 → violation.
@@ -585,16 +584,16 @@ mod tests {
     /// required_end = Mar 10. B.end = Mar 15 > Mar 10 → no cascade.
     #[test]
     fn sf_slack_absorption() {
-        let tasks = vec![
-            make_task("a", "2026-03-10", "2026-03-17"),
-            {
-                let mut t = make_task("b", "2026-03-09", "2026-03-15");
-                t.dependencies = vec![make_sf_dep("a", "b")];
-                t
-            },
-        ];
+        let tasks = vec![make_task("a", "2026-03-10", "2026-03-17"), {
+            let mut t = make_task("b", "2026-03-09", "2026-03-15");
+            t.dependencies = vec![make_sf_dep("a", "b")];
+            t
+        }];
         let results = cascade_dependents(&tasks, "a", 3);
-        assert!(results.is_empty(), "SF slack should absorb move — no cascade needed");
+        assert!(
+            results.is_empty(),
+            "SF slack should absorb move — no cascade needed"
+        );
     }
 
     /// Diamond: A→(SF)→B and A→(FS)→B — both constraints satisfied.
@@ -765,7 +764,7 @@ mod tests {
         let b = &results[0];
         // Start should skip weekend: Fri+1 biz day = Mon
         assert_eq!(b.start_date, "2026-03-09"); // Mon, not Sat
-        // End should also be a weekday, preserving duration
+                                                // End should also be a weekday, preserving duration
         assert_eq!(b.end_date, "2026-03-16"); // Mon
     }
 }

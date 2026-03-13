@@ -1,4 +1,4 @@
-use crate::date_utils::add_business_days;
+use crate::date_utils::{add_business_days, task_end_date};
 use crate::types::{ConstraintType, DepType, RecalcResult, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -137,10 +137,7 @@ pub fn recalculate_earliest(
             for dep in &task.dependencies {
                 if in_scope.contains(dep.from_id.as_str()) {
                     *in_degree.entry(id).or_insert(0) += 1;
-                    successors
-                        .entry(dep.from_id.as_str())
-                        .or_default()
-                        .push(id);
+                    successors.entry(dep.from_id.as_str()).or_default().push(id);
                 }
             }
         }
@@ -287,8 +284,8 @@ pub fn recalculate_earliest(
             }
         }
 
-        // Compute new_end preserving duration (business days)
-        let new_end = add_business_days(&new_start, task.duration);
+        // Compute new_end preserving duration (business days, inclusive convention)
+        let new_end = task_end_date(&new_start, task.duration);
 
         // Only include in results if dates changed or conflict detected
         if new_start != task.start_date || new_end != task.end_date || conflict.is_some() {
@@ -696,7 +693,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
         assert_eq!(results[0].new_start, "2026-03-09"); // Monday
-        assert_eq!(results[0].new_end, "2026-03-16");   // Monday (5 biz days later)
+        assert_eq!(results[0].new_end, "2026-03-16"); // Monday (5 biz days later)
     }
 
     // ── SF dependency tests ─────────────────────────────────────────────

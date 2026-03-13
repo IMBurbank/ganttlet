@@ -287,11 +287,8 @@ mod convention_tests {
         assert_eq!(business_day_delta("2026-03-06", "2026-03-09"), 1);
         // Same day = 0
         assert_eq!(business_day_delta("2026-03-09", "2026-03-09"), 0);
-        // Matches business_day_delta for same inputs
-        assert_eq!(
-            business_day_delta("2026-03-02", "2026-03-13"),
-            business_day_delta("2026-03-02", "2026-03-13")
-        );
+        // Two-week span: Mon Mar 2 to Fri Mar 13 = 9 business days
+        assert_eq!(business_day_delta("2026-03-02", "2026-03-13"), 9);
     }
 }
 

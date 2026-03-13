@@ -193,18 +193,22 @@ fn find_conflicts(tasks: &[Task]) -> Vec<ConflictResult> {
 
     // Check for weekend violations: tasks must not start or end on Sat/Sun.
     for task in tasks {
-        if is_weekend_date(&task.start_date) || is_weekend_date(&task.end_date) {
-            let (bad_date, which) = if is_weekend_date(&task.start_date) {
-                (task.start_date.clone(), "starts")
-            } else {
-                (task.end_date.clone(), "ends")
-            };
+        if is_weekend_date(&task.start_date) {
             conflicts.push(ConflictResult {
                 task_id: task.id.clone(),
                 conflict_type: "WEEKEND_VIOLATION".to_string(),
-                constraint_date: bad_date.clone(),
-                actual_date: bad_date.clone(),
-                message: format!("Task {} {} on a weekend ({})", task.id, which, bad_date),
+                constraint_date: task.start_date.clone(),
+                actual_date: task.start_date.clone(),
+                message: format!("Task {} starts on a weekend ({})", task.id, task.start_date),
+            });
+        }
+        if is_weekend_date(&task.end_date) {
+            conflicts.push(ConflictResult {
+                task_id: task.id.clone(),
+                conflict_type: "WEEKEND_VIOLATION".to_string(),
+                constraint_date: task.end_date.clone(),
+                actual_date: task.end_date.clone(),
+                message: format!("Task {} ends on a weekend ({})", task.id, task.end_date),
             });
         }
     }

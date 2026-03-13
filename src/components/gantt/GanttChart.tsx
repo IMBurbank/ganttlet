@@ -124,6 +124,8 @@ export default function GanttChart({
   );
 
   const colWidth = getColumnWidth(zoom);
+  // Pixel width of a single calendar day — colWidth covers 1 day/7 days/30 days depending on zoom
+  const dayPx = zoom === 'day' ? colWidth : zoom === 'week' ? colWidth / 7 : colWidth / 30;
   const taskYPositions = useMemo(() => buildTaskYPositions(visibleTasks), [visibleTasks]);
 
   const totalDays = useMemo(() => {
@@ -165,7 +167,7 @@ export default function GanttChart({
             const earliest = computeEarliestStart(allTasks, task.id);
             const taskX = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
             const taskEndX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const taskWidth = Math.max(taskEndX - taskX + colWidth, 0);
+            const taskWidth = Math.max(taskEndX - taskX + dayPx, 0);
 
             const shift = cascadeShifts.find((s) => s.taskId === task.id);
 
@@ -199,7 +201,7 @@ export default function GanttChart({
                           zoom,
                           collapseWeekends
                         ) +
-                        colWidth,
+                        dayPx,
                       0
                     )}
                     currentWidth={taskWidth}
@@ -216,7 +218,7 @@ export default function GanttChart({
             const color = getTaskColor(colorBy, task[colorBy] as string);
             const x = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
             const endX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const width = Math.max(endX - x + colWidth, 0);
+            const width = Math.max(endX - x + dayPx, 0);
             const viewer = viewingMap.get(task.id);
             const earliest = computeEarliestStart(allTasks, task.id);
 
@@ -294,7 +296,7 @@ export default function GanttChart({
               if (yPos === undefined) return null;
               const gx = dateToX(drag.startDate, timelineStart, colWidth, zoom, collapseWeekends);
               const gEndX = dateToX(drag.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-              const gw = Math.max(gEndX - gx + colWidth, 0);
+              const gw = Math.max(gEndX - gx + dayPx, 0);
               const barH = 28;
               const barY = yPos + (ROW_HEIGHT - barH) / 2;
               return (

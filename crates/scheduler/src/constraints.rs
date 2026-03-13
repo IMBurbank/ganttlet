@@ -1,4 +1,7 @@
-use crate::date_utils::{shift_date, task_end_date};
+use crate::date_utils::{
+    ff_successor_start, fs_successor_start, sf_successor_start, shift_date, ss_successor_start,
+    task_end_date,
+};
 use crate::types::{ConstraintType, DepType, RecalcResult, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -17,26 +20,10 @@ pub fn compute_earliest_start(tasks: &[Task], task_id: &str) -> Option<String> {
         };
 
         let earliest = match dep.dep_type {
-            DepType::FS => {
-                // Start after predecessor finishes: next business day after end_date, then + lag business days
-                let next_biz = shift_date(&pred.end_date, 1);
-                shift_date(&next_biz, dep.lag)
-            }
-            DepType::SS => {
-                // Start when predecessor starts + lag business days
-                shift_date(&pred.start_date, dep.lag)
-            }
-            DepType::FF => {
-                // Finish together: predecessor end_date + lag business days, then back up by duration
-                let finish = shift_date(&pred.end_date, dep.lag);
-                shift_date(&finish, -(task.duration - 1))
-            }
-            DepType::SF => {
-                // Start-to-Finish: successor cannot finish until predecessor starts + lag
-                // required_end = pred.start + lag, so required_start = required_end - (duration - 1)
-                let required_end = shift_date(&pred.start_date, dep.lag);
-                shift_date(&required_end, -(task.duration - 1))
-            }
+            DepType::FS => fs_successor_start(&pred.end_date, dep.lag),
+            DepType::SS => ss_successor_start(&pred.start_date, dep.lag),
+            DepType::FF => ff_successor_start(&pred.end_date, dep.lag, task.duration),
+            DepType::SF => sf_successor_start(&pred.start_date, dep.lag, task.duration),
         };
 
         latest = Some(match latest {

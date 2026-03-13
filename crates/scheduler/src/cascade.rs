@@ -1,4 +1,7 @@
-use crate::date_utils::{business_day_delta, ensure_business_day, fs_successor_start, shift_date};
+use crate::date_utils::{
+    business_day_delta, ff_successor_start, fs_successor_start, sf_successor_start, shift_date,
+    ss_successor_start,
+};
 use crate::types::{CascadeResult, DepType, Dependency, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -92,56 +95,26 @@ pub fn cascade_dependents(
                 // Compute the required start/end dates based on dep type.
                 // Only cascade if the dependent's current dates would violate
                 // the constraint.
-                let (new_start, new_end) = match dep_link.dep_type {
-                    DepType::FS => {
-                        // B must start no earlier than the first business day after
-                        // pred.end (inclusive), plus lag business days.
-                        let required = fs_successor_start(&pred_eff_end, dep_link.lag);
-                        if required <= dep_curr_start {
-                            // Constraint still satisfied — slack absorbs the move.
-                            continue;
-                        }
-                        let shift = business_day_delta(&dep_curr_start, &required);
-                        let new_end = shift_date(&dep_curr_end, shift);
-                        (required, new_end)
-                    }
-                    DepType::SS => {
-                        // B must start no earlier than the first business day on or after
-                        // (pred.start + lag business days).
-                        let raw = shift_date(&pred_eff_start, dep_link.lag);
-                        let required = ensure_business_day(&raw);
-                        if required <= dep_curr_start {
-                            continue;
-                        }
-                        let shift = business_day_delta(&dep_curr_start, &required);
-                        let new_end = shift_date(&dep_curr_end, shift);
-                        (required, new_end)
-                    }
+                // Compute the required start date using dep-type helpers.
+                // All cases follow the same pattern: compute required start,
+                // check violation, shift whole task to preserve duration.
+                let required_start = match dep_link.dep_type {
+                    DepType::FS => fs_successor_start(&pred_eff_end, dep_link.lag),
+                    DepType::SS => ss_successor_start(&pred_eff_start, dep_link.lag),
                     DepType::FF => {
-                        // B must end no earlier than the first business day on or after
-                        // (pred.end + lag business days).
-                        let raw_end = shift_date(&pred_eff_end, dep_link.lag);
-                        let required_end = ensure_business_day(&raw_end);
-                        if required_end <= dep_curr_end {
-                            continue;
-                        }
-                        let shift = business_day_delta(&dep_curr_end, &required_end);
-                        let new_start = shift_date(&dep_curr_start, shift);
-                        (new_start, required_end)
+                        ff_successor_start(&pred_eff_end, dep_link.lag, dependent.duration)
                     }
                     DepType::SF => {
-                        // SF: successor's end must be no earlier than the first business day
-                        // on or after (pred.start + lag business days).
-                        let raw_end = shift_date(&pred_eff_start, dep_link.lag);
-                        let required_end = ensure_business_day(&raw_end);
-                        if required_end <= dep_curr_end {
-                            continue;
-                        }
-                        let shift = business_day_delta(&dep_curr_end, &required_end);
-                        let new_start = shift_date(&dep_curr_start, shift);
-                        (new_start, required_end)
+                        sf_successor_start(&pred_eff_start, dep_link.lag, dependent.duration)
                     }
                 };
+
+                if required_start <= dep_curr_start {
+                    continue;
+                }
+                let shift = business_day_delta(&dep_curr_start, &required_start);
+                let new_end = shift_date(&dep_curr_end, shift);
+                let (new_start, new_end) = (required_start, new_end);
 
                 // Update effective dates only if this path requires a larger
                 // shift than a previous path (diamond dependency support).
@@ -299,17 +272,16 @@ mod tests {
         // Each task has a known duration. After cascade, business-day duration
         // must be identical to before.
         //
-        // A: start Mar 01, end Mar 05 (Fri), duration 4 biz. Moves +7 biz.
-        // A.new_end = add_biz(Mar 05, 7) = Tue Mar 17.
-        // B (starts Mar 06 Fri): required = Mar 17 > Mar 06 → violation.
-        //   shift_B = count_biz(Mar 06 → Mar 17) = 7.
-        //   B.new_start = Mar 17, B.new_end = add_biz(Mar 16, 7) = Wed Mar 25.
-        // C (starts Mar 17 Tue): required = add_biz(Mar 25, 0) = Mar 25.
-        //   Mar 17 < Mar 25 → violation, shift_C = count_biz(Mar 17 → Mar 25) = 6.
-        //   C.new_start = Mar 25, C.new_end = add_biz(Mar 19, 6) = Mon Apr 01.
-        // D (starts Mar 20 Fri): required = add_biz(Apr 01, 0) = Apr 01.
-        //   Mar 20 < Apr 01 → violation, shift_D = count_biz(Mar 20 → Apr 01) = 9.
-        //   D.new_start = Apr 01, D.new_end = add_biz(Mar 27, 9) = Fri Apr 10.
+        // A: start Mar 01, end Mar 17 (Tue, already moved +7 biz from Mar 05).
+        // B (starts Mar 06 Fri): required = fs_successor_start(Mar 17, 0) = Mar 18 (Wed).
+        //   shift_B = count_biz(Mar 06 → Mar 18) = 8.
+        //   B.new_start = Mar 18 (Wed), B.new_end = add_biz(Mar 16, 8) = Thu Mar 26.
+        // C (starts Mar 17 Tue): required = fs_successor_start(Mar 26, 0) = Fri Mar 27.
+        //   shift_C = count_biz(Mar 17 → Mar 27) = 8.
+        //   C.new_start = Mar 27 (Fri), C.new_end = add_biz(Mar 19, 8) = Tue Mar 31.
+        // D (starts Mar 20 Fri): required = fs_successor_start(Mar 31, 0) = Wed Apr 01.
+        //   shift_D = count_biz(Mar 20 → Apr 01) = 8.
+        //   D.new_start = Apr 01 (Wed), D.new_end = add_biz(Mar 27, 8) = Wed Apr 08.
         let tasks = vec![
             {
                 let mut t = make_task("a", "2026-03-01", "2026-03-17"); // moved +7 biz from Mar 05
@@ -475,12 +447,9 @@ mod tests {
 
     // ── Slack-aware cascade tests (core new behavior) ─────────────────────
 
-    /// Inclusive FS lag=1: A ends Thu Mar 12, B starts Mon Mar 16, lag=1.
-    /// Required B.start = fs_successor_start(Mar 12, 1) = add_biz(Mar 12, 2) = Mon Mar 16 = B.start → zero slack.
-    ///
-    /// When A moves +1 biz to Fri Mar 13: required = add_biz(Mar 13, 2) = Tue Mar 17 > Mar 16.
-    /// Wait — we want a NO-CASCADE scenario. Use A.end=Wed Mar 11 (after move):
-    /// required = add_biz(Mar 11, 2) = Wed Mar 13 <= B.start (Mar 16) → no violation. B stays.
+    /// A ends Wed Mar 11 (inclusive), B starts Mon Mar 16, FS lag=1.
+    /// required = fs_successor_start(Mar 11, 1) = add_biz(Mar 11, 2) = Fri Mar 13 <= B.start (Mar 16).
+    /// Slack absorbs the move → no cascade.
     #[test]
     fn no_cascade_when_predecessor_moves_into_weekend_with_lag() {
         let tasks = vec![
@@ -492,7 +461,7 @@ mod tests {
             },
         ];
         let results = cascade_dependents(&tasks, "a", 1);
-        // required = fs_successor_start(Mar 11, 1) = add_biz(Mar 11, 2) = Wed Mar 13 <= Mar 16 → no violation
+        // required = fs_successor_start(Mar 11, 1) = add_biz(Mar 11, 2) = Fri Mar 13 <= Mar 16 → no violation
         assert!(
             results.is_empty(),
             "B should not cascade when slack absorbs the move (Scenario 1)"
@@ -898,7 +867,7 @@ mod tests {
     ///   B: start=2026-03-09 (Mon), end=2026-03-13 (Fri), dur=5 (tight FS from A)
     ///   C: start=2026-03-16 (Mon), end=2026-03-20 (Fri), dur=5 (tight FS from B)
     ///
-    /// A moves +2 biz: new_start=2026-03-04 (Wed), new_end=2026-03-10 (Mon)
+    /// A moves +2 biz: new_start=2026-03-04 (Wed), new_end=2026-03-10 (Tue)
     /// After cascade:
     ///   B: start=2026-03-11 (Wed), end=2026-03-17 (Tue) — shifted +2 biz to satisfy FS
     ///   C: start=2026-03-18 (Wed), end=2026-03-24 (Tue) — shifted +2 biz from B
@@ -931,7 +900,7 @@ mod tests {
 
         // Step 1: Move A forward 2 biz days (caller updates A's dates before cascade)
         // A.new_start = addBiz('2026-03-02', 2) = 2026-03-04 (Wed)
-        // A.new_end   = addBiz('2026-03-06', 2) = 2026-03-10 (Mon)
+        // A.new_end   = addBiz('2026-03-06', 2) = 2026-03-10 (Tue)
         tasks[0].start_date = "2026-03-04".to_string();
         tasks[0].end_date = "2026-03-10".to_string();
 

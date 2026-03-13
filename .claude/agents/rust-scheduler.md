@@ -50,5 +50,16 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 5. If tests fail, diagnose and fix (up to 3 attempts)
 6. Return: what was changed, what tests were added, cargo test output
 
+## Date Convention Functions (date_utils.rs)
+- `task_duration(start, end)` — inclusive business day count
+- `task_end_date(start, dur)` — `add_business_days(start, dur - 1)`
+- `ensure_business_day(date)` — snap forward to Monday (replaces `next_biz_day_on_or_after`)
+- `prev_business_day(date)` — snap backward to Friday
+- `fs_successor_start(pred_end, lag)` — `add_business_days(pred_end, 1 + lag)`
+- `ss_successor_start(pred_start, lag)` — `add_business_days(pred_start, lag)`
+- `ff_successor_start(pred_end, lag, succ_dur)` — end-constrained: derives start from finish
+- `sf_successor_start(pred_start, lag, succ_dur)` — start-to-finish: derives start from finish
+- `business_day_delta(from, to)` — signed difference (replaces `count_biz_days_to`)
+
 ## NEVER do math in your head
 Use `node -e` or `python3 -c` for any date/arithmetic calculations. LLMs get these wrong.

@@ -3,7 +3,7 @@
 > **Status:** TENTATIVE — under active discussion, not yet finalized.
 > **Branch:** `agent/date-calc-fixes`
 > **Created:** 2026-03-12
-> **Last verified:** 2026-03-12 (deep review against full codebase)
+> **Last verified:** 2026-03-13 (deep review with 4 parallel subagents + item-by-item verification)
 
 ## Convention (Agreed)
 
@@ -28,13 +28,14 @@ Inverse: `duration = taskDuration(start, end)` (count both endpoints).
 `workingDaysBetween(start, end)` counts `[start, end)` — exclusive of end date.
 Returns 9 for the example above instead of 10.
 
-**12 callsites** (all must migrate to `taskDuration`):
+**14 callsites** (all must migrate to `taskDuration`):
 - `ganttReducer.ts:33` (MOVE_TASK), `:43` (RESIZE_TASK), `:59` (UPDATE_TASK_FIELD),
   `:283` (ADD_TASK), `:546` (COMPLETE_DRAG)
 - `schedulerWasm.ts:168` (cascade result)
 - `sheetsMapper.ts:20` (taskToRow), `:51` (rowToTask)
 - `yjsBinding.ts:175` (RESIZE), `:282` (COMPLETE_DRAG), `:296` (CASCADE_DEPENDENTS)
-- `TaskRow.tsx:90` (end date edit), `TaskBar.tsx:131` (resize drag)
+- `TaskRow.tsx:90` (end date edit), `TaskBarPopover.tsx:87` (end date edit)
+- `TaskBar.tsx:131` (resize drag)
 
 **Fix:** Add `taskDuration(start, end)` counting `[start, end]` inclusive. Migrate all
 callsites. Delete `workingDaysBetween` when no callers remain.
@@ -54,6 +55,7 @@ which gives the day *after* the last working day. Should be `addBusinessDays(sta
   derives duration), MOVE_TASK, RESIZE_TASK, UPDATE_TASK_FIELD
 - `src/components/table/TaskRow.tsx:77` — start date change: `addBusinessDaysToDate(value, task.duration)`
 - `src/components/table/TaskRow.tsx:111` — duration change: `addBusinessDaysToDate(task.startDate, newDuration)`
+- `src/components/gantt/TaskBarPopover.tsx:73` — start date change: `addBusinessDaysToDate(value, task!.duration)`
 - `crates/scheduler/src/constraints.rs:291` — `recalculate_earliest`: `new_end = add_business_days(&new_start, task.duration)`
 - `crates/scheduler/src/cpm.rs:80,127` — CPM: `ef = es + duration` (integer model — see Bug 6 analysis)
 
@@ -144,24 +146,36 @@ and make the code non-standard with zero functional benefit.
 // inclusive calendar convention.
 ```
 
-### Bug 7: FNET and MFO constraint derivation off by one
+### Bug 7: FNET, FNLT, and MFO end-date formulas need convention update
 
 **File:** `crates/scheduler/src/constraints.rs:238-283`
 
-```rust
-// FNET (line 244): derives start from constraint finish date
-new_start = add_business_days(constraint_date, -(task.duration));
-// Should be: -(task.duration - 1)
+Three locations compute `computed_end` using the exclusive formula, and two locations
+derive start from a constraint finish date:
 
-// MFO (line 275): same issue
-let derived_start = add_business_days(constraint_date, -(task.duration));
-// Should be: -(task.duration - 1)
+```rust
+// FNET (line 241): end computation for comparison
+let computed_end = add_business_days(&new_start, task.duration);  // → task_end_date
+// FNET (line 244): derives start from constraint finish date
+new_start = add_business_days(constraint_date, -(task.duration));  // → -(task.duration - 1)
+
+// FNLT (line 251): end computation for comparison — same issue
+let computed_end = add_business_days(&new_start, task.duration);  // → task_end_date
+
+// MFO (line 275): derives start from constraint finish date — same as FNET
+let derived_start = add_business_days(constraint_date, -(task.duration));  // → -(task.duration - 1)
 ```
 
+**Note:** All five lines are **correct under the existing exclusive convention** —
+verified: `add_biz(3/6, -5)` gives 2/27, then `add_biz(2/27, 5)` gives 3/6 = constraint ✓.
+The changes are needed because the inclusive convention uses a different `duration` value
+(+1 larger) and different end-date formula (`dur - 1`).
+
 With inclusive convention, `constraint_date` is the required finish date (last working
-day). Backing up by `duration - 1` business days gives the correct start.
-Current `- duration` overshoots by one day.
-(Verified: dur=5, constraint=Fri 3/6 → `-(5)` gives Fri 2/27 (wrong), `-(4)` gives Mon 3/2 (correct).)
+day). End must be computed via `task_end_date(start, dur)` = `add_biz(start, dur - 1)`.
+Backing up from constraint to start uses `-(duration - 1)` instead of `-(duration)`.
+(Verified with inclusive dur=5: `-(5)` gives Fri 2/27, end = `add_biz(2/27, 4)` = Thu 3/5 ≠ 3/6.
+`-(4)` gives Mon 3/2, end = `add_biz(3/2, 4)` = Fri 3/6 = constraint ✓.)
 
 ### Bug 8: Bar rendering doesn't include end-date column
 
@@ -324,17 +338,25 @@ These functions use the inclusive convention and do NOT need changing:
 |---|---|---|
 | `compute_earliest_start` FS | `constraints.rs:20-24` | `add_biz(pred.end, 1) + lag` — correctly skips past inclusive end |
 | `compute_earliest_start` SS | `constraints.rs:25-28` | `add_biz(pred.start, lag)` — SS is start-to-start, no +1 gap needed |
-| FF `-(duration - 1)` | `constraints.rs:29-33` | Correctly backs up from inclusive finish to find start |
-| SF `-(duration - 1)` | `constraints.rs:34-39` | Same as FF — inclusive back-up |
+| FF `-(duration - 1)` | `constraints.rs:29-33` | Correct for inclusive convention* |
+| SF `-(duration - 1)` | `constraints.rs:34-39` | Same as FF* |
 | `cascade_dependents` SS | `cascade.rs:105-115` | Same-day start correct for SS |
 | `cascade_dependents` FF | `cascade.rs:117-127` | Same-end correct for FF |
 | `cascade_dependents` SF | `cascade.rs:129-140` | Correct for SF |
-| SNET constraint floor | `constraints.rs:55-68` | String comparison on dates, convention-independent |
-| SNLT/FNLT conflict detection | `constraints.rs:226-258` | Compares computed dates, works with either convention |
+| SNET constraint floor | `constraints.rs:55-68` | String comparison on start date, convention-independent |
+| SNLT conflict detection | `constraints.rs:226-237` | Compares start date only, convention-independent |
 | `next_biz_day_on_or_after` | `date_utils.rs:63-70` | Weekend snapping, convention-independent |
 | `add_business_days` | `date_utils.rs:47-59` | Shifts by N biz days, convention-independent |
 | CPM (entire module) | `cpm.rs` | Abstract integer model, convention-independent float/critical path |
 | `businessDaysBetween` (Date) | `dateUtils.ts:129-137` | Pixel mapping only, exclusive is correct for column counting |
+
+**\*FF/SF `-(duration - 1)` note:** These formulas are correct for the **target inclusive
+convention** — no code change needed. However, they are currently **wrong under the existing
+exclusive convention** (`addBiz(finish, -(dur-1))` gives a start 1 biz day too late because
+exclusive `duration` is 1 less than inclusive). They will automatically become correct when
+`task.duration` switches to inclusive counting in Phase 3. During implementation, if an agent
+sees FF/SF tests failing before Phase 3 lands, this is expected — the formulas are correct
+for the target state, not the intermediate state.
 
 ---
 
@@ -369,25 +391,27 @@ these are purely additive.
 **TypeScript (`src/utils/dateUtils.ts`):**
 1. `taskDuration(start: string, end: string): number` — counts `[start, end]` inclusive
 2. `taskEndDate(start: string, duration: number): string` — `addBusinessDays(start, duration - 1)`
-3. `ensureBusinessDay(date: Date, direction: 'forward' | 'backward'): Date` — snaps to
-   nearest weekday
-4. `isWeekendDate(dateStr: string): boolean` — convenience for validation
+3. `ensureBusinessDay(date: Date): Date` — snaps forward to next Monday if weekend,
+   no-op if already a weekday
+4. `prevBusinessDay(date: Date): Date` — snaps backward to previous Friday if weekend,
+   no-op if already a weekday
+5. `isWeekendDate(dateStr: string): boolean` — convenience for validation
 
 **Rust (`crates/scheduler/src/date_utils.rs`):**
-5. `task_duration(start: &str, end: &str) -> i32` — inclusive business day count
-6. `task_end_date(start: &str, duration: i32) -> String` — `add_business_days(start, duration - 1)`
-7. `ensure_business_day(date: &str) -> String` — rename of `next_biz_day_on_or_after`
+6. `task_duration(start: &str, end: &str) -> i32` — inclusive business day count
+7. `task_end_date(start: &str, duration: i32) -> String` — `add_business_days(start, duration - 1)`
+8. `ensure_business_day(date: &str) -> String` — rename of `next_biz_day_on_or_after`
    (keep old name as alias during migration)
-8. `prev_business_day(date: &str) -> String` — snap backward to Friday
+9. `prev_business_day(date: &str) -> String` — snap backward to Friday
 
 **Shared Rust helpers for dependency-type earliest start:**
-9. `fs_successor_start(pred_end: &str, lag: i32) -> String` — `add_business_days(pred_end, 1 + lag)`
-10. `ss_successor_start(pred_start: &str, lag: i32) -> String` — `add_business_days(pred_start, lag)`
-11. `ff_successor_start(pred_end: &str, lag: i32, succ_duration: i32) -> String`
-12. `sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> String`
+10. `fs_successor_start(pred_end: &str, lag: i32) -> String` — `add_business_days(pred_end, 1 + lag)`
+11. `ss_successor_start(pred_start: &str, lag: i32) -> String` — `add_business_days(pred_start, lag)`
+12. `ff_successor_start(pred_end: &str, lag: i32, succ_duration: i32) -> String`
+13. `sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> String`
 
-13. Add comprehensive tests for all new functions (convention tests from Phase 7d/7e)
-14. Add `WEEKEND_VIOLATION` to Rust `ConflictResult` types
+14. Add comprehensive tests for all new functions (convention tests from Phase 7d/7e)
+15. Add `WEEKEND_VIOLATION` to Rust `ConflictResult` types
 
 ### Phase 2: Rust Scheduler Fixes
 
@@ -398,16 +422,26 @@ these are purely additive.
    SS/FF/SF cascade: optionally remove `next_biz_day_on_or_after` wrappers for clarity
    (they're no-ops with guaranteed business-day dates), but formulas stay the same.
 2. Fix `recalculate_earliest` end computation (line 291): `task_end_date(&new_start, task.duration)`
-3. Fix FNET (line 244): `add_business_days(constraint_date, -(task.duration - 1))`
-4. Fix MFO (line 275): same — `-(task.duration - 1)`
-5. Fix `find_conflicts` FS (line 160-163): use `fs_successor_start` helper
-6. Fix `find_conflicts` SS (line 164-167): use `ss_successor_start` helper (functionally
+3. Fix FNET computed_end (line 241): `task_end_date(&new_start, task.duration)`
+4. Fix FNET start derivation (line 244): `add_business_days(constraint_date, -(task.duration - 1))`
+5. Fix FNLT computed_end (line 251): `task_end_date(&new_start, task.duration)`
+6. Fix MFO (line 275): same as FNET — `-(task.duration - 1)`
+7. Fix `find_conflicts` FS (line 160-163): use `fs_successor_start` helper
+8. Fix `find_conflicts` SS (line 164-167): use `ss_successor_start` helper (functionally
    unchanged, just uses shared helper for consistency)
-7. Add FF/SF conflict detection to `find_conflicts` (Bug 11 — currently skipped at line 168)
-8. Add `WEEKEND_VIOLATION` conflict type to `find_conflicts` — detect tasks with weekend
-   start or end dates
-9. Add CPM doc comment explaining the exclusive integer model is intentional (Bug 6)
-10. Update all Rust test data to use inclusive end dates, fix expected values
+9. Add FF/SF conflict detection to `find_conflicts` (Bug 11 — currently skipped at line 168)
+10. Add `WEEKEND_VIOLATION` conflict type to `find_conflicts` — detect tasks with weekend
+    start or end dates
+11. Add CPM doc comment explaining the exclusive integer model is intentional (Bug 6)
+12. Update all Rust test data to use inclusive end dates, fix expected values
+
+> **⚠ Phase 2+3 ordering dependency:** Rust formulas in Phase 2 depend on `task.duration`
+> values sent from TypeScript. After Phase 2, formulas like `task_end_date(start, dur)` use
+> `add_biz(start, dur - 1)` which is correct only with **inclusive** duration values. Phase 3
+> is where TS switches from exclusive to inclusive (`workingDaysBetween` → `taskDuration`).
+> If Phase 2 lands without Phase 3, Rust receives old exclusive durations and computes wrong
+> end dates (off by 1). **Phases 2 and 3 must ship in the same PR.** Rust unit tests can be
+> updated independently (they use hardcoded test data), but runtime correctness requires both.
 
 ### Phase 3: TypeScript State + Reducer
 
@@ -418,8 +452,10 @@ these are purely additive.
      ADD_TASK:283, COMPLETE_DRAG:546)
    - schedulerWasm.ts:168
 2. Fix all end-date derivations to use `taskEndDate`:
-   - ADD_TASK: `end = taskEndDate(today, duration)`. If today is a weekend, snap start
-     forward to Monday before computing end.
+   - ADD_TASK (line 273-283): Currently uses `today + 5 calendar days` (can produce
+     weekend dates) then derives duration. Fix: `start = ensureBusinessDay(today)`,
+     use default duration (e.g., 5), `end = taskEndDate(start, 5)`,
+     `duration = 5`. No more raw calendar offset.
    - UPDATE_TASK_FIELD when start changes and end must follow
 3. Fix recalcSummaryDates (Bug 13): add `task.duration = taskDuration(minStart, maxEnd)`
 5. Fix schedulerWasm cascade result merging: use `taskDuration` for duration
@@ -444,15 +480,17 @@ The UI must make it **impossible** to set a weekend start or end date. Prevent, 
    - Add `validateStartDate` with weekend rejection
    - Reject weekend dates on change — show validation error, don't silently snap
 5. Fix popover date edit (TaskBarPopover): same validation
-6. Fix TaskRow end-date derivation (Bug 2 locations):
-   - Line 77: `taskEndDate(value, task.duration)` instead of `addBusinessDaysToDate(value, task.duration)`
-   - Line 111: `taskEndDate(task.startDate, newDuration)` instead of `addBusinessDaysToDate(task.startDate, newDuration)`
+6. Fix end-date derivation (Bug 2 locations):
+   - TaskRow.tsx:77: `taskEndDate(value, task.duration)` instead of `addBusinessDaysToDate(value, task.duration)`
+   - TaskRow.tsx:111: `taskEndDate(task.startDate, newDuration)` instead of `addBusinessDaysToDate(task.startDate, newDuration)`
+   - TaskBarPopover.tsx:73: `taskEndDate(value, task!.duration)` instead of `addBusinessDaysToDate(value, task!.duration)`
 7. Rename `dateToXCollapsed` → `dateToX`, `xToDateCollapsed` → `xToDate` (Bug 12).
    Rename old `dateToX` → `dateToXCalendar`, `xToDate` → `xToDateCalendar` (internal).
    All 23+ callsites in GanttChart, TaskBar, dependencyUtils get shorter names.
    TodayLine now calls `dateToX(todayStr, ..., collapseWeekends)` — fixed automatically.
 8. Verify collapsed-weekend mode still works with inclusive bar width
-9. Migrate remaining `workingDaysBetween` calls in TaskBar.tsx:131 and TaskRow.tsx:90
+9. Migrate remaining `workingDaysBetween` calls in TaskBar.tsx:131, TaskRow.tsx:90,
+   and TaskBarPopover.tsx:87
 
 ### Phase 5: Sheets + CRDT Sync (weekend warning + Yjs fix)
 
@@ -528,7 +566,7 @@ impossible. Prioritized by impact-to-effort ratio.
 
 ### A1. Centralize duration recomputation (Phase 3 — implement with reducer fixes)
 
-**Problem:** Duration is recomputed inline at 12+ callsites, each calling
+**Problem:** Duration is recomputed inline at 14+ callsites, each calling
 `workingDaysBetween(start, end)` independently. If any callsite forgets to recompute,
 duration silently goes stale (Bugs 13 and 14 are instances of this).
 
@@ -692,9 +730,11 @@ trade-off for now.
 
 - Phase 0 (docs) must land FIRST — implementing agents need the convention visible
 - Phase 1 is purely additive (new functions, no breaking changes)
+- **Phases 2+3 must ship together** — Rust formulas (Phase 2) expect inclusive duration
+  values from TS (Phase 3). Shipping Phase 2 alone produces off-by-one end dates.
 - Phases 2-5 are the breaking changes — all existing test assertions need updating
 - Phase 5 (Sheets) is highest risk — convention mismatch could corrupt user data
-- `workingDaysBetween` migration has **12 callsites** — must update all atomically
+- `workingDaysBetween` migration has **14 callsites** — must update all atomically
   within each phase
 - Cascade preserves `business_day_delta(start, end)` date gap, NOT `task.duration` field.
   If duration and date gap are out of sync (stale duration), cascade and recalculate

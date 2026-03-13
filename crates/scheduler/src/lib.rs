@@ -292,7 +292,8 @@ mod tests {
 
     #[test]
     fn detect_snlt_conflict() {
-        let mut task = make_task("a", "2026-03-15", "2026-03-20");
+        // task starts Mon 03-16 (weekday), SNLT=03-12 → 03-16 > 03-12 → SNLT_VIOLATED.
+        let mut task = make_task("a", "2026-03-16", "2026-03-20");
         task.constraint_type = Some(ConstraintType::SNLT);
         task.constraint_date = Some("2026-03-12".to_string());
         let conflicts = find_conflicts(&[task]);
@@ -302,8 +303,10 @@ mod tests {
 
     #[test]
     fn detect_dependency_violation() {
-        // B starts Mar 10 but A (FS dep) ends Mar 15 → B should start after Mar 15
-        let a = make_task("a", "2026-03-09", "2026-03-15");
+        // B starts Mar 10 but A (FS dep) ends Fri Mar 13 →
+        // fs_successor_start(03-13, 0) = 03-16 (Mon) > B.start 03-10 → DEP_VIOLATED.
+        // A ends on a weekday (Fri) so no WEEKEND_VIOLATION.
+        let a = make_task("a", "2026-03-09", "2026-03-13");
         let mut b = make_task("b", "2026-03-10", "2026-03-18");
         b.dependencies = vec![Dependency {
             from_id: "a".to_string(),
@@ -313,7 +316,7 @@ mod tests {
         }];
         let conflicts = find_conflicts(&[a, b]);
         assert_eq!(conflicts.len(), 1);
-        assert_eq!(conflicts[0].conflict_type, "NEGATIVE_FLOAT");
+        assert_eq!(conflicts[0].conflict_type, "DEP_VIOLATED");
         assert_eq!(conflicts[0].task_id, "b");
     }
 }

@@ -493,117 +493,118 @@ mod tests {
 
     #[test]
     fn recalc_linear_chain() {
-        // A(03-02 Mon..03-09 Mon, 5d) -> B(03-20..03-27, 5d) -> C(04-01..04-08, 5d)
-        // B has slack (should start 03-10), C has slack (moves after B)
-        // add_business_days("2026-03-02", 5) = "2026-03-09"
-        let mut b = make_task("b", "2026-03-20", "2026-03-27", 5);
+        // A(03-02 Mon..03-06 Fri, 5d) -> B(03-20..03-26, 5d) -> C(04-01..04-07, 5d)
+        // B has slack (should start 03-09 Mon), C has slack (moves after B)
+        // task_end_date("2026-03-02", 5) = add_biz("2026-03-02", 4) = "2026-03-06" (Fri)
+        let mut b = make_task("b", "2026-03-20", "2026-03-26", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-04-01", "2026-04-08", 5);
+        let mut c = make_task("c", "2026-04-01", "2026-04-07", 5);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
-        // A.end=03-09, so B earliest=03-10 (Tue), B.end=add_biz(03-10,5)=03-17
-        // C earliest=03-18 (Wed), C.end=add_biz(03-18,5)=03-25
+        // A.end=03-06 (Fri), B earliest=fs_successor_start(03-06,0)=03-09 (Mon), B.end=task_end_date(03-09,5)=03-13
+        // C earliest=fs_successor_start(03-13,0)=03-16 (Mon), C.end=task_end_date(03-16,5)=03-20
         assert_eq!(results.len(), 2);
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b_result.new_start, "2026-03-10");
-        assert_eq!(b_result.new_end, "2026-03-17");
+        assert_eq!(b_result.new_start, "2026-03-09");
+        assert_eq!(b_result.new_end, "2026-03-13");
         let c_result = results.iter().find(|r| r.id == "c").unwrap();
-        assert_eq!(c_result.new_start, "2026-03-18");
-        assert_eq!(c_result.new_end, "2026-03-25");
+        assert_eq!(c_result.new_start, "2026-03-16");
+        assert_eq!(c_result.new_end, "2026-03-20");
     }
 
     #[test]
     fn recalc_removes_slack() {
-        // A(03-02 Mon..03-09 Mon, 5d) -> B(03-25..04-01, 5d). B has slack.
-        let mut b = make_task("b", "2026-03-25", "2026-04-01", 5);
+        // A(03-02 Mon..03-06 Fri, 5d) -> B(03-25..03-31, 5d). B has slack.
+        let mut b = make_task("b", "2026-03-25", "2026-03-31", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
-        // B snaps to earliest: 03-10 (Tue), end=add_biz(03-10,5)=03-17
+        // B snaps to earliest: fs_successor_start(03-06,0)=03-09 (Mon), end=task_end_date(03-09,5)=03-13
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
-        assert_eq!(results[0].new_start, "2026-03-10");
-        assert_eq!(results[0].new_end, "2026-03-17");
+        assert_eq!(results[0].new_start, "2026-03-09");
+        assert_eq!(results[0].new_end, "2026-03-13");
     }
 
     #[test]
     fn recalc_today_floor() {
         // Task with no deps, start in the past. Should be floored at today (Wed).
-        // add_business_days("2026-03-04", 5) = 2026-03-11
-        let tasks = vec![make_task("a", "2025-01-01", "2025-01-08", 5)];
+        // task_end_date("2026-03-04", 5) = add_biz("2026-03-04", 4) = 2026-03-10
+        let tasks = vec![make_task("a", "2025-01-01", "2025-01-06", 5)];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-04");
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].new_start, "2026-03-04");
-        assert_eq!(results[0].new_end, "2026-03-11");
+        assert_eq!(results[0].new_end, "2026-03-10");
     }
 
     #[test]
     fn recalc_snet_constraint() {
-        // Task with SNET constraint. Dep says 03-10 but SNET says 03-20 (Fri).
-        // add_business_days("2026-03-20", 5) = 2026-03-27
-        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
+        // Task with SNET constraint. Dep says 03-09 but SNET says 03-20 (Fri).
+        // task_end_date("2026-03-20", 5) = add_biz("2026-03-20", 4) = 2026-03-26
+        let mut b = make_task("b", "2026-03-10", "2026-03-16", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::SNET);
         b.constraint_date = Some("2026-03-20".to_string());
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
         assert_eq!(results[0].new_start, "2026-03-20");
-        assert_eq!(results[0].new_end, "2026-03-27");
+        assert_eq!(results[0].new_end, "2026-03-26");
     }
 
     #[test]
     fn recalc_scope_workstream() {
         // Two workstreams: Eng and Design. Only Eng should be recalculated.
-        // A(03-02 Mon..03-09, 5d) -> e2/d2 (slack at 03-25)
-        let mut e2 = make_task_with_project("e2", "2026-03-25", "2026-04-01", 5, "Alpha", "Eng");
+        // e1/d1(03-02 Mon..03-06 Fri, 5d) -> e2/d2 (slack at 03-25)
+        let mut e2 = make_task_with_project("e2", "2026-03-25", "2026-03-31", 5, "Alpha", "Eng");
         e2.dependencies = vec![make_dep("e1", "e2", DepType::FS, 0)];
 
-        let mut d2 = make_task_with_project("d2", "2026-03-25", "2026-04-01", 5, "Alpha", "Design");
+        let mut d2 = make_task_with_project("d2", "2026-03-25", "2026-03-31", 5, "Alpha", "Design");
         d2.dependencies = vec![make_dep("d1", "d2", DepType::FS, 0)];
 
         let tasks = vec![
-            make_task_with_project("e1", "2026-03-02", "2026-03-09", 5, "Alpha", "Eng"),
+            make_task_with_project("e1", "2026-03-02", "2026-03-06", 5, "Alpha", "Eng"),
             e2,
-            make_task_with_project("d1", "2026-03-02", "2026-03-09", 5, "Alpha", "Design"),
+            make_task_with_project("d1", "2026-03-02", "2026-03-06", 5, "Alpha", "Design"),
             d2,
         ];
         let results = recalculate_earliest(&tasks, None, Some("Eng"), None, "2026-03-02");
 
-        // Only e2 should be moved (d2 is out of scope)
+        // Only e2 should be moved (d2 is out of scope). e2 snaps to fs_successor_start(03-06,0)=03-09.
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "e2");
-        assert_eq!(results[0].new_start, "2026-03-10");
+        assert_eq!(results[0].new_start, "2026-03-09");
     }
 
     #[test]
     fn recalc_scope_task_id() {
         // A -> B -> C. Scope by B: should recalculate B and C (downstream), not A.
-        let mut b = make_task("b", "2026-03-25", "2026-04-01", 5);
+        let mut b = make_task("b", "2026-03-25", "2026-03-31", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-04-20", "2026-04-27", 5);
+        let mut c = make_task("c", "2026-04-20", "2026-04-24", 5);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c];
         let results = recalculate_earliest(&tasks, None, None, Some("b"), "2026-03-02");
 
-        // B snaps to 03-10, B.end=03-17, C snaps to 03-18, C.end=03-25
+        // B snaps to fs_successor_start(03-06,0)=03-09, B.end=task_end_date(03-09,5)=03-13
+        // C snaps to fs_successor_start(03-13,0)=03-16, C.end=task_end_date(03-16,5)=03-20
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b_result.new_start, "2026-03-10");
-        assert_eq!(b_result.new_end, "2026-03-17");
+        assert_eq!(b_result.new_start, "2026-03-09");
+        assert_eq!(b_result.new_end, "2026-03-13");
 
         let c_result = results.iter().find(|r| r.id == "c").unwrap();
-        assert_eq!(c_result.new_start, "2026-03-18");
-        assert_eq!(c_result.new_end, "2026-03-25");
+        assert_eq!(c_result.new_start, "2026-03-16");
+        assert_eq!(c_result.new_end, "2026-03-20");
 
         // A should not be in results
         assert!(results.iter().all(|r| r.id != "a"));
@@ -612,11 +613,12 @@ mod tests {
     #[test]
     fn recalc_no_change_returns_empty() {
         // Task already at earliest position — no results
-        // A.end=03-09, B earliest=03-10, B.end=add_biz(03-10,5)=03-17
-        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
+        // A: start=03-02 (Mon), dur=5, end=03-06 (Fri, inclusive).
+        // B earliest = fs_successor_start(03-06,0) = 03-09 (Mon), end = task_end_date(03-09,5) = 03-13 (Fri).
+        let mut b = make_task("b", "2026-03-09", "2026-03-13", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         assert!(results.is_empty());
@@ -683,19 +685,19 @@ mod tests {
 
     #[test]
     fn recalc_fs_across_weekend() {
-        // A: Mon 03-02 to Fri 03-06, duration=4 (consistent with dates).
+        // A: Mon 03-02 to Fri 03-06, duration=5 (inclusive: Mon–Fri = 5 days).
         // A ends Friday 03-06. B should recalculate to start Monday 03-09.
-        // B has duration=5, so end = add_business_days(03-09, 5) = 03-16 (Mon).
-        let mut b = make_task("b", "2026-03-20", "2026-03-27", 5); // currently too late
+        // B has duration=5, so end = task_end_date(03-09, 5) = add_biz(03-09, 4) = 03-13 (Fri).
+        let mut b = make_task("b", "2026-03-20", "2026-03-26", 5); // currently too late
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 4), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
         assert_eq!(results[0].new_start, "2026-03-09"); // Monday
-        assert_eq!(results[0].new_end, "2026-03-16"); // Monday (5 biz days later)
+        assert_eq!(results[0].new_end, "2026-03-13"); // Friday (task_end_date(03-09, 5))
     }
 
     // ── SF dependency tests ─────────────────────────────────────────────
@@ -764,52 +766,56 @@ mod tests {
     #[test]
     fn alap_forward_pass_computes_from_deps() {
         // ALAP in forward pass: compute from deps like ASAP (actual late scheduling in CPM)
-        // A(5d) -> B(3d, ALAP). B's earliest from deps = day after A ends.
-        let mut b = make_task("b", "2026-03-20", "2026-03-25", 3);
+        // A(5d) -> B(3d, ALAP). B's earliest from deps = fs_successor_start(A.end, 0).
+        // A: start=03-02, dur=5, end=03-06 (Fri). fs_successor_start(03-06,0)=03-09 (Mon).
+        let mut b = make_task("b", "2026-03-20", "2026-03-22", 3);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::ALAP);
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b_result.new_start, "2026-03-10");
+        assert_eq!(b_result.new_start, "2026-03-09");
     }
 
     // ── SNLT constraint tests ───────────────────────────────────────────
 
     #[test]
     fn snlt_no_conflict() {
-        // Task with SNLT Mar 20, dep pushes to Mar 15 → no conflict
-        let mut b = make_task("b", "2026-03-20", "2026-03-27", 5);
+        // Task with SNLT Mar 20, dep pushes to Mar 09 (fs_successor_start(03-06,0)) → no conflict
+        // A: start=03-02 Mon, dur=5, end=03-06 Fri (inclusive). fs_successor_start(03-06,0)=03-09 Mon.
+        // 03-09 <= SNLT 03-20 → no conflict.
+        let mut b = make_task("b", "2026-03-20", "2026-03-26", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::SNLT);
         b.constraint_date = Some("2026-03-20".to_string());
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-09", 5), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b_result.new_start, "2026-03-10");
+        assert_eq!(b_result.new_start, "2026-03-09");
         assert!(b_result.conflict.is_none());
     }
 
     #[test]
     fn snlt_conflict_detected() {
         // Task with SNLT Mar 10, dep pushes start past constraint.
-        // A: 5d from 03-09, recalc computes end=03-16. B FS from A → 03-17.
-        // 03-17 > SNLT 03-10 → conflict.
+        // A: 5d from 03-09 (Mon), inclusive end = add_biz(03-09,4) = 03-13 (Fri).
+        // B FS from A → fs_successor_start(03-13,0) = 03-16 (Mon).
+        // 03-16 > SNLT 03-10 → conflict.
         let mut b = make_task("b", "2026-03-05", "2026-03-12", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::SNLT);
         b.constraint_date = Some("2026-03-10".to_string());
 
-        let tasks = vec![make_task("a", "2026-03-09", "2026-03-16", 5), b];
+        let tasks = vec![make_task("a", "2026-03-09", "2026-03-13", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
         // Dep-driven start wins (we don't move the task back)
-        assert_eq!(b_result.new_start, "2026-03-17");
+        assert_eq!(b_result.new_start, "2026-03-16");
         assert!(b_result.conflict.is_some());
         assert!(b_result.conflict.as_ref().unwrap().contains("SNLT"));
     }
@@ -836,8 +842,9 @@ mod tests {
     #[test]
     fn fnet_no_push_when_already_late() {
         // 5d task starting Mar 20 with FNET Mar 20.
-        // Computed end = add_biz(03-20, 5) = 03-27. 03-27 >= 03-20 → no push needed.
-        let mut a = make_task("a", "2026-03-20", "2026-03-27", 5);
+        // Computed end = task_end_date(03-20, 5) = add_biz(03-20, 4) = 03-26 (Thu).
+        // 03-26 >= 03-20 → no push needed.
+        let mut a = make_task("a", "2026-03-20", "2026-03-26", 5);
         a.constraint_type = Some(ConstraintType::FNET);
         a.constraint_date = Some("2026-03-20".to_string());
 
@@ -852,12 +859,13 @@ mod tests {
 
     #[test]
     fn fnlt_conflict_detected() {
-        // 5d task, dep pushes start to Mar 16. End = add_biz(03-16, 5) = 03-23.
-        // FNLT = Mar 20. 03-23 > 03-20 → conflict.
+        // 5d task, dep pushes start to Mar 16 (fs_successor_start(03-13,0)).
+        // End = task_end_date(03-16, 5) = add_biz(03-16, 4) = 03-20 (Fri).
+        // FNLT = Mar 19. 03-20 > 03-19 → conflict.
         let mut b = make_task("b", "2026-03-05", "2026-03-12", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::FNLT);
-        b.constraint_date = Some("2026-03-20".to_string());
+        b.constraint_date = Some("2026-03-19".to_string());
 
         let tasks = vec![make_task("a", "2026-03-09", "2026-03-13", 5), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");

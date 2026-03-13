@@ -219,13 +219,10 @@ mod tests {
     /// When a task moves forward and the dependent would violate FS lag=0,
     /// it cascades by the minimum amount to satisfy the constraint.
     ///
-    /// Setup: A ends Tue Mar 10. B starts Wed Mar 11 (FS lag=0).
-    /// Required B.start = add_biz(A.end, 0) = A.end.
-    /// Before move: required = Mar 10, B.start = Mar 11 > Mar 10 → 1 biz day slack.
-    ///
-    /// A moves +5 biz → A.new_end = Tue Mar 17.
-    /// Required B.start = Mar 17 > B.start (Mar 11) → violation.
-    /// B shifts by count_biz(Mar 11 → Mar 17) = 4 biz days → starts Mar 17.
+    /// Setup: A ends Tue Mar 17 (inclusive). B starts Wed Mar 11 (FS lag=0).
+    /// Required B.start = fs_successor_start(A.end, 0) = add_biz(Mar 17, 1) = Wed Mar 18.
+    /// B.start = Mar 11 < Mar 18 → violation.
+    /// B shifts by count_biz(Mar 11 → Mar 18) = 5 biz days → starts Wed Mar 18.
     #[test]
     fn shifts_dependent_on_violation() {
         let tasks = vec![
@@ -239,10 +236,10 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 5);
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        // B shifts to satisfy constraint: start = A.new_end = Mar 17 (Tue)
-        assert_eq!(b.start_date, "2026-03-17");
-        // Duration preserved: Mar 20 + 4 biz days = Mar 26 (Thu)
-        assert_eq!(b.end_date, "2026-03-26");
+        // B shifts to satisfy constraint: start = fs_successor_start(Mar 17, 0) = Wed Mar 18
+        assert_eq!(b.start_date, "2026-03-18");
+        // Duration preserved: Mar 20 + 5 biz days = Mar 27 (Fri)
+        assert_eq!(b.end_date, "2026-03-27");
     }
 
     #[test]
@@ -260,12 +257,11 @@ mod tests {
     #[test]
     fn transitive_cascade() {
         // A → B → C. A moves +3 biz.
-        // A.new_end = add_biz(Mar 10, 3) = Mar 13 (Fri).
-        // B (starts Mar 11): required = Mar 13 > Mar 11 → shift 2 biz.
-        //   B.new_start = Mar 13, B.new_end = add_biz(Mar 20, 2) = Mar 24 (Tue).
-        // C (starts Mar 21=Sat): required = add_biz(Mar 24, 0) = Mar 24.
-        //   Mar 21 (Sat) < Mar 24 (Tue) → shift 2 biz.
-        //   C.new_start = Mar 24.
+        // A.new_end = Mar 13 (Fri, inclusive).
+        // B (starts Mar 11): required = fs_successor_start(Mar 13, 0) = add_biz(Mar 13, 1) = Mar 16 (Mon).
+        //   shift = count_biz(Mar 11 → Mar 16) = 3. B.new_start = Mar 16, B.new_end = add_biz(Mar 20, 3) = Mar 25.
+        // C (starts Mar 21=Sat): required = fs_successor_start(Mar 25, 0) = Mar 26 (Thu).
+        //   count_biz(Mar 21 → Mar 26) = 4. C.new_start = add_biz(Mar 21, 4) = Mar 26 (Thu).
         let tasks = vec![
             make_task("a", "2026-03-01", "2026-03-13"), // moved +3 biz from Mar 10
             {
@@ -281,7 +277,7 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 3);
         let c = results.iter().find(|r| r.id == "c").unwrap();
-        assert_eq!(c.start_date, "2026-03-24");
+        assert_eq!(c.start_date, "2026-03-26");
     }
 
     #[test]
@@ -365,12 +361,13 @@ mod tests {
         // Diamond: A → B, A → C (from A), B → C.
         // C depends on both A and B; must only be shifted once, by the max needed.
         //
-        // A.new_end = add_biz(Mar 10, 5) = Mar 17.
-        // B (starts Mar 11): required = Mar 17 > Mar 11 → shift 4 biz.
-        //   B.new_start = Mar 17, B.new_end = add_biz(Mar 20, 4) = Mar 26.
-        // C (starts Mar 21 Sat): check A→C: required = Mar 17 < Mar 21 → no violation.
-        //   Check B→C: required = add_biz(Mar 26, 0) = Mar 26 > Mar 21 → violation.
-        //   C.new_start = Mar 26 (Thu), C.new_end = add_biz(Mar 30, 4) = Apr 03.
+        // A.new_end = Mar 17 (Tue, inclusive).
+        // B (starts Mar 11): required = fs_successor_start(Mar 17, 0) = Mar 18 (Wed). shift=5.
+        //   B.new_start = Mar 18, B.new_end = add_biz(Mar 20, 5) = Mar 27 (Fri).
+        // C (starts Mar 21 Sat): check A→C: required = Mar 18 <= Mar 21 → no violation (slack).
+        //   Check B→C (with B.new_end=Mar 27): required = fs_successor_start(Mar 27, 0) = Mar 30 (Mon).
+        //   count_biz(Mar 21 → Mar 30) = 6. C.new_start = add_biz(Mar 21, 6) = Mar 30 (Mon).
+        //   C.new_end = add_biz(Mar 30, 6) = Apr 07 (Tue).
         let tasks = vec![
             make_task("a", "2026-03-01", "2026-03-17"), // moved +5 biz from Mar 10
             {
@@ -392,8 +389,8 @@ mod tests {
         assert_eq!(c_results.len(), 1, "Task c should appear exactly once");
 
         let c = &c_results[0];
-        assert_eq!(c.start_date, "2026-03-26");
-        assert_eq!(c.end_date, "2026-04-03");
+        assert_eq!(c.start_date, "2026-03-30");
+        assert_eq!(c.end_date, "2026-04-07");
     }
 
     #[test]
@@ -472,41 +469,41 @@ mod tests {
         // Only B cascades; orphans stay
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b");
-        // B.start = required = add_biz(Mar 13, 0) = Mar 13 (Fri)
-        assert_eq!(results[0].start_date, "2026-03-13");
-        // B.end = add_biz(Mar 20, 2) = Mar 24 (Tue)
-        assert_eq!(results[0].end_date, "2026-03-24");
+        // B.start = fs_successor_start(Mar 13, 0) = add_biz(Mar 13, 1) = Mon Mar 16
+        assert_eq!(results[0].start_date, "2026-03-16");
+        // B.end = add_biz(Mar 20, 3) = Mar 25 (Wed)
+        assert_eq!(results[0].end_date, "2026-03-25");
     }
 
     // ── Slack-aware cascade tests (core new behavior) ─────────────────────
 
-    /// Scenario from the issue: FS lag=1. A ends Mar 13 (Fri), B starts Mar 16 (Mon).
-    /// Required B.start = add_biz(Mar 13, 1) = Mar 16 = B.start → zero slack.
+    /// Inclusive FS lag=1: A ends Thu Mar 12, B starts Mon Mar 16, lag=1.
+    /// Required B.start = fs_successor_start(Mar 12, 1) = add_biz(Mar 12, 2) = Mon Mar 16 = B.start → zero slack.
     ///
-    /// When A moves to end Mar 14 (Sat): required = add_biz(Mar 14, 1) = Mar 16.
-    /// B.start = Mar 16 = required → no violation. B should NOT move.
+    /// When A moves +1 biz to Fri Mar 13: required = add_biz(Mar 13, 2) = Tue Mar 17 > Mar 16.
+    /// Wait — we want a NO-CASCADE scenario. Use A.end=Wed Mar 11 (after move):
+    /// required = add_biz(Mar 11, 2) = Wed Mar 13 <= B.start (Mar 16) → no violation. B stays.
     #[test]
     fn no_cascade_when_predecessor_moves_into_weekend_with_lag() {
         let tasks = vec![
-            make_task("a", "2026-03-09", "2026-03-14"), // moved to end Sat Mar 14
+            make_task("a", "2026-03-09", "2026-03-11"), // A ends Wed Mar 11 (inclusive)
             {
                 let mut t = make_task("b", "2026-03-16", "2026-03-27");
                 t.dependencies = vec![make_dep_with_lag("a", "b", 1)];
                 t
             },
         ];
-        // A moved +1 biz day (from Fri Mar 13 to Mon... wait, let me use days_delta=1)
         let results = cascade_dependents(&tasks, "a", 1);
-        // B.start = Mar 16 = add_biz(Mar 14, 1) = Mar 16 → no violation
+        // required = fs_successor_start(Mar 11, 1) = add_biz(Mar 11, 2) = Wed Mar 13 <= Mar 16 → no violation
         assert!(
             results.is_empty(),
             "B should not cascade when slack absorbs the move (Scenario 1)"
         );
     }
 
-    /// Scenario 2 from the issue: A ends Mar 16 (Mon), lag=1.
-    /// required B.start = add_biz(Mar 16, 1) = Mar 17 (Tue) > B.start (Mar 16).
-    /// B must cascade to Mar 17.
+    /// Inclusive FS lag=1: A ends Mon Mar 16, B starts Mon Mar 16, lag=1.
+    /// Required B.start = fs_successor_start(Mar 16, 1) = add_biz(Mar 16, 2) = Wed Mar 18 > B.start (Mar 16).
+    /// B must cascade to Mar 18.
     #[test]
     fn cascade_when_violation_occurs_with_lag() {
         let tasks = vec![
@@ -519,8 +516,8 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 2);
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        // required = add_biz(Mar 16, 1) = Mar 17 (Tue)
-        assert_eq!(b.start_date, "2026-03-17");
+        // required = fs_successor_start(Mar 16, 1) = add_biz(Mar 16, 2) = Wed Mar 18
+        assert_eq!(b.start_date, "2026-03-18");
     }
 
     // ── SF cascade tests ──────────────────────────────────────────────────
@@ -605,24 +602,22 @@ mod tests {
                 let mut t = make_task("b", "2026-03-11", "2026-03-18");
                 t.duration = 6;
                 // SF from A (pred.start=Mar 10): required_end = Mar 10. B.end=Mar 18 > Mar 10 → OK.
-                // FS from A (pred.end=Mar 17): required_start = Mar 17. B.start=Mar 11 < Mar 17 → violation.
+                // FS from A (pred.end=Mar 17): required_start = fs_successor_start(Mar 17, 0) = Mar 18. B.start=Mar 11 < Mar 18 → violation.
                 t.dependencies = vec![make_sf_dep("a", "b"), make_dep("a", "b")];
                 t
             },
         ];
         let results = cascade_dependents(&tasks, "a", 5);
-        // FS dominates: B.start must be >= Mar 17.
+        // FS dominates: B.start must be >= fs_successor_start(Mar 17, 0) = Wed Mar 18.
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        assert_eq!(b.start_date, "2026-03-17");
+        assert_eq!(b.start_date, "2026-03-18");
     }
 
     /// When sufficient slack exists, the predecessor can move forward without
     /// causing a cascade.
     ///
-    /// A ends Mar 10 (Tue), B starts Mar 20 (Fri), FS lag=0.
-    /// required = add_biz(Mar 10, 0) = Mar 10. B.start = Mar 20. 8 biz days of slack.
-    /// A moves +5 biz → A.new_end = Mar 17.
-    /// required = Mar 17. B.start = Mar 20 > Mar 17 → still no violation.
+    /// A ends Mar 17 (Tue, inclusive). B starts Mar 20 (Fri), FS lag=0.
+    /// required = fs_successor_start(Mar 17, 0) = add_biz(Mar 17, 1) = Mar 18. B.start = Mar 20 > Mar 18 → no violation.
     #[test]
     fn no_cascade_with_sufficient_slack() {
         let tasks = vec![
@@ -642,16 +637,13 @@ mod tests {
 
     /// When slack partially absorbs the move, cascade by the minimum needed.
     ///
-    /// A ends Mar 10 (Tue), B starts Mar 14 (Sat) ≡ Mar 16 (Mon as effective business day).
-    /// Wait, let me use a cleaner example:
-    /// A ends Mar 10, B starts Mar 18 (Wed), FS lag=0.
-    /// required = add_biz(Mar 10, 0) = Mar 10. Slack = count_biz(Mar 10 → Mar 18) = 6.
-    /// A moves +8 biz → A.new_end = add_biz(Mar 10, 8) = Mar 20 (Fri).
-    /// required = Mar 20. B.start = Mar 18 < Mar 20 → violation.
-    /// Minimum shift = count_biz(Mar 18 → Mar 20) = 2 biz days.
+    /// A ends Mar 20 (Fri, inclusive). B starts Mar 18 (Wed), FS lag=0.
+    /// required = fs_successor_start(Mar 20, 0) = add_biz(Mar 20, 1) = Mon Mar 23.
+    /// B.start = Mar 18 < Mar 23 → violation.
+    /// Minimum shift = count_biz(Mar 18 → Mar 23) = 3 biz days.
     #[test]
     fn cascade_only_minimum_required() {
-        // A.new_end = add_biz("2026-03-10", 8) = Fri Mar 20
+        // A.new_end = Fri Mar 20 (inclusive)
         let tasks = vec![
             make_task("a", "2026-03-01", "2026-03-20"), // moved +8 biz from Mar 10
             {
@@ -662,10 +654,10 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 8);
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        // required = Mar 20. B starts Mar 18, violates. Shift = 2 biz.
-        assert_eq!(b.start_date, "2026-03-20");
-        // B.end = add_biz(Mar 27 Fri, 2) = Tue Mar 31
-        assert_eq!(b.end_date, "2026-03-31");
+        // required = Mon Mar 23. B starts Mar 18, violates. Shift = 3 biz.
+        assert_eq!(b.start_date, "2026-03-23");
+        // B.end = add_biz(Mar 27 Fri, 3) = Wed Apr 01
+        assert_eq!(b.end_date, "2026-04-01");
     }
 
     /// Transitive slack: if B has enough slack to absorb A's move, C (dependent
@@ -700,11 +692,11 @@ mod tests {
 
     #[test]
     fn cascade_across_weekend_preserves_duration() {
-        // A.new_end = Tue Mar 10 (moved from Fri Mar 06, +2 biz).
+        // A.new_end = Tue Mar 10 (moved from Fri Mar 06, +2 biz; inclusive end).
         // B starts Mon Mar 09, ends Fri Mar 13 (5 biz days duration).
-        // required B.start = add_biz(Mar 10, 0) = Mar 10.
-        // B.start = Mar 09 < Mar 10 → violation. Shift = 1 biz day.
-        // B.new_start = Mar 10 (Tue), B.new_end = add_biz(Mar 13, 1) = Mon Mar 16.
+        // required B.start = fs_successor_start(Mar 10, 0) = add_biz(Mar 10, 1) = Wed Mar 11.
+        // B.start = Mar 09 < Mar 11 → violation. Shift = count_biz(Mar 09 → Mar 11) = 2.
+        // B.new_start = Wed Mar 11, B.new_end = add_biz(Mar 13, 2) = Tue Mar 17.
         // This crosses the weekend, verifying business-day arithmetic is used.
         let tasks = vec![
             make_task("a", "2026-03-05", "2026-03-10"), // moved +2 biz from Mar 06 to Mar 10
@@ -728,18 +720,19 @@ mod tests {
         let results = cascade_dependents(&tasks, "a", 2);
         assert_eq!(results.len(), 1);
         let b = &results[0];
-        assert_eq!(b.start_date, "2026-03-10"); // Tue
-        assert_eq!(b.end_date, "2026-03-16"); // Mon (not Sat Mar 14!)
+        assert_eq!(b.start_date, "2026-03-11"); // Wed (fs_successor_start(Mar 10, 0))
+        assert_eq!(b.end_date, "2026-03-17"); // Tue (not Sat Mar 14!)
     }
 
     #[test]
     fn cascade_does_not_land_on_weekend() {
         // B starts Fri 2026-03-06, ends Fri 2026-03-13 (6 biz days).
-        // A.new_end = Mon Mar 09 (moved +1 biz from Mar 06).
-        // required B.start = Mar 09 > B.start (Mar 06) → violation.
-        // Shift = count_biz(Mar 06 → Mar 09) = 1 (Mon).
-        // B.new_start = Mon Mar 09 (not Sat Mar 07).
-        // B.new_end = add_biz(Mar 13, 1) = Mon Mar 16.
+        // A.new_end = Mon Mar 09 (moved +1 biz from Fri Mar 06; inclusive end).
+        // required B.start = fs_successor_start(Mar 09, 0) = add_biz(Mar 09, 1) = Tue Mar 10.
+        // B.start = Mar 06 < Mar 10 → violation.
+        // Shift = count_biz(Mar 06 → Mar 10) = 2.
+        // B.new_start = add_biz(Mar 06, 2) = Tue Mar 10 (not Sat Mar 07).
+        // B.new_end = add_biz(Mar 13, 2) = Tue Mar 17.
         let tasks = vec![
             make_task("a", "2026-03-02", "2026-03-09"), // moved +1 biz from Mar 06
             {
@@ -762,9 +755,9 @@ mod tests {
         let results = cascade_dependents(&tasks, "a", 1);
         assert_eq!(results.len(), 1);
         let b = &results[0];
-        // Start should skip weekend: Fri+1 biz day = Mon
-        assert_eq!(b.start_date, "2026-03-09"); // Mon, not Sat
-                                                // End should also be a weekday, preserving duration
-        assert_eq!(b.end_date, "2026-03-16"); // Mon
+        // Start: fs_successor_start(Mon Mar 09, 0) = Tue Mar 10
+        assert_eq!(b.start_date, "2026-03-10"); // Tue
+                                                // End: add_biz(Mar 13, 2) = Tue Mar 17
+        assert_eq!(b.end_date, "2026-03-17"); // Tue
     }
 }

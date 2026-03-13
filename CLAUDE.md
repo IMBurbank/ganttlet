@@ -124,8 +124,8 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 - **end_date is INCLUSIVE** — the last working day the task occupies, not the day after.
 - **duration** = business days in [startDate, endDate] counting both endpoints.
   `taskDuration('2026-03-02', '2026-03-06') = 5` (Mon–Fri).
-- **End from start+dur:** `taskEndDate(start, duration)` — NEVER `addBusinessDays(start, duration)`.
-- **Duration from dates:** `taskDuration(start, end)` — NEVER `workingDaysBetween` or raw `differenceInBusinessDays`.
+- **End from start+dur:** `taskEndDate(start, duration)` — the only public API for this. `shift_date` (Rust) and `addBusinessDays` (date-fns) are internal primitives; never call them directly.
+- **Duration from dates:** `taskDuration(start, end)` — NEVER `workingDaysBetween` (deleted) or raw `differenceInBusinessDays`.
 - **No weekend dates.** Tasks must not start or end on Sat/Sun. Use `ensureBusinessDay()` for starts, `prevBusinessDay()` for ends.
 - **Dependency helpers (Rust):** Always use `fs_successor_start`, `ss_successor_start`, `ff_successor_start`, `sf_successor_start` — NEVER hand-write FS/SS/FF/SF formulas.
 - **CPM exception:** `cpm.rs` uses a standard exclusive integer model internally. Do NOT apply inclusive convention to CPM — it's an abstract graph algorithm, not a date calculation.

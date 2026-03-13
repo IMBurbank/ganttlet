@@ -14,7 +14,6 @@ import {
   formatDate,
   daysBetween,
   businessDaysDelta,
-  workingDaysBetween,
   getColumnWidth,
   ensureBusinessDay,
   prevBusinessDay,

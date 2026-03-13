@@ -5,8 +5,8 @@ import type { Task } from '../../types';
 import {
   addBusinessDaysToDate,
   businessDaysDelta,
-  workingDaysBetween,
   taskEndDate,
+  taskDuration,
 } from '../../utils/dateUtils';
 
 const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
@@ -93,7 +93,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
       }
     } else if (field === 'endDate') {
-      const newDuration = workingDaysBetween(task!.startDate, value);
+      const newDuration = taskDuration(task!.startDate, value);
       if (newDuration < 0) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });

@@ -24,8 +24,8 @@ import {
   formatDisplayDate,
   addBusinessDaysToDate,
   businessDaysDelta,
-  workingDaysBetween,
   taskEndDate,
+  taskDuration,
 } from '../../utils/dateUtils';
 import {
   validateTaskName,
@@ -108,7 +108,7 @@ export default function TaskRow({
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: delta });
       }
     } else {
-      const newDuration = workingDaysBetween(task.startDate, value);
+      const newDuration = taskDuration(task.startDate, value);
       if (newDuration < 0) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value });
       dispatch({

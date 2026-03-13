@@ -1,5 +1,5 @@
 {
-  "group": "I",
+  "group": "H",
   "phase": 16,
   "tasks": {
     "E1": {
@@ -155,7 +155,37 @@
     "I9": {
       "status": "done",
       "notes": "Weekend Invariants section added to e2e-testing skill"
+    },
+    "H1": {
+      "status": "done",
+      "tests_passing": 1,
+      "tests_failing": 0,
+      "notes": "cascade/recalculate agreement all dep types FS/SS/FF/SF lags 0-2"
+    },
+    "H2": {
+      "status": "done",
+      "tests_passing": 1,
+      "tests_failing": 0,
+      "notes": "find_conflicts/recalculate agreement all dep types"
+    },
+    "H3": {
+      "status": "done",
+      "tests_passing": 15,
+      "tests_failing": 0,
+      "notes": "cross-language consistency TS+Rust, 12 new TS tests + 3 Rust tests"
+    },
+    "H4": {
+      "status": "done",
+      "tests_passing": 0,
+      "tests_failing": 0,
+      "notes": "assertTaskInvariants in schedulerWasm.ts, called before all WASM calls"
+    },
+    "H5": {
+      "status": "done",
+      "tests_passing": 1,
+      "tests_failing": 0,
+      "notes": "edit→cascade→recalculate roundtrip no drift test"
     }
   },
-  "last_updated": "2026-03-13T04:54:43.483Z"
+  "last_updated": "2026-03-13T04:58:01.614Z"
 }

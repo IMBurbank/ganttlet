@@ -283,18 +283,25 @@ export default function TaskBar({
         if (dragRef.current) {
           const finalTask = dragRef.current;
           dragRef.current = null;
-          const daysDelta =
-            finalTask.mode === 'move'
-              ? businessDaysDelta(finalTask.origStartDate, finalTask.lastStartDate)
-              : businessDaysDelta(finalTask.origEndDate, finalTask.lastEndDate);
-          // Atomic: set final position + cascade in one dispatch
-          dispatch({
-            type: 'COMPLETE_DRAG',
-            taskId,
-            newStartDate: finalTask.lastStartDate,
-            newEndDate: finalTask.lastEndDate,
-            daysDelta,
-          });
+          // Only dispatch if the task actually moved — a click-without-drag
+          // (e.g. first click of a dblclick) should not trigger a re-render
+          const moved =
+            finalTask.lastStartDate !== finalTask.origStartDate ||
+            finalTask.lastEndDate !== finalTask.origEndDate;
+          if (moved) {
+            const daysDelta =
+              finalTask.mode === 'move'
+                ? businessDaysDelta(finalTask.origStartDate, finalTask.lastStartDate)
+                : businessDaysDelta(finalTask.origEndDate, finalTask.lastEndDate);
+            // Atomic: set final position + cascade in one dispatch
+            dispatch({
+              type: 'COMPLETE_DRAG',
+              taskId,
+              newStartDate: finalTask.lastStartDate,
+              newEndDate: finalTask.lastEndDate,
+              daysDelta,
+            });
+          }
         }
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);

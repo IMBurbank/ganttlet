@@ -15,7 +15,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     name: 'Test Task',
     startDate: '2026-03-02', // Monday
     endDate: '2026-03-06', // Friday
-    duration: 4, // Mon-Thu = 4 business days (start-inclusive, end-exclusive)
+    duration: 5, // Mon-Fri = 5 business days (inclusive convention)
     owner: 'Alice',
     workStream: 'Engineering',
     project: 'Alpha',
@@ -45,8 +45,8 @@ describe('sheetsMapper', () => {
       expect(row[1]).toBe('Test Task');
       expect(row[2]).toBe('2026-03-02');
       expect(row[3]).toBe('2026-03-06');
-      // duration computed via workingDaysBetween
-      expect(row[4]).toBe('4');
+      // duration computed via taskDuration (inclusive: both endpoints counted)
+      expect(row[4]).toBe('5');
       expect(row[5]).toBe('Alice');
       expect(row[6]).toBe('Engineering');
       expect(row[7]).toBe('Alpha');
@@ -115,10 +115,26 @@ describe('sheetsMapper', () => {
 
     it('deserializes a full row', () => {
       const row = [
-        'task-1', 'Test Task', '2026-03-02', '2026-03-06', '4',
-        'Alice', 'Engineering', 'Alpha', 'Backend', 'false',
-        'A test task', 'false', 'false', '', '', '',
-        'Some notes', '', '', '',
+        'task-1',
+        'Test Task',
+        '2026-03-02',
+        '2026-03-06',
+        '4',
+        'Alice',
+        'Engineering',
+        'Alpha',
+        'Backend',
+        'false',
+        'A test task',
+        'false',
+        'false',
+        '',
+        '',
+        '',
+        'Some notes',
+        '',
+        '',
+        '',
       ];
       const task = rowToTask(row);
       expect(task).not.toBeNull();
@@ -126,8 +142,8 @@ describe('sheetsMapper', () => {
       expect(task!.name).toBe('Test Task');
       expect(task!.startDate).toBe('2026-03-02');
       expect(task!.endDate).toBe('2026-03-06');
-      // duration derived from dates, not from column
-      expect(task!.duration).toBe(4);
+      // duration derived from dates via taskDuration (inclusive convention)
+      expect(task!.duration).toBe(5);
       expect(task!.owner).toBe('Alice');
       expect(task!.done).toBe(false);
       expect(task!.parentId).toBeNull();
@@ -329,7 +345,7 @@ describe('sheetsMapper', () => {
       const summaryWithKids = makeTask({ id: 's2', isSummary: true, childIds: ['n1'] });
 
       const rows = tasksToRows([summary, normal, summaryWithKids]);
-      const ids = rows.slice(1).map(r => r[0]);
+      const ids = rows.slice(1).map((r) => r[0]);
       expect(ids).toContain('n1');
       expect(ids).toContain('s2');
       expect(ids).not.toContain('s1');
@@ -338,11 +354,7 @@ describe('sheetsMapper', () => {
 
   describe('rowsToTasks', () => {
     it('skips header row', () => {
-      const rows = [
-        HEADER_ROW,
-        taskToRow(makeTask({ id: 'a' })),
-        taskToRow(makeTask({ id: 'b' })),
-      ];
+      const rows = [HEADER_ROW, taskToRow(makeTask({ id: 'a' })), taskToRow(makeTask({ id: 'b' }))];
       const tasks = rowsToTasks(rows);
       expect(tasks).toHaveLength(2);
       expect(tasks[0].id).toBe('a');

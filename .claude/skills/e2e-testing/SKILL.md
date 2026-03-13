@@ -41,6 +41,13 @@ then starts the binary and waits for port 4000 before running tests.
 - Chromium browser binary pre-installed
 - Relay server source (`server/`) volume-mounted for build cache persistence
 
+## Weekend Invariants
+- No task should start or end on a weekend in UI-created tasks.
+- E2E tests should verify: after creating a task on a weekend, start snaps to Monday.
+- E2E tests should verify: bar width includes the end-date column (inclusive convention).
+- The `WEEKEND_VIOLATION` conflict indicator appears for tasks with weekend dates
+  (typically from Sheets import).
+
 ## Lessons Learned
 <!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->
 - 2026-03-01: E2E relay compilation failures are infrastructure issues, not code bugs. Note in summary but still write the tests.

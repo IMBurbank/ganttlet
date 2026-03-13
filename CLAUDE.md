@@ -120,6 +120,16 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 - **Promotable artifacts**: Images identical across environments. Config injected at deploy time via env vars / Secret Manager.
 - **Minimal dependencies**: Keep the dependency tree small on both client and server.
 
+## Date Conventions (Non-Negotiable)
+- **end_date is INCLUSIVE** — the last working day the task occupies, not the day after.
+- **duration** = business days in [startDate, endDate] counting both endpoints.
+  `taskDuration('2026-03-02', '2026-03-06') = 5` (Mon–Fri).
+- **End from start+dur:** `taskEndDate(start, duration)` — NEVER `addBusinessDays(start, duration)`.
+- **Duration from dates:** `taskDuration(start, end)` — NEVER `workingDaysBetween` or raw `differenceInBusinessDays`.
+- **No weekend dates.** Tasks must not start or end on Sat/Sun. Use `ensureBusinessDay()` for starts, `prevBusinessDay()` for ends.
+- **Dependency helpers (Rust):** Always use `fs_successor_start`, `ss_successor_start`, `ff_successor_start`, `sf_successor_start` — NEVER hand-write FS/SS/FF/SF formulas.
+- **CPM exception:** `cpm.rs` uses a standard exclusive integer model internally. Do NOT apply inclusive convention to CPM — it's an abstract graph algorithm, not a date calculation.
+
 ## Development Environment
 - Docker-based: `docker compose run --service-ports dev` to enter container
 - Vite on port 5173 (localhost:5173)

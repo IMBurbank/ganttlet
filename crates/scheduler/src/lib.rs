@@ -319,6 +319,146 @@ mod tests {
         assert_eq!(conflicts[0].conflict_type, "DEP_VIOLATED");
         assert_eq!(conflicts[0].task_id, "b");
     }
+
+    // ── Agreement tests: find_conflicts vs recalculate_earliest ───────────
+    // These tests verify that when find_conflicts detects a DEP_VIOLATED
+    // conflict, the constraint_date it reports equals the new_start that
+    // recalculate_earliest would compute for the same scenario.
+    //
+    // Setup for all subtests:
+    //   A: start=2026-03-09 (Mon), end=2026-03-13 (Fri), duration=5
+    //   B: duration=5, placed too early (violates dep constraint with A)
+    //
+    // Dep type formula sources (using *_successor_start helpers):
+    //   FS lag=0: required_start = addBiz('2026-03-13', 1)  = 2026-03-16 (Mon)
+    //   SS lag=0: required_start = addBiz('2026-03-09', 0)  = 2026-03-09 (Mon)
+    //   FF lag=0: required_start = addBiz('2026-03-13', -4) = 2026-03-09 (Mon)
+    //   SF lag=0: required_start = addBiz('2026-03-09', -4) = 2026-03-03 (Tue)
+    // All verified via node -e with date-fns.
+
+    #[test]
+    fn conflict_date_matches_recalculate_resolution() {
+        use crate::constraints::recalculate_earliest;
+
+        // (dep_type, lag, A.start, A.end, A.dur, B.start, B.end, B.dur, expected_required_start)
+        // B is placed BEFORE the required_start so it violates the constraint.
+        // B has internally consistent dates (B.end = taskEndDate(B.start, B.dur)).
+        let cases: &[(DepType, i32, &str, &str, i32, &str, &str, i32, &str)] = &[
+            // FS: B starts too early before A ends
+            // A ends 2026-03-13, FS lag=0 → required=2026-03-16 (Mon)
+            // B.start=2026-03-10 (Tue) < 2026-03-16 → violation
+            (
+                DepType::FS,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-03-10",
+                "2026-03-16",
+                5,
+                "2026-03-16",
+            ),
+            // SS: B starts before A starts + lag=0
+            // A starts 2026-03-09, SS lag=0 → required=2026-03-09 (Mon)
+            // B.start=2026-03-05 (Thu) < 2026-03-09 → violation
+            (
+                DepType::SS,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-03-05",
+                "2026-03-11",
+                5,
+                "2026-03-09",
+            ),
+            // FF: B starts before required start derived from A.end
+            // A ends 2026-03-13, FF lag=0, B.dur=5 → required_start = addBiz('2026-03-13', -4) = 2026-03-09
+            // B.start=2026-03-05 (Thu) < 2026-03-09 → violation
+            (
+                DepType::FF,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-03-05",
+                "2026-03-11",
+                5,
+                "2026-03-09",
+            ),
+            // SF: B starts before required start derived from A.start
+            // A starts 2026-03-09, SF lag=0, B.dur=5 → required_start = addBiz('2026-03-09', -4) = 2026-03-03
+            // B.start=2026-02-27 (Fri) < 2026-03-03 → violation
+            (
+                DepType::SF,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-02-27",
+                "2026-03-05",
+                5,
+                "2026-03-03",
+            ),
+        ];
+
+        for (dep_type, lag, a_start, a_end, a_dur, b_start, b_end, b_dur, expected_req) in cases {
+            let a = {
+                let mut t = make_task("a", a_start, a_end);
+                t.duration = *a_dur;
+                t
+            };
+            let b = {
+                let mut t = make_task("b", b_start, b_end);
+                t.duration = *b_dur;
+                t.dependencies = vec![Dependency {
+                    from_id: "a".to_string(),
+                    to_id: "b".to_string(),
+                    dep_type: dep_type.clone(),
+                    lag: *lag,
+                }];
+                t
+            };
+            let tasks = [a, b];
+
+            // find_conflicts should detect a DEP_VIOLATED conflict for B
+            let conflicts = find_conflicts(&tasks);
+            let dep_conflict = conflicts
+                .iter()
+                .find(|c| c.task_id == "b" && c.conflict_type == "DEP_VIOLATED")
+                .expect(&format!(
+                    "expected DEP_VIOLATED for dep={:?} lag={}",
+                    dep_type, lag
+                ));
+
+            // The constraint_date from find_conflicts = required_start
+            assert_eq!(
+                dep_conflict.constraint_date, *expected_req,
+                "find_conflicts constraint_date mismatch for dep={:?} lag={}",
+                dep_type, lag
+            );
+
+            // recalculate_earliest should move B to the same required_start
+            let recalc_results = recalculate_earliest(
+                &tasks,
+                None,
+                None,
+                None,
+                "2026-01-01", // far in past so today-floor doesn't affect
+            );
+            let recalc_b = recalc_results.iter().find(|r| r.id == "b").expect(&format!(
+                "recalculate should move B for dep={:?} lag={}",
+                dep_type, lag
+            ));
+
+            // The conflict date should match the recalculate resolution
+            assert_eq!(
+                dep_conflict.constraint_date, recalc_b.new_start,
+                "find_conflicts and recalculate disagree for dep={:?} lag={}: conflict_date={} recalc={}",
+                dep_type, lag, dep_conflict.constraint_date, recalc_b.new_start
+            );
+        }
+    }
 }
 
 /// Recalculate tasks to their earliest possible start dates.

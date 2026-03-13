@@ -696,7 +696,7 @@ trade-off for now.
 - Phase 5 (Sheets) is highest risk — convention mismatch could corrupt user data
 - `workingDaysBetween` migration has **12 callsites** — must update all atomically
   within each phase
-- Cascade preserves `count_biz_days_to(start, end)` date gap, NOT `task.duration` field.
+- Cascade preserves `business_day_delta(start, end)` date gap, NOT `task.duration` field.
   If duration and date gap are out of sync (stale duration), cascade and recalculate
   will produce different end dates. Bug 13 and Bug 14 fixes address this by ensuring
   duration is always recomputed after date changes.
@@ -873,32 +873,88 @@ Currently `duration` is always derived via `taskDuration()` (business days, Mon-
 ## Glossary: Function Name Mapping
 
 For agents grepping the codebase — every function related to date calculation and which
-to use:
+to use. **Design principles for these names:**
 
-| Function | Language | Status | Use for |
+1. **One word for "Mon–Fri"**: Always "business day" (TS) / `business_day` (Rust). Never "working", "biz", or "weekday".
+2. **Cross-language parity**: TS camelCase ↔ Rust snake_case of the SAME name (e.g., `taskDuration` ↔ `task_duration`).
+3. **Purpose in the name**: Convention-encoding functions start with `task` (scheduling domain). Generic primitives use verb phrases (`add`, `ensure`, `prev`).
+4. **Grep-friendly**: An agent grepping "duration" finds `taskDuration`/`task_duration`. Grepping "end date" finds `taskEndDate`/`task_end_date`. Grepping "successor" finds all four `_successor_start` helpers.
+5. **Internal vs public**: Functions marked `@internal` are implementation details — agents should not call them directly.
+
+### Convention-encoding functions (the ONLY place the inclusive convention lives)
+
+| Function | Language | Status | Purpose | Returns |
+|---|---|---|---|---|
+| `taskDuration(start, end)` | TS | **NEW** | Duration from dates | Business days in [start, end] inclusive. Same-day = 1. |
+| `task_duration(start, end)` | Rust | **NEW** | Duration from dates | Business days in [start, end] inclusive. Same-day = 1. |
+| `taskEndDate(start, dur)` | TS | **NEW** | End date from start+duration | `addBusinessDays(start, dur - 1)`. Duration=1 → returns start. |
+| `task_end_date(start, dur)` | Rust | **NEW** | End date from start+duration | `add_business_days(start, dur - 1)`. Duration=1 → returns start. |
+
+### Dependency earliest-start helpers (Rust only — TS calls through WASM)
+
+| Function | Language | Status | Purpose |
 |---|---|---|---|
-| `taskDuration(start, end)` | TS | **NEW** | Duration from dates (inclusive) |
-| `task_duration(start, end)` | Rust | **NEW** | Duration from dates (inclusive) |
-| `taskEndDate(start, dur)` | TS | **NEW** | End date from start+duration |
-| `task_end_date(start, dur)` | Rust | **NEW** | End date from start+duration |
-| `ensureBusinessDay(date)` | TS | **NEW** | Snap forward to weekday |
-| `ensure_business_day(date)` | Rust | **NEW** (rename of `next_biz_day_on_or_after`) | Snap forward to weekday |
-| `prevBusinessDay(date)` | TS | **NEW** | Snap backward to weekday |
-| `prev_business_day(date)` | Rust | **NEW** | Snap backward to weekday |
-| `fs_successor_start(end, lag)` | Rust | **NEW** | FS dep earliest start |
-| `ss_successor_start(start, lag)` | Rust | **NEW** | SS dep earliest start |
-| `ff_successor_start(end, lag, dur)` | Rust | **NEW** | FF dep earliest start |
-| `sf_successor_start(start, lag, dur)` | Rust | **NEW** | SF dep earliest start |
-| `addBusinessDays(date, n)` | TS (date-fns) | **KEEP** | Shift by N biz days (generic) |
-| `add_business_days(date, n)` | Rust | **KEEP** | Shift by N biz days (generic) |
-| `addBusinessDaysToDate(str, n)` | TS | **KEEP** | String wrapper around addBusinessDays |
-| `businessDaysBetween(start, end)` | TS | **KEEP** | Pixel mapping in collapsed-weekend mode ONLY |
-| `businessDaysDelta(start, end)` | TS | **KEEP** | Signed shift delta for cascade |
-| `daysBetween(start, end)` | TS | **KEEP** | Calendar day difference |
-| `dateToX(str, start, w, zoom, collapse)` | TS | **RENAME** | `dateToXCollapsed` → `dateToX` (weekend-aware default) |
-| `xToDate(x, start, w, zoom, collapse)` | TS | **RENAME** | `xToDateCollapsed` → `xToDate` (weekend-aware default) |
-| `dateToXCalendar(str, start, w, zoom)` | TS | **RENAME** | old `dateToX` → internal, includes weekends |
-| `xToDateCalendar(x, start, w, zoom)` | TS | **RENAME** | old `xToDate` → internal, includes weekends |
-| `workingDaysBetween(start, end)` | TS | **DELETE** | ~~Duration~~ → replaced by `taskDuration` |
-| `business_day_shift(from, to)` | Rust | **RENAME** | `count_biz_days_to` → `business_day_shift` (cascade shift amount) |
-| `next_biz_day_on_or_after(date)` | Rust | **DEPRECATE** | → `ensure_business_day()` |
+| `fs_successor_start(pred_end, lag)` | Rust | **NEW** | FS: next biz day after pred's last day, plus lag |
+| `ss_successor_start(pred_start, lag)` | Rust | **NEW** | SS: pred's start + lag biz days |
+| `ff_successor_start(pred_end, lag, succ_dur)` | Rust | **NEW** | FF: derive start from pred's end + lag - succ_dur + 1 |
+| `sf_successor_start(pred_start, lag, succ_dur)` | Rust | **NEW** | SF: derive start from pred's start + lag - succ_dur + 1 |
+
+### Weekend snap functions
+
+| Function | Language | Status | Purpose |
+|---|---|---|---|
+| `ensureBusinessDay(date)` | TS | **NEW** | Snap forward: if weekend → next Monday. Weekday → no-op. |
+| `ensure_business_day(date)` | Rust | **NEW** (rename of `next_biz_day_on_or_after`) | Same as TS. |
+| `prevBusinessDay(date)` | TS | **NEW** | Snap backward: if weekend → prev Friday. Weekday → no-op. |
+| `prev_business_day(date)` | Rust | **NEW** | Same as TS. |
+
+> **Why not a single `toBusinessDay(date, direction)` function?** Because agents grep for
+> a specific direction. `ensureBusinessDay` is unambiguously "forward" (the common case);
+> `prevBusinessDay` is unambiguously "backward." A direction parameter requires reading
+> the callsite to know which way it snaps.
+
+### Generic primitives (convention-independent — safe to use anywhere)
+
+| Function | Language | Status | Purpose |
+|---|---|---|---|
+| `addBusinessDays(date, n)` | TS (date-fns) | **KEEP** | Shift a Date by N business days. External library. |
+| `add_business_days(date, n)` | Rust | **KEEP** | Shift a date string by N business days. |
+| `addBusinessDaysToDate(str, n)` | TS | **KEEP** | String wrapper: parse → addBusinessDays → format. |
+| `businessDaysDelta(start, end)` | TS | **KEEP** | Signed business day difference. For drag shift amounts. |
+| `business_day_delta(from, to)` | Rust | **RENAME** | `count_biz_days_to` → `business_day_delta`. Matches TS name. |
+| `daysBetween(start, end)` | TS | **KEEP** | Signed calendar day difference. |
+
+### Pixel mapping (rendering — not scheduling)
+
+| Function | Language | Status | Purpose |
+|---|---|---|---|
+| `dateToX(date, start, colW, zoom)` | TS | **RENAME** | `dateToXCollapsed` → `dateToX`. Weekend-aware (default). |
+| `xToDate(x, start, colW, zoom)` | TS | **RENAME** | `xToDateCollapsed` → `xToDate`. Weekend-aware (default). |
+| `dateToXCalendar(date, start, colW, zoom)` | TS | **RENAME** | Old `dateToX` → `dateToXCalendar`. Includes weekends. Internal. |
+| `xToDateCalendar(x, start, colW, zoom)` | TS | **RENAME** | Old `xToDate` → `xToDateCalendar`. Includes weekends. Internal. |
+| `businessDaysBetween(start, end)` | TS | **INTERNALIZE** | Remove `export`. Used only inside `dateToX`. `@internal`. |
+
+> **Why internalize `businessDaysBetween`?** It counts business days with `[start, end)`
+> exclusive boundaries — identical result to `taskDuration` but for a different set of days.
+> If exported, an agent grepping "business days between" could use it instead of `taskDuration`
+> and get wrong results. Making it non-exported eliminates the confusion vector.
+
+### Deprecated / deleted
+
+| Function | Language | Action | Reason |
+|---|---|---|---|
+| `workingDaysBetween(start, end)` | TS | **DELETE** | Replaced by `taskDuration`. Wrong name ("working"), wrong semantics (exclusive). |
+| `next_biz_day_on_or_after(date)` | Rust | **DELETE** | Replaced by `ensure_business_day`. Wrong abbreviation ("biz"). |
+| `count_biz_days_to(from, to)` | Rust | **DELETE** | Replaced by `business_day_delta`. Wrong abbreviation, unclear name. |
+
+### Agent search scenarios
+
+| Agent needs to... | Greps for | Finds | Must NOT accidentally use |
+|---|---|---|---|
+| Compute task duration | "duration", "taskDuration" | `taskDuration` / `task_duration` | `businessDaysBetween` (internalized, invisible) |
+| Compute task end date | "end date", "taskEndDate" | `taskEndDate` / `task_end_date` | `addBusinessDaysToDate` (generic, off-by-one without `-1`) |
+| Shift a date by N days | "addBusinessDays", "add_business_days" | `addBusinessDays` / `add_business_days` | Nothing — these are correct primitives |
+| Compute drag delta | "delta", "businessDaysDelta" | `businessDaysDelta` / `business_day_delta` | `daysBetween` (calendar, not business) |
+| Snap to weekday | "ensure", "businessDay" | `ensureBusinessDay` / `ensure_business_day` | Nothing — clear purpose |
+| FS earliest start | "successor", "fs_successor" | `fs_successor_start` | Raw `add_business_days(end, 1)` (misses lag handling) |
+| Convert date to pixel | "dateToX" | `dateToX` (weekend-aware) | `dateToXCalendar` (only for expanded-weekend views) |

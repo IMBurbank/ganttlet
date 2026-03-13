@@ -138,7 +138,7 @@ are convention-independent primitives.
 |---|---|---|
 | `workingDaysBetween` | **Replace** with `taskDuration` | Wrong semantics, wrong name |
 | `businessDaysBetween` (TS) | **Keep** for pixel mapping only | Different purpose, fine as-is |
-| `count_biz_days_to` (Rust) | **Rename** to `business_day_shift` | Only used in cascade.rs for computing shift amounts; "biz" → "business_day", name conveys purpose |
+| `count_biz_days_to` (Rust) | **Rename** to `business_day_delta` | Matches TS `businessDaysDelta`; "biz" → "business_day", cross-language consistency |
 | `next_biz_day_on_or_after` | **Rename** to `ensure_business_day` | Align with TS, drop abbreviation |
 | `addBusinessDaysToDate` | **Keep** as convenience wrapper | Handles string↔Date; just rename callers' mental model |
 | `addDaysToDate` | **Keep** as convenience wrapper | Same |

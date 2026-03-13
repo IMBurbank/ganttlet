@@ -3,7 +3,7 @@
 ## Constraints
 - Pure Rust — no external date/time crates (chrono, time)
 - Integer-day scheduling — float comparison is `== 0`, not `abs() < epsilon`
-- All lag values in business days — always use `add_business_days()`
+- All lag values in business days — use dep-type helpers (`fs_successor_start`, etc.), not raw `shift_date()`
 - ES is computed from dependencies, never from stored task dates
 - Scoped CPM: run on full graph, then filter (not filter-then-compute)
 

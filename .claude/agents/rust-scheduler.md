@@ -21,7 +21,7 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 - `cascade.rs` — `cascade_dependents()`: BFS propagation of date delta to all 4 dep types (FS/SS/FF/SF). Only forward moves propagate (asymmetric). Slack-aware: only cascades when constraint violated. Preserves duration, handles weekends, avoids double-shifting in diamonds.
 - `constraints.rs` — `compute_earliest_start()` (per-task from deps + SNET floor) and `recalculate_earliest()` (full recalc via Kahn's topo sort with today-floor and all 8 constraint types)
 - `graph.rs` — `would_create_cycle()`: BFS reachability check
-- `date_utils.rs` — `add_business_days()`, `is_weekend()`, `parse_date()`/`format_date()`. Hand-rolled, no external lib.
+- `date_utils.rs` — `shift_date()` (pub(crate)), `task_duration()`, `task_end_date()`, dep-type helpers, `is_weekend()`, `parse_date()`/`format_date()`. Hand-rolled, no external lib.
 - `lib.rs` — 7 `#[wasm_bindgen]` exports + `ConflictResult` struct + `find_conflicts()`. Uses `serde_wasm_bindgen` for JsValue conversion.
 
 ## Constraint behavior (reference)
@@ -38,7 +38,7 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 - ES must be computed from dependencies, NOT from stored task dates
 - Scoped CPM: run on full graph, then filter results (not filter-then-compute)
 - Float comparison: `float == 0`, not `float.abs() < 1` (integer-day scheduling)
-- All lag values are in business days — always use `add_business_days()`
+- All lag values are in business days — use dep-type helpers (`fs_successor_start`, etc.), not raw `shift_date()`
 - WASM exports: no lifetimes on exported fns, serde_wasm_bindgen for conversion
 - Tests: in-memory task graphs only, no I/O, no browser dependencies
 
@@ -52,11 +52,11 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 
 ## Date Convention Functions (date_utils.rs)
 - `task_duration(start, end)` — inclusive business day count
-- `task_end_date(start, dur)` — `add_business_days(start, dur - 1)`
+- `task_end_date(start, dur)` — `shift_date(start, dur - 1)`
 - `ensure_business_day(date)` — snap forward to Monday (replaces `next_biz_day_on_or_after`)
 - `prev_business_day(date)` — snap backward to Friday
-- `fs_successor_start(pred_end, lag)` — `add_business_days(pred_end, 1 + lag)`
-- `ss_successor_start(pred_start, lag)` — `add_business_days(pred_start, lag)`
+- `fs_successor_start(pred_end, lag)` — `shift_date(pred_end, 1 + lag)`
+- `ss_successor_start(pred_start, lag)` — `shift_date(pred_start, lag)`
 - `ff_successor_start(pred_end, lag, succ_dur)` — end-constrained: derives start from finish
 - `sf_successor_start(pred_start, lag, succ_dur)` — start-to-finish: derives start from finish
 - `business_day_delta(from, to)` — signed difference (replaces `count_biz_days_to`)

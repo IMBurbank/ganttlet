@@ -1,6 +1,4 @@
-use crate::date_utils::{
-    count_biz_days_to, fs_successor_start, next_biz_day_on_or_after, shift_date,
-};
+use crate::date_utils::{business_day_delta, ensure_business_day, fs_successor_start, shift_date};
 use crate::types::{CascadeResult, DepType, Dependency, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -103,7 +101,7 @@ pub fn cascade_dependents(
                             // Constraint still satisfied — slack absorbs the move.
                             continue;
                         }
-                        let shift = count_biz_days_to(&dep_curr_start, &required);
+                        let shift = business_day_delta(&dep_curr_start, &required);
                         let new_end = shift_date(&dep_curr_end, shift);
                         (required, new_end)
                     }
@@ -111,11 +109,11 @@ pub fn cascade_dependents(
                         // B must start no earlier than the first business day on or after
                         // (pred.start + lag business days).
                         let raw = shift_date(&pred_eff_start, dep_link.lag);
-                        let required = next_biz_day_on_or_after(&raw);
+                        let required = ensure_business_day(&raw);
                         if required <= dep_curr_start {
                             continue;
                         }
-                        let shift = count_biz_days_to(&dep_curr_start, &required);
+                        let shift = business_day_delta(&dep_curr_start, &required);
                         let new_end = shift_date(&dep_curr_end, shift);
                         (required, new_end)
                     }
@@ -123,11 +121,11 @@ pub fn cascade_dependents(
                         // B must end no earlier than the first business day on or after
                         // (pred.end + lag business days).
                         let raw_end = shift_date(&pred_eff_end, dep_link.lag);
-                        let required_end = next_biz_day_on_or_after(&raw_end);
+                        let required_end = ensure_business_day(&raw_end);
                         if required_end <= dep_curr_end {
                             continue;
                         }
-                        let shift = count_biz_days_to(&dep_curr_end, &required_end);
+                        let shift = business_day_delta(&dep_curr_end, &required_end);
                         let new_start = shift_date(&dep_curr_start, shift);
                         (new_start, required_end)
                     }
@@ -135,11 +133,11 @@ pub fn cascade_dependents(
                         // SF: successor's end must be no earlier than the first business day
                         // on or after (pred.start + lag business days).
                         let raw_end = shift_date(&pred_eff_start, dep_link.lag);
-                        let required_end = next_biz_day_on_or_after(&raw_end);
+                        let required_end = ensure_business_day(&raw_end);
                         if required_end <= dep_curr_end {
                             continue;
                         }
-                        let shift = count_biz_days_to(&dep_curr_end, &required_end);
+                        let shift = business_day_delta(&dep_curr_end, &required_end);
                         let new_start = shift_date(&dep_curr_start, shift);
                         (new_start, required_end)
                     }
@@ -343,8 +341,8 @@ mod tests {
         // Every cascaded task must preserve its business-day duration.
         for result in &results {
             let original = tasks.iter().find(|t| t.id == result.id).unwrap();
-            let orig_dur = count_biz_days_to(&original.start_date, &original.end_date);
-            let new_dur = count_biz_days_to(&result.start_date, &result.end_date);
+            let orig_dur = business_day_delta(&original.start_date, &original.end_date);
+            let new_dur = business_day_delta(&result.start_date, &result.end_date);
             assert_eq!(
                 new_dur, orig_dur,
                 "Task {} duration changed: {} → {}",

@@ -1,15 +1,15 @@
 use wasm_bindgen::prelude::*;
 
-pub mod types;
-pub mod date_utils;
-pub mod cpm;
-pub mod graph;
 pub mod cascade;
 pub mod constraints;
+pub mod cpm;
+pub mod date_utils;
+pub mod graph;
+pub mod types;
 
+use date_utils::{add_business_days, fs_successor_start, ss_successor_start};
 use serde::{Deserialize, Serialize};
 use types::{ConstraintType, Task};
-use date_utils::add_business_days;
 
 /// Compute the critical path. Returns `{ taskIds: string[], edges: [string, string][] }`.
 #[wasm_bindgen]
@@ -24,7 +24,10 @@ pub fn compute_critical_path(tasks_js: JsValue) -> Result<JsValue, JsValue> {
 /// Compute the critical path scoped to a project or workstream.
 /// Returns `{ taskIds: string[], edges: [string, string][] }`.
 #[wasm_bindgen]
-pub fn compute_critical_path_scoped(tasks_js: JsValue, scope_js: JsValue) -> Result<JsValue, JsValue> {
+pub fn compute_critical_path_scoped(
+    tasks_js: JsValue,
+    scope_js: JsValue,
+) -> Result<JsValue, JsValue> {
     let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
     let scope: cpm::CriticalPathScope = serde_wasm_bindgen::from_value(scope_js)
@@ -43,7 +46,11 @@ pub fn would_create_cycle(
 ) -> Result<bool, JsValue> {
     let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
-    Ok(graph::would_create_cycle(&tasks, successor_id, predecessor_id))
+    Ok(graph::would_create_cycle(
+        &tasks,
+        successor_id,
+        predecessor_id,
+    ))
 }
 
 /// Compute the earliest possible start date for a task given its dependencies.
@@ -157,15 +164,9 @@ fn find_conflicts(tasks: &[Task]) -> Vec<ConflictResult> {
         for dep in &task.dependencies {
             if let Some(pred) = task_map.get(dep.from_id.as_str()) {
                 let required_start = match dep.dep_type {
-                    types::DepType::FS => {
-                        let raw = add_business_days(&pred.end_date, dep.lag);
-                        date_utils::next_biz_day_on_or_after(&raw)
-                    }
-                    types::DepType::SS => {
-                        let raw = add_business_days(&pred.start_date, dep.lag);
-                        date_utils::next_biz_day_on_or_after(&raw)
-                    }
-                    _ => continue, // FF and SF constrain end, skip for start check
+                    types::DepType::FS => fs_successor_start(&pred.end_date, dep.lag),
+                    types::DepType::SS => ss_successor_start(&pred.start_date, dep.lag),
+                    _ => continue, // FF and SF constrain end, handled separately
                 };
                 if task.start_date < required_start {
                     conflicts.push(ConflictResult {
@@ -200,7 +201,7 @@ pub fn detect_conflicts(tasks_js: JsValue) -> Result<JsValue, JsValue> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{Dependency, DepType};
+    use types::{DepType, Dependency};
 
     fn make_task(id: &str, start: &str, end: &str) -> Task {
         Task {

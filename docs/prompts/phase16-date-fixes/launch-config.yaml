@@ -1,0 +1,75 @@
+# Phase 16: Date Calculation Bug Fixes — Inclusive Convention
+# Fixes 14 bugs across Rust scheduler, TS state, UI rendering, and CRDT sync.
+# See docs/plans/date-calc-fixes.md for full analysis.
+
+phase: phase16-date-fixes
+merge_target: feature/phase16-date-fixes
+
+stages:
+  - name: "Stage 1: Documentation Foundation"
+    groups:
+      - id: groupA
+        branch: feature/date-fixes-docs
+        merge_message: "Merge feature/date-fixes-docs: convention docs in CLAUDE.md, types, skills, agents"
+
+  - name: "Stage 2: Convention-Encoding Functions"
+    groups:
+      - id: groupB
+        branch: feature/date-fixes-ts-functions
+        merge_message: "Merge feature/date-fixes-ts-functions: taskDuration, taskEndDate, ensureBusinessDay, prevBusinessDay, withDuration"
+      - id: groupC
+        branch: feature/date-fixes-rust-functions
+        merge_message: "Merge feature/date-fixes-rust-functions: task_duration, task_end_date, ensure_business_day, dep-type helpers"
+
+  - name: "Stage 3: Core Fixes (MUST merge together)"
+    groups:
+      - id: groupD
+        branch: feature/date-fixes-rust-scheduler
+        merge_message: "Merge feature/date-fixes-rust-scheduler: cascade FS, constraints FNET/FNLT/MFO, find_conflicts FF/SF"
+      - id: groupE
+        branch: feature/date-fixes-ts-state
+        merge_message: "Merge feature/date-fixes-ts-state: reducer workingDaysBetween→taskDuration, ADD_TASK, summaryUtils, schedulerWasm"
+
+  - name: "Stage 4: UI + Sync"
+    groups:
+      - id: groupF
+        branch: feature/date-fixes-ui
+        merge_message: "Merge feature/date-fixes-ui: bar width, drag snap, dateToX rename, weekend validation"
+      - id: groupG
+        branch: feature/date-fixes-sync
+        merge_message: "Merge feature/date-fixes-sync: sheetsMapper, yjsBinding migration + UPDATE_TASK_FIELD fix"
+
+  - name: "Stage 5: Tests + Cleanup + Docs"
+    groups:
+      - id: groupH
+        branch: feature/date-fixes-structural-tests
+        merge_message: "Merge feature/date-fixes-structural-tests: cascade/recalculate agreement, cross-language, WASM assertions"
+      - id: groupI
+        branch: feature/date-fixes-cleanup
+        merge_message: "Merge feature/date-fixes-cleanup: delete workingDaysBetween, remove aliases, pre-commit hook, final docs"
+
+pr:
+  title: "fix: inclusive end-date convention — 14 bug fixes across scheduler, state, UI, sync"
+  summary: |
+    Switches end_date convention from exclusive to inclusive across the entire codebase.
+
+    Changes:
+    1. Convention-encoding functions: taskDuration, taskEndDate (TS+Rust)
+    2. Rust scheduler: cascade FS fix, constraints FNET/FNLT/MFO, find_conflicts FF/SF
+    3. TS state: 14 workingDaysBetween→taskDuration migrations, ADD_TASK weekend snap
+    4. UI: bar width +colWidth, drag weekend snap, dateToX rename, validation
+    5. Sync: sheetsMapper + yjsBinding migration, UPDATE_TASK_FIELD duration sync
+    6. Structural tests: cascade/recalculate agreement, cross-language consistency
+    7. Cleanup: delete deprecated functions, pre-commit hook enforcement
+
+    See docs/plans/date-calc-fixes.md for full bug inventory and verification.
+  test_plan: |
+    - [ ] `cargo test` — all Rust tests pass with inclusive convention
+    - [ ] `npm run test` — all Vitest tests pass
+    - [ ] `npx tsc --noEmit` — no type errors
+    - [ ] Cascade/recalculate agreement tests pass for FS/SS/FF/SF with lag 0,1,2
+    - [ ] Cross-language consistency: TS taskDuration/taskEndDate match Rust via WASM
+    - [ ] No `workingDaysBetween` callers remain (grep verification)
+    - [ ] No `next_biz_day_on_or_after` callers remain (grep verification)
+    - [ ] Bar width visually correct for 1-day, 5-day, weekend-crossing tasks
+    - [ ] Weekend dates rejected in inline edit, popover edit, drag

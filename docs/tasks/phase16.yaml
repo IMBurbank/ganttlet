@@ -1,0 +1,463 @@
+# Phase 16: Date Calculation Bug Fixes — Inclusive Convention
+# Fixes 14 bugs across Rust scheduler, TS state, UI rendering, and CRDT sync.
+# See docs/plans/date-calc-fixes.md for full analysis and verification.
+
+phase: 16
+status: pending
+context: >
+  The codebase uses an exclusive end-date convention (end_date = day after last working day)
+  but the intended convention is inclusive (end_date = last working day). This causes off-by-one
+  errors in duration calculation (14 callsites), cascade FS overlap, constraint derivation,
+  conflict detection, bar rendering, and CRDT sync. See docs/plans/date-calc-fixes.md for the
+  complete bug inventory (Bugs 1-15), verified formulas, and function naming glossary.
+
+  Key convention: end_date is INCLUSIVE, duration = business days in [start, end] counting both.
+  Formula: end = addBusinessDays(start, duration - 1). Inverse: duration = taskDuration(start, end).
+
+stages:
+  - name: "Stage 1: Documentation Foundation"
+    description: >
+      Update all agent-visible docs BEFORE any code changes. Implementing agents must
+      see the inclusive convention in CLAUDE.md, types, and skills before touching code.
+    groups:
+      - id: A
+        name: "Convention Documentation"
+        scope:
+          modify:
+            - CLAUDE.md
+            - src/CLAUDE.md
+            - crates/scheduler/CLAUDE.md
+            - src/types/index.ts
+            - crates/scheduler/src/types.rs
+            - .claude/skills/scheduling-engine/SKILL.md
+            - .claude/agents/rust-scheduler.md
+          read_only:
+            - docs/plans/date-calc-fixes.md
+        tasks:
+          - id: A1
+            summary: "Read docs/plans/date-calc-fixes.md §Documentation Updates — understand all doc changes needed"
+            status: pending
+          - id: A2
+            summary: "Add '## Date Conventions (Non-Negotiable)' section to root CLAUDE.md (see plan §Stage 7b content)"
+            status: pending
+            exit_criteria: >
+              CLAUDE.md contains complete date convention rules including: inclusive end_date,
+              taskDuration/taskEndDate usage, no raw addBusinessDays for end derivation,
+              CPM exception, dep-type helper requirement.
+          - id: A3
+            summary: "Update src/types/index.ts:15 — change Task.duration doc comment from exclusive to inclusive"
+            status: pending
+          - id: A4
+            summary: "Add convention doc comments to crates/scheduler/src/types.rs Task struct (start_date, end_date, duration)"
+            status: pending
+          - id: A5
+            summary: "Update crates/scheduler/CLAUDE.md — add end_date convention rules, task_end_date, fs_successor_start"
+            status: pending
+          - id: A6
+            summary: "Update src/CLAUDE.md — add convention exception for taskDuration/taskEndDate over raw date-fns"
+            status: pending
+          - id: A7
+            summary: "Update .claude/skills/scheduling-engine/SKILL.md — add Known Gotchas and Lessons Learned entries"
+            status: pending
+          - id: A8
+            summary: "Update .claude/agents/rust-scheduler.md — add new function names, convention rule, fix MFO description"
+            status: pending
+
+  - name: "Stage 2: Convention-Encoding Functions (parallel — 2 agents)"
+    description: >
+      Add new functions that encode the inclusive convention. Purely additive — no existing
+      callers are changed. TS and Rust can be implemented in parallel.
+    groups:
+      - id: B
+        name: "TypeScript Convention Functions"
+        depends_on: [A]
+        scope:
+          modify:
+            - src/utils/dateUtils.ts
+            - src/utils/__tests__/dateUtils.test.ts
+          read_only:
+            - docs/plans/date-calc-fixes.md
+            - src/types/index.ts
+        tasks:
+          - id: B1
+            summary: "Read dateUtils.ts — understand existing functions, especially workingDaysBetween and businessDaysBetween"
+            status: pending
+          - id: B2
+            summary: "Add taskDuration(start, end) — counts [start,end] inclusive business days. Same-day = 1."
+            status: pending
+            exit_criteria: >
+              taskDuration('2026-03-11', '2026-03-24') returns 10.
+              taskDuration('2026-03-02', '2026-03-02') returns 1.
+              taskDuration('2026-03-06', '2026-03-10') returns 3 (Fri, Mon, Tue).
+          - id: B3
+            summary: "Add taskEndDate(start, duration) — returns addBusinessDays(start, duration - 1)"
+            status: pending
+            exit_criteria: >
+              taskEndDate('2026-03-02', 5) returns '2026-03-06' (Fri).
+              taskEndDate('2026-03-02', 1) returns '2026-03-02' (same day).
+              taskDuration(start, taskEndDate(start, dur)) === dur for all test cases.
+          - id: B4
+            summary: "Add ensureBusinessDay(date) — snap forward to Monday if weekend, no-op if weekday"
+            status: pending
+          - id: B5
+            summary: "Add prevBusinessDay(date) — snap backward to Friday if weekend, no-op if weekday"
+            status: pending
+          - id: B6
+            summary: "Add isWeekendDate(dateStr) — boolean convenience for validation"
+            status: pending
+          - id: B7
+            summary: "Add withDuration(task) helper (A1 architectural prevention) — recomputes duration from dates"
+            status: pending
+          - id: B8
+            summary: "Write comprehensive tests for all new functions — convention edge cases, weekend crossings"
+            status: pending
+
+      - id: C
+        name: "Rust Convention Functions"
+        depends_on: [A]
+        scope:
+          modify:
+            - crates/scheduler/src/date_utils.rs
+            - crates/scheduler/src/types.rs
+          read_only:
+            - docs/plans/date-calc-fixes.md
+            - crates/scheduler/src/constraints.rs
+            - crates/scheduler/src/cascade.rs
+        tasks:
+          - id: C1
+            summary: "Read date_utils.rs — understand add_business_days, next_biz_day_on_or_after, count_biz_days_to"
+            status: pending
+          - id: C2
+            summary: "Add task_duration(start, end) — inclusive business day count matching TS taskDuration"
+            status: pending
+            exit_criteria: >
+              task_duration("2026-03-11", "2026-03-24") returns 10.
+              task_duration("2026-03-02", "2026-03-02") returns 1.
+          - id: C3
+            summary: "Add task_end_date(start, duration) — add_business_days(start, duration - 1)"
+            status: pending
+            exit_criteria: >
+              task_end_date("2026-03-02", 5) returns "2026-03-06".
+              task_end_date("2026-03-02", 1) returns "2026-03-02".
+          - id: C4
+            summary: "Add ensure_business_day(date) as rename of next_biz_day_on_or_after (keep old as alias)"
+            status: pending
+          - id: C5
+            summary: "Add prev_business_day(date) — snap backward to Friday if weekend"
+            status: pending
+          - id: C6
+            summary: "Add fs_successor_start, ss_successor_start, ff_successor_start, sf_successor_start helpers"
+            status: pending
+            exit_criteria: >
+              fs_successor_start("2026-03-06", 0) returns "2026-03-09" (Mon after Fri).
+              ff_successor_start("2026-03-06", 0, 5) returns "2026-03-02" (Mon, so end = Fri).
+          - id: C7
+            summary: "Add WEEKEND_VIOLATION variant to ConflictResult types"
+            status: pending
+          - id: C8
+            summary: "Rename count_biz_days_to → business_day_delta (keep old as alias during migration)"
+            status: pending
+          - id: C9
+            summary: "Write comprehensive Rust tests for all new functions"
+            status: pending
+
+  - name: "Stage 3: Core Fixes — Rust + TS (parallel — 2 agents, MUST merge together)"
+    description: >
+      Fix Rust scheduler formulas (cascade, constraints, find_conflicts) and TS state
+      (reducer, schedulerWasm, summaryUtils). These MUST ship in the same PR because
+      Rust formulas depend on inclusive duration values sent from TS.
+    groups:
+      - id: D
+        name: "Rust Scheduler Fixes"
+        depends_on: [C]
+        scope:
+          modify:
+            - crates/scheduler/src/cascade.rs
+            - crates/scheduler/src/constraints.rs
+            - crates/scheduler/src/lib.rs
+            - crates/scheduler/src/cpm.rs
+          read_only:
+            - docs/plans/date-calc-fixes.md
+            - crates/scheduler/src/date_utils.rs
+            - crates/scheduler/src/types.rs
+        tasks:
+          - id: D1
+            summary: "Read cascade.rs, constraints.rs, lib.rs — understand current FS/SS/FF/SF formulas"
+            status: pending
+          - id: D2
+            summary: "Fix cascade FS (line 92-103): replace next_biz_on_or_after formula with fs_successor_start"
+            status: pending
+            exit_criteria: >
+              FS cascade with lag=0 places successor on next biz day AFTER pred.end
+              (not same day). SS/FF/SF unchanged except optional next_biz removal.
+          - id: D3
+            summary: "Fix recalculate_earliest end (line 291): task_end_date(&new_start, task.duration)"
+            status: pending
+          - id: D4
+            summary: "Fix FNET computed_end (line 241) and start derivation (line 244): task_end_date + -(dur-1)"
+            status: pending
+          - id: D5
+            summary: "Fix FNLT computed_end (line 251): task_end_date(&new_start, task.duration)"
+            status: pending
+          - id: D6
+            summary: "Fix MFO (line 275): -(task.duration - 1)"
+            status: pending
+          - id: D7
+            summary: "Fix find_conflicts FS (line 160-163): use fs_successor_start helper"
+            status: pending
+          - id: D8
+            summary: "Fix find_conflicts SS (line 164-167): use ss_successor_start helper"
+            status: pending
+          - id: D9
+            summary: "Add FF/SF conflict detection to find_conflicts (Bug 11 — currently skipped at line 168)"
+            status: pending
+          - id: D10
+            summary: "Add WEEKEND_VIOLATION conflict type to find_conflicts — detect weekend start/end dates"
+            status: pending
+          - id: D11
+            summary: "Add CPM doc comment explaining exclusive integer model is intentional (Bug 6)"
+            status: pending
+          - id: D12
+            summary: "Update ALL Rust test data to use inclusive convention, fix expected values"
+            status: pending
+            exit_criteria: >
+              cargo test passes. All test tasks use inclusive end dates.
+              Cascade/recalculate agreement tests pass for FS/SS/FF/SF with lag 0,1,2.
+
+      - id: E
+        name: "TypeScript State + Reducer Fixes"
+        depends_on: [B]
+        scope:
+          modify:
+            - src/state/ganttReducer.ts
+            - src/state/__tests__/ganttReducer.test.ts
+            - src/utils/schedulerWasm.ts
+            - src/utils/summaryUtils.ts
+          read_only:
+            - docs/plans/date-calc-fixes.md
+            - src/utils/dateUtils.ts
+            - src/types/index.ts
+        tasks:
+          - id: E1
+            summary: "Read ganttReducer.ts — understand all 5 workingDaysBetween callsites and end-date derivations"
+            status: pending
+          - id: E2
+            summary: "Migrate 5 workingDaysBetween calls in ganttReducer to taskDuration (lines 33,43,59,283,546)"
+            status: pending
+          - id: E3
+            summary: "Fix ADD_TASK (line 273-283): ensureBusinessDay(today), default dur=5, taskEndDate for end"
+            status: pending
+          - id: E4
+            summary: "Fix all end-date derivations in ganttReducer to use taskEndDate"
+            status: pending
+          - id: E5
+            summary: "Fix schedulerWasm.ts:168 — use taskDuration for cascade result duration"
+            status: pending
+          - id: E6
+            summary: "Fix recalcSummaryDates (Bug 13): add task.duration = taskDuration(minStart, maxEnd)"
+            status: pending
+          - id: E7
+            summary: "Update ganttReducer.test.ts — fix duration assertions, add inclusive convention test cases"
+            status: pending
+            exit_criteria: >
+              npm run test passes. All reducer duration calculations use taskDuration.
+              ADD_TASK creates tasks with business-day start dates.
+
+  - name: "Stage 4: UI + Sync (parallel — 2 agents)"
+    description: >
+      Fix rendering (bar width, dateToX rename, weekend snap) and sync layer
+      (Sheets mapper, CRDT binding, weekend violation warnings).
+    groups:
+      - id: F
+        name: "Rendering + UI Weekend Prevention"
+        depends_on: [B, E]
+        scope:
+          modify:
+            - src/components/gantt/TaskBar.tsx
+            - src/components/gantt/GanttChart.tsx
+            - src/components/gantt/TodayLine.tsx
+            - src/components/table/TaskRow.tsx
+            - src/components/gantt/TaskBarPopover.tsx
+            - src/utils/dateUtils.ts
+            - src/utils/taskFieldValidation.ts
+            - src/utils/__tests__/taskFieldValidation.test.ts
+          read_only:
+            - docs/plans/date-calc-fixes.md
+            - src/types/index.ts
+            - src/state/ganttReducer.ts
+        tasks:
+          - id: F1
+            summary: "Read GanttChart.tsx, TaskBar.tsx — understand bar width calc and dateToX usage"
+            status: pending
+          - id: F2
+            summary: "Fix bar width (Bug 8): taskEndX - taskX + colWidth in GanttChart.tsx (lines 139, 173)"
+            status: pending
+          - id: F3
+            summary: "Fix drag move (TaskBar): snap to business day during drag, not after"
+            status: pending
+          - id: F4
+            summary: "Fix drag resize (TaskBar): end date snaps to prev business day, min 1-day duration"
+            status: pending
+          - id: F5
+            summary: "Fix taskFieldValidation.ts: add weekend rejection to validateEndDate, add validateStartDate"
+            status: pending
+          - id: F6
+            summary: "Fix end-date derivation: TaskRow.tsx:77,111 + TaskBarPopover.tsx:73 → use taskEndDate"
+            status: pending
+          - id: F7
+            summary: "Migrate workingDaysBetween: TaskBar.tsx:131, TaskRow.tsx:90, TaskBarPopover.tsx:87 → taskDuration"
+            status: pending
+          - id: F8
+            summary: "Rename dateToXCollapsed→dateToX, xToDateCollapsed→xToDate, old→Calendar variants (Bug 12)"
+            status: pending
+            exit_criteria: >
+              All 23+ callsites use dateToX (weekend-aware). TodayLine uses dateToX.
+              dateToXCalendar is internal only.
+          - id: F9
+            summary: "Verify collapsed-weekend mode still works with inclusive bar width"
+            status: pending
+          - id: F10
+            summary: "Write taskFieldValidation tests — weekend rejection, start/end validation"
+            status: pending
+
+      - id: G
+        name: "Sheets + CRDT Sync"
+        depends_on: [B, E]
+        scope:
+          modify:
+            - src/sheets/sheetsMapper.ts
+            - src/sheets/__tests__/sheetsMapper.test.ts
+            - src/collab/yjsBinding.ts
+            - src/types/index.ts
+          read_only:
+            - docs/plans/date-calc-fixes.md
+            - src/utils/dateUtils.ts
+            - src/state/ganttReducer.ts
+        tasks:
+          - id: G1
+            summary: "Read sheetsMapper.ts, yjsBinding.ts — understand workingDaysBetween callsites and sync paths"
+            status: pending
+          - id: G2
+            summary: "Migrate sheetsMapper workingDaysBetween → taskDuration (lines 20, 51)"
+            status: pending
+          - id: G3
+            summary: "Migrate yjsBinding workingDaysBetween → taskDuration (lines 175, 282, 296)"
+            status: pending
+          - id: G4
+            summary: "Fix yjsBinding end-date derivations to use taskEndDate"
+            status: pending
+          - id: G5
+            summary: "Fix yjsBinding UPDATE_TASK_FIELD (Bug 14): recompute and sync duration when date field changes"
+            status: pending
+            exit_criteria: >
+              When User A edits endDate, User B sees correct duration via Yjs.
+          - id: G6
+            summary: "Add WEEKEND_VIOLATION to TS ConflictResult types (matching Rust)"
+            status: pending
+          - id: G7
+            summary: "Update sheetsMapper.test.ts — fix duration assertions for inclusive convention"
+            status: pending
+
+  - name: "Stage 5: Tests + Cleanup + Final Docs (parallel — 2 agents)"
+    description: >
+      Cross-cutting structural tests, deprecated function cleanup, WASM boundary
+      assertions, and final documentation updates.
+    groups:
+      - id: H
+        name: "Structural Tests + WASM Assertions"
+        depends_on: [D, E, F, G]
+        scope:
+          modify:
+            - crates/scheduler/src/cascade.rs
+            - crates/scheduler/src/constraints.rs
+            - crates/scheduler/src/lib.rs
+            - src/utils/schedulerWasm.ts
+            - src/utils/__tests__/dateUtils.test.ts
+          read_only:
+            - docs/plans/date-calc-fixes.md
+            - crates/scheduler/src/date_utils.rs
+            - src/utils/dateUtils.ts
+        tasks:
+          - id: H1
+            summary: "Add cascade/recalculate agreement test (A4): all dep types with lag 0,1,2 must agree"
+            status: pending
+            exit_criteria: >
+              Rust test runs cascade_dependents and recalculate_earliest for FS/SS/FF/SF
+              with lag 0,1,2 and asserts identical successor start dates.
+          - id: H2
+            summary: "Add find_conflicts/recalculate agreement test (A5): conflict date matches resolution"
+            status: pending
+          - id: H3
+            summary: "Add cross-language consistency tests (A3): TS taskDuration/taskEndDate match Rust via WASM"
+            status: pending
+          - id: H4
+            summary: "Add assertTaskInvariants (A2) to schedulerWasm.ts — dev-mode checks before WASM calls"
+            status: pending
+          - id: H5
+            summary: "Add roundtrip test: edit → cascade → recalculate → no drift"
+            status: pending
+
+      - id: I
+        name: "Cleanup + Final Documentation"
+        depends_on: [D, E, F, G]
+        scope:
+          modify:
+            - src/utils/dateUtils.ts
+            - crates/scheduler/src/date_utils.rs
+            - scripts/pre-commit-hook.sh
+            - docs/unplanned-issues.md
+            - docs/completed-phases.md
+            - .claude/skills/google-sheets-sync/SKILL.md
+            - .claude/skills/e2e-testing/SKILL.md
+          read_only:
+            - docs/plans/date-calc-fixes.md
+        tasks:
+          - id: I1
+            summary: "Delete workingDaysBetween from dateUtils.ts (verify zero callers remain)"
+            status: pending
+          - id: I2
+            summary: "Remove next_biz_day_on_or_after alias in date_utils.rs (verify ensure_business_day used everywhere)"
+            status: pending
+          - id: I3
+            summary: "Remove count_biz_days_to alias in date_utils.rs (verify business_day_delta used everywhere)"
+            status: pending
+          - id: I4
+            summary: "Internalize businessDaysBetween — remove export keyword, add @internal JSDoc tag"
+            status: pending
+          - id: I5
+            summary: "Add pre-commit hook check: reject workingDaysBetween in staged .ts/.tsx/.rs files"
+            status: pending
+          - id: I6
+            summary: "Update docs/unplanned-issues.md:29 — workingDaysBetween → taskDuration reference"
+            status: pending
+          - id: I7
+            summary: "Update docs/completed-phases.md — add Phase 16 note about inclusive convention"
+            status: pending
+          - id: I8
+            summary: "Update .claude/skills/google-sheets-sync/SKILL.md — add duration inclusive note"
+            status: pending
+          - id: I9
+            summary: "Update .claude/skills/e2e-testing/SKILL.md — add weekend invariant note"
+            status: pending
+
+validation_agent:
+  name: "Final Verification"
+  scope:
+    modify: []
+    read_only:
+      - docs/plans/date-calc-fixes.md
+      - src/utils/dateUtils.ts
+      - crates/scheduler/src/date_utils.rs
+  tasks:
+    - id: V1
+      summary: "Run ./scripts/full-verify.sh — tsc, vitest, cargo test must all pass"
+    - id: V2
+      summary: "Verify no workingDaysBetween callers remain (grep src/ for workingDaysBetween)"
+    - id: V3
+      summary: "Verify no next_biz_day_on_or_after callers remain (grep crates/ for next_biz_day_on_or_after)"
+    - id: V4
+      summary: "Verify taskDuration/taskEndDate are inverses: pick 5 random start/dur pairs, verify roundtrip"
+    - id: V5
+      summary: "Verify cascade/recalculate agreement: cargo test agreement tests pass"
+    - id: V6
+      summary: "Verify cross-language consistency: TS and Rust taskDuration/taskEndDate agree via WASM"

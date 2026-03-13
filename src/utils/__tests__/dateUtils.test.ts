@@ -386,4 +386,64 @@ describe('dateUtils', () => {
       expect(getVisualWidth(newStart, newEnd)).toBe(3);
     });
   });
+
+  // Cross-language consistency: TS taskDuration and taskEndDate must match Rust equivalents.
+  // These tests run in JS only (Rust-side mirrors are in date_utils.rs :: cross_language_tests).
+  // When WASM is available in the test environment, these also verify the WASM boundary.
+  //
+  // The cases below are the canonical set — any change to expected values here must be
+  // reflected in date_utils.rs cross_language_tests, and vice versa.
+  describe('cross-language consistency — TS matches Rust task_duration / task_end_date', () => {
+    // taskDuration(start, end) — expected values verified with date-fns and Rust cargo test
+    const durationCases: [string, string, number][] = [
+      // Same-day task
+      ['2026-03-02', '2026-03-02', 1],
+      // Mon-Fri = 5
+      ['2026-03-02', '2026-03-06', 5],
+      // 1-day task
+      ['2026-03-06', '2026-03-06', 1],
+      // Fri-Tue spanning weekend = 3 (Fri, Mon, Tue)
+      ['2026-03-06', '2026-03-10', 3],
+      // 2 weeks Mon-Fri = 10
+      ['2026-03-02', '2026-03-13', 10],
+    ];
+
+    it.each(durationCases)('taskDuration(%s, %s) === %i', (start, end, expected) => {
+      expect(taskDuration(start, end)).toBe(expected);
+    });
+
+    // taskEndDate(start, duration) — expected values verified with date-fns and Rust cargo test
+    const endDateCases: [string, number, string][] = [
+      // dur=1: same day
+      ['2026-03-02', 1, '2026-03-02'],
+      // dur=5: Mon-Fri
+      ['2026-03-02', 5, '2026-03-06'],
+      // dur=1 from Fri: stays Fri
+      ['2026-03-06', 1, '2026-03-06'],
+      // dur=3 from Fri: Fri, Mon, Tue → end=Tue
+      ['2026-03-06', 3, '2026-03-10'],
+      // dur=10: Mon → 2 weeks Fri
+      ['2026-03-02', 10, '2026-03-13'],
+    ];
+
+    it.each(endDateCases)('taskEndDate(%s, %i) === %s', (start, duration, expected) => {
+      expect(taskEndDate(start, duration)).toBe(expected);
+    });
+
+    // Roundtrip: taskDuration(start, taskEndDate(start, dur)) === dur
+    const roundtripCases: [string, number][] = [
+      ['2026-03-02', 1],
+      ['2026-03-02', 5],
+      ['2026-03-06', 3],
+      ['2026-03-02', 10],
+    ];
+
+    it.each(roundtripCases)(
+      'taskDuration(start, taskEndDate(%s, %i)) roundtrips correctly',
+      (start, dur) => {
+        const end = taskEndDate(start, dur);
+        expect(taskDuration(start, end)).toBe(dur);
+      }
+    );
+  });
 });

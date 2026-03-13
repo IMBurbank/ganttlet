@@ -360,3 +360,74 @@ mod tests {
         assert_eq!(day_of_week(2026, 3, 7), 6); // Saturday
     }
 }
+
+/// Cross-language consistency tests: Rust must produce the same results as the
+/// TypeScript taskDuration() and taskEndDate() functions in dateUtils.ts.
+///
+/// The canonical case list here mirrors src/utils/__tests__/dateUtils.test.ts
+/// § "cross-language consistency". Both sets of expected values were computed
+/// using node -e with date-fns addBusinessDays/differenceInBusinessDays.
+///
+/// Rule: any change to expected values here must be reflected in dateUtils.test.ts
+/// and vice versa.
+#[cfg(test)]
+mod cross_language_tests {
+    use super::*;
+
+    // task_duration(start, end) === differenceInBusinessDays(end, start) + 1
+    // Canonical cases (identical to TS durationCases in dateUtils.test.ts):
+    //   ('2026-03-02', '2026-03-02') → 1   (same-day task)
+    //   ('2026-03-02', '2026-03-06') → 5   (Mon-Fri = 5)
+    //   ('2026-03-06', '2026-03-06') → 1   (1-day task)
+    //   ('2026-03-06', '2026-03-10') → 3   (Fri-Tue spanning weekend = 3)
+    //   ('2026-03-02', '2026-03-13') → 10  (2 weeks Mon-Fri = 10)
+
+    #[test]
+    fn cross_lang_task_duration_matches_ts() {
+        assert_eq!(task_duration("2026-03-02", "2026-03-02"), 1); // same-day
+        assert_eq!(task_duration("2026-03-02", "2026-03-06"), 5); // Mon-Fri
+        assert_eq!(task_duration("2026-03-06", "2026-03-06"), 1); // 1-day from Fri
+        assert_eq!(task_duration("2026-03-06", "2026-03-10"), 3); // Fri-Tue spanning weekend
+        assert_eq!(task_duration("2026-03-02", "2026-03-13"), 10); // 2 weeks Mon-Fri
+    }
+
+    // task_end_date(start, duration) === addBusinessDays(start, duration - 1)
+    // Canonical cases (identical to TS endDateCases in dateUtils.test.ts):
+    //   ('2026-03-02', 1) → '2026-03-02'  (dur=1: same day)
+    //   ('2026-03-02', 5) → '2026-03-06'  (dur=5: Mon-Fri)
+    //   ('2026-03-06', 1) → '2026-03-06'  (dur=1 from Fri: stays Fri)
+    //   ('2026-03-06', 3) → '2026-03-10'  (dur=3 from Fri: Fri Mon Tue)
+    //   ('2026-03-02', 10) → '2026-03-13' (dur=10: Mon to 2-week Fri)
+
+    #[test]
+    fn cross_lang_task_end_date_matches_ts() {
+        assert_eq!(task_end_date("2026-03-02", 1), "2026-03-02"); // dur=1: same day
+        assert_eq!(task_end_date("2026-03-02", 5), "2026-03-06"); // dur=5: Mon-Fri
+        assert_eq!(task_end_date("2026-03-06", 1), "2026-03-06"); // dur=1 from Fri
+        assert_eq!(task_end_date("2026-03-06", 3), "2026-03-10"); // dur=3 Fri-Tue
+        assert_eq!(task_end_date("2026-03-02", 10), "2026-03-13"); // dur=10: 2 weeks
+    }
+
+    // Roundtrip: task_duration(start, task_end_date(start, dur)) == dur
+    // Canonical cases (identical to TS roundtripCases in dateUtils.test.ts):
+    //   ('2026-03-02', 1), ('2026-03-02', 5), ('2026-03-06', 3), ('2026-03-02', 10)
+
+    #[test]
+    fn cross_lang_roundtrip_task_duration_end_date() {
+        for (start, dur) in [
+            ("2026-03-02", 1),
+            ("2026-03-02", 5),
+            ("2026-03-06", 3),
+            ("2026-03-02", 10),
+        ] {
+            let end = task_end_date(start, dur);
+            assert_eq!(
+                task_duration(start, &end),
+                dur,
+                "roundtrip failed for start={} dur={}",
+                start,
+                dur
+            );
+        }
+    }
+}

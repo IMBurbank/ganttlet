@@ -268,9 +268,10 @@ pub fn recalculate_earliest(
                 }
             }
             Some(ConstraintType::MFO) => {
-                // Must Finish On: pin end to constraint_date, derive start
+                // Must Finish On: pin end to constraint_date, derive start.
+                // Under inclusive convention: start = end - (duration - 1) biz days.
                 if let Some(ref constraint_date) = task.constraint_date {
-                    let derived_start = add_business_days(constraint_date, -(task.duration));
+                    let derived_start = add_business_days(constraint_date, -(task.duration - 1));
                     if new_start.as_str() > derived_start.as_str() {
                         conflict = Some(format!(
                             "MFO conflict: deps require start {} but must finish on {} (derived start {})",

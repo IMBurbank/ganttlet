@@ -125,12 +125,12 @@
       "notes": "deleted workingDaysBetween, no production callers"
     },
     "I2": {
-      "status": "skipped",
-      "notes": "next_biz_day_on_or_after has callers in cascade.rs — cannot delete"
+      "status": "done",
+      "notes": "next_biz_day_on_or_after deleted — cascade.rs migrated to ensure_business_day"
     },
     "I3": {
-      "status": "skipped",
-      "notes": "count_biz_days_to has callers in cascade.rs — cannot delete"
+      "status": "done",
+      "notes": "count_biz_days_to deleted — cascade.rs migrated to business_day_delta"
     },
     "I4": {
       "status": "done",
@@ -187,5 +187,5 @@
       "notes": "edit→cascade→recalculate roundtrip no drift test"
     }
   },
-  "last_updated": "2026-03-13T04:58:01.614Z"
+  "last_updated": "2026-03-14T05:42:38.552Z"
 }

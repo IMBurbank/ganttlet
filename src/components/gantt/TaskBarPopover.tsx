@@ -89,7 +89,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
       }
     } else if (field === 'endDate') {
       const newDuration = taskDuration(task!.startDate, value);
-      if (newDuration < 0) return;
+      if (newDuration < 1) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });
       dispatch({

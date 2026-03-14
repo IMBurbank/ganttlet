@@ -92,9 +92,6 @@ pub fn cascade_dependents(
                     .cloned()
                     .unwrap_or_else(|| dependent.end_date.clone());
 
-                // Compute the required start/end dates based on dep type.
-                // Only cascade if the dependent's current dates would violate
-                // the constraint.
                 // Compute the required start date using dep-type helpers.
                 // All cases follow the same pattern: compute required start,
                 // check violation, shift whole task to preserve duration.
@@ -403,7 +400,7 @@ mod tests {
         for i in 0..50usize {
             let end = shift_date(&start, 4); // 4 biz days later
             let t = make_task(&format!("t{}", i), &start, &end);
-            // Next task starts on the same day this one ends (zero slack)
+            // Next task starts on the same day this one ends (negative slack)
             start = end;
             tasks.push(t);
         }
@@ -416,7 +413,7 @@ mod tests {
         tasks[0].end_date = new_t0_end;
 
         let results = cascade_dependents(&tasks, "t0", 2);
-        // All 49 dependents have violations (zero slack in tight chain)
+        // All 49 dependents have violations (negative slack in tight chain)
         assert_eq!(results.len(), 49);
         // t0 itself must not appear
         assert!(results.iter().all(|r| r.id != "t0"));

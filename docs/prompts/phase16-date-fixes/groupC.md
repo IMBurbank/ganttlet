@@ -218,7 +218,7 @@ Commit: `"feat: add fs/ss/ff/sf_successor_start — shared dep-type helpers (Rus
 `conflict_type: String`. WEEKEND_VIOLATION is just a string value — no type change needed.
 
 Verify by reading `lib.rs` lines 73-82. The existing conflict types use string values like
-`"SNLT_VIOLATED"`, `"FNLT_VIOLATED"`, `"MSO_CONFLICT"`, `"MFO_CONFLICT"`, `"NEGATIVE_FLOAT"`.
+`"SNLT_VIOLATED"`, `"FNLT_VIOLATED"`, `"MSO_CONFLICT"`, `"MFO_CONFLICT"`, `"DEP_VIOLATED"`.
 Group D (task D10) will add `"WEEKEND_VIOLATION"` as a new conflict_type string value.
 
 **No code change needed in this task** — just verify the struct can accommodate it (it can,

@@ -172,7 +172,7 @@ The `"WEEKEND_VIOLATION"` string value from Rust `find_conflicts` (Group D, task
 through WASM deserialization automatically.
 
 Verify by reading `src/types/index.ts` lines 36-42. The existing conflict types are string
-values like `"SNLT_VIOLATED"`, `"NEGATIVE_FLOAT"`, etc. No enum or union — just strings.
+values like `"SNLT_VIOLATED"`, `"DEP_VIOLATED"`, etc. No enum or union — just strings.
 
 **No code change needed** — just verify the TS type accepts any string as conflictType.
 

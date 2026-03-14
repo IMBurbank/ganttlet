@@ -53,6 +53,7 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 ## Date Convention Functions (date_utils.rs)
 - `task_duration(start, end)` — inclusive business day count
 - `task_end_date(start, dur)` — `shift_date(start, dur - 1)`
+- `task_start_date(end, dur)` — `shift_date(end, -(dur - 1))` (inverse of `task_end_date`)
 - `ensure_business_day(date)` — snap forward to Monday (replaces `next_biz_day_on_or_after`)
 - `prev_business_day(date)` — snap backward to Friday
 - `fs_successor_start(pred_end, lag)` — `shift_date(pred_end, 1 + lag)`

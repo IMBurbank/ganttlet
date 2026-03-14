@@ -1,3 +1,32 @@
+//! Date utility functions for the scheduling engine.
+//!
+//! All date logic follows the **inclusive end-date convention**: `end_date` is the
+//! last working day a task occupies, and `duration` counts both endpoints.
+//!
+//! The low-level primitive is `shift_date(date, n)` (`pub(crate)`), which shifts a
+//! date by `n` business days (skipping weekends). Every other function is built on
+//! top of it.
+//!
+//! ## Public API categories
+//!
+//! **Date ↔ duration conversion:**
+//! - `task_duration(start, end)` — inclusive business day count
+//! - `task_end_date(start, duration)` — end date from start + duration
+//! - `task_start_date(end, duration)` — start date from end + duration (inverse)
+//!
+//! **Business day snapping:**
+//! - `ensure_business_day(date)` — snap forward to next business day (Monday)
+//! - `prev_business_day(date)` — snap backward to previous business day (Friday)
+//!
+//! **Dependency helpers (one per dep type):**
+//! - `fs_successor_start(pred_end, lag)` — Finish-to-Start
+//! - `ss_successor_start(pred_start, lag)` — Start-to-Start
+//! - `ff_successor_start(pred_end, lag, succ_dur)` — Finish-to-Finish
+//! - `sf_successor_start(pred_start, lag, succ_dur)` — Start-to-Finish
+//!
+//! **Shift counting:**
+//! - `business_day_delta(from, to)` — non-negative business day count between dates
+
 /// Parse "YYYY-MM-DD" to a (year, month, day) tuple.
 pub fn parse_date(s: &str) -> (i32, u32, u32) {
     let parts: Vec<&str> = s.split('-').collect();

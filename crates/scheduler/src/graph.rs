@@ -1,3 +1,9 @@
+//! Task dependency graph utilities.
+//!
+//! `would_create_cycle` uses BFS reachability to check whether adding a
+//! dependency edge would introduce a cycle in the task graph. This is called
+//! before inserting any new dependency to maintain a DAG invariant.
+
 use crate::types::Task;
 use std::collections::HashSet;
 

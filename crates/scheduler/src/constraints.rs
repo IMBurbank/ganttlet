@@ -1,3 +1,23 @@
+//! Constraint evaluation and earliest-start recalculation.
+//!
+//! - `compute_earliest_start(tasks, task_id)` — computes the earliest possible
+//!   start for a single task from its dependencies and an optional SNET floor.
+//!   Returns `None` if the task is unconstrained.
+//!
+//! - `recalculate_earliest(tasks)` — performs a full topological-sort
+//!   recalculation (Kahn's algorithm) applying a today-floor and all 8
+//!   constraint types to every task.
+//!
+//! ## Constraint types
+//! - **ASAP** — As Soon As Possible (default, no-op)
+//! - **ALAP** — As Late As Possible (handled in CPM backward pass)
+//! - **SNET** — Start No Earlier Than
+//! - **SNLT** — Start No Later Than
+//! - **FNET** — Finish No Earlier Than
+//! - **FNLT** — Finish No Later Than
+//! - **MSO** — Must Start On
+//! - **MFO** — Must Finish On
+
 use crate::date_utils::{
     ff_successor_start, fs_successor_start, sf_successor_start, ss_successor_start, task_end_date,
     task_start_date,

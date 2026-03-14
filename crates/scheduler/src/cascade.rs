@@ -1,3 +1,15 @@
+//! Cascade propagation of date changes through dependent tasks.
+//!
+//! When a predecessor task moves forward, `cascade_dependents` computes the
+//! `required_start` for each dependent using the appropriate dep-type helper
+//! (FS/SS/FF/SF). If the required start exceeds the dependent's current start
+//! (a constraint violation), the dependent is shifted forward to preserve its
+//! date gap — its duration is preserved, not its duration field.
+//!
+//! The algorithm uses BFS with a queue, processing transitive dependents until
+//! no more tasks need to move. Only tasks that actually changed are included
+//! in the returned `CascadeResult` vec.
+
 use crate::date_utils::{
     business_day_delta, ff_successor_start, fs_successor_start, sf_successor_start, shift_date,
     ss_successor_start,

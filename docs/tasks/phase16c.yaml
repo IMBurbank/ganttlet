@@ -139,7 +139,8 @@ stages:
         tests: >
           validateStartDate already has 5 tests in taskFieldValidation.test.ts
           (lines 75-99). No new unit tests needed for the function itself.
-          Verify existing tests still pass after wiring.
+          Verify existing tests still pass after wiring. Add E2E test
+          verifying weekend startDate rejection in the table edit flow.
         complexity: trivial
 
       - id: B2
@@ -157,7 +158,10 @@ stages:
           for the logic, but display errors via local state (e.g., useState
           for error message) since raw inputs don't support validate prop.
         files: [src/components/gantt/TaskBarPopover.tsx]
-        tests: "Verify weekend rejection in existing or new tests"
+        tests: >
+          Add E2E test verifying weekend date rejection in the popover edit
+          flow (startDate, endDate, constraintDate). Verify weekend input
+          shows error feedback rather than silently dropping.
         complexity: small
 
       - id: B3
@@ -185,16 +189,17 @@ stages:
         summary: "Add debug_assert to cascade.rs make_task and fix weekend dates"
         description: >
           Add debug_assert!(!is_weekend_date(start)), debug_assert!(!is_weekend_date(end))
-          to cascade.rs make_task. Do NOT add duration consistency check —
-          cascade_dependents() never reads task.duration (it computes shift
-          amounts from dates via business_day_delta), so the hardcoded
-          duration=7 is inert for all cascade tests.
+          to cascade.rs make_task. Also add duration consistency check:
+          cascade_dependents() reads dependent.duration for FF and SF dep
+          types (lines 102, 105 — passed to ff_successor_start and
+          sf_successor_start). The hardcoded duration=7 affects FF/SF test
+          correctness. Add debug_assert!(task_duration(start, end) == 7)
+          so the end date must be consistent with the hardcoded duration.
+          Tests that override t.duration must also override end to match.
 
-          Weekend dates to fix (~18 occurrences across 6 distinct dates):
+          Weekend dates to fix (~18 occurrences across 5 distinct dates):
           - 2026-03-01 (Sun) → 2026-03-02 (Mon): 12 callsites as start date
           - 2026-03-07 (Sat): 1 callsite as end date
-          - 2026-03-14 (Sat): 1 callsite — check test comment, may be
-            intentional invalid input for testing weekend handling
           - 2026-03-15 (Sun): 2 callsites as end date
           - 2026-03-21 (Sat): 2 callsites as start date
           - 2026-03-28 (Sat): 1 callsite as end date
@@ -202,7 +207,9 @@ stages:
           CRITICAL: cascade.rs make_task hardcodes duration=7. When changing
           a start date, derive the corresponding end date as
           task_end_date(new_start, 7) — do NOT just shift the start and keep
-          the old end. Use node -e or python3 -c for ALL date computations.
+          the old end. When a test overrides t.duration, the end date must
+          also be recomputed as task_end_date(start, new_duration).
+          Use node -e or python3 -c for ALL date computations.
           Every downstream assertion must be recomputed from scratch.
         files: [crates/scheduler/src/cascade.rs]
         tests: "cargo test — all 121 must pass after date corrections"
@@ -232,10 +239,12 @@ stages:
         summary: "Fix weekend dates in lib.rs and graph.rs test helpers"
         description: >
           lib.rs make_task hardcodes duration=7 (same as cascade.rs).
-          Weekend dates: 2 occurrences of 2026-03-15 (Sunday) as end date.
+          lib.rs has no weekend dates currently — all test dates are weekdays.
+          Still add debug_assert for weekends as a guardrail.
           graph.rs make_task is 1-arg (takes only id) — all dates hardcoded
           in body: start=2026-03-01 (Sunday), end=2026-03-10 (Tuesday).
-          Add debug_assert for weekends to both helpers and fix the dates.
+          Only graph.rs needs date fixes (start 2026-03-01 → 2026-03-02).
+          Add debug_assert for weekends to both helpers.
         files:
           - crates/scheduler/src/lib.rs
           - crates/scheduler/src/graph.rs

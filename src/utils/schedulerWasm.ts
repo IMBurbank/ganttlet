@@ -282,7 +282,14 @@ export function cascadeDependentsWithIds(
     const changedMap = new Map(results.map((r) => [r.id, r]));
     const updatedTasks = tasks.map((t) => {
       const changed = changedMap.get(t.id);
-      return changed ? { ...t, startDate: changed.startDate, endDate: changed.endDate } : t;
+      return changed
+        ? {
+            ...t,
+            startDate: changed.startDate,
+            endDate: changed.endDate,
+            duration: taskDuration(changed.startDate, changed.endDate),
+          }
+        : t;
     });
 
     return { tasks: updatedTasks, changedIds };

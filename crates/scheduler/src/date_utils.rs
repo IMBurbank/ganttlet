@@ -122,6 +122,12 @@ pub fn task_end_date(start: &str, duration: i32) -> String {
     shift_date(start, duration - 1)
 }
 
+/// Derive start date from end + duration using inclusive convention.
+/// Inverse of task_end_date: task_start_date(task_end_date(start, dur), dur) == start.
+pub fn task_start_date(end: &str, duration: i32) -> String {
+    shift_date(end, -(duration - 1))
+}
+
 /// Snap forward to next Monday if date falls on a weekend. No-op if already a weekday.
 pub fn ensure_business_day(date: &str) -> String {
     let (y, m, d) = parse_date(date);

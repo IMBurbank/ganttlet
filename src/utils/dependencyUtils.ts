@@ -24,10 +24,13 @@ export function getDependencyPoints(
   const toY = taskYPositions.get(dep.toId);
   if (fromY === undefined || toY === undefined) return null;
 
+  // dayPx = pixel width of a single day at the current zoom level
+  const dayPx = zoom === 'day' ? colWidth : zoom === 'week' ? colWidth / 7 : colWidth / 30;
   const fromStartX = dateToX(fromTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-  const fromEndX = dateToX(fromTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const fromEndX =
+    dateToX(fromTask.endDate, timelineStart, colWidth, zoom, collapseWeekends) + dayPx;
   const toStartX = dateToX(toTask.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-  const toEndX = dateToX(toTask.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+  const toEndX = dateToX(toTask.endDate, timelineStart, colWidth, zoom, collapseWeekends) + dayPx;
   const midRow = rowHeight / 2;
 
   let start: Point;

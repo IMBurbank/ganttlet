@@ -272,7 +272,7 @@ mod tests {
         // Each task has a known duration. After cascade, business-day duration
         // must be identical to before.
         //
-        // A: start Mar 01, end Mar 17 (Tue, already moved +7 biz from Mar 05).
+        // A: start Mar 01, end Mar 17 (Tue, already moved — test data pre-set).
         // B (starts Mar 06 Fri): required = fs_successor_start(Mar 17, 0) = Mar 18 (Wed).
         //   shift_B = count_biz(Mar 06 → Mar 18) = 8.
         //   B.new_start = Mar 18 (Wed), B.new_end = add_biz(Mar 16, 8) = Thu Mar 26.
@@ -395,9 +395,9 @@ mod tests {
     fn large_chain_cascade() {
         // Chain: t0 → t1 → ... → t49. t0 moves +2 biz.
         // Tasks are tightly linked: t_i.start = t_{i-1}.end (same day).
-        // With FS lag=0, required t_i.start = t_{i-1}.end = t_i.start → zero slack.
-        // When t0 moves +2 biz, t1 violates (starts before t0's new end),
-        // cascades by 2, which causes t2 to violate, etc. All 49 cascade.
+        // With FS lag=0, required t_i.start = fs_successor_start(t_{i-1}.end, 0)
+        // = t_{i-1}.end + 1 biz day > t_i.start → all violate (negative slack).
+        // When t0 moves +2 biz, all 49 dependents cascade.
         let mut start = "2026-01-05".to_string(); // Mon Jan 5
         let mut tasks: Vec<Task> = Vec::with_capacity(50);
         for i in 0..50usize {
@@ -507,8 +507,9 @@ mod tests {
         }
     }
 
-    /// Basic SF cascade: A starts Mar 10 (Tue), B (SF lag=0) must end >= Mar 10.
-    /// B currently ends Mar 06 (Fri) → violation, B shifts forward.
+    /// Basic SF cascade: A starts Mar 10 (Tue), B (SF lag=0, dur=5) must start >= sf_successor_start.
+    /// sf_successor_start(Mar 10, 0, 5) = shift_date(shift_date(Mar 10, 0), -(5-1)) = shift_date(Mar 10, -4)
+    /// = Mar 04 (Wed). B.start Mar 02 < Mar 04 → violation, shift 2 biz.
     #[test]
     fn sf_basic_cascade() {
         let tasks = vec![
@@ -522,14 +523,16 @@ mod tests {
         ];
         let results = cascade_dependents(&tasks, "a", 3);
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        // required_end = Mar 10 (Tue). B.end was Mar 06 < Mar 10 → violation.
-        // shift = count_biz(Mar 06, Mar 10) = 2. B.new_end = Mar 10.
+        // required_start = Mar 04 (Wed). shift = count_biz(Mar 02, Mar 04) = 2.
+        // B.new_end = shift_date(Mar 06, 2) = Mar 10 (Tue).
         assert_eq!(b.end_date, "2026-03-10");
-        // B.new_start = add_biz(Mar 02, 2) = Mar 04 (Wed)
+        // B.new_start = required_start = Mar 04 (Wed)
         assert_eq!(b.start_date, "2026-03-04");
     }
 
-    /// SF with lag: A starts Mar 10, SF lag 2 → B must end >= add_biz(Mar 10, 2) = Mar 12.
+    /// SF with lag: A starts Mar 10, SF lag=2, dur=5.
+    /// required_start = sf_successor_start(Mar 10, 2, 5) = shift_date(shift_date(Mar 10, 2), -4)
+    /// = shift_date(Mar 12, -4) = Mar 06 (Fri). B.start Mar 02 < Mar 06 → violation.
     #[test]
     fn sf_cascade_with_lag() {
         let tasks = vec![make_task("a", "2026-03-10", "2026-03-17"), {
@@ -540,12 +543,12 @@ mod tests {
         }];
         let results = cascade_dependents(&tasks, "a", 3);
         let b = results.iter().find(|r| r.id == "b").unwrap();
-        // required_end = add_biz(Mar 10, 2) = Mar 12 (Thu). B.end Mar 06 < Mar 12 → violation.
+        // required_start = Mar 06. shift = count_biz(Mar 02, Mar 06) = 4. B.new_end = shift_date(Mar 06, 4) = Mar 12 (Thu).
         assert_eq!(b.end_date, "2026-03-12");
     }
 
-    /// SF slack absorption: B already ends Mar 15, A starts Mar 10, SF lag 0.
-    /// required_end = Mar 10. B.end = Mar 15 > Mar 10 → no cascade.
+    /// SF slack absorption: B starts Mar 09, ends Mar 15, dur=5. A starts Mar 10, SF lag=0.
+    /// required_start = sf_successor_start(Mar 10, 0, 5) = Mar 04. B.start Mar 09 >= Mar 04 → no cascade.
     #[test]
     fn sf_slack_absorption() {
         let tasks = vec![make_task("a", "2026-03-10", "2026-03-17"), {

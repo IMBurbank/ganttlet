@@ -1,6 +1,6 @@
 use crate::date_utils::{
-    ff_successor_start, fs_successor_start, sf_successor_start, shift_date, ss_successor_start,
-    task_end_date,
+    ff_successor_start, fs_successor_start, sf_successor_start, ss_successor_start, task_end_date,
+    task_start_date,
 };
 use crate::types::{ConstraintType, DepType, RecalcResult, Task};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -226,7 +226,7 @@ pub fn recalculate_earliest(
                     if computed_end.as_str() < constraint_date.as_str() {
                         // Push start later so end >= constraint_date.
                         // Under inclusive convention: start = end - (duration - 1) biz days.
-                        new_start = shift_date(constraint_date, -(task.duration - 1));
+                        new_start = task_start_date(constraint_date, task.duration);
                     }
                 }
             }
@@ -258,7 +258,7 @@ pub fn recalculate_earliest(
                 // Must Finish On: pin end to constraint_date, derive start.
                 // Under inclusive convention: start = end - (duration - 1) biz days.
                 if let Some(ref constraint_date) = task.constraint_date {
-                    let derived_start = shift_date(constraint_date, -(task.duration - 1));
+                    let derived_start = task_start_date(constraint_date, task.duration);
                     if new_start.as_str() > derived_start.as_str() {
                         conflict = Some(format!(
                             "MFO conflict: deps require start {} but must finish on {} (derived start {})",

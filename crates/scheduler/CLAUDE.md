@@ -19,6 +19,7 @@
 - `end_date` is INCLUSIVE — last working day of the task.
 - `duration` = business days in [start_date, end_date] counting both.
 - End from start+dur: `task_end_date(start, duration)` — NEVER use `shift_date(start, duration)` directly.
+- Start from end+dur: `task_start_date(end, duration)` — inverse of `task_end_date`.
 - Duration from dates: `task_duration(start, end)`.
 - `shift_date(date, n)` is `pub(crate)` — the low-level shift primitive. External code should never call it directly.
 - Dep-type helpers: `fs_successor_start`, `ss_successor_start`, `ff_successor_start`, `sf_successor_start`.

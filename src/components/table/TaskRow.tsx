@@ -108,7 +108,7 @@ export default function TaskRow({
       }
     } else {
       const newDuration = taskDuration(task.startDate, value);
-      if (newDuration < 0) return;
+      if (newDuration < 1) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value });
       dispatch({
         type: 'UPDATE_TASK_FIELD',
@@ -134,7 +134,7 @@ export default function TaskRow({
 
   function handleDurationUpdate(value: string) {
     const newDuration = parseInt(value, 10);
-    if (isNaN(newDuration) || newDuration < 0) return;
+    if (isNaN(newDuration) || newDuration < 1) return;
     const oldEndDate = task.endDate;
     const oldValue = String(task.duration);
     const newEndDate = taskEndDate(task.startDate, newDuration);

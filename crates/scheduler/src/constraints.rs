@@ -755,7 +755,7 @@ mod tests {
         // ALAP in forward pass: compute from deps like ASAP (actual late scheduling in CPM)
         // A(5d) -> B(3d, ALAP). B's earliest from deps = fs_successor_start(A.end, 0).
         // A: start=03-02, dur=5, end=03-06 (Fri). fs_successor_start(03-06,0)=03-09 (Mon).
-        let mut b = make_task("b", "2026-03-20", "2026-03-22", 3);
+        let mut b = make_task("b", "2026-03-20", "2026-03-24", 3);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::ALAP);
 

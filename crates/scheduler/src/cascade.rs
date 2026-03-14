@@ -544,8 +544,8 @@ mod tests {
         assert_eq!(b.end_date, "2026-03-12");
     }
 
-    /// SF slack absorption: B starts Mar 09, ends Mar 15, dur=5. A starts Mar 10, SF lag=0.
-    /// required_start = sf_successor_start(Mar 10, 0, 5) = Mar 04. B.start Mar 09 >= Mar 04 → no cascade.
+    /// SF slack absorption: B starts Mar 09, ends Mar 15, dur=7. A starts Mar 10, SF lag=0.
+    /// required_start = sf_successor_start(Mar 10, 0, 7) = Mar 02. B.start Mar 09 >= Mar 02 → no cascade.
     #[test]
     fn sf_slack_absorption() {
         let tasks = vec![make_task("a", "2026-03-10", "2026-03-17"), {
@@ -568,7 +568,7 @@ mod tests {
             {
                 let mut t = make_task("b", "2026-03-11", "2026-03-18");
                 t.duration = 6;
-                // SF from A (pred.start=Mar 10): required_end = Mar 10. B.end=Mar 18 > Mar 10 → OK.
+                // SF from A (pred.start=Mar 10): required_start = sf_successor_start(Mar 10, 0, 6) = Mar 03. B.start=Mar 11 >= Mar 03 → OK.
                 // FS from A (pred.end=Mar 17): required_start = fs_successor_start(Mar 17, 0) = Mar 18. B.start=Mar 11 < Mar 18 → violation.
                 t.dependencies = vec![make_sf_dep("a", "b"), make_dep("a", "b")];
                 t
@@ -634,7 +634,7 @@ mod tests {
         // A moves +3 biz, B has 5 biz days of slack → B doesn't cascade.
         // C depends on B; since B doesn't move, C also doesn't cascade.
         // A.new_end = add_biz(Mar 10, 3) = Mar 13.
-        // B.start = Mar 20 (Fri). required = Mar 13 < Mar 20 → no violation.
+        // B.start = Mar 20 (Fri). required = fs_successor_start(Mar 13, 0) = Mar 16 < Mar 20 → no violation.
         let tasks = vec![
             make_task("a", "2026-03-01", "2026-03-13"), // moved +3 biz from Mar 10
             {

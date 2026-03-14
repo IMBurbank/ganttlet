@@ -60,7 +60,7 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 - `ss_successor_start(pred_start, lag)` — `shift_date(pred_start, lag)`
 - `ff_successor_start(pred_end, lag, succ_dur)` — end-constrained: derives start from finish
 - `sf_successor_start(pred_start, lag, succ_dur)` — start-to-finish: derives start from finish
-- `business_day_delta(from, to)` — signed difference (replaces `count_biz_days_to`)
+- `business_day_delta(from, to)` — non-negative business day count; returns 0 if `to <= from`
 
 ## NEVER do math in your head
 Use `node -e` or `python3 -c` for any date/arithmetic calculations. LLMs get these wrong.

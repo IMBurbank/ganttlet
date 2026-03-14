@@ -12,20 +12,23 @@ context: >
   before passing clean. Analysis of the mistakes revealed 5 systemic gaps:
 
   1. Input validation is scattered across 4 UI components with inconsistent
-     guards. `validateStartDate` exists but is never wired up. TaskBarPopover
-     has no shared validation at all. sheetsMapper (system boundary) has none.
+     guards. `validateStartDate` exists (with 5 tests) but is never wired to
+     any UI component. TaskBarPopover uses raw <input type="date"> with no
+     validation at all. sheetsMapper (system boundary) has no date validation.
 
-  2. rust-scheduler.md drifts from source — wrong function names, stale
-     historical notes, missing functions, implementation-level descriptions
-     instead of semantic contracts. Root cause: it's a manual copy of info
-     that already exists in doc comments.
+  2. rust-scheduler.md drifts from source — wrong function names (is_weekend
+     vs is_weekend_date, find_conflicts vs detect_conflicts), stale historical
+     notes, missing functions (add_days, shift_date), implementation-level
+     descriptions instead of semantic contracts. Root cause: it's a manual
+     copy of info that already exists in doc comments.
 
   3. No rule tells agents to find all callsites before fixing a pattern bug.
-     Phase 16 required 4 commits for workingDaysBetween migration, 2 for FS
+     Phase 16 required 5 commits for workingDaysBetween migration, 2 for FS
      formula, 3 for constraint formulas — all should have been 1 each.
 
   4. Test helpers (make_task) accept weekend dates and inconsistent durations.
-     81 callsites use weekend dates, 34 have duration/date mismatches.
+     ~35 callsites use weekend dates (excl. CPM), ~57 have duration/date
+     mismatches in constraints.rs.
 
   5. dayPx (pixel-per-day at zoom level) is computed identically in 3 files
      with no shared utility.
@@ -38,7 +41,7 @@ context: >
 
   Evidence base:
   - Phase 16 PR #54: 5 review rounds, 11 issues fixed
-  - workingDaysBetween migration: 4 commits across 4 files (should be 1)
+  - workingDaysBetween migration: 5 commits across 5 files (should be 1)
   - TaskRow < 0 guard missed after fixing TaskBarPopover (found in round 4)
   - ALAP test used Sunday end date (2026-03-22), passed because untested
   - rust-scheduler.md said business_day_delta was "signed" (it returns 0)
@@ -76,6 +79,8 @@ stages:
           - constraints.rs: constraint types, recalculate_earliest flow
           - graph.rs: cycle detection
           - types.rs: core data structures
+          cargo doc currently succeeds with zero warnings — adding //! blocks
+          cannot introduce warnings, but verify post-change.
         files:
           - crates/scheduler/src/date_utils.rs
           - crates/scheduler/src/cascade.rs
@@ -90,7 +95,11 @@ stages:
         description: >
           Replace the Date Convention Functions section in rust-scheduler.md
           with a directive to use LSP hover and documentSymbol on date_utils.rs.
-          Fix the module map (is_weekend → is_weekend_date, add add_days).
+          Fix the module map:
+          - is_weekend → is_weekend_date (is_weekend is private)
+          - find_conflicts → detect_conflicts (the actual #[wasm_bindgen] export)
+          - add add_days (pub fn, calendar-day shift, currently missing)
+          - add shift_date to Date Convention section with pub(crate) warning
           Remove stale historical notes (replaces next_biz_day_on_or_after).
           Keep the high-level crate overview and behavioral guidance.
         files: [.claude/agents/rust-scheduler.md]
@@ -101,8 +110,12 @@ stages:
         summary: "Add crate-level //! doc block to lib.rs"
         description: >
           Add //! to lib.rs describing the WASM scheduling engine, its 7
-          exports, and the inclusive end-date convention. This is what
-          cargo doc shows on the crate index page.
+          #[wasm_bindgen] exports (compute_critical_path, compute_critical_path_scoped,
+          would_create_cycle, compute_earliest_start, cascade_dependents,
+          detect_conflicts, recalculate_earliest), and the inclusive end-date
+          convention. Note: the internal helper is find_conflicts(); the WASM
+          export wrapping it is detect_conflicts(). This is what cargo doc
+          shows on the crate index page.
         files: [crates/scheduler/src/lib.rs]
         tests: "cargo doc --no-deps"
         complexity: trivial
@@ -116,19 +129,33 @@ stages:
         summary: "Wire validateStartDate to TaskRow InlineEdit"
         description: >
           TaskRow startDate InlineEdit (line ~201) has no validate prop.
-          validateStartDate exists in taskFieldValidation.ts but is dead code.
+          validateStartDate exists in taskFieldValidation.ts and has 5 passing
+          tests — it is tested but never wired to any UI component.
           Wire it: validate={(v) => validateStartDate(v, task.endDate)}.
+          Must add validateStartDate to the import statement in TaskRow.tsx
+          (currently imports validateTaskName, validateDuration, validateEndDate
+          but NOT validateStartDate).
         files: [src/components/table/TaskRow.tsx]
-        tests: "Add test in taskFieldValidation.test.ts for validateStartDate"
+        tests: >
+          validateStartDate already has 5 tests in taskFieldValidation.test.ts
+          (lines 75-99). No new unit tests needed for the function itself.
+          Verify existing tests still pass after wiring.
         complexity: trivial
 
       - id: B2
-        summary: "Add shared validation to TaskBarPopover"
+        summary: "Add imperative validation to TaskBarPopover"
         description: >
-          TaskBarPopover date inputs have no validate prop and no weekend
-          check on startDate. Add validation using the shared utilities
-          from taskFieldValidation.ts. Show inline error messages instead
-          of silently dropping invalid input.
+          TaskBarPopover uses raw <input type="date"> elements (lines 159-180),
+          NOT InlineEdit components — there is no validate prop available.
+          Must add imperative validation inside saveField() or onChange handlers
+          with local error state. Three inputs need validation:
+          1. startDate input: no weekend check, no guard at all
+          2. endDate input: has newDuration < 1 guard but silently drops —
+             should show error feedback
+          3. constraintDate input (lines 226-238): no weekend check
+          Use validateStartDate, validateEndDate from taskFieldValidation.ts
+          for the logic, but display errors via local state (e.g., useState
+          for error message) since raw inputs don't support validate prop.
         files: [src/components/gantt/TaskBarPopover.tsx]
         tests: "Verify weekend rejection in existing or new tests"
         complexity: small
@@ -141,6 +168,9 @@ stages:
           Add: weekend date snapping (ensureBusinessDay/prevBusinessDay),
           duration >= 1 guard, endDate >= startDate guard. Log warnings
           for corrected values.
+          Also: parseConstraintFields (lines 102-122) accepts any string for
+          constraintDate without weekend checking — add ensureBusinessDay
+          there too.
         files: [src/sheets/sheetsMapper.ts]
         tests: "Add sheetsMapper test for invalid input handling"
         complexity: small
@@ -148,34 +178,52 @@ stages:
   - name: "Stage 3: Test Data Cleanup"
     description: >
       Add validation to test helpers and fix existing invalid test data.
-      This is the largest stage — 81 weekend dates and 34 duration mismatches.
+      This is the largest stage — ~35 weekend dates (excl. CPM) and ~57
+      duration/date mismatches in constraints.rs.
     tasks:
       - id: C1
-        summary: "Add debug_assert to cascade.rs make_task"
+        summary: "Add debug_assert to cascade.rs make_task and fix weekend dates"
         description: >
           Add debug_assert!(!is_weekend_date(start)), debug_assert!(!is_weekend_date(end))
-          to cascade.rs make_task. Do NOT add duration consistency check here
-          because cascade.rs make_task hardcodes duration=7 and callers override
-          it — adding a duration assert would break most tests. Fix the weekend
-          dates in cascade.rs test data (2026-03-01 Sun → 2026-03-02 Mon,
-          2026-03-21 Sat → 2026-03-20 Fri, etc). Recompute all affected
-          assertions using node -e or python3 -c.
+          to cascade.rs make_task. Do NOT add duration consistency check —
+          cascade_dependents() never reads task.duration (it computes shift
+          amounts from dates via business_day_delta), so the hardcoded
+          duration=7 is inert for all cascade tests.
+
+          Weekend dates to fix (~18 occurrences across 6 distinct dates):
+          - 2026-03-01 (Sun) → 2026-03-02 (Mon): 12 callsites as start date
+          - 2026-03-07 (Sat): 1 callsite as end date
+          - 2026-03-14 (Sat): 1 callsite — check test comment, may be
+            intentional invalid input for testing weekend handling
+          - 2026-03-15 (Sun): 2 callsites as end date
+          - 2026-03-21 (Sat): 2 callsites as start date
+          - 2026-03-28 (Sat): 1 callsite as end date
+
+          CRITICAL: cascade.rs make_task hardcodes duration=7. When changing
+          a start date, derive the corresponding end date as
+          task_end_date(new_start, 7) — do NOT just shift the start and keep
+          the old end. Use node -e or python3 -c for ALL date computations.
+          Every downstream assertion must be recomputed from scratch.
         files: [crates/scheduler/src/cascade.rs]
         tests: "cargo test — all 121 must pass after date corrections"
         complexity: medium
-        notes: >
-          ~72 callsites use 2026-03-01 (Sunday). Changing to 2026-03-02 shifts
-          all downstream computed values. Every assertion must be recomputed.
-          NEVER do this arithmetic in your head.
 
       - id: C2
-        summary: "Add debug_assert to constraints.rs make_task"
+        summary: "Add debug_assert to constraints.rs make_task and fix mismatches"
         description: >
           Add debug_assert for weekend dates AND duration consistency to
-          constraints.rs make_task (which takes explicit duration parameter).
-          Fix the ~34 duration/date mismatches and remaining weekend dates.
+          constraints.rs make_task (which takes explicit duration parameter):
+          debug_assert!(task_duration(start, end) == duration).
+          Also add asserts to make_task_with_project (same 4 mismatches).
+
+          ~57 duration/date mismatches total (53 from make_task, 4 from
+          make_task_with_project). Most use duration=10 with date windows
+          containing weekends (actual biz days ~7-8). This matters because
+          constraints.rs production code reads task.duration in 7 places.
+
           CPM exception: cpm.rs make_task should NOT add these asserts
-          (CPM uses exclusive integer model, milestones have duration=0).
+          (CPM uses exclusive integer model, milestones have duration=0,
+          and CPM production code ignores start_date/end_date entirely).
         files: [crates/scheduler/src/constraints.rs]
         tests: "cargo test — all must pass"
         complexity: medium
@@ -183,9 +231,11 @@ stages:
       - id: C3
         summary: "Fix weekend dates in lib.rs and graph.rs test helpers"
         description: >
-          lib.rs make_task also hardcodes duration=7 with no validation.
-          graph.rs make_task hardcodes start=2026-03-01 (Sunday).
-          Add debug_assert for weekends and fix the dates.
+          lib.rs make_task hardcodes duration=7 (same as cascade.rs).
+          Weekend dates: 2 occurrences of 2026-03-15 (Sunday) as end date.
+          graph.rs make_task is 1-arg (takes only id) — all dates hardcoded
+          in body: start=2026-03-01 (Sunday), end=2026-03-10 (Tuesday).
+          Add debug_assert for weekends to both helpers and fix the dates.
         files:
           - crates/scheduler/src/lib.rs
           - crates/scheduler/src/graph.rs
@@ -200,17 +250,24 @@ stages:
       - id: D1
         summary: "Add getDayPx to dateUtils.ts and replace 3 callsites"
         description: >
-          Add getDayPx(zoom: ZoomLevel, colWidth: number): number to
-          dateUtils.ts. Replace the identical ternary in GanttChart.tsx:128,
-          TaskBar.tsx:103, and dependencyUtils.ts:28. Also fix TodayLine.tsx
-          to call getColumnWidth instead of duplicating its logic.
+          Add getDayPx(zoom: ZoomLevel): number to dateUtils.ts. Call
+          getColumnWidth(zoom) internally — no colWidth parameter needed
+          since callers always derive colWidth from getColumnWidth(zoom)
+          anyway. Implementation:
+            return getColumnWidth(zoom) / (zoom === 'day' ? 1 : zoom === 'week' ? 7 : 30)
+          Replace the identical ternary in GanttChart.tsx:128, TaskBar.tsx:103,
+          and dependencyUtils.ts:28. Also fix TodayLine.tsx to call
+          getColumnWidth instead of duplicating its logic inline (line 14).
         files:
           - src/utils/dateUtils.ts
           - src/components/gantt/GanttChart.tsx
           - src/components/gantt/TaskBar.tsx
           - src/components/gantt/TodayLine.tsx
           - src/utils/dependencyUtils.ts
-        tests: "Add unit test for getDayPx in dateUtils.test.ts"
+        tests: >
+          Add unit test for getDayPx in dateUtils.test.ts (alongside existing
+          getColumnWidth tests): getDayPx('day')===36, getDayPx('week')===100/7,
+          getDayPx('month')===180/30.
         complexity: small
 
 verification:

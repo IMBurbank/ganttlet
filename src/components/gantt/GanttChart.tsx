@@ -6,6 +6,7 @@ import {
   dateToX,
   getTimelineRange,
   getColumnWidth,
+  getDayPx,
   getTimelineDays,
   getTimelineDaysFiltered,
   getTimelineWeeks,
@@ -124,8 +125,7 @@ export default function GanttChart({
   );
 
   const colWidth = getColumnWidth(zoom);
-  // Pixel width of a single calendar day — colWidth covers 1 day/7 days/30 days depending on zoom
-  const dayPx = zoom === 'day' ? colWidth : zoom === 'week' ? colWidth / 7 : colWidth / 30;
+  const dayPx = getDayPx(zoom);
   const taskYPositions = useMemo(() => buildTaskYPositions(visibleTasks), [visibleTasks]);
 
   const totalDays = useMemo(() => {

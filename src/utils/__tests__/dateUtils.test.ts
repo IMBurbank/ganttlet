@@ -6,6 +6,7 @@ import {
   addDaysToDate,
   getTimelineRange,
   getColumnWidth,
+  getDayPx,
   dateToX,
   xToDate,
   businessDaysDelta,
@@ -83,6 +84,20 @@ describe('dateUtils', () => {
       expect(getColumnWidth('day')).toBe(36);
       expect(getColumnWidth('week')).toBe(100);
       expect(getColumnWidth('month')).toBe(180);
+    });
+  });
+
+  describe('getDayPx', () => {
+    it('returns colWidth for day zoom', () => {
+      expect(getDayPx('day')).toBe(36);
+    });
+
+    it('returns colWidth/7 for week zoom', () => {
+      expect(getDayPx('week')).toBeCloseTo(100 / 7);
+    });
+
+    it('returns colWidth/30 for month zoom', () => {
+      expect(getDayPx('month')).toBe(180 / 30);
     });
   });
 

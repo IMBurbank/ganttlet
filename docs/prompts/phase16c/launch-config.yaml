@@ -6,7 +6,7 @@ phase: phase16c
 merge_target: feature/phase16c
 
 stages:
-  - name: "Stage 1: Docs + Validation"
+  - name: "Stage 1: Docs + Validation + Utility"
     groups:
       - id: groupA
         branch: feature/16c-docs-guardrails
@@ -14,15 +14,15 @@ stages:
       - id: groupB
         branch: feature/16c-input-validation
         merge_message: "Merge feature/16c-input-validation: wire validateStartDate, TaskBarPopover imperative validation, sheetsMapper boundary validation"
+      - id: groupD
+        branch: feature/16c-getDayPx
+        merge_message: "Merge feature/16c-getDayPx: extract getDayPx utility, replace 3 duplicates, fix TodayLine getColumnWidth"
 
-  - name: "Stage 2: Test Data + Utility"
+  - name: "Stage 2: Test Data Cleanup (depends on Stage 1)"
     groups:
       - id: groupC
         branch: feature/16c-test-data-cleanup
         merge_message: "Merge feature/16c-test-data-cleanup: debug_assert in make_task, fix weekend dates, fix duration mismatches"
-      - id: groupD
-        branch: feature/16c-getDayPx
-        merge_message: "Merge feature/16c-getDayPx: extract getDayPx utility, replace 3 duplicates, fix TodayLine getColumnWidth"
 
 pr:
   title: "fix: convention hardening — validation, test data, agent guardrails"
@@ -32,7 +32,7 @@ pr:
     1. CLAUDE.md: add LSP-first callsite-search rule (prevent multi-commit pattern fixes)
     2. Rust module docs: add //! blocks to 6 modules, convert rust-scheduler.md to LSP pointer
     3. Input validation: wire validateStartDate, add TaskBarPopover validation, sheetsMapper boundary checks
-    4. Test data: add debug_assert to make_task helpers, fix ~35 weekend dates and ~57 duration mismatches
+    4. Test data: add debug_assert to make_task helpers, fix ~35 weekend dates and ~33 duration mismatches
     5. Pixel math: extract getDayPx utility, eliminate 3 duplicated ternaries
 
     See docs/tasks/phase16c.yaml for evidence base and full task breakdown.

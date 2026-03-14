@@ -1,7 +1,7 @@
 ---
 phase: 16c
 group: D
-stage: 2
+stage: 1
 agent_count: 1
 scope:
   modify:
@@ -13,7 +13,7 @@ scope:
     - src/utils/dependencyUtils.ts
   read_only:
     - docs/tasks/phase16c.yaml
-depends_on: [A, B]
+depends_on: []  # D modifies only TypeScript; zero file overlap with A (Rust) or B (different TS files)
 tasks:
   - id: D1
     summary: "Add getDayPx to dateUtils.ts and replace 3 callsites"

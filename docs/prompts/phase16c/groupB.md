@@ -118,13 +118,16 @@ boundary — it parses raw string arrays from Google Sheets.
 
 **Changes to `rowToTask`:**
 
-1. After extracting `startDate` and `endDate` strings, snap weekend dates:
+1. After extracting `startDate` and `endDate` strings, snap weekend dates.
+   Note: `ensureBusinessDay` and `prevBusinessDay` take `Date` objects, not strings.
+   You must convert:
 ```typescript
 import { ensureBusinessDay, prevBusinessDay, taskDuration } from '../utils/dateUtils';
+import { parseISO, format } from 'date-fns';
 
 // After extracting dates from the row:
-if (startDate) startDate = ensureBusinessDay(startDate);
-if (endDate) endDate = prevBusinessDay(endDate);
+if (startDate) startDate = format(ensureBusinessDay(parseISO(startDate)), 'yyyy-MM-dd');
+if (endDate) endDate = format(prevBusinessDay(parseISO(endDate)), 'yyyy-MM-dd');
 ```
 
 2. Add duration guard — if computed duration < 1, default to 1:
@@ -143,9 +146,9 @@ if (startDate && endDate && endDate < startDate) {
 
 **Changes to `parseConstraintFields`** (around line 102):
 
-Add weekend check for `constraintDate`:
+Add weekend check for `constraintDate` (same Date conversion needed):
 ```typescript
-if (constraintDate) constraintDate = ensureBusinessDay(constraintDate);
+if (constraintDate) constraintDate = format(ensureBusinessDay(parseISO(constraintDate)), 'yyyy-MM-dd');
 ```
 
 **Tests** — add to `src/sheets/__tests__/sheetsMapper.test.ts`:

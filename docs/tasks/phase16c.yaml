@@ -27,7 +27,7 @@ context: >
      formula, 3 for constraint formulas — all should have been 1 each.
 
   4. Test helpers (make_task) accept weekend dates and inconsistent durations.
-     ~35 callsites use weekend dates (excl. CPM), ~57 have duration/date
+     ~35 callsites use weekend dates (excl. CPM), ~33 have duration/date
      mismatches in constraints.rs.
 
   5. dayPx (pixel-per-day at zoom level) is computed identically in 3 files
@@ -48,7 +48,7 @@ context: >
   - rust-scheduler.md listed is_weekend() but public API is is_weekend_date()
 
 stages:
-  - name: "Stage 1: CLAUDE.md Callsite Rule + Module Docs"
+  - name: "Stage 1 — Group A: CLAUDE.md Callsite Rule + Module Docs"
     description: >
       Add the LSP-first callsite rule to CLAUDE.md and add //! module-level
       doc blocks to the 5 undocumented Rust modules. Convert rust-scheduler.md
@@ -120,7 +120,7 @@ stages:
         tests: "cargo doc --no-deps"
         complexity: trivial
 
-  - name: "Stage 2: Input Validation Consolidation"
+  - name: "Stage 1 — Group B: Input Validation Consolidation"
     description: >
       Wire up existing validators, add missing validation at system boundaries,
       and ensure all UI entry points use shared utilities consistently.
@@ -175,14 +175,14 @@ stages:
           Also: parseConstraintFields (lines 102-122) accepts any string for
           constraintDate without weekend checking — add ensureBusinessDay
           there too.
-        files: [src/sheets/sheetsMapper.ts]
+        files: [src/sheets/sheetsMapper.ts, src/sheets/__tests__/sheetsMapper.test.ts]
         tests: "Add sheetsMapper test for invalid input handling"
         complexity: small
 
-  - name: "Stage 3: Test Data Cleanup"
+  - name: "Stage 2 — Group C: Test Data Cleanup (after stage 1)"
     description: >
       Add validation to test helpers and fix existing invalid test data.
-      This is the largest stage — ~35 weekend dates (excl. CPM) and ~57
+      This is the largest group — ~35 weekend dates (excl. CPM) and ~33
       duration/date mismatches in constraints.rs.
     tasks:
       - id: C1
@@ -221,11 +221,13 @@ stages:
           Add debug_assert for weekend dates AND duration consistency to
           constraints.rs make_task (which takes explicit duration parameter):
           debug_assert!(task_duration(start, end) == duration).
-          Also add asserts to make_task_with_project (same 4 mismatches).
+          Also add asserts to make_task_with_project (it already has
+          correct duration/date pairs, but add weekend guards).
 
-          ~57 duration/date mismatches total (53 from make_task, 4 from
-          make_task_with_project). Most use duration=10 with date windows
-          containing weekends (actual biz days ~7-8). This matters because
+          ~33 duration/date mismatches (all from make_task; make_task_with_project
+          has 0 mismatches — its duration=5 with Mon-Fri windows is correct).
+          Many use duration=10 with date windows containing weekends
+          (actual biz days ~7-8). This matters because
           constraints.rs production code reads task.duration in 7 places.
 
           CPM exception: cpm.rs make_task should NOT add these asserts
@@ -251,7 +253,7 @@ stages:
         tests: "cargo test"
         complexity: small
 
-  - name: "Stage 4: Extract getDayPx Utility"
+  - name: "Stage 1 — Group D: Extract getDayPx Utility"
     description: >
       Extract the duplicated zoom-to-pixel-per-day formula into a shared
       utility function.
@@ -269,6 +271,7 @@ stages:
           getColumnWidth instead of duplicating its logic inline (line 14).
         files:
           - src/utils/dateUtils.ts
+          - src/utils/__tests__/dateUtils.test.ts
           - src/components/gantt/GanttChart.tsx
           - src/components/gantt/TaskBar.tsx
           - src/components/gantt/TodayLine.tsx
@@ -293,4 +296,4 @@ scope_boundaries:
   - "CPM test helpers are exempt from weekend/duration validation"
 
 estimated_complexity: medium
-estimated_groups: 2  # A+B in parallel, then C+D in parallel
+estimated_groups: 2  # A+B+D in parallel (stage 1), then C alone (stage 2, needs A's Rust files)

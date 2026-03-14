@@ -13,7 +13,7 @@ scope:
     - crates/scheduler/src/date_utils.rs
     - crates/scheduler/src/cpm.rs
     - docs/tasks/phase16c.yaml
-depends_on: [A, B]
+depends_on: [A]  # C modifies same Rust files as A; no dependency on B (TypeScript-only)
 tasks:
   - id: C1
     summary: "Add debug_assert to cascade.rs make_task and fix weekend dates"
@@ -95,7 +95,7 @@ node -e "const d=new Date('2026-03-01T12:00:00Z'); console.log(['Sun','Mon','Tue
 | 2026-03-01 | Sun | 2026-03-02 | Mon | 12 callsites as start date |
 | 2026-03-07 | Sat | 2026-03-06 | Fri | 1 callsite as end date |
 | 2026-03-15 | Sun | 2026-03-13 | Fri | 2 callsites as end date |
-| 2026-03-21 | Sat | 2026-03-20 | Fri | 2 callsites as start date |
+| 2026-03-21 | Sat | 2026-03-23 | Mon | 2 callsites as start date (ensureBusinessDay snaps forward) |
 | 2026-03-28 | Sat | 2026-03-27 | Fri | 1 callsite as end date |
 
 **CRITICAL**: After changing a start date, you MUST recompute the corresponding end date
@@ -145,9 +145,9 @@ Add the same asserts to `make_task_with_project`.
 
 **Step 2: Run `cargo test` — it will fail on mismatches**
 
-There are ~57 duration/date mismatches (53 from `make_task`, 4 from
-`make_task_with_project`). Most use `duration=10` with date windows containing weekends
-(actual business days ~7-8).
+There are ~33 duration/date mismatches (all from `make_task`; `make_task_with_project`
+has 0 mismatches — its `duration=5` with Mon-Fri windows is correct). Most use
+`duration=10` with date windows containing weekends (actual business days ~7-8).
 
 **For each failing test:**
 1. Verify the start and end dates are weekdays using `node -e`
@@ -166,7 +166,7 @@ ignores `start_date`/`end_date` entirely.
 
 **Step 3: Run `cargo test` — all must pass**
 
-Commit: `"fix: add debug_assert to constraints.rs make_task, fix ~57 duration mismatches"`
+Commit: `"fix: add debug_assert to constraints.rs make_task, fix ~33 duration mismatches"`
 
 ### C3: Fix weekend dates in lib.rs and graph.rs test helpers
 

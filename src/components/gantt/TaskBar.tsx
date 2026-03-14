@@ -1,9 +1,25 @@
 import React, { useRef, useCallback, useState } from 'react';
 import type { ZoomLevel } from '../../types';
-import { useGanttDispatch, useLocalDispatch, useActiveDrag, useAwareness, useSetViewingTask } from '../../state/GanttContext';
+import {
+  useGanttDispatch,
+  useLocalDispatch,
+  useActiveDrag,
+  useAwareness,
+  useSetViewingTask,
+} from '../../state/GanttContext';
 import { setDragIntent } from '../../collab/awareness';
-import { dateToXCollapsed, xToDateCollapsed, formatDate, daysBetween, businessDaysDelta, workingDaysBetween, getColumnWidth } from '../../utils/dateUtils';
-import { parseISO } from 'date-fns';
+import {
+  dateToX,
+  xToDate,
+  formatDate,
+  daysBetween,
+  businessDaysDelta,
+  getColumnWidth,
+  ensureBusinessDay,
+  prevBusinessDay,
+  taskDuration,
+} from '../../utils/dateUtils';
+import { parseISO, format } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
 import TaskBarPopover from './TaskBarPopover';
 
@@ -38,10 +54,31 @@ interface TaskBarProps {
 let clipIdCounter = 0;
 
 export default function TaskBar({
-  taskId, taskName, startDate, endDate, done, color,
-  x, y, width, timelineStart, zoom, rowHeight, notes,
-  owner, functionalArea, okrs, showOwner, showArea, showOkrs, isCritical,
-  viewerName, viewerColor, collapseWeekends = false, earliestStart, conflictMessage,
+  taskId,
+  taskName,
+  startDate,
+  endDate,
+  done,
+  color,
+  x,
+  y,
+  width,
+  timelineStart,
+  zoom,
+  rowHeight,
+  notes,
+  owner,
+  functionalArea,
+  okrs,
+  showOwner,
+  showArea,
+  showOkrs,
+  isCritical,
+  viewerName,
+  viewerColor,
+  collapseWeekends = false,
+  earliestStart,
+  conflictMessage,
 }: TaskBarProps) {
   const dispatch = useGanttDispatch();
   const localDispatch = useLocalDispatch();
@@ -63,129 +100,234 @@ export default function TaskBar({
   const barHeight = 28;
   const barY = y + (rowHeight - barHeight) / 2;
   const colWidth = getColumnWidth(zoom);
+  const dayPx = zoom === 'day' ? colWidth : zoom === 'week' ? colWidth / 7 : colWidth / 30;
   const minWidth = colWidth * 0.5;
 
-  const handleMouseDown = useCallback((e: React.MouseEvent, mode: 'move' | 'resize') => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragRef.current = { startX: e.clientX, origStartDate: startDate, origEndDate: endDate, mode, lastStartDate: startDate, lastEndDate: endDate };
-    activeDragRef.current = taskId;
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent, mode: 'move' | 'resize') => {
+      // Don't initiate drag on double-click (detail >= 2) — let onDoubleClick handle it
+      if (e.detail >= 2) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragRef.current = {
+        startX: e.clientX,
+        origStartDate: startDate,
+        origEndDate: endDate,
+        mode,
+        lastStartDate: startDate,
+        lastEndDate: endDate,
+      };
+      activeDragRef.current = taskId;
 
-    function onMouseMove(ev: MouseEvent) {
-      if (!dragRef.current) return;
-      const dx = ev.clientX - dragRef.current.startX;
+      function onMouseMove(ev: MouseEvent) {
+        if (!dragRef.current) return;
+        const dx = ev.clientX - dragRef.current.startX;
 
-      if (dragRef.current.mode === 'move') {
-        let newStart = xToDateCollapsed(
-          dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends) + dx,
-          timelineStart, colWidth, zoom, collapseWeekends
-        );
-        let newStartStr = formatDate(newStart);
+        if (dragRef.current.mode === 'move') {
+          let newStart = ensureBusinessDay(
+            xToDate(
+              dateToX(
+                dragRef.current.origStartDate,
+                timelineStart,
+                colWidth,
+                zoom,
+                collapseWeekends
+              ) + dx,
+              timelineStart,
+              colWidth,
+              zoom,
+              collapseWeekends
+            )
+          );
+          let newStartStr = format(newStart, 'yyyy-MM-dd');
 
-        // Clamp to earliest start constraint
-        let clampedDx = dx;
-        if (earliestStart && newStartStr < earliestStart) {
-          newStartStr = earliestStart;
-          newStart = parseISO(earliestStart);
-          // Recompute the effective dx so end shifts by the same clamped amount
-          clampedDx = dateToXCollapsed(earliestStart, timelineStart, colWidth, zoom, collapseWeekends)
-            - dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends);
+          // Clamp to earliest start constraint
+          let clampedDx = dx;
+          if (earliestStart && newStartStr < earliestStart) {
+            newStartStr = earliestStart;
+            newStart = parseISO(earliestStart);
+            // Recompute the effective dx so end shifts by the same clamped amount
+            clampedDx =
+              dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends) -
+              dateToX(
+                dragRef.current.origStartDate,
+                timelineStart,
+                colWidth,
+                zoom,
+                collapseWeekends
+              );
+          }
+
+          // Shift end by same (possibly clamped) pixel delta as start to preserve visual width
+          const newEnd = prevBusinessDay(
+            xToDate(
+              dateToX(
+                dragRef.current.origEndDate,
+                timelineStart,
+                colWidth,
+                zoom,
+                collapseWeekends
+              ) + clampedDx,
+              timelineStart,
+              colWidth,
+              zoom,
+              collapseWeekends
+            )
+          );
+          const newEndStr = format(newEnd, 'yyyy-MM-dd');
+
+          // Skip if dates haven't changed
+          if (
+            newStartStr === dragRef.current.lastStartDate &&
+            newEndStr === dragRef.current.lastEndDate
+          )
+            return;
+          dragRef.current.lastStartDate = newStartStr;
+          dragRef.current.lastEndDate = newEndStr;
+
+          const moveAction = {
+            type: 'MOVE_TASK' as const,
+            taskId,
+            newStartDate: newStartStr,
+            newEndDate: newEndStr,
+          };
+
+          // RAF-throttled local render
+          if (rafRef.current) cancelAnimationFrame(rafRef.current);
+          rafRef.current = requestAnimationFrame(() => {
+            localDispatch(moveAction);
+            rafRef.current = null;
+          });
+
+          // 100ms-throttled CRDT broadcast + drag intent
+          const now = performance.now();
+          if (now - lastCrdtBroadcast.current >= 100) {
+            lastCrdtBroadcast.current = now;
+            // Cancel pending RAF to avoid double render — dispatch() updates React state directly
+            if (rafRef.current) {
+              cancelAnimationFrame(rafRef.current);
+              rafRef.current = null;
+            }
+            dispatch(moveAction);
+            if (awareness)
+              setDragIntent(awareness, { taskId, startDate: newStartStr, endDate: newEndStr });
+          }
+        } else {
+          const newEndX =
+            dateToX(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) +
+            dayPx +
+            dx;
+          const origStartX = dateToX(
+            dragRef.current.origStartDate,
+            timelineStart,
+            colWidth,
+            zoom,
+            collapseWeekends
+          );
+          if (newEndX - origStartX < minWidth) return;
+          const newEnd = prevBusinessDay(
+            xToDate(newEndX, timelineStart, colWidth, zoom, collapseWeekends)
+          );
+          let newEndStr = format(newEnd, 'yyyy-MM-dd');
+          // Enforce minimum 1-day duration
+          if (newEndStr < dragRef.current.origStartDate) {
+            newEndStr = dragRef.current.origStartDate;
+          }
+          const newDuration = taskDuration(dragRef.current.origStartDate, newEndStr);
+          if (newDuration < 1) return;
+
+          // Skip if end date hasn't changed
+          if (newEndStr === dragRef.current.lastEndDate) return;
+          dragRef.current.lastEndDate = newEndStr;
+
+          const resizeAction = {
+            type: 'RESIZE_TASK' as const,
+            taskId,
+            newEndDate: newEndStr,
+            newDuration,
+          };
+
+          // RAF-throttled local render
+          if (rafRef.current) cancelAnimationFrame(rafRef.current);
+          rafRef.current = requestAnimationFrame(() => {
+            localDispatch(resizeAction);
+            rafRef.current = null;
+          });
+
+          // 100ms-throttled CRDT broadcast + drag intent
+          const now = performance.now();
+          if (now - lastCrdtBroadcast.current >= 100) {
+            lastCrdtBroadcast.current = now;
+            if (rafRef.current) {
+              cancelAnimationFrame(rafRef.current);
+              rafRef.current = null;
+            }
+            dispatch(resizeAction);
+            if (awareness)
+              setDragIntent(awareness, {
+                taskId,
+                startDate: dragRef.current!.origStartDate,
+                endDate: newEndStr,
+              });
+          }
         }
+      }
 
-        // Shift end by same (possibly clamped) pixel delta as start to preserve visual width
-        const newEnd = xToDateCollapsed(
-          dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + clampedDx,
-          timelineStart, colWidth, zoom, collapseWeekends
-        );
-        const newEndStr = formatDate(newEnd);
-
-        // Skip if dates haven't changed
-        if (newStartStr === dragRef.current.lastStartDate && newEndStr === dragRef.current.lastEndDate) return;
-        dragRef.current.lastStartDate = newStartStr;
-        dragRef.current.lastEndDate = newEndStr;
-
-        const moveAction = { type: 'MOVE_TASK' as const, taskId, newStartDate: newStartStr, newEndDate: newEndStr };
-
-        // RAF-throttled local render
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        rafRef.current = requestAnimationFrame(() => {
-          localDispatch(moveAction);
+      function onMouseUp() {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
           rafRef.current = null;
-        });
-
-        // 100ms-throttled CRDT broadcast + drag intent
-        const now = performance.now();
-        if (now - lastCrdtBroadcast.current >= 100) {
-          lastCrdtBroadcast.current = now;
-          // Cancel pending RAF to avoid double render — dispatch() updates React state directly
-          if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-          dispatch(moveAction);
-          if (awareness) setDragIntent(awareness, { taskId, startDate: newStartStr, endDate: newEndStr });
         }
-      } else {
-        const newEndX = dateToXCollapsed(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) + dx;
-        const origStartX = dateToXCollapsed(dragRef.current.origStartDate, timelineStart, colWidth, zoom, collapseWeekends);
-        if (newEndX - origStartX < minWidth) return;
-        const newEnd = xToDateCollapsed(newEndX, timelineStart, colWidth, zoom, collapseWeekends);
-        const newEndStr = formatDate(newEnd);
-        const newDuration = workingDaysBetween(dragRef.current.origStartDate, newEndStr);
-        if (newDuration < 1) return;
-
-        // Skip if end date hasn't changed
-        if (newEndStr === dragRef.current.lastEndDate) return;
-        dragRef.current.lastEndDate = newEndStr;
-
-        const resizeAction = { type: 'RESIZE_TASK' as const, taskId, newEndDate: newEndStr, newDuration };
-
-        // RAF-throttled local render
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        rafRef.current = requestAnimationFrame(() => {
-          localDispatch(resizeAction);
-          rafRef.current = null;
-        });
-
-        // 100ms-throttled CRDT broadcast + drag intent
-        const now = performance.now();
-        if (now - lastCrdtBroadcast.current >= 100) {
-          lastCrdtBroadcast.current = now;
-          if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-          dispatch(resizeAction);
-          if (awareness) setDragIntent(awareness, { taskId, startDate: dragRef.current!.origStartDate, endDate: newEndStr });
+        // Clear drag guard before COMPLETE_DRAG dispatch. Safe because applyActionToYjs
+        // sets isLocalUpdate=true, so the Yjs observer won't echo back a SET_TASKS.
+        activeDragRef.current = null;
+        if (awareness) setDragIntent(awareness, null);
+        if (dragRef.current) {
+          const finalTask = dragRef.current;
+          dragRef.current = null;
+          // Only dispatch if the task actually moved — a click-without-drag
+          // (e.g. first click of a dblclick) should not trigger a re-render
+          const moved =
+            finalTask.lastStartDate !== finalTask.origStartDate ||
+            finalTask.lastEndDate !== finalTask.origEndDate;
+          if (moved) {
+            const daysDelta =
+              finalTask.mode === 'move'
+                ? businessDaysDelta(finalTask.origStartDate, finalTask.lastStartDate)
+                : businessDaysDelta(finalTask.origEndDate, finalTask.lastEndDate);
+            // Atomic: set final position + cascade in one dispatch
+            dispatch({
+              type: 'COMPLETE_DRAG',
+              taskId,
+              newStartDate: finalTask.lastStartDate,
+              newEndDate: finalTask.lastEndDate,
+              daysDelta,
+            });
+          }
         }
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
       }
-    }
 
-    function onMouseUp() {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      // Clear drag guard before COMPLETE_DRAG dispatch. Safe because applyActionToYjs
-      // sets isLocalUpdate=true, so the Yjs observer won't echo back a SET_TASKS.
-      activeDragRef.current = null;
-      if (awareness) setDragIntent(awareness, null);
-      if (dragRef.current) {
-        const finalTask = dragRef.current;
-        dragRef.current = null;
-        const daysDelta = finalTask.mode === 'move'
-          ? businessDaysDelta(finalTask.origStartDate, finalTask.lastStartDate)
-          : businessDaysDelta(finalTask.origEndDate, finalTask.lastEndDate);
-        // Atomic: set final position + cascade in one dispatch
-        dispatch({
-          type: 'COMPLETE_DRAG',
-          taskId,
-          newStartDate: finalTask.lastStartDate,
-          newEndDate: finalTask.lastEndDate,
-          daysDelta,
-        });
-      }
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    }
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [dispatch, localDispatch, activeDragRef, awareness, taskId, startDate, endDate, timelineStart, colWidth, zoom, minWidth, collapseWeekends, earliestStart]);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [
+      dispatch,
+      localDispatch,
+      activeDragRef,
+      awareness,
+      taskId,
+      startDate,
+      endDate,
+      timelineStart,
+      colWidth,
+      zoom,
+      minWidth,
+      collapseWeekends,
+      earliestStart,
+    ]
+  );
 
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -204,7 +346,9 @@ export default function TaskBar({
   const tooltipContent = (
     <div className="space-y-1">
       <div className="font-semibold text-text-primary">{taskName}</div>
-      <div className="text-text-secondary">{startDate} - {endDate}</div>
+      <div className="text-text-secondary">
+        {startDate} - {endDate}
+      </div>
       <div className="text-text-secondary">{done ? 'Done' : 'In progress'}</div>
       {notes && <div className="text-text-muted text-xs italic">{notes}</div>}
       {conflictMessage && <div className="text-red-400 text-xs font-medium">{conflictMessage}</div>}
@@ -303,7 +447,8 @@ export default function TaskBar({
           fill={isCritical ? '#ef4444' : color}
           opacity={isCritical ? 0.35 : 0.6}
           className="task-bar"
-          onMouseDown={e => handleMouseDown(e, 'move')}
+          data-testid={`task-bar-${taskId}`}
+          onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />
         {/* Full bar stroke */}
@@ -318,7 +463,8 @@ export default function TaskBar({
           strokeWidth={isCritical ? 2 : 1.5}
           opacity={isCritical ? 1 : 0.6}
           className="task-bar"
-          onMouseDown={e => handleMouseDown(e, 'move')}
+          data-testid={`task-bar-${taskId}`}
+          onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />
         {/* Task name label with clipPath */}
@@ -373,7 +519,11 @@ export default function TaskBar({
         )}
         {/* Conflict warning icon */}
         {conflictMessage && (
-          <Tooltip content={<div className="text-red-300 text-xs">{conflictMessage}</div>} delay={100} svg>
+          <Tooltip
+            content={<div className="text-red-300 text-xs">{conflictMessage}</div>}
+            delay={100}
+            svg
+          >
             <g style={{ cursor: 'default' }}>
               <circle
                 cx={x + Math.max(width, 4) + 10}
@@ -405,7 +555,7 @@ export default function TaskBar({
           height={barHeight}
           fill="transparent"
           className="resize-handle"
-          onMouseDown={e => handleMouseDown(e, 'resize')}
+          onMouseDown={(e) => handleMouseDown(e, 'resize')}
         />
       </g>
       {popoverPos && (

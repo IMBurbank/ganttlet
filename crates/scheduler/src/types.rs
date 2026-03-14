@@ -38,8 +38,13 @@ pub struct Dependency {
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
+    /// First working day of the task (inclusive). Must be Mon-Fri.
     pub start_date: String,
+    /// Last working day of the task (inclusive). Must be Mon-Fri.
+    /// Derived: task_end_date(start_date, duration).
     pub end_date: String,
+    /// Business days in [start_date, end_date] counting both endpoints.
+    /// A 1-day task has duration=1 and start_date == end_date.
     pub duration: i32,
     pub is_milestone: bool,
     pub is_summary: bool,

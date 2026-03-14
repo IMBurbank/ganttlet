@@ -3,7 +3,7 @@ import type { Dispatch } from 'react';
 import type { Task, Dependency } from '../types';
 import type { GanttAction } from '../state/actions';
 import { cascadeDependents } from '../utils/schedulerWasm';
-import { workingDaysBetween } from '../utils/dateUtils';
+import { taskDuration } from '../utils/dateUtils';
 
 /**
  * Flag to prevent echoing local changes back through the observer.
@@ -32,6 +32,8 @@ function taskToYMap(task: Task): Y.Map<unknown> {
   ymap.set('isHidden', task.isHidden);
   ymap.set('notes', task.notes);
   ymap.set('okrs', JSON.stringify(task.okrs));
+  if (task.constraintType) ymap.set('constraintType', task.constraintType);
+  if (task.constraintDate) ymap.set('constraintDate', task.constraintDate);
   return ymap;
 }
 
@@ -43,17 +45,23 @@ function yMapToTask(ymap: Y.Map<unknown>): Task {
   try {
     const childIdsRaw = ymap.get('childIds');
     if (typeof childIdsRaw === 'string') childIds = JSON.parse(childIdsRaw);
-  } catch { /* default to empty */ }
+  } catch {
+    /* default to empty */
+  }
 
   try {
     const depsRaw = ymap.get('dependencies');
     if (typeof depsRaw === 'string') dependencies = JSON.parse(depsRaw);
-  } catch { /* default to empty */ }
+  } catch {
+    /* default to empty */
+  }
 
   try {
     const okrsRaw = ymap.get('okrs');
     if (typeof okrsRaw === 'string') okrs = JSON.parse(okrsRaw);
-  } catch { /* default to empty */ }
+  } catch {
+    /* default to empty */
+  }
 
   return {
     id: (ymap.get('id') as string) ?? '',
@@ -76,6 +84,8 @@ function yMapToTask(ymap: Y.Map<unknown>): Task {
     isHidden: (ymap.get('isHidden') as boolean) ?? false,
     notes: (ymap.get('notes') as string) ?? '',
     okrs,
+    constraintType: (ymap.get('constraintType') as Task['constraintType']) ?? undefined,
+    constraintDate: (ymap.get('constraintDate') as string) ?? undefined,
   };
 }
 
@@ -172,7 +182,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set('endDate', action.newEndDate);
             // Compute duration from dates, not action payload
-            const duration = workingDaysBetween(ymap.get('startDate') as string, action.newEndDate);
+            const duration = taskDuration(ymap.get('startDate') as string, action.newEndDate);
             ymap.set('duration', duration);
           }
         });
@@ -190,6 +200,38 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
           if (idx !== -1) {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set(action.field, action.value);
+
+            // Sync duration when date fields change (Bug 14 fix)
+            if (action.field === 'startDate' || action.field === 'endDate') {
+              const start = (
+                action.field === 'startDate' ? action.value : ymap.get('startDate')
+              ) as string;
+              const end = (
+                action.field === 'endDate' ? action.value : ymap.get('endDate')
+              ) as string;
+              ymap.set('duration', taskDuration(start, end));
+            }
+          }
+        });
+      } finally {
+        isLocalUpdate = false;
+      }
+      break;
+    }
+
+    case 'SET_CONSTRAINT': {
+      isLocalUpdate = true;
+      try {
+        doc.transact(() => {
+          const idx = findTaskIndex(yarray, action.taskId);
+          if (idx !== -1) {
+            const ymap = yarray.get(idx) as Y.Map<unknown>;
+            ymap.set('constraintType', action.constraintType);
+            if (action.constraintDate) {
+              ymap.set('constraintDate', action.constraintDate);
+            } else {
+              ymap.delete('constraintDate');
+            }
           }
         });
       } finally {
@@ -255,7 +297,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
           for (const task of updated) {
             const idx = findTaskIndex(yarray, task.id);
             if (idx !== -1) {
-              const orig = currentTasks.find(t => t.id === task.id);
+              const orig = currentTasks.find((t) => t.id === task.id);
               if (orig && (orig.startDate !== task.startDate || orig.endDate !== task.endDate)) {
                 const ymap = yarray.get(idx) as Y.Map<unknown>;
                 ymap.set('startDate', task.startDate);
@@ -279,7 +321,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set('startDate', action.newStartDate);
             ymap.set('endDate', action.newEndDate);
-            ymap.set('duration', workingDaysBetween(action.newStartDate, action.newEndDate));
+            ymap.set('duration', taskDuration(action.newStartDate, action.newEndDate));
           }
           // Also cascade dependents in the CRDT
           if (action.daysDelta !== 0) {
@@ -288,12 +330,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             for (const task of updated) {
               const ci = findTaskIndex(yarray, task.id);
               if (ci !== -1) {
-                const orig = currentTasks.find(t => t.id === task.id);
+                const orig = currentTasks.find((t) => t.id === task.id);
                 if (orig && (orig.startDate !== task.startDate || orig.endDate !== task.endDate)) {
                   const cmap = yarray.get(ci) as Y.Map<unknown>;
                   cmap.set('startDate', task.startDate);
                   cmap.set('endDate', task.endDate);
-                  cmap.set('duration', workingDaysBetween(task.startDate, task.endDate));
+                  cmap.set('duration', taskDuration(task.startDate, task.endDate));
                 }
               }
             }
@@ -314,7 +356,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             const depsRaw = ymap.get('dependencies') as string;
             let deps: Dependency[] = [];
-            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
+            if (depsRaw)
+              try {
+                deps = JSON.parse(depsRaw);
+              } catch {
+                /* empty */
+              }
             deps.push(action.dependency);
             ymap.set('dependencies', JSON.stringify(deps));
           }
@@ -335,8 +382,13 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             const depsRaw = ymap.get('dependencies') as string;
             let deps: Dependency[] = [];
-            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
-            deps = deps.map(d =>
+            if (depsRaw)
+              try {
+                deps = JSON.parse(depsRaw);
+              } catch {
+                /* empty */
+              }
+            deps = deps.map((d) =>
               d.fromId === action.fromId ? { ...d, type: action.newType, lag: action.newLag } : d
             );
             ymap.set('dependencies', JSON.stringify(deps));
@@ -357,8 +409,13 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             const depsRaw = ymap.get('dependencies') as string;
             let deps: Dependency[] = [];
-            if (depsRaw) try { deps = JSON.parse(depsRaw); } catch { /* empty */ }
-            deps = deps.filter(d => d.fromId !== action.fromId);
+            if (depsRaw)
+              try {
+                deps = JSON.parse(depsRaw);
+              } catch {
+                /* empty */
+              }
+            deps = deps.filter((d) => d.fromId !== action.fromId);
             ymap.set('dependencies', JSON.stringify(deps));
           }
         });

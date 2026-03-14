@@ -1,8 +1,40 @@
 import type { Task, CriticalPathScope, ConflictResult } from '../types';
-import { workingDaysBetween } from './dateUtils';
+import { taskDuration, isWeekendDate } from './dateUtils';
 
 // Lazily loaded WASM module
 let wasmModule: typeof import('../wasm/scheduler/ganttlet_scheduler') | null = null;
+
+/**
+ * Dev-mode assertion: verifies a task's dates and duration are internally consistent.
+ * Tree-shaken in production builds (import.meta.env.PROD guard).
+ *
+ * Checks:
+ * - computed duration matches stored duration
+ * - startDate <= endDate
+ * - startDate is not a weekend
+ * - endDate is not a weekend
+ *
+ * Milestones and summary tasks are skipped (they may have special date semantics).
+ */
+function assertTaskInvariants(task: Task): void {
+  if (import.meta.env.PROD) return;
+  if (task.isSummary || task.isMilestone) return;
+
+  const computed = taskDuration(task.startDate, task.endDate);
+  console.assert(
+    computed === task.duration,
+    `Task ${task.id}: duration ${task.duration} != computed ${computed} (${task.startDate} → ${task.endDate})`
+  );
+  console.assert(
+    task.startDate <= task.endDate,
+    `Task ${task.id}: start ${task.startDate} > end ${task.endDate}`
+  );
+  console.assert(
+    !isWeekendDate(task.startDate),
+    `Task ${task.id}: starts on weekend ${task.startDate}`
+  );
+  console.assert(!isWeekendDate(task.endDate), `Task ${task.id}: ends on weekend ${task.endDate}`);
+}
 
 /**
  * Initialize the WASM scheduler module. Must be called once at startup.
@@ -22,7 +54,7 @@ interface CascadeResult {
  * Map Task[] to the minimal shape expected by the WASM module.
  */
 function mapTasksToWasm(tasks: Task[]) {
-  return tasks.map(t => ({
+  return tasks.map((t) => ({
     id: t.id,
     startDate: t.startDate,
     endDate: t.endDate,
@@ -33,7 +65,7 @@ function mapTasksToWasm(tasks: Task[]) {
     workStream: t.workStream,
     constraintType: t.constraintType ?? null,
     constraintDate: t.constraintDate ?? null,
-    dependencies: t.dependencies.map(d => ({
+    dependencies: t.dependencies.map((d) => ({
       fromId: d.fromId,
       toId: d.toId,
       type: d.type,
@@ -69,6 +101,7 @@ function parseCriticalPathResult(result: unknown): CriticalPathResult {
 export function computeCriticalPath(tasks: Task[]): CriticalPathResult {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
+    tasks.forEach(assertTaskInvariants);
     const wasmTasks = mapTasksToWasm(tasks);
     const result = wasmModule.compute_critical_path(wasmTasks);
     return parseCriticalPathResult(result);
@@ -82,9 +115,13 @@ export function computeCriticalPath(tasks: Task[]): CriticalPathResult {
  * Compute the critical path scoped to all tasks, a project, or a workstream.
  * Returns critical task IDs and critical edges.
  */
-export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScope): CriticalPathResult {
+export function computeCriticalPathScoped(
+  tasks: Task[],
+  scope: CriticalPathScope
+): CriticalPathResult {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
+    tasks.forEach(assertTaskInvariants);
     const wasmTasks = mapTasksToWasm(tasks);
     const result = wasmModule.compute_critical_path_scoped(wasmTasks, scope);
     return parseCriticalPathResult(result);
@@ -101,6 +138,7 @@ export function computeCriticalPathScoped(tasks: Task[], scope: CriticalPathScop
 export function computeEarliestStart(tasks: Task[], taskId: string): string | null {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
+    tasks.forEach(assertTaskInvariants);
     const wasmTasks = mapTasksToWasm(tasks);
     return wasmModule.compute_earliest_start(wasmTasks, taskId) ?? null;
   } catch (err) {
@@ -115,10 +153,11 @@ export function computeEarliestStart(tasks: Task[], taskId: string): string | nu
 export function wouldCreateCycle(
   tasks: Task[],
   successorId: string,
-  predecessorId: string,
+  predecessorId: string
 ): boolean {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
+    tasks.forEach(assertTaskInvariants);
     const wasmTasks = mapTasksToWasm(tasks);
     return wasmModule.would_create_cycle(wasmTasks, successorId, predecessorId);
   } catch (err) {
@@ -131,20 +170,17 @@ export function wouldCreateCycle(
  * Cascade dependents after a task moves.
  * Returns a new Task[] with updated dates merged in.
  */
-export function cascadeDependents(
-  tasks: Task[],
-  movedTaskId: string,
-  daysDelta: number,
-): Task[] {
+export function cascadeDependents(tasks: Task[], movedTaskId: string, daysDelta: number): Task[] {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
+    tasks.forEach(assertTaskInvariants);
     const wasmTasks = mapTasksToWasm(tasks);
 
     if (import.meta.env.DEV) performance.mark('cascade-start');
     const results: CascadeResult[] = wasmModule.cascade_dependents(
       wasmTasks,
       movedTaskId,
-      daysDelta,
+      daysDelta
     );
     if (import.meta.env.DEV) {
       performance.mark('cascade-end');
@@ -155,17 +191,17 @@ export function cascadeDependents(
     }
 
     // Build a map of changed tasks
-    const changedMap = new Map(results.map(r => [r.id, r]));
+    const changedMap = new Map(results.map((r) => [r.id, r]));
 
     // Merge changes back into full Task array
-    return tasks.map(t => {
+    return tasks.map((t) => {
       const changed = changedMap.get(t.id);
       if (changed) {
         return {
           ...t,
           startDate: changed.startDate,
           endDate: changed.endDate,
-          duration: workingDaysBetween(changed.startDate, changed.endDate),
+          duration: taskDuration(changed.startDate, changed.endDate),
         };
       }
       return t;
@@ -183,6 +219,7 @@ export function cascadeDependents(
 export function detectConflicts(tasks: Task[]): ConflictResult[] {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
+    tasks.forEach(assertTaskInvariants);
     const wasmTasks = mapTasksToWasm(tasks);
     const result = wasmModule.detect_conflicts(wasmTasks);
     return result as ConflictResult[];
@@ -207,9 +244,10 @@ export function recalculateEarliest(
   tasks: Task[],
   scopeProject?: string,
   scopeWorkstream?: string,
-  scopeTaskId?: string,
+  scopeTaskId?: string
 ): RecalcResult[] {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
+  tasks.forEach(assertTaskInvariants);
   const wasmTasks = mapTasksToWasm(tasks);
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
   return wasmModule.recalculate_earliest(
@@ -217,7 +255,7 @@ export function recalculateEarliest(
     scopeProject ?? null,
     scopeWorkstream ?? null,
     scopeTaskId ?? null,
-    today,
+    today
   );
 }
 
@@ -227,23 +265,31 @@ export function recalculateEarliest(
 export function cascadeDependentsWithIds(
   tasks: Task[],
   movedTaskId: string,
-  daysDelta: number,
+  daysDelta: number
 ): { tasks: Task[]; changedIds: string[] } {
   if (!wasmModule) throw new Error('WASM scheduler not initialized');
   try {
+    tasks.forEach(assertTaskInvariants);
     const wasmTasks = mapTasksToWasm(tasks);
 
     const results: CascadeResult[] = wasmModule.cascade_dependents(
       wasmTasks,
       movedTaskId,
-      daysDelta,
+      daysDelta
     );
 
-    const changedIds = results.map(r => r.id);
-    const changedMap = new Map(results.map(r => [r.id, r]));
-    const updatedTasks = tasks.map(t => {
+    const changedIds = results.map((r) => r.id);
+    const changedMap = new Map(results.map((r) => [r.id, r]));
+    const updatedTasks = tasks.map((t) => {
       const changed = changedMap.get(t.id);
-      return changed ? { ...t, startDate: changed.startDate, endDate: changed.endDate } : t;
+      return changed
+        ? {
+            ...t,
+            startDate: changed.startDate,
+            endDate: changed.endDate,
+            duration: taskDuration(changed.startDate, changed.endDate),
+          }
+        : t;
     });
 
     return { tasks: updatedTasks, changedIds };

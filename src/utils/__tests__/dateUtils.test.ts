@@ -8,11 +8,13 @@ import {
   getColumnWidth,
   dateToX,
   xToDate,
-  dateToXCollapsed,
-  xToDateCollapsed,
-  businessDaysBetween,
   businessDaysDelta,
-  workingDaysBetween,
+  taskDuration,
+  taskEndDate,
+  ensureBusinessDay,
+  prevBusinessDay,
+  isWeekendDate,
+  withDuration,
 } from '../dateUtils';
 
 describe('dateUtils', () => {
@@ -99,11 +101,6 @@ describe('dateUtils', () => {
       expect(daysBetween('2026-03-06', '2026-03-10')).toBe(4);
     });
 
-    it('businessDaysBetween counts only weekdays (used for pixel mapping)', () => {
-      // Mar 6 (Fri) to Mar 10 (Tue): Fri, [Sat, Sun], Mon = 2 business days
-      expect(businessDaysBetween(new Date('2026-03-06'), new Date('2026-03-10'))).toBe(2);
-    });
-
     it('businessDaysDelta returns business days between two date strings', () => {
       // Mon to Fri same week = 4 business days
       expect(businessDaysDelta('2026-03-02', '2026-03-06')).toBe(4);
@@ -115,11 +112,6 @@ describe('dateUtils', () => {
       expect(businessDaysDelta('2026-03-02', '2026-03-02')).toBe(0);
       // Negative (moving backward)
       expect(businessDaysDelta('2026-03-09', '2026-03-06')).toBe(-1);
-    });
-
-    it('Mar 6 (Fri) to Mar 10 (Tue) = 2 working days (Fri, Mon)', () => {
-      // Start-inclusive, end-exclusive: Fri(1), [Sat skip], [Sun skip], Mon(2)
-      expect(workingDaysBetween('2026-03-06', '2026-03-10')).toBe(2);
     });
   });
 
@@ -134,20 +126,27 @@ describe('dateUtils', () => {
      * but end uses the unclamped dx, causing the task to shrink.
      */
     function simulateBuggyDrag(
-      origStart: string, origEnd: string, dxColumns: number, earliestStart: string
+      origStart: string,
+      origEnd: string,
+      dxColumns: number,
+      earliestStart: string
     ) {
       const dx = dxColumns * colWidth;
-      const origStartX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, collapseWeekends);
-      const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
+      const origStartX = dateToX(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origEndX = dateToX(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
 
       // Compute new start, then clamp
-      let newStart = formatDate(xToDateCollapsed(origStartX + dx, timelineStart, colWidth, zoom, collapseWeekends));
+      let newStart = formatDate(
+        xToDate(origStartX + dx, timelineStart, colWidth, zoom, collapseWeekends)
+      );
       if (newStart < earliestStart) {
         newStart = earliestStart;
       }
 
       // Bug: end uses unclamped dx
-      const newEnd = formatDate(xToDateCollapsed(origEndX + dx, timelineStart, colWidth, zoom, collapseWeekends));
+      const newEnd = formatDate(
+        xToDate(origEndX + dx, timelineStart, colWidth, zoom, collapseWeekends)
+      );
 
       return { newStart, newEnd };
     }
@@ -157,23 +156,30 @@ describe('dateUtils', () => {
      * is applied to end as well, preserving task duration.
      */
     function simulateFixedDrag(
-      origStart: string, origEnd: string, dxColumns: number, earliestStart: string
+      origStart: string,
+      origEnd: string,
+      dxColumns: number,
+      earliestStart: string
     ) {
       const dx = dxColumns * colWidth;
-      const origStartX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, collapseWeekends);
-      const origEndX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
+      const origStartX = dateToX(origStart, timelineStart, colWidth, zoom, collapseWeekends);
+      const origEndX = dateToX(origEnd, timelineStart, colWidth, zoom, collapseWeekends);
 
       // Compute new start, then clamp
       let newStartX = origStartX + dx;
-      let newStart = formatDate(xToDateCollapsed(newStartX, timelineStart, colWidth, zoom, collapseWeekends));
+      let newStart = formatDate(
+        xToDate(newStartX, timelineStart, colWidth, zoom, collapseWeekends)
+      );
       if (newStart < earliestStart) {
         newStart = earliestStart;
-        newStartX = dateToXCollapsed(earliestStart, timelineStart, colWidth, zoom, collapseWeekends);
+        newStartX = dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends);
       }
 
       // Fixed: use clamped dx for end
       const clampedDx = newStartX - origStartX;
-      const newEnd = formatDate(xToDateCollapsed(origEndX + clampedDx, timelineStart, colWidth, zoom, collapseWeekends));
+      const newEnd = formatDate(
+        xToDate(origEndX + clampedDx, timelineStart, colWidth, zoom, collapseWeekends)
+      );
 
       return { newStart, newEnd };
     }
@@ -214,23 +220,144 @@ describe('dateUtils', () => {
     });
   });
 
+  describe('inclusive convention functions', () => {
+    describe('taskDuration', () => {
+      it('same-day task has duration 1', () => {
+        expect(taskDuration('2026-03-10', '2026-03-10')).toBe(1);
+      });
+
+      it('Mon-Fri is 5 business days', () => {
+        expect(taskDuration('2026-03-09', '2026-03-13')).toBe(5);
+      });
+
+      it('Fri-Tue spanning weekend is 3 business days', () => {
+        // Fri(1) + Mon(2) + Tue(3) = 3
+        expect(taskDuration('2026-03-06', '2026-03-10')).toBe(3);
+      });
+
+      it('2 weeks Mon-Fri is 10 business days', () => {
+        expect(taskDuration('2026-03-09', '2026-03-20')).toBe(10);
+      });
+    });
+
+    describe('taskEndDate', () => {
+      it('duration 1 returns start date (same-day task)', () => {
+        expect(taskEndDate('2026-03-09', 1)).toBe('2026-03-09');
+      });
+
+      it('duration 5 from Monday returns Friday', () => {
+        expect(taskEndDate('2026-03-09', 5)).toBe('2026-03-13');
+      });
+
+      it('duration 3 from Friday returns Tuesday (skips weekend)', () => {
+        expect(taskEndDate('2026-03-06', 3)).toBe('2026-03-10');
+      });
+    });
+
+    describe('roundtrip: taskDuration(start, taskEndDate(start, d)) === d', () => {
+      const start = '2026-03-09';
+      it('d=1', () => {
+        expect(taskDuration(start, taskEndDate(start, 1))).toBe(1);
+      });
+      it('d=3', () => {
+        expect(taskDuration(start, taskEndDate(start, 3))).toBe(3);
+      });
+      it('d=5', () => {
+        expect(taskDuration(start, taskEndDate(start, 5))).toBe(5);
+      });
+      it('d=10', () => {
+        expect(taskDuration(start, taskEndDate(start, 10))).toBe(10);
+      });
+    });
+
+    describe('ensureBusinessDay', () => {
+      it('weekday unchanged', () => {
+        const mon = new Date('2026-03-09');
+        expect(formatDate(ensureBusinessDay(mon))).toBe('2026-03-09');
+      });
+
+      it('Saturday snaps to Monday', () => {
+        const sat = new Date('2026-03-07');
+        expect(formatDate(ensureBusinessDay(sat))).toBe('2026-03-09');
+      });
+
+      it('Sunday snaps to Monday', () => {
+        const sun = new Date('2026-03-08');
+        expect(formatDate(ensureBusinessDay(sun))).toBe('2026-03-09');
+      });
+    });
+
+    describe('prevBusinessDay', () => {
+      it('weekday unchanged', () => {
+        const mon = new Date('2026-03-09');
+        expect(formatDate(prevBusinessDay(mon))).toBe('2026-03-09');
+      });
+
+      it('Saturday snaps to Friday', () => {
+        const sat = new Date('2026-03-07');
+        expect(formatDate(prevBusinessDay(sat))).toBe('2026-03-06');
+      });
+
+      it('Sunday snaps to Friday', () => {
+        const sun = new Date('2026-03-08');
+        expect(formatDate(prevBusinessDay(sun))).toBe('2026-03-06');
+      });
+    });
+
+    describe('isWeekendDate', () => {
+      it('Monday is not a weekend', () => {
+        expect(isWeekendDate('2026-03-09')).toBe(false);
+      });
+
+      it('Saturday is a weekend', () => {
+        expect(isWeekendDate('2026-03-07')).toBe(true);
+      });
+
+      it('Sunday is a weekend', () => {
+        expect(isWeekendDate('2026-03-08')).toBe(true);
+      });
+    });
+
+    describe('withDuration', () => {
+      it('recomputes duration correctly from dates', () => {
+        const task = { startDate: '2026-03-09', endDate: '2026-03-13', name: 'My task' };
+        const result = withDuration(task);
+        expect(result.duration).toBe(5);
+      });
+
+      it('preserves other fields', () => {
+        const task = { startDate: '2026-03-09', endDate: '2026-03-13', name: 'My task', id: 42 };
+        const result = withDuration(task);
+        expect(result.name).toBe('My task');
+        expect(result.id).toBe(42);
+        expect(result.startDate).toBe('2026-03-09');
+        expect(result.endDate).toBe('2026-03-13');
+      });
+
+      it('recomputes for a Fri-Tue spanning task', () => {
+        const task = { startDate: '2026-03-06', endDate: '2026-03-10' };
+        expect(withDuration(task).duration).toBe(3);
+      });
+    });
+  });
+
   describe('move-drag must preserve visual width with collapsed weekends', () => {
     const timelineStart = new Date('2026-03-02'); // Monday
     const colWidth = 36;
     const zoom = 'day' as const;
 
     function getVisualWidth(start: string, end: string): number {
-      const startX = dateToXCollapsed(start, timelineStart, colWidth, zoom, true);
-      const endX = dateToXCollapsed(end, timelineStart, colWidth, zoom, true);
+      const startX = dateToX(start, timelineStart, colWidth, zoom, true);
+      const endX = dateToX(end, timelineStart, colWidth, zoom, true);
       return (endX - startX) / colWidth;
     }
 
     function simulateCorrectDrag(origStart: string, origEnd: string, columnsDragged: number) {
       const dx = columnsDragged * colWidth;
-      const startX = dateToXCollapsed(origStart, timelineStart, colWidth, zoom, true);
-      const newStart = formatDate(xToDateCollapsed(startX + dx, timelineStart, colWidth, zoom, true));
-      const endX = dateToXCollapsed(origEnd, timelineStart, colWidth, zoom, true);
-      const newEnd = formatDate(xToDateCollapsed(endX + dx, timelineStart, colWidth, zoom, true));
+      const startX = dateToX(origStart, timelineStart, colWidth, zoom, true);
+      const newStart = formatDate(xToDate(startX + dx, timelineStart, colWidth, zoom, true));
+      const endX = dateToX(origEnd, timelineStart, colWidth, zoom, true);
+      const newEnd = formatDate(xToDate(endX + dx, timelineStart, colWidth, zoom, true));
       return { newStart, newEnd };
     }
 
@@ -258,5 +385,65 @@ describe('dateUtils', () => {
       const { newStart, newEnd } = simulateCorrectDrag('2026-03-04', '2026-03-09', 1);
       expect(getVisualWidth(newStart, newEnd)).toBe(3);
     });
+  });
+
+  // Cross-language consistency: TS taskDuration and taskEndDate must match Rust equivalents.
+  // These tests run in JS only (Rust-side mirrors are in date_utils.rs :: cross_language_tests).
+  // When WASM is available in the test environment, these also verify the WASM boundary.
+  //
+  // The cases below are the canonical set — any change to expected values here must be
+  // reflected in date_utils.rs cross_language_tests, and vice versa.
+  describe('cross-language consistency — TS matches Rust task_duration / task_end_date', () => {
+    // taskDuration(start, end) — expected values verified with date-fns and Rust cargo test
+    const durationCases: [string, string, number][] = [
+      // Same-day task
+      ['2026-03-02', '2026-03-02', 1],
+      // Mon-Fri = 5
+      ['2026-03-02', '2026-03-06', 5],
+      // 1-day task
+      ['2026-03-06', '2026-03-06', 1],
+      // Fri-Tue spanning weekend = 3 (Fri, Mon, Tue)
+      ['2026-03-06', '2026-03-10', 3],
+      // 2 weeks Mon-Fri = 10
+      ['2026-03-02', '2026-03-13', 10],
+    ];
+
+    it.each(durationCases)('taskDuration(%s, %s) === %i', (start, end, expected) => {
+      expect(taskDuration(start, end)).toBe(expected);
+    });
+
+    // taskEndDate(start, duration) — expected values verified with date-fns and Rust cargo test
+    const endDateCases: [string, number, string][] = [
+      // dur=1: same day
+      ['2026-03-02', 1, '2026-03-02'],
+      // dur=5: Mon-Fri
+      ['2026-03-02', 5, '2026-03-06'],
+      // dur=1 from Fri: stays Fri
+      ['2026-03-06', 1, '2026-03-06'],
+      // dur=3 from Fri: Fri, Mon, Tue → end=Tue
+      ['2026-03-06', 3, '2026-03-10'],
+      // dur=10: Mon → 2 weeks Fri
+      ['2026-03-02', 10, '2026-03-13'],
+    ];
+
+    it.each(endDateCases)('taskEndDate(%s, %i) === %s', (start, duration, expected) => {
+      expect(taskEndDate(start, duration)).toBe(expected);
+    });
+
+    // Roundtrip: taskDuration(start, taskEndDate(start, dur)) === dur
+    const roundtripCases: [string, number][] = [
+      ['2026-03-02', 1],
+      ['2026-03-02', 5],
+      ['2026-03-06', 3],
+      ['2026-03-02', 10],
+    ];
+
+    it.each(roundtripCases)(
+      'taskDuration(start, taskEndDate(%s, %i)) roundtrips correctly',
+      (start, dur) => {
+        const end = taskEndDate(start, dur);
+        expect(taskDuration(start, end)).toBe(dur);
+      }
+    );
   });
 });

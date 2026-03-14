@@ -76,5 +76,12 @@ Dependencies serialize as `fromId:type:lag` joined by `;`. Example: `task-1:FS:0
 - Verify round-trip: Ganttlet → Sheets format → Ganttlet produces identical data
 - `retryWithBackoff` has dedicated tests in `src/sheets/__tests__/sheetsClient.test.ts` covering exponential backoff, max delay cap, and attempt exhaustion
 
+## Duration Convention
+- Sheets stores `duration` as inclusive business day count: [startDate, endDate] counting both.
+- When importing: `duration = taskDuration(startDate, endDate)` (NOT `workingDaysBetween`).
+- When exporting: same — `taskDuration` is the source of truth.
+- Weekend dates from Sheets are NOT rejected or snapped. They surface as `WEEKEND_VIOLATION`
+  conflicts in the UI. The user must fix them.
+
 ## Lessons Learned
 <!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->

@@ -32,7 +32,7 @@ pub fn would_create_cycle(tasks: &[Task], successor_id: &str, predecessor_id: &s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Dependency, DepType};
+    use crate::types::{DepType, Dependency};
 
     fn make_task(id: &str) -> Task {
         Task {
@@ -76,14 +76,11 @@ mod tests {
 
     #[test]
     fn direct_cycle() {
-        let tasks = vec![
-            make_task("a"),
-            {
-                let mut t = make_task("b");
-                t.dependencies = vec![make_dep("a", "b")];
-                t
-            },
-        ];
+        let tasks = vec![make_task("a"), {
+            let mut t = make_task("b");
+            t.dependencies = vec![make_dep("a", "b")];
+            t
+        }];
         // Adding b -> a would create cycle: a->b->a
         assert!(would_create_cycle(&tasks, "a", "b"));
     }
@@ -91,19 +88,16 @@ mod tests {
     #[test]
     fn sf_cycle_detected() {
         // A→(SF)→B→(FS)→A should be detected as a cycle
-        let tasks = vec![
-            make_task("a"),
-            {
-                let mut t = make_task("b");
-                t.dependencies = vec![Dependency {
-                    from_id: "a".to_string(),
-                    to_id: "b".to_string(),
-                    dep_type: DepType::SF,
-                    lag: 0,
-                }];
-                t
-            },
-        ];
+        let tasks = vec![make_task("a"), {
+            let mut t = make_task("b");
+            t.dependencies = vec![Dependency {
+                from_id: "a".to_string(),
+                to_id: "b".to_string(),
+                dep_type: DepType::SF,
+                lag: 0,
+            }];
+            t
+        }];
         // Adding B→A (FS) would create: A→(SF)→B→(FS)→A
         assert!(would_create_cycle(&tasks, "a", "b"));
     }

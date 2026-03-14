@@ -7,9 +7,11 @@ Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phas
 
 ## Active Phase
 
-- **Phase 15**: Scheduling Engine — Constraints, Dependencies & Conflict Detection — [`docs/tasks/phase15.yaml`](tasks/phase15.yaml)
+- **Phase 16**: Date Calculation Bug Fixes — Inclusive Convention — [`docs/tasks/phase16.yaml`](tasks/phase16.yaml)
 
 ## Completed
+
+- **Phase 15**: Scheduling Engine — Constraints, Dependencies & Conflict Detection — [`docs/tasks/phase15.yaml`](tasks/phase15.yaml) — DONE
 
 - **Phase 14**: Drag Interaction Reliability & Sync Integrity — [`docs/tasks/phase14.yaml`](tasks/phase14.yaml) — DONE
 

@@ -7,8 +7,38 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  statuses: write
+  contents: read
+
 jobs:
+  # Check if an agent already attested E2E for this commit
+  check-attestation:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check for existing e2e-verified status
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=${{ github.event.pull_request.head.sha || github.sha }}
+          COUNT=$(gh api "repos/${{ github.repository }}/commits/$SHA/statuses" \
+            --jq '[.[] | select(.context == "e2e-verified" and .state == "success")] | length' \
+            2>/dev/null || echo "0")
+          if [[ "$COUNT" -gt 0 ]]; then
+            echo "E2E already verified for $SHA — skipping CI run"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No attestation found for $SHA — running E2E"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Run E2E tests (skipped if already attested)
   e2e:
+    needs: check-attestation
+    if: needs.check-attestation.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,3 +104,29 @@ jobs:
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  # Post e2e-verified commit status (only on success, skip for fork PRs)
+  post-status:
+    needs: [check-attestation, e2e]
+    if: |
+      always() &&
+      (needs.e2e.result == 'success' || needs.check-attestation.outputs.skip == 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post e2e-verified commit status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE="CI"
+          if [[ "${{ needs.check-attestation.outputs.skip }}" == "true" ]]; then
+            SOURCE="agent attestation (verified by CI)"
+          fi
+          gh api "repos/${{ github.repository }}/statuses/$SHA" \
+            -f state=success \
+            -f context=e2e-verified \
+            -f "description=E2E tests passed ($SOURCE)" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --silent
+          echo "Posted e2e-verified=success for $SHA ($SOURCE)"

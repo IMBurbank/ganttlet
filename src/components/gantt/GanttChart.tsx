@@ -2,10 +2,22 @@ import React, { useMemo, useEffect } from 'react';
 import { parseISO, isValid } from 'date-fns';
 import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-import { dateToX, dateToXCollapsed, getTimelineRange, getColumnWidth, getTimelineDays, getTimelineDaysFiltered, getTimelineWeeks, getTimelineMonths } from '../../utils/dateUtils';
+import {
+  dateToX,
+  getTimelineRange,
+  getColumnWidth,
+  getTimelineDays,
+  getTimelineDaysFiltered,
+  getTimelineWeeks,
+  getTimelineMonths,
+} from '../../utils/dateUtils';
 import { buildTaskYPositions, ROW_HEIGHT } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
-import { computeCriticalPathScoped, computeEarliestStart, detectConflicts } from '../../utils/schedulerWasm';
+import {
+  computeCriticalPathScoped,
+  computeEarliestStart,
+  detectConflicts,
+} from '../../utils/schedulerWasm';
 import SlackIndicator from './SlackIndicator';
 import CascadeHighlight from './CascadeHighlight';
 import TimelineHeader from './TimelineHeader';
@@ -27,8 +39,26 @@ interface GanttChartProps {
   onDependencyClick?: (dep: Dependency, successorId: string) => void;
 }
 
-export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, users, collabUsers, isCollabConnected, onDependencyClick }: GanttChartProps) {
-  const { showOwnerOnBar, showAreaOnBar, showOkrsOnBar, showCriticalPath, criticalPathScope, collapseWeekends, lastCascadeIds, cascadeShifts } = useGanttState();
+export default function GanttChart({
+  visibleTasks,
+  allTasks,
+  zoom,
+  colorBy,
+  users,
+  collabUsers,
+  isCollabConnected,
+  onDependencyClick,
+}: GanttChartProps) {
+  const {
+    showOwnerOnBar,
+    showAreaOnBar,
+    showOkrsOnBar,
+    showCriticalPath,
+    criticalPathScope,
+    collapseWeekends,
+    lastCascadeIds,
+    cascadeShifts,
+  } = useGanttState();
   const dispatch = useGanttDispatch();
 
   // Auto-clear cascade IDs after 2 seconds
@@ -54,13 +84,13 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
   const viewingMap = useMemo(() => {
     const map = new Map<string, { color: string; name: string }>();
     if (isCollabConnected && collabUsers && collabUsers.length > 0) {
-      collabUsers.forEach(u => {
+      collabUsers.forEach((u) => {
         if (u.viewingTaskId) {
           map.set(u.viewingTaskId, { color: u.color, name: u.name });
         }
       });
     } else {
-      users.forEach(u => {
+      users.forEach((u) => {
         if (u.viewingTaskId && u.isOnline) {
           map.set(u.viewingTaskId, { color: u.color, name: u.name });
         }
@@ -70,7 +100,10 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
   }, [users, collabUsers, isCollabConnected]);
 
   const criticalPathResult = useMemo(
-    () => showCriticalPath ? computeCriticalPathScoped(allTasks, criticalPathScope) : { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> },
+    () =>
+      showCriticalPath
+        ? computeCriticalPathScoped(allTasks, criticalPathScope)
+        : { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> },
     [allTasks, showCriticalPath, criticalPathScope]
   );
   const criticalPathIds = criticalPathResult.taskIds;
@@ -91,6 +124,8 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
   );
 
   const colWidth = getColumnWidth(zoom);
+  // Pixel width of a single calendar day — colWidth covers 1 day/7 days/30 days depending on zoom
+  const dayPx = zoom === 'day' ? colWidth : zoom === 'week' ? colWidth / 7 : colWidth / 30;
   const taskYPositions = useMemo(() => buildTaskYPositions(visibleTasks), [visibleTasks]);
 
   const totalDays = useMemo(() => {
@@ -122,29 +157,25 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
             zoom={zoom}
             totalHeight={totalHeight}
           />
-          <TodayLine
-            timelineStart={timelineStart}
-            zoom={zoom}
-            totalHeight={totalHeight}
-          />
+          <TodayLine timelineStart={timelineStart} zoom={zoom} totalHeight={totalHeight} />
           {/* Slack indicators and cascade highlights */}
-          {visibleTasks.map(task => {
+          {visibleTasks.map((task) => {
             if (task.isSummary || task.isMilestone) return null;
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
 
             const earliest = computeEarliestStart(allTasks, task.id);
-            const taskX = dateToXCollapsed(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const taskEndX = dateToXCollapsed(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const taskWidth = Math.max(taskEndX - taskX, 0);
+            const taskX = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const taskEndX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const taskWidth = Math.max(taskEndX - taskX + dayPx, 0);
 
-            const shift = cascadeShifts.find(s => s.taskId === task.id);
+            const shift = cascadeShifts.find((s) => s.taskId === task.id);
 
             return (
               <React.Fragment key={`indicators-${task.id}`}>
                 {earliest && (
                   <SlackIndicator
-                    earliestX={dateToXCollapsed(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
+                    earliestX={dateToX(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
                     actualX={taskX}
                     y={yPos}
                     height={ROW_HEIGHT}
@@ -152,10 +183,27 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
                 )}
                 {shift && (
                   <CascadeHighlight
-                    originalX={dateToXCollapsed(shift.fromStartDate, timelineStart, colWidth, zoom, collapseWeekends)}
+                    originalX={dateToX(
+                      shift.fromStartDate,
+                      timelineStart,
+                      colWidth,
+                      zoom,
+                      collapseWeekends
+                    )}
                     currentX={taskX}
                     y={yPos}
-                    originalWidth={Math.max(dateToXCollapsed(shift.fromEndDate, timelineStart, colWidth, zoom, collapseWeekends) - dateToXCollapsed(shift.fromStartDate, timelineStart, colWidth, zoom, collapseWeekends), 0)}
+                    originalWidth={Math.max(
+                      dateToX(shift.fromEndDate, timelineStart, colWidth, zoom, collapseWeekends) -
+                        dateToX(
+                          shift.fromStartDate,
+                          timelineStart,
+                          colWidth,
+                          zoom,
+                          collapseWeekends
+                        ) +
+                        dayPx,
+                      0
+                    )}
                     currentWidth={taskWidth}
                     height={ROW_HEIGHT}
                   />
@@ -164,13 +212,13 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
             );
           })}
           {/* Render bars */}
-          {visibleTasks.map(task => {
+          {visibleTasks.map((task) => {
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
             const color = getTaskColor(colorBy, task[colorBy] as string);
-            const x = dateToXCollapsed(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const endX = dateToXCollapsed(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const width = Math.max(endX - x, 0);
+            const x = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const endX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const width = Math.max(endX - x + dayPx, 0);
             const viewer = viewingMap.get(task.id);
             const earliest = computeEarliestStart(allTasks, task.id);
 
@@ -238,24 +286,38 @@ export default function GanttChart({ visibleTasks, allTasks, zoom, colorBy, user
             );
           })}
           {/* Ghost bars for remote drags */}
-          {collabUsers?.filter(u => u.dragging).map(u => {
-            const drag = u.dragging!;
-            if (!isValid(parseISO(drag.startDate)) || !isValid(parseISO(drag.endDate))) return null;
-            const yPos = taskYPositions.get(drag.taskId);
-            if (yPos === undefined) return null;
-            const gx = dateToXCollapsed(drag.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const gEndX = dateToXCollapsed(drag.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const gw = Math.max(gEndX - gx, 0);
-            const barH = 28;
-            const barY = yPos + (ROW_HEIGHT - barH) / 2;
-            return (
-              <g key={`ghost-${u.clientId}`} opacity={0.4}>
-                <rect x={gx} y={barY} width={gw} height={barH} rx={4}
-                  fill={u.color} stroke={u.color} strokeWidth={1.5} strokeDasharray="4 2" />
-                <text x={gx + 4} y={Math.max(barY - 4, 10)} fontSize={9} fill={u.color}>{u.name}</text>
-              </g>
-            );
-          })}
+          {collabUsers
+            ?.filter((u) => u.dragging)
+            .map((u) => {
+              const drag = u.dragging!;
+              if (!isValid(parseISO(drag.startDate)) || !isValid(parseISO(drag.endDate)))
+                return null;
+              const yPos = taskYPositions.get(drag.taskId);
+              if (yPos === undefined) return null;
+              const gx = dateToX(drag.startDate, timelineStart, colWidth, zoom, collapseWeekends);
+              const gEndX = dateToX(drag.endDate, timelineStart, colWidth, zoom, collapseWeekends);
+              const gw = Math.max(gEndX - gx + dayPx, 0);
+              const barH = 28;
+              const barY = yPos + (ROW_HEIGHT - barH) / 2;
+              return (
+                <g key={`ghost-${u.clientId}`} opacity={0.4}>
+                  <rect
+                    x={gx}
+                    y={barY}
+                    width={gw}
+                    height={barH}
+                    rx={4}
+                    fill={u.color}
+                    stroke={u.color}
+                    strokeWidth={1.5}
+                    strokeDasharray="4 2"
+                  />
+                  <text x={gx + 4} y={Math.max(barY - 4, 10)} fontSize={9} fill={u.color}>
+                    {u.name}
+                  </text>
+                </g>
+              );
+            })}
           {/* Dependencies */}
           <DependencyLayer
             tasks={visibleTasks}

@@ -1,7 +1,8 @@
 import type { Task } from '../types';
+import { taskDuration } from './dateUtils';
 
 export function recalcSummaryDates(tasks: Task[]): Task[] {
-  const taskMap = new Map(tasks.map(t => [t.id, { ...t }]));
+  const taskMap = new Map(tasks.map((t) => [t.id, { ...t }]));
 
   function updateSummary(taskId: string): { start: string; end: string; done: boolean } | null {
     const task = taskMap.get(taskId);
@@ -28,6 +29,7 @@ export function recalcSummaryDates(tasks: Task[]): Task[] {
     if (childCount > 0) {
       task.startDate = minStart;
       task.endDate = maxEnd;
+      task.duration = taskDuration(minStart, maxEnd);
       task.done = allDone;
     }
 

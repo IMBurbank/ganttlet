@@ -11,5 +11,11 @@
 - `npx tsc --noEmit` — Type checking
 - `npm run dev` — WASM build + Vite dev server (port 5173)
 
+## Date Conventions
+- Use `taskDuration(start, end)` and `taskEndDate(start, duration)` from `dateUtils.ts`.
+- NEVER use `workingDaysBetween` (deprecated) or raw `differenceInBusinessDays` for duration.
+- NEVER use `addBusinessDays(start, duration)` for end dates — use `taskEndDate` which handles the inclusive convention.
+- `ensureBusinessDay(date)` snaps forward to Monday. `prevBusinessDay(date)` snaps backward to Friday.
+
 ## Skill
 See `.claude/skills/google-sheets-sync/` for Sheets integration details.

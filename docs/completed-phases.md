@@ -25,6 +25,7 @@ See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 | Plugin | Plugin Adoption | — | LSP plugins, code review, protective hooks |
 | 14 | Drag Reliability & Sync Integrity | 6 (A-F) | Dispatch split, atomic drag, CRDT structural sync |
 | 15 | Scheduling Engine: Constraints & Conflicts | 4 (A-D) | All constraint types, SF deps, conflict detection, constraint UI |
+| 16 | Date Calculation Bug Fixes | 9 (A-I) | Inclusive end_date convention, taskDuration, WEEKEND_VIOLATION, bar width |
 
 ---
 
@@ -192,3 +193,19 @@ Three-stage pipeline: stage 1 (Group A) → merge → stage 2 (Groups B+C parall
 - **Group C (TypeScript Types + Sheets Sync)**: Added `ConflictResult` interface to `types/index.ts` (camelCase to match Rust serde). Updated `sheetsMapper.ts` to read/write `constraintType` and `constraintDate` columns. Added `detectConflicts` WASM wrapper to `schedulerWasm.ts`.
 - **Group D (Constraint UI + Conflict Indicator)**: Added `SET_CONSTRAINT` action and reducer handler. Constraint selector dropdown in `TaskBarPopover` and `TaskRow`. Red conflict indicator on `TaskBar` for constraint violations. SF dependency type option in `DependencyEditorModal` with correct arrowhead direction.
 - **Orchestration improvements**: Fixed CLAUDECODE env var blocking nested sessions. Fixed merge script leaving `/workspace` on wrong branch. Added merge worktree isolation (PR #35). Added per-branch verification, stage timeouts, cleanup command (PR #36).
+
+## Phase 16: Date Calculation Bug Fixes
+
+Switched end_date convention from exclusive to inclusive across the entire codebase.
+
+**Key changes:**
+- Convention-encoding functions: `taskDuration`, `taskEndDate` (TS), `task_duration`, `task_end_date` (Rust)
+- Shared dep-type helpers: `fs_successor_start`, `ss_successor_start`, `ff_successor_start`, `sf_successor_start`
+- Migrated 14 `workingDaysBetween` callsites to `taskDuration`
+- Fixed cascade FS formula, constraints FNET/FNLT/MFO, find_conflicts FF/SF
+- Added WEEKEND_VIOLATION conflict detection
+- Fixed bar width for inclusive convention
+- Fixed Yjs UPDATE_TASK_FIELD duration sync (Bug 14)
+- Renamed `dateToXCollapsed` → `dateToX` (weekend-aware default)
+- Structural tests: cascade/recalculate agreement, cross-language consistency
+- Pre-commit hook rejects deprecated function names

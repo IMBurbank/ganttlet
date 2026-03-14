@@ -30,6 +30,11 @@ via wasm-bindgen in `src/lib.rs`.
 - ES must be computed from dependencies, NOT from stored task dates
 - Scoped CPM must run on full graph then filter results (not filter-then-compute)
 - `float.abs() < 1` is wrong for integer-day scheduling — use `float == 0`
+- **end_date is inclusive** — the last working day, not the day after. duration = business days in [start, end].
+- **taskEndDate ≠ addBusinessDays(start, dur)** — it's `addBusinessDays(start, dur - 1)`. Off-by-one if you use the wrong one.
+- **Cascade preserves date gap, not duration field.** If duration is stale (not recomputed from dates), cascade and recalculate will disagree.
+- **FF/SF formulas use `-(duration-1)` not `-(duration)`.** This is correct for inclusive convention. The minus sign derives start from end, and inclusive duration is 1 larger than the gap.
+- **CPM is exclusive internally.** The integer model in cpm.rs uses exclusive convention — this is standard and intentional. Don't "fix" it.
 
 ## Testing
 - `cd crates/scheduler && cargo test` — run all unit tests
@@ -41,3 +46,5 @@ via wasm-bindgen in `src/lib.rs`.
 - 2026-03-01: `cascade_dependents` silently skips tasks with no start date. Always validate dates before cascade.
 - 2026-03-01: Scoped CPM on a single-task workstream returns empty critical path. Need ≥2 tasks.
 - 2026-03-01: Cascade is asymmetric: forward moves propagate, backward moves expose slack. Don't expect backward cascade.
+- Three FS formulas diverged (compute_earliest_start, cascade_dependents, find_conflicts) because there was no shared helper. Use `fs_successor_start` etc. to prevent divergence.
+- `workingDaysBetween` counted [start, end) exclusive, causing duration to be 1 too low. Replaced by `taskDuration` which counts [start, end] inclusive.

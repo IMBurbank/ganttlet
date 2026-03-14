@@ -1,15 +1,17 @@
 use wasm_bindgen::prelude::*;
 
-pub mod types;
-pub mod date_utils;
-pub mod cpm;
-pub mod graph;
 pub mod cascade;
 pub mod constraints;
+pub mod cpm;
+pub mod date_utils;
+pub mod graph;
+pub mod types;
 
+use date_utils::{
+    ff_successor_start, fs_successor_start, is_weekend_date, sf_successor_start, ss_successor_start,
+};
 use serde::{Deserialize, Serialize};
 use types::{ConstraintType, Task};
-use date_utils::add_business_days;
 
 /// Compute the critical path. Returns `{ taskIds: string[], edges: [string, string][] }`.
 #[wasm_bindgen]
@@ -24,7 +26,10 @@ pub fn compute_critical_path(tasks_js: JsValue) -> Result<JsValue, JsValue> {
 /// Compute the critical path scoped to a project or workstream.
 /// Returns `{ taskIds: string[], edges: [string, string][] }`.
 #[wasm_bindgen]
-pub fn compute_critical_path_scoped(tasks_js: JsValue, scope_js: JsValue) -> Result<JsValue, JsValue> {
+pub fn compute_critical_path_scoped(
+    tasks_js: JsValue,
+    scope_js: JsValue,
+) -> Result<JsValue, JsValue> {
     let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
     let scope: cpm::CriticalPathScope = serde_wasm_bindgen::from_value(scope_js)
@@ -43,7 +48,11 @@ pub fn would_create_cycle(
 ) -> Result<bool, JsValue> {
     let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_js)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize tasks: {}", e)))?;
-    Ok(graph::would_create_cycle(&tasks, successor_id, predecessor_id))
+    Ok(graph::would_create_cycle(
+        &tasks,
+        successor_id,
+        predecessor_id,
+    ))
 }
 
 /// Compute the earliest possible start date for a task given its dependencies.
@@ -150,27 +159,26 @@ fn find_conflicts(tasks: &[Task]) -> Vec<ConflictResult> {
     }
 
     // Check for dependency violations (negative float proxy):
-    // A task's start date is before what its dependencies require.
+    // A task's start date (or for FF/SF, start derived from required end) violates the constraint.
     let task_map: std::collections::HashMap<&str, &Task> =
         tasks.iter().map(|t| (t.id.as_str(), t)).collect();
     for task in tasks {
         for dep in &task.dependencies {
             if let Some(pred) = task_map.get(dep.from_id.as_str()) {
                 let required_start = match dep.dep_type {
-                    types::DepType::FS => {
-                        let raw = add_business_days(&pred.end_date, dep.lag);
-                        date_utils::next_biz_day_on_or_after(&raw)
+                    types::DepType::FS => fs_successor_start(&pred.end_date, dep.lag),
+                    types::DepType::SS => ss_successor_start(&pred.start_date, dep.lag),
+                    types::DepType::FF => {
+                        ff_successor_start(&pred.end_date, dep.lag, task.duration)
                     }
-                    types::DepType::SS => {
-                        let raw = add_business_days(&pred.start_date, dep.lag);
-                        date_utils::next_biz_day_on_or_after(&raw)
+                    types::DepType::SF => {
+                        sf_successor_start(&pred.start_date, dep.lag, task.duration)
                     }
-                    _ => continue, // FF and SF constrain end, skip for start check
                 };
                 if task.start_date < required_start {
                     conflicts.push(ConflictResult {
                         task_id: task.id.clone(),
-                        conflict_type: "NEGATIVE_FLOAT".to_string(),
+                        conflict_type: "DEP_VIOLATED".to_string(),
                         constraint_date: required_start.clone(),
                         actual_date: task.start_date.clone(),
                         message: format!(
@@ -180,6 +188,28 @@ fn find_conflicts(tasks: &[Task]) -> Vec<ConflictResult> {
                     });
                 }
             }
+        }
+    }
+
+    // Check for weekend violations: tasks must not start or end on Sat/Sun.
+    for task in tasks {
+        if is_weekend_date(&task.start_date) {
+            conflicts.push(ConflictResult {
+                task_id: task.id.clone(),
+                conflict_type: "WEEKEND_VIOLATION".to_string(),
+                constraint_date: task.start_date.clone(),
+                actual_date: task.start_date.clone(),
+                message: format!("Task {} starts on a weekend ({})", task.id, task.start_date),
+            });
+        }
+        if is_weekend_date(&task.end_date) {
+            conflicts.push(ConflictResult {
+                task_id: task.id.clone(),
+                conflict_type: "WEEKEND_VIOLATION".to_string(),
+                constraint_date: task.end_date.clone(),
+                actual_date: task.end_date.clone(),
+                message: format!("Task {} ends on a weekend ({})", task.id, task.end_date),
+            });
         }
     }
 
@@ -200,7 +230,7 @@ pub fn detect_conflicts(tasks_js: JsValue) -> Result<JsValue, JsValue> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{Dependency, DepType};
+    use types::{DepType, Dependency};
 
     fn make_task(id: &str, start: &str, end: &str) -> Task {
         Task {
@@ -266,7 +296,8 @@ mod tests {
 
     #[test]
     fn detect_snlt_conflict() {
-        let mut task = make_task("a", "2026-03-15", "2026-03-20");
+        // task starts Mon 03-16 (weekday), SNLT=03-12 → 03-16 > 03-12 → SNLT_VIOLATED.
+        let mut task = make_task("a", "2026-03-16", "2026-03-20");
         task.constraint_type = Some(ConstraintType::SNLT);
         task.constraint_date = Some("2026-03-12".to_string());
         let conflicts = find_conflicts(&[task]);
@@ -276,8 +307,10 @@ mod tests {
 
     #[test]
     fn detect_dependency_violation() {
-        // B starts Mar 10 but A (FS dep) ends Mar 15 → B should start after Mar 15
-        let a = make_task("a", "2026-03-09", "2026-03-15");
+        // B starts Mar 10 but A (FS dep) ends Fri Mar 13 →
+        // fs_successor_start(03-13, 0) = 03-16 (Mon) > B.start 03-10 → DEP_VIOLATED.
+        // A ends on a weekday (Fri) so no WEEKEND_VIOLATION.
+        let a = make_task("a", "2026-03-09", "2026-03-13");
         let mut b = make_task("b", "2026-03-10", "2026-03-18");
         b.dependencies = vec![Dependency {
             from_id: "a".to_string(),
@@ -287,8 +320,148 @@ mod tests {
         }];
         let conflicts = find_conflicts(&[a, b]);
         assert_eq!(conflicts.len(), 1);
-        assert_eq!(conflicts[0].conflict_type, "NEGATIVE_FLOAT");
+        assert_eq!(conflicts[0].conflict_type, "DEP_VIOLATED");
         assert_eq!(conflicts[0].task_id, "b");
+    }
+
+    // ── Agreement tests: find_conflicts vs recalculate_earliest ───────────
+    // These tests verify that when find_conflicts detects a DEP_VIOLATED
+    // conflict, the constraint_date it reports equals the new_start that
+    // recalculate_earliest would compute for the same scenario.
+    //
+    // Setup for all subtests:
+    //   A: start=2026-03-09 (Mon), end=2026-03-13 (Fri), duration=5
+    //   B: duration=5, placed too early (violates dep constraint with A)
+    //
+    // Dep type formula sources (using *_successor_start helpers):
+    //   FS lag=0: required_start = addBiz('2026-03-13', 1)  = 2026-03-16 (Mon)
+    //   SS lag=0: required_start = addBiz('2026-03-09', 0)  = 2026-03-09 (Mon)
+    //   FF lag=0: required_start = addBiz('2026-03-13', -4) = 2026-03-09 (Mon)
+    //   SF lag=0: required_start = addBiz('2026-03-09', -4) = 2026-03-03 (Tue)
+    // All verified via node -e with date-fns.
+
+    #[test]
+    fn conflict_date_matches_recalculate_resolution() {
+        use crate::constraints::recalculate_earliest;
+
+        // (dep_type, lag, A.start, A.end, A.dur, B.start, B.end, B.dur, expected_required_start)
+        // B is placed BEFORE the required_start so it violates the constraint.
+        // B has internally consistent dates (B.end = taskEndDate(B.start, B.dur)).
+        let cases: &[(DepType, i32, &str, &str, i32, &str, &str, i32, &str)] = &[
+            // FS: B starts too early before A ends
+            // A ends 2026-03-13, FS lag=0 → required=2026-03-16 (Mon)
+            // B.start=2026-03-10 (Tue) < 2026-03-16 → violation
+            (
+                DepType::FS,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-03-10",
+                "2026-03-16",
+                5,
+                "2026-03-16",
+            ),
+            // SS: B starts before A starts + lag=0
+            // A starts 2026-03-09, SS lag=0 → required=2026-03-09 (Mon)
+            // B.start=2026-03-05 (Thu) < 2026-03-09 → violation
+            (
+                DepType::SS,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-03-05",
+                "2026-03-11",
+                5,
+                "2026-03-09",
+            ),
+            // FF: B starts before required start derived from A.end
+            // A ends 2026-03-13, FF lag=0, B.dur=5 → required_start = addBiz('2026-03-13', -4) = 2026-03-09
+            // B.start=2026-03-05 (Thu) < 2026-03-09 → violation
+            (
+                DepType::FF,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-03-05",
+                "2026-03-11",
+                5,
+                "2026-03-09",
+            ),
+            // SF: B starts before required start derived from A.start
+            // A starts 2026-03-09, SF lag=0, B.dur=5 → required_start = addBiz('2026-03-09', -4) = 2026-03-03
+            // B.start=2026-02-27 (Fri) < 2026-03-03 → violation
+            (
+                DepType::SF,
+                0,
+                "2026-03-09",
+                "2026-03-13",
+                5,
+                "2026-02-27",
+                "2026-03-05",
+                5,
+                "2026-03-03",
+            ),
+        ];
+
+        for (dep_type, lag, a_start, a_end, a_dur, b_start, b_end, b_dur, expected_req) in cases {
+            let a = {
+                let mut t = make_task("a", a_start, a_end);
+                t.duration = *a_dur;
+                t
+            };
+            let b = {
+                let mut t = make_task("b", b_start, b_end);
+                t.duration = *b_dur;
+                t.dependencies = vec![Dependency {
+                    from_id: "a".to_string(),
+                    to_id: "b".to_string(),
+                    dep_type: dep_type.clone(),
+                    lag: *lag,
+                }];
+                t
+            };
+            let tasks = [a, b];
+
+            // find_conflicts should detect a DEP_VIOLATED conflict for B
+            let conflicts = find_conflicts(&tasks);
+            let dep_conflict = conflicts
+                .iter()
+                .find(|c| c.task_id == "b" && c.conflict_type == "DEP_VIOLATED")
+                .expect(&format!(
+                    "expected DEP_VIOLATED for dep={:?} lag={}",
+                    dep_type, lag
+                ));
+
+            // The constraint_date from find_conflicts = required_start
+            assert_eq!(
+                dep_conflict.constraint_date, *expected_req,
+                "find_conflicts constraint_date mismatch for dep={:?} lag={}",
+                dep_type, lag
+            );
+
+            // recalculate_earliest should move B to the same required_start
+            let recalc_results = recalculate_earliest(
+                &tasks,
+                None,
+                None,
+                None,
+                "2026-01-01", // far in past so today-floor doesn't affect
+            );
+            let recalc_b = recalc_results.iter().find(|r| r.id == "b").expect(&format!(
+                "recalculate should move B for dep={:?} lag={}",
+                dep_type, lag
+            ));
+
+            // The conflict date should match the recalculate resolution
+            assert_eq!(
+                dep_conflict.constraint_date, recalc_b.new_start,
+                "find_conflicts and recalculate disagree for dep={:?} lag={}: conflict_date={} recalc={}",
+                dep_type, lag, dep_conflict.constraint_date, recalc_b.new_start
+            );
+        }
     }
 }
 

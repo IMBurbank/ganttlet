@@ -1,4 +1,19 @@
-import { addDays, differenceInCalendarDays, differenceInBusinessDays, format, parseISO, startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, isWeekend, addBusinessDays, isSameDay } from 'date-fns';
+import {
+  addDays,
+  differenceInCalendarDays,
+  differenceInBusinessDays,
+  format,
+  parseISO,
+  startOfWeek,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  eachWeekOfInterval,
+  eachMonthOfInterval,
+  isWeekend,
+  addBusinessDays,
+  isSameDay,
+} from 'date-fns';
 import type { ZoomLevel } from '../types';
 
 export function parseDate(dateStr: string): Date {
@@ -16,7 +31,7 @@ export function formatDisplayDate(dateStr: string): string {
 /**
  * Returns the number of calendar days between two date strings.
  * Used for cascade deltas (relative positioning), NOT for duration.
- * For duration, use workingDaysBetween() instead.
+ * For duration, use taskDuration() instead.
  */
 export function daysBetween(start: string, end: string): number {
   return differenceInCalendarDays(parseISO(end), parseISO(start));
@@ -24,10 +39,6 @@ export function daysBetween(start: string, end: string): number {
 
 export function addDaysToDate(dateStr: string, days: number): string {
   return formatDate(addDays(parseISO(dateStr), days));
-}
-
-export function addBusinessDaysToDate(dateStr: string, days: number): string {
-  return formatDate(addBusinessDays(parseISO(dateStr), days));
 }
 
 /**
@@ -38,15 +49,18 @@ export function businessDaysDelta(start: string, end: string): number {
   return differenceInBusinessDays(parseISO(end), parseISO(start));
 }
 
-export function getTimelineRange(tasks: Array<{ startDate: string; endDate: string }>): { start: Date; end: Date } {
+export function getTimelineRange(tasks: Array<{ startDate: string; endDate: string }>): {
+  start: Date;
+  end: Date;
+} {
   if (tasks.length === 0) {
     const now = new Date();
     return { start: now, end: addDays(now, 90) };
   }
-  const starts = tasks.map(t => parseISO(t.startDate));
-  const ends = tasks.map(t => parseISO(t.endDate));
-  const minStart = new Date(Math.min(...starts.map(d => d.getTime())));
-  const maxEnd = new Date(Math.max(...ends.map(d => d.getTime())));
+  const starts = tasks.map((t) => parseISO(t.startDate));
+  const ends = tasks.map((t) => parseISO(t.endDate));
+  const minStart = new Date(Math.min(...starts.map((d) => d.getTime())));
+  const maxEnd = new Date(Math.max(...ends.map((d) => d.getTime())));
   return {
     start: addDays(minStart, -7),
     end: addDays(maxEnd, 14),
@@ -55,9 +69,12 @@ export function getTimelineRange(tasks: Array<{ startDate: string; endDate: stri
 
 export function getColumnWidth(zoom: ZoomLevel): number {
   switch (zoom) {
-    case 'day': return 36;
-    case 'week': return 100;
-    case 'month': return 180;
+    case 'day':
+      return 36;
+    case 'week':
+      return 100;
+    case 'month':
+      return 180;
   }
 }
 
@@ -81,7 +98,12 @@ export function isSameDayCheck(d1: Date, d2: Date): boolean {
   return isSameDay(d1, d2);
 }
 
-export function dateToX(dateStr: string, timelineStart: Date, colWidth: number, zoom: ZoomLevel): number {
+function dateToXCalendar(
+  dateStr: string,
+  timelineStart: Date,
+  colWidth: number,
+  zoom: ZoomLevel
+): number {
   const date = parseISO(dateStr);
   const daysDiff = differenceInCalendarDays(date, timelineStart);
   if (zoom === 'day') {
@@ -93,7 +115,7 @@ export function dateToX(dateStr: string, timelineStart: Date, colWidth: number, 
   }
 }
 
-export function xToDate(x: number, timelineStart: Date, colWidth: number, zoom: ZoomLevel): Date {
+function xToDateCalendar(x: number, timelineStart: Date, colWidth: number, zoom: ZoomLevel): Date {
   let daysDiff: number;
   if (zoom === 'day') {
     daysDiff = Math.round(x / colWidth);
@@ -107,17 +129,23 @@ export function xToDate(x: number, timelineStart: Date, colWidth: number, zoom: 
 
 export function formatTimelineHeader(date: Date, zoom: ZoomLevel): string {
   switch (zoom) {
-    case 'day': return format(date, 'd');
-    case 'week': return format(date, 'MMM d');
-    case 'month': return format(date, 'MMM yyyy');
+    case 'day':
+      return format(date, 'd');
+    case 'week':
+      return format(date, 'MMM d');
+    case 'month':
+      return format(date, 'MMM yyyy');
   }
 }
 
 export function formatTimelineSubHeader(date: Date, zoom: ZoomLevel): string {
   switch (zoom) {
-    case 'day': return format(date, 'EEE');
-    case 'week': return '';
-    case 'month': return '';
+    case 'day':
+      return format(date, 'EEE');
+    case 'week':
+      return '';
+    case 'month':
+      return '';
   }
 }
 
@@ -125,8 +153,8 @@ export function getMonthLabel(date: Date): string {
   return format(date, 'MMMM yyyy');
 }
 
-/** Count business days (Mon-Fri) between two dates (exclusive of end). Used for pixel mapping. */
-export function businessDaysBetween(start: Date, end: Date): number {
+/** @internal — pixel mapping only. For duration, use taskDuration. */
+function businessDaysBetween(start: Date, end: Date): number {
   let count = 0;
   const current = new Date(start);
   while (current < end) {
@@ -136,40 +164,29 @@ export function businessDaysBetween(start: Date, end: Date): number {
   return count;
 }
 
-/**
- * Count working days (Mon-Fri) between two ISO date strings, inclusive of start,
- * exclusive of end. This is the canonical duration calculation.
- * Example: '2026-03-06' (Fri) to '2026-03-10' (Tue) → 2 (Fri, Mon).
- */
-export function workingDaysBetween(startStr: string, endStr: string): number {
-  const start = parseISO(startStr);
-  const end = parseISO(endStr);
-  if (start >= end) return 0;
-  let count = 0;
-  const current = new Date(start);
-  while (current < end) {
-    if (!isWeekend(current)) count++;
-    current.setDate(current.getDate() + 1);
-  }
-  return count;
-}
-
-/** dateToX that skips weekends when collapseWeekends is true and zoom is 'day'. */
-export function dateToXCollapsed(
-  dateStr: string, timelineStart: Date, colWidth: number,
-  zoom: ZoomLevel, collapseWeekends: boolean
+/** Date to X position, skipping weekends when collapseWeekends is true and zoom is 'day'. */
+export function dateToX(
+  dateStr: string,
+  timelineStart: Date,
+  colWidth: number,
+  zoom: ZoomLevel,
+  collapseWeekends: boolean = false
 ): number {
-  if (!collapseWeekends || zoom !== 'day') return dateToX(dateStr, timelineStart, colWidth, zoom);
+  if (!collapseWeekends || zoom !== 'day')
+    return dateToXCalendar(dateStr, timelineStart, colWidth, zoom);
   const date = parseISO(dateStr);
   return businessDaysBetween(timelineStart, date) * colWidth;
 }
 
-/** Inverse: x to date, skipping weekends. */
-export function xToDateCollapsed(
-  x: number, timelineStart: Date, colWidth: number,
-  zoom: ZoomLevel, collapseWeekends: boolean
+/** Inverse: x to date, skipping weekends when collapseWeekends is true and zoom is 'day'. */
+export function xToDate(
+  x: number,
+  timelineStart: Date,
+  colWidth: number,
+  zoom: ZoomLevel,
+  collapseWeekends: boolean = false
 ): Date {
-  if (!collapseWeekends || zoom !== 'day') return xToDate(x, timelineStart, colWidth, zoom);
+  if (!collapseWeekends || zoom !== 'day') return xToDateCalendar(x, timelineStart, colWidth, zoom);
   const bizDays = Math.round(x / colWidth);
   let count = 0;
   const current = new Date(timelineStart);
@@ -183,5 +200,57 @@ export function xToDateCollapsed(
 /** Get timeline days, optionally filtering out weekends. */
 export function getTimelineDaysFiltered(start: Date, end: Date, collapseWeekends: boolean): Date[] {
   const all = eachDayOfInterval({ start, end });
-  return collapseWeekends ? all.filter(d => !isWeekend(d)) : all;
+  return collapseWeekends ? all.filter((d) => !isWeekend(d)) : all;
+}
+
+/**
+ * Inclusive business day count: [start, end] counting both endpoints.
+ * A same-day task has duration 1. Uses date-fns differenceInBusinessDays.
+ */
+export function taskDuration(start: string, end: string): number {
+  return differenceInBusinessDays(parseISO(end), parseISO(start)) + 1;
+}
+
+/**
+ * Derive end date from start + duration using inclusive convention.
+ * taskEndDate(start, 1) returns start (same-day task).
+ */
+export function taskEndDate(start: string, duration: number): string {
+  return format(addBusinessDays(parseISO(start), duration - 1), 'yyyy-MM-dd');
+}
+
+/**
+ * Snap forward to next Monday if date is a weekend. No-op if already a weekday.
+ */
+export function ensureBusinessDay(date: Date): Date {
+  const day = date.getDay();
+  if (day === 0) return addDays(date, 1); // Sunday → Monday
+  if (day === 6) return addDays(date, 2); // Saturday → Monday
+  return date;
+}
+
+/**
+ * Snap backward to previous Friday if date is a weekend. No-op if already a weekday.
+ */
+export function prevBusinessDay(date: Date): Date {
+  const day = date.getDay();
+  if (day === 0) return addDays(date, -2); // Sunday → Friday
+  if (day === 6) return addDays(date, -1); // Saturday → Friday
+  return date;
+}
+
+/**
+ * Check if a date string falls on a weekend. For validation use.
+ */
+export function isWeekendDate(dateStr: string): boolean {
+  return isWeekend(parseISO(dateStr));
+}
+
+/**
+ * Returns task with duration recomputed from dates.
+ */
+export function withDuration<T extends { startDate: string; endDate: string }>(
+  task: T
+): T & { duration: number } {
+  return { ...task, duration: taskDuration(task.startDate, task.endDate) };
 }

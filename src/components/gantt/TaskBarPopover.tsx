@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import type { Task } from '../../types';
-import { addBusinessDaysToDate, businessDaysDelta, workingDaysBetween } from '../../utils/dateUtils';
+import { businessDaysDelta, taskEndDate, taskDuration } from '../../utils/dateUtils';
 
 const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
   ASAP: 'As Soon As Possible',
@@ -29,7 +29,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
   const dispatch = useGanttDispatch();
   const popoverRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const task = state.tasks.find(t => t.id === taskId);
+  const task = state.tasks.find((t) => t.id === taskId);
 
   const [name, setName] = useState(task?.name ?? '');
   const [startDate, setStartDate] = useState(task?.startDate ?? '');
@@ -70,28 +70,36 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
     if (value === oldValue) return;
 
     if (field === 'startDate') {
-      const newEndDate = addBusinessDaysToDate(value, task!.duration);
+      const newEndDate = taskEndDate(value, task!.duration);
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'startDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value: newEndDate });
       setEndDate(newEndDate);
       dispatch({
         type: 'ADD_CHANGE_RECORD',
-        taskId, taskName: task!.name, field: 'startDate',
-        oldValue, newValue: value, user: 'You',
+        taskId,
+        taskName: task!.name,
+        field: 'startDate',
+        oldValue,
+        newValue: value,
+        user: 'You',
       });
       const delta = businessDaysDelta(oldValue, value);
       if (delta !== 0) {
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
       }
     } else if (field === 'endDate') {
-      const newDuration = workingDaysBetween(task!.startDate, value);
-      if (newDuration < 0) return;
+      const newDuration = taskDuration(task!.startDate, value);
+      if (newDuration < 1) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });
       dispatch({
         type: 'ADD_CHANGE_RECORD',
-        taskId, taskName: task!.name, field: 'endDate',
-        oldValue, newValue: value, user: 'You',
+        taskId,
+        taskName: task!.name,
+        field: 'endDate',
+        oldValue,
+        newValue: value,
+        user: 'You',
       });
       const endDelta = businessDaysDelta(oldValue, value);
       if (endDelta !== 0) {
@@ -101,8 +109,12 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field, value });
       dispatch({
         type: 'ADD_CHANGE_RECORD',
-        taskId, taskName: task!.name, field,
-        oldValue, newValue: value, user: 'You',
+        taskId,
+        taskName: task!.name,
+        field,
+        oldValue,
+        newValue: value,
+        user: 'You',
       });
     }
   }
@@ -133,9 +145,11 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             ref={nameInputRef}
             type="text"
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={(e) => setName(e.target.value)}
             onBlur={() => saveField('name', name)}
-            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
             className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
           />
         </div>
@@ -145,7 +159,10 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             <input
               type="date"
               value={startDate}
-              onChange={e => { setStartDate(e.target.value); saveField('startDate', e.target.value); }}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                saveField('startDate', e.target.value);
+              }}
               className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -154,7 +171,10 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             <input
               type="date"
               value={endDate}
-              onChange={e => { setEndDate(e.target.value); saveField('endDate', e.target.value); }}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                saveField('endDate', e.target.value);
+              }}
               className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -168,9 +188,11 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
           <input
             type="text"
             value={owner}
-            onChange={e => setOwner(e.target.value)}
+            onChange={(e) => setOwner(e.target.value)}
             onBlur={() => saveField('owner', owner)}
-            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
             className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
           />
         </div>
@@ -178,19 +200,23 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
           <label className="text-[10px] text-text-muted uppercase">Constraint</label>
           <select
             value={task.constraintType ?? 'ASAP'}
-            onChange={e => {
+            onChange={(e) => {
               const ct = e.target.value as NonNullable<Task['constraintType']>;
               dispatch({
                 type: 'SET_CONSTRAINT',
                 taskId,
                 constraintType: ct,
-                constraintDate: DATE_BEARING_CONSTRAINTS.has(ct) ? (task.constraintDate ?? task.startDate) : undefined,
+                constraintDate: DATE_BEARING_CONSTRAINTS.has(ct)
+                  ? (task.constraintDate ?? task.startDate)
+                  : undefined,
               });
             }}
             className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500 cursor-pointer"
           >
-            {CONSTRAINT_TYPES.map(ct => (
-              <option key={ct} value={ct}>{CONSTRAINT_LABELS[ct]}</option>
+            {CONSTRAINT_TYPES.map((ct) => (
+              <option key={ct} value={ct}>
+                {CONSTRAINT_LABELS[ct]}
+              </option>
             ))}
           </select>
         </div>
@@ -200,7 +226,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             <input
               type="date"
               value={task.constraintDate ?? ''}
-              onChange={e => {
+              onChange={(e) => {
                 dispatch({
                   type: 'SET_CONSTRAINT',
                   taskId,

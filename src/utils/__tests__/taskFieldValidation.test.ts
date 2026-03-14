@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { validateTaskName, validateDuration, validateEndDate } from '../taskFieldValidation';
+import {
+  validateTaskName,
+  validateDuration,
+  validateEndDate,
+  validateStartDate,
+} from '../taskFieldValidation';
 
 describe('validateTaskName', () => {
   it('rejects empty string', () => {
@@ -47,10 +52,48 @@ describe('validateEndDate', () => {
   });
 
   it('accepts end date equal to start date', () => {
+    // 2025-03-10 is Monday — weekday OK
     expect(validateEndDate('2025-03-10', '2025-03-10')).toBeNull();
   });
 
   it('accepts end date after start date', () => {
+    // 2025-03-20 is Thursday — weekday OK
     expect(validateEndDate('2025-03-10', '2025-03-20')).toBeNull();
+  });
+
+  it('rejects end date that is a Saturday', () => {
+    // 2026-03-07 is Saturday
+    expect(validateEndDate('2026-03-02', '2026-03-07')).not.toBeNull();
+  });
+
+  it('rejects end date that is a Sunday', () => {
+    // 2026-03-08 is Sunday
+    expect(validateEndDate('2026-03-02', '2026-03-08')).not.toBeNull();
+  });
+});
+
+describe('validateStartDate', () => {
+  it('rejects start date that is a Saturday', () => {
+    // 2026-03-07 is Saturday
+    expect(validateStartDate('2026-03-07', '2026-03-20')).not.toBeNull();
+  });
+
+  it('rejects start date that is a Sunday', () => {
+    // 2026-03-08 is Sunday
+    expect(validateStartDate('2026-03-08', '2026-03-20')).not.toBeNull();
+  });
+
+  it('rejects start date after end date', () => {
+    expect(validateStartDate('2026-03-20', '2026-03-10')).not.toBeNull();
+  });
+
+  it('accepts valid start date before end date', () => {
+    // 2026-03-09 is Monday
+    expect(validateStartDate('2026-03-09', '2026-03-20')).toBeNull();
+  });
+
+  it('accepts start date equal to end date on a weekday', () => {
+    // 2026-03-09 is Monday
+    expect(validateStartDate('2026-03-09', '2026-03-09')).toBeNull();
   });
 });

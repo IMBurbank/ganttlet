@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { differenceInBusinessDays, parseISO } from 'date-fns';
 import { ganttReducer } from '../ganttReducer';
 import type { GanttState, Task } from '../../types';
 import { initScheduler } from '../../utils/schedulerWasm';
@@ -79,7 +80,7 @@ describe('ganttReducer', () => {
         newStartDate: '2026-04-01',
         newEndDate: '2026-04-10',
       });
-      const task = result.tasks.find(t => t.id === 'a')!;
+      const task = result.tasks.find((t) => t.id === 'a')!;
       expect(task.startDate).toBe('2026-04-01');
       expect(task.endDate).toBe('2026-04-10');
     });
@@ -95,10 +96,10 @@ describe('ganttReducer', () => {
         taskId: 'a',
         newEndDate: '2026-03-20',
       });
-      const task = result.tasks.find(t => t.id === 'a')!;
+      const task = result.tasks.find((t) => t.id === 'a')!;
       expect(task.endDate).toBe('2026-03-20');
-      // Duration is business days: workingDaysBetween('2026-03-01', '2026-03-20') = 14
-      expect(task.duration).toBe(14);
+      // Duration uses inclusive convention: taskDuration('2026-03-01', '2026-03-20') = 15
+      expect(task.duration).toBe(15);
     });
   });
 
@@ -155,35 +156,37 @@ describe('ganttReducer', () => {
       // violations based on the task's current (already updated) dates.
       //
       // A moved +5 biz days: endDate is already updated to Mar 17 (Tue).
-      // B starts Mar 11 (Wed). required = add_biz(Mar 17, 0) = Mar 17.
-      // Mar 11 < Mar 17 → violation → B cascades to Mar 17 (shift 4 biz days).
+      // B starts Mar 11 (Wed). FS lag=0: required = fs_successor_start(Mar 17, 0) = Mar 18 (Wed).
+      // Mar 11 < Mar 18 → violation → B cascades to Mar 18 (shift 5 biz days).
       const state = makeState({
         tasks: [
           makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-17' }), // already moved
-          makeTask({ id: 'b', startDate: '2026-03-11', endDate: '2026-03-20', dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
+          makeTask({
+            id: 'b',
+            startDate: '2026-03-11',
+            endDate: '2026-03-20',
+            dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
+          }),
         ],
       });
       const result = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'a', daysDelta: 5 });
-      const b = result.tasks.find(t => t.id === 'b')!;
-      // B shifts by minimum to satisfy: required = Mar 17, so B starts Mar 17
-      expect(b.startDate).toBe('2026-03-17');
+      const b = result.tasks.find((t) => t.id === 'b')!;
+      // B shifts to satisfy: required = Mar 18, so B starts Mar 18
+      expect(b.startDate).toBe('2026-03-18');
     });
   });
 
   describe('ADD_DEPENDENCY', () => {
     it('adds a dependency to a task', () => {
       const state = makeState({
-        tasks: [
-          makeTask({ id: 'a' }),
-          makeTask({ id: 'b' }),
-        ],
+        tasks: [makeTask({ id: 'a' }), makeTask({ id: 'b' })],
       });
       const result = ganttReducer(state, {
         type: 'ADD_DEPENDENCY',
         taskId: 'b',
         dependency: { fromId: 'a', toId: 'b', type: 'FS', lag: 0 },
       });
-      const b = result.tasks.find(t => t.id === 'b')!;
+      const b = result.tasks.find((t) => t.id === 'b')!;
       expect(b.dependencies).toHaveLength(1);
       expect(b.dependencies[0].fromId).toBe('a');
     });
@@ -202,7 +205,7 @@ describe('ganttReducer', () => {
         taskId: 'b',
         fromId: 'a',
       });
-      const b = result.tasks.find(t => t.id === 'b')!;
+      const b = result.tasks.find((t) => t.id === 'b')!;
       expect(b.dependencies).toHaveLength(0);
     });
   });
@@ -236,11 +239,45 @@ describe('ganttReducer', () => {
       const state = makeState({
         tasks: [makeTask({ id: 'parent', isSummary: true, childIds: [] })],
       });
-      const result = ganttReducer(state, { type: 'ADD_TASK', parentId: 'parent', afterTaskId: null });
-      const parent = result.tasks.find(t => t.id === 'parent')!;
+      const result = ganttReducer(state, {
+        type: 'ADD_TASK',
+        parentId: 'parent',
+        afterTaskId: null,
+      });
+      const parent = result.tasks.find((t) => t.id === 'parent')!;
       expect(parent.childIds).toHaveLength(1);
-      const child = result.tasks.find(t => t.id === parent.childIds[0])!;
+      const child = result.tasks.find((t) => t.id === parent.childIds[0])!;
       expect(child.parentId).toBe('parent');
+    });
+  });
+
+  describe('ADD_TASK weekend snapping', () => {
+    it('snaps Saturday start to Monday and uses taskEndDate for endDate', () => {
+      // Simulate ADD_TASK when today is Saturday 2026-03-14
+      // ensureBusinessDay(Sat) → Mon 2026-03-16
+      // duration = 5, taskEndDate('2026-03-16', 5) = '2026-03-20'
+      const state = makeState({ tasks: [] });
+      const result = ganttReducer(state, { type: 'ADD_TASK', parentId: null, afterTaskId: null });
+      const newTask = result.tasks[0]!;
+      // The actual startDate depends on today's date; verify invariants instead
+      expect(newTask.duration).toBe(5);
+      // startDate must not be a weekend
+      const startDay = new Date(newTask.startDate + 'T00:00:00').getDay();
+      expect(startDay).not.toBe(0); // not Sunday
+      expect(startDay).not.toBe(6); // not Saturday
+      // endDate should be taskEndDate(startDate, 5) — verify duration round-trips
+      const computedDuration =
+        differenceInBusinessDays(parseISO(newTask.endDate), parseISO(newTask.startDate)) + 1;
+      expect(computedDuration).toBe(5);
+    });
+
+    it('ADD_TASK duration uses inclusive convention', () => {
+      const state = makeState({ tasks: [] });
+      const result = ganttReducer(state, { type: 'ADD_TASK', parentId: null, afterTaskId: null });
+      const newTask = result.tasks[0]!;
+      // Inclusive duration: startDate and endDate are both business days,
+      // and duration = taskDuration(start, end)
+      expect(newTask.duration).toBe(5);
     });
   });
 
@@ -275,14 +312,28 @@ describe('ganttReducer', () => {
     it('inherits project, workStream, okrs from workstream parent and gets prefixed ID', () => {
       const state = makeState({
         tasks: [
-          makeTask({ id: 'root', name: 'Q2 Launch', isSummary: true, parentId: null, childIds: ['pe'] }),
-          makeTask({ id: 'pe', name: 'Platform', isSummary: true, parentId: 'root', project: 'Q2 Launch', okrs: ['KR-1'], childIds: ['pe-1', 'pe-3'] }),
+          makeTask({
+            id: 'root',
+            name: 'Q2 Launch',
+            isSummary: true,
+            parentId: null,
+            childIds: ['pe'],
+          }),
+          makeTask({
+            id: 'pe',
+            name: 'Platform',
+            isSummary: true,
+            parentId: 'root',
+            project: 'Q2 Launch',
+            okrs: ['KR-1'],
+            childIds: ['pe-1', 'pe-3'],
+          }),
           makeTask({ id: 'pe-1', parentId: 'pe' }),
           makeTask({ id: 'pe-3', parentId: 'pe' }),
         ],
       });
       const result = ganttReducer(state, { type: 'ADD_TASK', parentId: 'pe', afterTaskId: null });
-      const newTask = result.tasks.find(t => t.id === 'pe-4');
+      const newTask = result.tasks.find((t) => t.id === 'pe-4');
       expect(newTask).toBeDefined();
       expect(newTask!.project).toBe('Q2 Launch');
       expect(newTask!.workStream).toBe('Platform');
@@ -294,17 +345,23 @@ describe('ganttReducer', () => {
       const state = makeState({ tasks: [] });
       const result = ganttReducer(state, { type: 'ADD_TASK', parentId: null, afterTaskId: null });
       expect(result.focusNewTaskId).toBeTruthy();
-      expect(result.tasks.find(t => t.id === result.focusNewTaskId)).toBeDefined();
+      expect(result.tasks.find((t) => t.id === result.focusNewTaskId)).toBeDefined();
     });
 
     it('inherits project name from project parent', () => {
       const state = makeState({
         tasks: [
-          makeTask({ id: 'root', name: 'Q2 Launch', isSummary: true, parentId: null, childIds: [] }),
+          makeTask({
+            id: 'root',
+            name: 'Q2 Launch',
+            isSummary: true,
+            parentId: null,
+            childIds: [],
+          }),
         ],
       });
       const result = ganttReducer(state, { type: 'ADD_TASK', parentId: 'root', afterTaskId: null });
-      const newTask = result.tasks.find(t => t.parentId === 'root' && t.id !== 'root');
+      const newTask = result.tasks.find((t) => t.parentId === 'root' && t.id !== 'root');
       expect(newTask).toBeDefined();
       expect(newTask!.project).toBe('Q2 Launch');
       expect(newTask!.workStream).toBe('');
@@ -315,8 +372,21 @@ describe('ganttReducer', () => {
     it('cascades project name to all descendants when renaming a project', () => {
       const state = makeState({
         tasks: [
-          makeTask({ id: 'root', name: 'Old Project', isSummary: true, parentId: null, project: 'Old Project', childIds: ['ws'] }),
-          makeTask({ id: 'ws', isSummary: true, parentId: 'root', project: 'Old Project', childIds: ['t1'] }),
+          makeTask({
+            id: 'root',
+            name: 'Old Project',
+            isSummary: true,
+            parentId: null,
+            project: 'Old Project',
+            childIds: ['ws'],
+          }),
+          makeTask({
+            id: 'ws',
+            isSummary: true,
+            parentId: 'root',
+            project: 'Old Project',
+            childIds: ['t1'],
+          }),
           makeTask({ id: 't1', parentId: 'ws', project: 'Old Project' }),
         ],
       });
@@ -326,16 +396,23 @@ describe('ganttReducer', () => {
         field: 'name',
         value: 'New Project',
       });
-      expect(result.tasks.find(t => t.id === 'root')!.project).toBe('New Project');
-      expect(result.tasks.find(t => t.id === 'ws')!.project).toBe('New Project');
-      expect(result.tasks.find(t => t.id === 't1')!.project).toBe('New Project');
+      expect(result.tasks.find((t) => t.id === 'root')!.project).toBe('New Project');
+      expect(result.tasks.find((t) => t.id === 'ws')!.project).toBe('New Project');
+      expect(result.tasks.find((t) => t.id === 't1')!.project).toBe('New Project');
     });
 
     it('cascades workStream name to descendants when renaming a workstream', () => {
       const state = makeState({
         tasks: [
           makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws'] }),
-          makeTask({ id: 'ws', name: 'Old WS', isSummary: true, parentId: 'root', workStream: 'Old WS', childIds: ['t1'] }),
+          makeTask({
+            id: 'ws',
+            name: 'Old WS',
+            isSummary: true,
+            parentId: 'root',
+            workStream: 'Old WS',
+            childIds: ['t1'],
+          }),
           makeTask({ id: 't1', parentId: 'ws', workStream: 'Old WS' }),
         ],
       });
@@ -345,8 +422,8 @@ describe('ganttReducer', () => {
         field: 'name',
         value: 'New WS',
       });
-      expect(result.tasks.find(t => t.id === 'ws')!.workStream).toBe('New WS');
-      expect(result.tasks.find(t => t.id === 't1')!.workStream).toBe('New WS');
+      expect(result.tasks.find((t) => t.id === 'ws')!.workStream).toBe('New WS');
+      expect(result.tasks.find((t) => t.id === 't1')!.workStream).toBe('New WS');
     });
   });
 
@@ -364,7 +441,7 @@ describe('ganttReducer', () => {
         dependency: { fromId: 'root', toId: 't1', type: 'FS', lag: 0 },
       });
       // Should be silently rejected
-      const t1 = result.tasks.find(t => t.id === 't1')!;
+      const t1 = result.tasks.find((t) => t.id === 't1')!;
       expect(t1.dependencies).toHaveLength(0);
     });
   });
@@ -383,9 +460,9 @@ describe('ganttReducer', () => {
         taskId: 't1',
         newParentId: 'p2',
       });
-      const p1 = result.tasks.find(t => t.id === 'p1')!;
-      const p2 = result.tasks.find(t => t.id === 'p2')!;
-      const t1 = result.tasks.find(t => t.id === 't1')!;
+      const p1 = result.tasks.find((t) => t.id === 'p1')!;
+      const p2 = result.tasks.find((t) => t.id === 'p2')!;
+      const t1 = result.tasks.find((t) => t.id === 't1')!;
       expect(p1.childIds).not.toContain('t1');
       expect(p2.childIds).toContain('t1');
       expect(t1.parentId).toBe('p2');
@@ -395,9 +472,23 @@ describe('ganttReducer', () => {
       const state = makeState({
         tasks: [
           makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws1', 'ws2'] }),
-          makeTask({ id: 'ws1', name: 'WS1', isSummary: true, parentId: 'root', project: 'Proj', childIds: ['t1'] }),
+          makeTask({
+            id: 'ws1',
+            name: 'WS1',
+            isSummary: true,
+            parentId: 'root',
+            project: 'Proj',
+            childIds: ['t1'],
+          }),
           makeTask({ id: 't1', parentId: 'ws1', project: 'Proj', workStream: 'WS1' }),
-          makeTask({ id: 'ws2', name: 'WS2', isSummary: true, parentId: 'root', project: 'Proj', childIds: [] }),
+          makeTask({
+            id: 'ws2',
+            name: 'WS2',
+            isSummary: true,
+            parentId: 'root',
+            project: 'Proj',
+            childIds: [],
+          }),
         ],
       });
       const result = ganttReducer(state, {
@@ -405,7 +496,7 @@ describe('ganttReducer', () => {
         taskId: 't1',
         newParentId: 'ws2',
       });
-      const t1 = result.tasks.find(t => t.id === 't1')!;
+      const t1 = result.tasks.find((t) => t.id === 't1')!;
       expect(t1.workStream).toBe('WS2');
       expect(t1.project).toBe('Proj');
     });
@@ -414,10 +505,26 @@ describe('ganttReducer', () => {
       const state = makeState({
         tasks: [
           makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws1', 'ws2'] }),
-          makeTask({ id: 'ws1', isSummary: true, parentId: 'root', project: 'Proj', childIds: ['t1'] }),
+          makeTask({
+            id: 'ws1',
+            isSummary: true,
+            parentId: 'root',
+            project: 'Proj',
+            childIds: ['t1'],
+          }),
           makeTask({ id: 't1', parentId: 'ws1' }),
-          makeTask({ id: 'ws2', isSummary: true, parentId: 'root', project: 'Proj', childIds: ['t2'] }),
-          makeTask({ id: 't2', parentId: 'ws2', dependencies: [{ fromId: 't1', toId: 't2', type: 'FS', lag: 0 }] }),
+          makeTask({
+            id: 'ws2',
+            isSummary: true,
+            parentId: 'root',
+            project: 'Proj',
+            childIds: ['t2'],
+          }),
+          makeTask({
+            id: 't2',
+            parentId: 'ws2',
+            dependencies: [{ fromId: 't1', toId: 't2', type: 'FS', lag: 0 }],
+          }),
         ],
       });
       const result = ganttReducer(state, {
@@ -426,7 +533,7 @@ describe('ganttReducer', () => {
         newParentId: 'ws2',
         newId: 't1-new',
       });
-      const t2 = result.tasks.find(t => t.id === 't2')!;
+      const t2 = result.tasks.find((t) => t.id === 't2')!;
       expect(t2.dependencies[0].fromId).toBe('t1-new');
     });
 
@@ -443,7 +550,7 @@ describe('ganttReducer', () => {
         newParentId: 'c',
       });
       // Should be unchanged
-      expect(result.tasks.find(t => t.id === 'p')!.parentId).toBeNull();
+      expect(result.tasks.find((t) => t.id === 'p')!.parentId).toBeNull();
     });
 
     it('clears reparentPicker after reparent', () => {
@@ -518,10 +625,10 @@ describe('ganttReducer', () => {
         taskId: 'a',
         daysDelta: 3,
       });
-      // Task 'b' should have been cascaded (B.start = Mar 10 < required = Mar 13)
+      // Task 'b' should have been cascaded (B.start = Mar 10 < required = Mar 16)
       expect(result.lastCascadeIds).toContain('b');
       expect(result.cascadeShifts.length).toBeGreaterThan(0);
-      const shiftB = result.cascadeShifts.find(s => s.taskId === 'b');
+      const shiftB = result.cascadeShifts.find((s) => s.taskId === 'b');
       expect(shiftB).toBeDefined();
       expect(shiftB!.fromStartDate).toBe('2026-03-10');
       expect(shiftB!.fromEndDate).toBe('2026-03-19');
@@ -540,15 +647,23 @@ describe('ganttReducer', () => {
         daysDelta: 3,
       });
       // 'c' has no dependency on 'a', so it shouldn't be cascaded
-      expect(result.cascadeShifts.find(s => s.taskId === 'c')).toBeUndefined();
+      expect(result.cascadeShifts.find((s) => s.taskId === 'c')).toBeUndefined();
     });
   });
 
   describe('CASCADE_DEPENDENTS on end-date/duration changes', () => {
     it('cascades dependents when end date increases (positive delta)', () => {
-      const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
+      const parent = makeTask({
+        id: 'A',
+        startDate: '2026-03-01',
+        endDate: '2026-03-10',
+        duration: 9,
+      });
       const child = makeTask({
-        id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
+        id: 'B',
+        startDate: '2026-03-11',
+        endDate: '2026-03-20',
+        duration: 9,
         dependencies: [{ fromId: 'A', toId: 'B', type: 'FS', lag: 0 }],
       });
       let state = makeState({ tasks: [parent, child] });
@@ -556,10 +671,15 @@ describe('ganttReducer', () => {
       // Simulate end date change: A's end date moves from Mar 10 to Mar 15 (Sun).
       // Mar 15 is a weekend, so the required B.start snaps to Mon Mar 16.
       // B.start = Mar 11 < Mar 16 → violation, shift by 3 biz days.
-      state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-15' });
+      state = ganttReducer(state, {
+        type: 'UPDATE_TASK_FIELD',
+        taskId: 'A',
+        field: 'endDate',
+        value: '2026-03-15',
+      });
       state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: 5 });
 
-      const childTask = state.tasks.find(t => t.id === 'B')!;
+      const childTask = state.tasks.find((t) => t.id === 'B')!;
       // A ends Sun Mar 15 → required B.start = next_biz(Mar 15) = Mon Mar 16.
       // B shifts 3 biz: Mar 11 → Mar 16. End: add_biz(Mar 20, 3) = Mar 25 (Wed).
       expect(childTask.startDate).toBe('2026-03-16');
@@ -567,20 +687,38 @@ describe('ganttReducer', () => {
     });
 
     it('does not cascade dependents on backward move (asymmetric cascade)', () => {
-      const parent = makeTask({ id: 'A', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 });
+      const parent = makeTask({
+        id: 'A',
+        startDate: '2026-03-01',
+        endDate: '2026-03-10',
+        duration: 9,
+      });
       const child = makeTask({
-        id: 'B', startDate: '2026-03-11', endDate: '2026-03-20', duration: 9,
+        id: 'B',
+        startDate: '2026-03-11',
+        endDate: '2026-03-20',
+        duration: 9,
         dependencies: [{ fromId: 'A', toId: 'B', type: 'FS', lag: 0 }],
       });
       let state = makeState({ tasks: [parent, child] });
 
       // Simulate duration decrease: A's end date moves from Mar 10 to Mar 7 (-3 day delta)
-      state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'endDate', value: '2026-03-07' });
-      state = ganttReducer(state, { type: 'UPDATE_TASK_FIELD', taskId: 'A', field: 'duration', value: 6 });
+      state = ganttReducer(state, {
+        type: 'UPDATE_TASK_FIELD',
+        taskId: 'A',
+        field: 'endDate',
+        value: '2026-03-07',
+      });
+      state = ganttReducer(state, {
+        type: 'UPDATE_TASK_FIELD',
+        taskId: 'A',
+        field: 'duration',
+        value: 6,
+      });
       state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: -3 });
 
       // Asymmetric cascade: backward moves do NOT pull dependents — they expose slack instead
-      const childTask = state.tasks.find(t => t.id === 'B')!;
+      const childTask = state.tasks.find((t) => t.id === 'B')!;
       expect(childTask.startDate).toBe('2026-03-11');
       expect(childTask.endDate).toBe('2026-03-20');
     });
@@ -615,8 +753,8 @@ describe('ganttReducer', () => {
       });
 
       expect(result.tasks).toHaveLength(2);
-      expect(result.tasks.find(t => t.id === 'ext-1')).toBeDefined();
-      expect(result.tasks.find(t => t.id === 'ext-1')!.name).toBe('External New');
+      expect(result.tasks.find((t) => t.id === 'ext-1')).toBeDefined();
+      expect(result.tasks.find((t) => t.id === 'ext-1')!.name).toBe('External New');
     });
 
     it('uses external version for tasks not in local state', () => {
@@ -674,7 +812,7 @@ describe('ganttReducer', () => {
         constraintType: 'SNET',
         constraintDate: '2026-04-01',
       });
-      const task = result.tasks.find(t => t.id === 'a')!;
+      const task = result.tasks.find((t) => t.id === 'a')!;
       expect(task.constraintType).toBe('SNET');
       expect(task.constraintDate).toBe('2026-04-01');
     });
@@ -688,7 +826,7 @@ describe('ganttReducer', () => {
         taskId: 'a',
         constraintType: 'ASAP',
       });
-      const task = result.tasks.find(t => t.id === 'a')!;
+      const task = result.tasks.find((t) => t.id === 'a')!;
       expect(task.constraintType).toBe('ASAP');
       expect(task.constraintDate).toBeUndefined();
     });
@@ -702,7 +840,7 @@ describe('ganttReducer', () => {
         taskId: 'a',
         constraintType: 'ALAP',
       });
-      const task = result.tasks.find(t => t.id === 'a')!;
+      const task = result.tasks.find((t) => t.id === 'a')!;
       expect(task.constraintType).toBe('ALAP');
       expect(task.constraintDate).toBeUndefined();
     });
@@ -719,7 +857,7 @@ describe('ganttReducer', () => {
       });
       expect(result.undoStack.length).toBe(1);
       const undone = ganttReducer(result, { type: 'UNDO' });
-      const task = undone.tasks.find(t => t.id === 'a')!;
+      const task = undone.tasks.find((t) => t.id === 'a')!;
       expect(task.constraintType).toBeUndefined();
     });
   });
@@ -746,7 +884,7 @@ describe('ganttReducer', () => {
         type: 'RECALCULATE_EARLIEST',
         scope: {},
       });
-      const b = result.tasks.find(t => t.id === 'b')!;
+      const b = result.tasks.find((t) => t.id === 'b')!;
       // SNET Apr 1 is later than FS-required Mar 11, so B starts Apr 1
       expect(b.startDate).toBe('2026-04-01');
     });
@@ -770,7 +908,7 @@ describe('ganttReducer', () => {
         type: 'RECALCULATE_EARLIEST',
         scope: {},
       });
-      const b = result.tasks.find(t => t.id === 'b')!;
+      const b = result.tasks.find((t) => t.id === 'b')!;
       // ALAP should push B to its late start (backward pass). Since B is a terminal
       // task in a 2-task chain, its late start equals its early start (no slack).
       // The important thing is recalculate doesn't crash and B remains valid.
@@ -798,7 +936,7 @@ describe('ganttReducer', () => {
         taskId: 'a',
         daysDelta: 2,
       });
-      const b = result.tasks.find(t => t.id === 'b')!;
+      const b = result.tasks.find((t) => t.id === 'b')!;
       // SF: B.end must be >= A.start. A.start=Mar 5, B.end=Mar 10, no violation.
       // So B should not cascade (already satisfied).
       expect(b.startDate).toBeDefined();

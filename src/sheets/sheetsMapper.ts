@@ -1,15 +1,31 @@
 import type { Task, Dependency, DependencyType } from '../types';
-import { workingDaysBetween } from '../utils/dateUtils';
+import { taskDuration } from '../utils/dateUtils';
 
 // Column order in the Google Sheet (row 1 = headers)
 export const SHEET_COLUMNS = [
-  'id', 'name', 'startDate', 'endDate', 'duration', 'owner',
-  'workStream', 'project', 'functionalArea', 'done', 'description',
-  'isMilestone', 'isSummary', 'parentId', 'childIds', 'dependencies',
-  'notes', 'okrs', 'constraintType', 'constraintDate',
+  'id',
+  'name',
+  'startDate',
+  'endDate',
+  'duration',
+  'owner',
+  'workStream',
+  'project',
+  'functionalArea',
+  'done',
+  'description',
+  'isMilestone',
+  'isSummary',
+  'parentId',
+  'childIds',
+  'dependencies',
+  'notes',
+  'okrs',
+  'constraintType',
+  'constraintDate',
 ] as const;
 
-export const HEADER_ROW = SHEET_COLUMNS.map(c => c as string);
+export const HEADER_ROW = SHEET_COLUMNS.map((c) => c as string);
 
 export function taskToRow(task: Task): string[] {
   return [
@@ -17,7 +33,7 @@ export function taskToRow(task: Task): string[] {
     task.name,
     task.startDate,
     task.endDate,
-    String(workingDaysBetween(task.startDate, task.endDate)),
+    String(taskDuration(task.startDate, task.endDate)),
     task.owner,
     task.workStream,
     task.project,
@@ -47,8 +63,9 @@ export function rowToTask(row: string[]): Task | null {
     startDate: get(2),
     endDate: get(3),
     duration: (() => {
-      const s = get(2), e = get(3);
-      if (s && e) return workingDaysBetween(s, e);
+      const s = get(2),
+        e = get(3);
+      if (s && e) return taskDuration(s, e);
       return parseInt(get(4)) || 0; // Fallback for legacy data without dates
     })(),
     owner: get(5),
@@ -70,12 +87,21 @@ export function rowToTask(row: string[]): Task | null {
   };
 }
 
-const VALID_CONSTRAINT_TYPES = new Set(['ASAP', 'SNET', 'ALAP', 'SNLT', 'FNET', 'FNLT', 'MSO', 'MFO']);
+const VALID_CONSTRAINT_TYPES = new Set([
+  'ASAP',
+  'SNET',
+  'ALAP',
+  'SNLT',
+  'FNET',
+  'FNLT',
+  'MSO',
+  'MFO',
+]);
 const DATE_FREE_CONSTRAINTS = new Set(['ASAP', 'ALAP']);
 
 function parseConstraintFields(
   rawType: string,
-  rawDate: string,
+  rawDate: string
 ): { constraintType?: Task['constraintType']; constraintDate?: string } {
   if (!rawType) return {};
 
@@ -96,24 +122,27 @@ function parseConstraintFields(
 }
 
 function serializeDependencies(deps: Dependency[]): string {
-  return deps.map(d => `${d.fromId}:${d.type}:${d.lag}`).join(';');
+  return deps.map((d) => `${d.fromId}:${d.type}:${d.lag}`).join(';');
 }
 
 function parseDependencies(str: string): Dependency[] {
   if (!str) return [];
-  return str.split(';').filter(Boolean).map(part => {
-    const [fromId, type, lagStr] = part.split(':');
-    return {
-      fromId,
-      toId: '', // Will be filled by the caller based on which task owns this dep
-      type: (type as DependencyType) || 'FS',
-      lag: parseInt(lagStr) || 0,
-    };
-  });
+  return str
+    .split(';')
+    .filter(Boolean)
+    .map((part) => {
+      const [fromId, type, lagStr] = part.split(':');
+      return {
+        fromId,
+        toId: '', // Will be filled by the caller based on which task owns this dep
+        type: (type as DependencyType) || 'FS',
+        lag: parseInt(lagStr) || 0,
+      };
+    });
 }
 
 export function tasksToRows(tasks: Task[]): string[][] {
-  return [HEADER_ROW, ...tasks.filter(t => !t.isSummary || t.childIds.length > 0).map(taskToRow)];
+  return [HEADER_ROW, ...tasks.filter((t) => !t.isSummary || t.childIds.length > 0).map(taskToRow)];
 }
 
 export function rowsToTasks(rows: string[][]): Task[] {
@@ -124,7 +153,7 @@ export function rowsToTasks(rows: string[][]): Task[] {
     const task = rowToTask(row);
     if (task) {
       // Fix dependency toId references
-      task.dependencies = task.dependencies.map(d => ({ ...d, toId: task.id }));
+      task.dependencies = task.dependencies.map((d) => ({ ...d, toId: task.id }));
       tasks.push(task);
     }
   }

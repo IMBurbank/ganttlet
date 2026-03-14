@@ -267,6 +267,55 @@ describe('sheetsMapper', () => {
     });
   });
 
+  describe('rowToTask invalid input handling', () => {
+    it('snaps weekend startDate to Monday', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[2] = '2026-03-07'; // Saturday
+      row[3] = '2026-03-13'; // Friday
+      const task = rowToTask(row)!;
+      expect(task.startDate).toBe('2026-03-09'); // Monday
+    });
+
+    it('snaps weekend endDate to Friday', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[2] = '2026-03-02'; // Monday
+      row[3] = '2026-03-08'; // Sunday
+      const task = rowToTask(row)!;
+      expect(task.endDate).toBe('2026-03-06'); // Friday
+    });
+
+    it('ensures duration >= 1', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[2] = '2026-03-02';
+      row[3] = '2026-03-02';
+      const task = rowToTask(row)!;
+      expect(task.duration).toBeGreaterThanOrEqual(1);
+    });
+
+    it('corrects endDate before startDate', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[2] = '2026-03-06'; // Friday
+      row[3] = '2026-03-02'; // Monday (before start)
+      const task = rowToTask(row)!;
+      expect(task.endDate).toBe(task.startDate);
+    });
+
+    it('snaps weekend constraintDate to Monday', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[2] = '2026-03-02';
+      row[3] = '2026-03-06';
+      row[18] = 'SNET';
+      row[19] = '2026-03-07'; // Saturday
+      const task = rowToTask(row)!;
+      expect(task.constraintDate).toBe('2026-03-09'); // Monday
+    });
+  });
+
   describe('round-trip', () => {
     it('taskToRow → rowToTask preserves key fields', () => {
       const original = makeTask({

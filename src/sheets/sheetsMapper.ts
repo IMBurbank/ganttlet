@@ -1,5 +1,6 @@
 import type { Task, Dependency, DependencyType } from '../types';
-import { taskDuration } from '../utils/dateUtils';
+import { taskDuration, ensureBusinessDay, prevBusinessDay } from '../utils/dateUtils';
+import { parseISO, format } from 'date-fns';
 
 // Column order in the Google Sheet (row 1 = headers)
 export const SHEET_COLUMNS = [
@@ -57,17 +58,45 @@ export function rowToTask(row: string[]): Task | null {
 
   const get = (i: number) => row[i] || '';
 
+  let startDate = get(2);
+  let endDate = get(3);
+
+  // Snap weekend dates to valid business days
+  if (startDate) {
+    const snapped = format(ensureBusinessDay(parseISO(startDate)), 'yyyy-MM-dd');
+    if (snapped !== startDate) {
+      console.warn(`rowToTask: snapped startDate "${startDate}" to "${snapped}"`);
+      startDate = snapped;
+    }
+  }
+  if (endDate) {
+    const snapped = format(prevBusinessDay(parseISO(endDate)), 'yyyy-MM-dd');
+    if (snapped !== endDate) {
+      console.warn(`rowToTask: snapped endDate "${endDate}" to "${snapped}"`);
+      endDate = snapped;
+    }
+  }
+
+  // Ensure endDate >= startDate after snapping
+  if (startDate && endDate && endDate < startDate) {
+    console.warn(
+      `rowToTask: endDate "${endDate}" before startDate "${startDate}", correcting to startDate`
+    );
+    endDate = startDate;
+  }
+
+  // Compute duration with minimum of 1
+  const duration = (() => {
+    if (startDate && endDate) return Math.max(taskDuration(startDate, endDate), 1);
+    return parseInt(get(4)) || 1;
+  })();
+
   return {
     id: get(0),
     name: get(1),
-    startDate: get(2),
-    endDate: get(3),
-    duration: (() => {
-      const s = get(2),
-        e = get(3);
-      if (s && e) return taskDuration(s, e);
-      return parseInt(get(4)) || 0; // Fallback for legacy data without dates
-    })(),
+    startDate,
+    endDate,
+    duration,
     owner: get(5),
     workStream: get(6),
     project: get(7),
@@ -118,7 +147,15 @@ function parseConstraintFields(
     return { constraintType };
   }
 
-  return { constraintType, constraintDate: rawDate };
+  // Snap weekend constraint dates to next business day
+  let constraintDate = rawDate;
+  const snapped = format(ensureBusinessDay(parseISO(rawDate)), 'yyyy-MM-dd');
+  if (snapped !== rawDate) {
+    console.warn(`parseConstraintFields: snapped constraintDate "${rawDate}" to "${snapped}"`);
+    constraintDate = snapped;
+  }
+
+  return { constraintType, constraintDate };
 }
 
 function serializeDependencies(deps: Dependency[]): string {

@@ -23,6 +23,8 @@ Thumbs.db
 .idea/
 
 # Claude (track settings.json and worktree context, ignore everything else)
+# WARNING: .claude/* ignores ALL new subdirectories by default.
+# You MUST add an !.claude/<dir>/ exception here for any new tracked directory.
 .claude/*
 !.claude/settings.json
 !.claude/agents/

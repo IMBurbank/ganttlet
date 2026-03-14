@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/pre-commit-hook.sh — Reject hollow implementations and deleted tests
+# scripts/pre-commit-hook.sh — Auto-format, reject hollow implementations and deleted tests
 #
 # Install: ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit
 # Or run directly: ./scripts/pre-commit-hook.sh

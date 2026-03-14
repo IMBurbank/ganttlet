@@ -36,7 +36,7 @@ load_config() {
 
   # MERGE_TARGET: user env var > YAML > derived from phase
   local merge_target_yaml
-  merge_target_yaml=$(yq -r '.merge_target // empty' "$config_file")
+  merge_target_yaml=$(yq -r '.merge_target // ""' "$config_file")
   if [[ -n "${_USER_MERGE_TARGET:-}" ]]; then
     MERGE_TARGET="$_USER_MERGE_TARGET"
   elif [[ -n "$merge_target_yaml" ]]; then
@@ -74,8 +74,8 @@ load_config() {
 
   # PR metadata (optional — defaults generated from phase name if missing)
   PR_TITLE=$(yq -r ".pr.title // \"${PHASE}: implementation\"" "$config_file")
-  PR_SUMMARY=$(yq -r '.pr.summary // empty' "$config_file")
-  PR_TEST_PLAN=$(yq -r '.pr.test_plan // empty' "$config_file")
+  PR_SUMMARY=$(yq -r '.pr.summary // ""' "$config_file")
+  PR_TEST_PLAN=$(yq -r '.pr.test_plan // ""' "$config_file")
 
   # Derived values
   LOG_DIR="${WORKSPACE}/logs/${PHASE}"

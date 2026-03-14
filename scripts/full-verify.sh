@@ -5,6 +5,10 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+echo "=== Hook safety tests ==="
+bash scripts/test-hooks.sh
+
+echo ""
 echo "=== TypeScript type check ==="
 npx tsc --noEmit
 

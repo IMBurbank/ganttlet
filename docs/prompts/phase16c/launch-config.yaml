@@ -1,0 +1,47 @@
+# Phase 16c: Convention Hardening & Agent Guardrails
+# Fixes systemic gaps found during Phase 16 code review: scattered validation,
+# drifting docs, missing callsite discipline, invalid test data, duplicated pixel math.
+
+phase: phase16c
+merge_target: feature/phase16c
+
+stages:
+  - name: "Stage 1: Docs + Validation"
+    groups:
+      - id: groupA
+        branch: feature/16c-docs-guardrails
+        merge_message: "Merge feature/16c-docs-guardrails: CLAUDE.md callsite rule, //! module docs, rust-scheduler.md pointer, lib.rs //! block"
+      - id: groupB
+        branch: feature/16c-input-validation
+        merge_message: "Merge feature/16c-input-validation: wire validateStartDate, TaskBarPopover imperative validation, sheetsMapper boundary validation"
+
+  - name: "Stage 2: Test Data + Utility"
+    groups:
+      - id: groupC
+        branch: feature/16c-test-data-cleanup
+        merge_message: "Merge feature/16c-test-data-cleanup: debug_assert in make_task, fix weekend dates, fix duration mismatches"
+      - id: groupD
+        branch: feature/16c-getDayPx
+        merge_message: "Merge feature/16c-getDayPx: extract getDayPx utility, replace 3 duplicates, fix TodayLine getColumnWidth"
+
+pr:
+  title: "fix: convention hardening — validation, test data, agent guardrails"
+  summary: |
+    Fixes 5 systemic gaps discovered during Phase 16 code review (PR #54, 5 review rounds):
+
+    1. CLAUDE.md: add LSP-first callsite-search rule (prevent multi-commit pattern fixes)
+    2. Rust module docs: add //! blocks to 6 modules, convert rust-scheduler.md to LSP pointer
+    3. Input validation: wire validateStartDate, add TaskBarPopover validation, sheetsMapper boundary checks
+    4. Test data: add debug_assert to make_task helpers, fix ~35 weekend dates and ~57 duration mismatches
+    5. Pixel math: extract getDayPx utility, eliminate 3 duplicated ternaries
+
+    See docs/tasks/phase16c.yaml for evidence base and full task breakdown.
+  test_plan: |
+    - [ ] `cargo test` — all Rust tests pass (121+)
+    - [ ] `npm run test` — all Vitest tests pass (257+)
+    - [ ] `npx tsc --noEmit` — no type errors
+    - [ ] `cargo doc --no-deps` — no warnings
+    - [ ] `./scripts/full-verify.sh` — full pass
+    - [ ] No weekend dates in make_task callsites (grep verification)
+    - [ ] No duration/date mismatches in constraints.rs make_task calls
+    - [ ] getDayPx used consistently (no inline dayPx ternaries remain)

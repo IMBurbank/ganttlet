@@ -1,3 +1,26 @@
+//! WASM scheduling engine for Ganttlet.
+//!
+//! This crate implements the core scheduling logic — critical path, cascade
+//! propagation, constraint evaluation, cycle detection, and conflict detection —
+//! compiled to WebAssembly and called from the browser via `wasm-bindgen`.
+//!
+//! ## `#[wasm_bindgen]` exports
+//!
+//! - `compute_critical_path` — CPM on the full task graph
+//! - `compute_critical_path_scoped` — CPM filtered to a project or workstream
+//! - `would_create_cycle` — BFS reachability check before adding a dependency
+//! - `compute_earliest_start` — earliest start for a single task from deps + constraints
+//! - `cascade_dependents` — propagate a predecessor move to all transitive dependents
+//! - `detect_conflicts` — find constraint violations across all tasks
+//!   (wraps the internal `find_conflicts()` helper)
+//! - `recalculate_earliest` — full topo-sort recalculation of all task dates
+//!
+//! ## Date convention
+//!
+//! All modules (except `cpm`) use the **inclusive end-date convention**: `end_date`
+//! is the last working day a task occupies, and `duration` counts both endpoints.
+//! See the `date_utils` module docs for details.
+
 use wasm_bindgen::prelude::*;
 
 pub mod cascade;

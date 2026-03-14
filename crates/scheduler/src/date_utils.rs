@@ -333,7 +333,7 @@ mod tests {
         // Mon Mar 09 to Tue Mar 17 across a weekend
         // Mar 10(1), 11(2), 12(3), 13(4), [14 Sat, 15 Sun], 16(5), 17(6)? wait:
         // from Mar 09, stepping to Mar 17:
-        // Mar 10 Mon:1, 11 Tue:2, 12 Wed:3, 13 Thu:4, [14 Sat skip, 15 Sun skip], 16 Mon:5, 17 Tue:6
+        // Mar 10 Tue:1, 11 Wed:2, 12 Thu:3, 13 Fri:4, [14 Sat skip, 15 Sun skip], 16 Mon:5, 17 Tue:6
         // Actually Mar 9 is Mon (Mar 1=Sun, +8=Mon)
         assert_eq!(business_day_delta("2026-03-09", "2026-03-17"), 6);
         // Same date: 0

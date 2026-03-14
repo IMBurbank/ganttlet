@@ -448,7 +448,7 @@ mod tests {
     /// required = fs_successor_start(Mar 11, 1) = add_biz(Mar 11, 2) = Fri Mar 13 <= B.start (Mar 16).
     /// Slack absorbs the move → no cascade.
     #[test]
-    fn no_cascade_when_predecessor_moves_into_weekend_with_lag() {
+    fn no_cascade_when_lag_absorbs_move() {
         let tasks = vec![
             make_task("a", "2026-03-09", "2026-03-11"), // A ends Wed Mar 11 (inclusive)
             {

@@ -1,0 +1,230 @@
+# Phase 16c: Convention Hardening & Agent Guardrails
+# Fix systemic gaps discovered during Phase 16 code review that caused
+# repeated mistakes: scattered validation, drifting docs, missing callsite
+# discipline, inconsistent test data, and duplicated pixel math.
+#
+# Scope: guardrails only — no new features, no type system changes (see 16b).
+
+phase: 16c
+status: pending
+context: >
+  Phase 16 (inclusive end-date convention) went through 5 code review rounds
+  before passing clean. Analysis of the mistakes revealed 5 systemic gaps:
+
+  1. Input validation is scattered across 4 UI components with inconsistent
+     guards. `validateStartDate` exists but is never wired up. TaskBarPopover
+     has no shared validation at all. sheetsMapper (system boundary) has none.
+
+  2. rust-scheduler.md drifts from source — wrong function names, stale
+     historical notes, missing functions, implementation-level descriptions
+     instead of semantic contracts. Root cause: it's a manual copy of info
+     that already exists in doc comments.
+
+  3. No rule tells agents to find all callsites before fixing a pattern bug.
+     Phase 16 required 4 commits for workingDaysBetween migration, 2 for FS
+     formula, 3 for constraint formulas — all should have been 1 each.
+
+  4. Test helpers (make_task) accept weekend dates and inconsistent durations.
+     81 callsites use weekend dates, 34 have duration/date mismatches.
+
+  5. dayPx (pixel-per-day at zoom level) is computed identically in 3 files
+     with no shared utility.
+
+  Design principles:
+  - Fix gaps with minimal code changes — guardrails, not rewrites
+  - Make the source the single source of truth for docs (LSP over .md copies)
+  - Validate at system boundaries (Sheets import) and UI entry points
+  - Test helpers should enforce the same invariants as production code
+
+  Evidence base:
+  - Phase 16 PR #54: 5 review rounds, 11 issues fixed
+  - workingDaysBetween migration: 4 commits across 4 files (should be 1)
+  - TaskRow < 0 guard missed after fixing TaskBarPopover (found in round 4)
+  - ALAP test used Sunday end date (2026-03-22), passed because untested
+  - rust-scheduler.md said business_day_delta was "signed" (it returns 0)
+  - rust-scheduler.md listed is_weekend() but public API is is_weekend_date()
+
+stages:
+  - name: "Stage 1: CLAUDE.md Callsite Rule + Module Docs"
+    description: >
+      Add the LSP-first callsite rule to CLAUDE.md and add //! module-level
+      doc blocks to the 5 undocumented Rust modules. Convert rust-scheduler.md
+      from a manual function reference to a pointer that directs agents to use
+      LSP hover/documentSymbol on the source.
+    tasks:
+      - id: A1
+        summary: "Add callsite-search rule to CLAUDE.md"
+        description: >
+          Add to Agent Behavioral Rules: "When fixing a pattern bug, use LSP
+          findReferences on the affected symbol to find all code callsites
+          before committing. Fix all callsites atomically. Then grep for the
+          same pattern in comments, docs, prompts, and cross-language boundaries
+          where LSP cannot reach."
+        files: [CLAUDE.md]
+        tests: none
+        complexity: trivial
+
+      - id: A2
+        summary: "Add //! module docs to date_utils, cascade, constraints, graph, types"
+        description: >
+          Add //! doc blocks to the 5 modules that lack them. cpm.rs already
+          has an excellent //! block as a model. Each should explain:
+          - Module purpose and key abstractions
+          - date_utils.rs: inclusive convention, shift_date as pub(crate)
+            primitive, which functions are the public API
+          - cascade.rs: cascade algorithm, duration preservation
+          - constraints.rs: constraint types, recalculate_earliest flow
+          - graph.rs: cycle detection
+          - types.rs: core data structures
+        files:
+          - crates/scheduler/src/date_utils.rs
+          - crates/scheduler/src/cascade.rs
+          - crates/scheduler/src/constraints.rs
+          - crates/scheduler/src/graph.rs
+          - crates/scheduler/src/types.rs
+        tests: "cargo doc --no-deps (must succeed with no warnings)"
+        complexity: small
+
+      - id: A3
+        summary: "Convert rust-scheduler.md from copy to pointer"
+        description: >
+          Replace the Date Convention Functions section in rust-scheduler.md
+          with a directive to use LSP hover and documentSymbol on date_utils.rs.
+          Fix the module map (is_weekend → is_weekend_date, add add_days).
+          Remove stale historical notes (replaces next_biz_day_on_or_after).
+          Keep the high-level crate overview and behavioral guidance.
+        files: [.claude/agents/rust-scheduler.md]
+        tests: none
+        complexity: small
+
+      - id: A4
+        summary: "Add crate-level //! doc block to lib.rs"
+        description: >
+          Add //! to lib.rs describing the WASM scheduling engine, its 7
+          exports, and the inclusive end-date convention. This is what
+          cargo doc shows on the crate index page.
+        files: [crates/scheduler/src/lib.rs]
+        tests: "cargo doc --no-deps"
+        complexity: trivial
+
+  - name: "Stage 2: Input Validation Consolidation"
+    description: >
+      Wire up existing validators, add missing validation at system boundaries,
+      and ensure all UI entry points use shared utilities consistently.
+    tasks:
+      - id: B1
+        summary: "Wire validateStartDate to TaskRow InlineEdit"
+        description: >
+          TaskRow startDate InlineEdit (line ~201) has no validate prop.
+          validateStartDate exists in taskFieldValidation.ts but is dead code.
+          Wire it: validate={(v) => validateStartDate(v, task.endDate)}.
+        files: [src/components/table/TaskRow.tsx]
+        tests: "Add test in taskFieldValidation.test.ts for validateStartDate"
+        complexity: trivial
+
+      - id: B2
+        summary: "Add shared validation to TaskBarPopover"
+        description: >
+          TaskBarPopover date inputs have no validate prop and no weekend
+          check on startDate. Add validation using the shared utilities
+          from taskFieldValidation.ts. Show inline error messages instead
+          of silently dropping invalid input.
+        files: [src/components/gantt/TaskBarPopover.tsx]
+        tests: "Verify weekend rejection in existing or new tests"
+        complexity: small
+
+      - id: B3
+        summary: "Add validation to sheetsMapper rowToTask"
+        description: >
+          sheetsMapper.ts rowToTask parses external Sheets data with no
+          validation — a system boundary that CLAUDE.md says must validate.
+          Add: weekend date snapping (ensureBusinessDay/prevBusinessDay),
+          duration >= 1 guard, endDate >= startDate guard. Log warnings
+          for corrected values.
+        files: [src/sheets/sheetsMapper.ts]
+        tests: "Add sheetsMapper test for invalid input handling"
+        complexity: small
+
+  - name: "Stage 3: Test Data Cleanup"
+    description: >
+      Add validation to test helpers and fix existing invalid test data.
+      This is the largest stage — 81 weekend dates and 34 duration mismatches.
+    tasks:
+      - id: C1
+        summary: "Add debug_assert to cascade.rs make_task"
+        description: >
+          Add debug_assert!(!is_weekend_date(start)), debug_assert!(!is_weekend_date(end))
+          to cascade.rs make_task. Do NOT add duration consistency check here
+          because cascade.rs make_task hardcodes duration=7 and callers override
+          it — adding a duration assert would break most tests. Fix the weekend
+          dates in cascade.rs test data (2026-03-01 Sun → 2026-03-02 Mon,
+          2026-03-21 Sat → 2026-03-20 Fri, etc). Recompute all affected
+          assertions using node -e or python3 -c.
+        files: [crates/scheduler/src/cascade.rs]
+        tests: "cargo test — all 121 must pass after date corrections"
+        complexity: medium
+        notes: >
+          ~72 callsites use 2026-03-01 (Sunday). Changing to 2026-03-02 shifts
+          all downstream computed values. Every assertion must be recomputed.
+          NEVER do this arithmetic in your head.
+
+      - id: C2
+        summary: "Add debug_assert to constraints.rs make_task"
+        description: >
+          Add debug_assert for weekend dates AND duration consistency to
+          constraints.rs make_task (which takes explicit duration parameter).
+          Fix the ~34 duration/date mismatches and remaining weekend dates.
+          CPM exception: cpm.rs make_task should NOT add these asserts
+          (CPM uses exclusive integer model, milestones have duration=0).
+        files: [crates/scheduler/src/constraints.rs]
+        tests: "cargo test — all must pass"
+        complexity: medium
+
+      - id: C3
+        summary: "Fix weekend dates in lib.rs and graph.rs test helpers"
+        description: >
+          lib.rs make_task also hardcodes duration=7 with no validation.
+          graph.rs make_task hardcodes start=2026-03-01 (Sunday).
+          Add debug_assert for weekends and fix the dates.
+        files:
+          - crates/scheduler/src/lib.rs
+          - crates/scheduler/src/graph.rs
+        tests: "cargo test"
+        complexity: small
+
+  - name: "Stage 4: Extract getDayPx Utility"
+    description: >
+      Extract the duplicated zoom-to-pixel-per-day formula into a shared
+      utility function.
+    tasks:
+      - id: D1
+        summary: "Add getDayPx to dateUtils.ts and replace 3 callsites"
+        description: >
+          Add getDayPx(zoom: ZoomLevel, colWidth: number): number to
+          dateUtils.ts. Replace the identical ternary in GanttChart.tsx:128,
+          TaskBar.tsx:103, and dependencyUtils.ts:28. Also fix TodayLine.tsx
+          to call getColumnWidth instead of duplicating its logic.
+        files:
+          - src/utils/dateUtils.ts
+          - src/components/gantt/GanttChart.tsx
+          - src/components/gantt/TaskBar.tsx
+          - src/components/gantt/TodayLine.tsx
+          - src/utils/dependencyUtils.ts
+        tests: "Add unit test for getDayPx in dateUtils.test.ts"
+        complexity: small
+
+verification:
+  - "cargo test — all Rust tests pass"
+  - "npx vitest run — all TS tests pass"
+  - "npx tsc --noEmit — no type errors"
+  - "cargo doc --no-deps — no warnings"
+  - "./scripts/full-verify.sh — full pass"
+
+scope_boundaries:
+  - "No type system changes (newtypes, branded types) — that is Phase 16b"
+  - "No new features or user-facing behavior changes"
+  - "No refactoring beyond the specific gaps identified"
+  - "CPM test helpers are exempt from weekend/duration validation"
+
+estimated_complexity: medium
+estimated_groups: 2  # A+B in parallel, then C+D in parallel

@@ -304,7 +304,7 @@ describe('sheetsMapper', () => {
       expect(task.endDate).toBe(task.startDate);
     });
 
-    it('snaps weekend constraintDate to Monday', () => {
+    it('snaps weekend constraintDate forward for start constraints', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[2] = '2026-03-02';
@@ -312,7 +312,18 @@ describe('sheetsMapper', () => {
       row[18] = 'SNET';
       row[19] = '2026-03-07'; // Saturday
       const task = rowToTask(row)!;
-      expect(task.constraintDate).toBe('2026-03-09'); // Monday
+      expect(task.constraintDate).toBe('2026-03-09'); // Monday (ensureBusinessDay)
+    });
+
+    it('snaps weekend constraintDate backward for finish constraints', () => {
+      const row = Array(20).fill('');
+      row[0] = 'x';
+      row[2] = '2026-03-02';
+      row[3] = '2026-03-06';
+      row[18] = 'FNET';
+      row[19] = '2026-03-07'; // Saturday
+      const task = rowToTask(row)!;
+      expect(task.constraintDate).toBe('2026-03-06'); // Friday (prevBusinessDay)
     });
   });
 

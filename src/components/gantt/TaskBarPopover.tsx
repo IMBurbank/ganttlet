@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import type { Task } from '../../types';
 import { businessDaysDelta, taskEndDate, taskDuration, isWeekendDate } from '../../utils/dateUtils';
-import { validateStartDate, validateEndDate } from '../../utils/taskFieldValidation';
+import { validateEndDate } from '../../utils/taskFieldValidation';
 
 const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
   ASAP: 'As Soon As Possible',
@@ -73,9 +73,9 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
     if (value === oldValue) return;
 
     if (field === 'startDate') {
-      const error = validateStartDate(value, task!.endDate);
-      if (error) {
-        setDateError(error);
+      // Only check weekend — skip ordering check since endDate is recalculated below
+      if (isWeekendDate(value)) {
+        setDateError('Start date cannot be a weekend');
         return;
       }
       setDateError(null);
@@ -121,6 +121,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
       }
     } else {
+      setDateError(null);
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field, value });
       dispatch({
         type: 'ADD_CHANGE_RECORD',

@@ -24,6 +24,9 @@
 //! - `ff_successor_start(pred_end, lag, succ_dur)` — Finish-to-Finish
 //! - `sf_successor_start(pred_start, lag, succ_dur)` — Start-to-Finish
 //!
+//! **Calendar day shift:**
+//! - `add_days(date, delta)` — add/subtract calendar days (no weekend skipping)
+//!
 //! **Shift counting:**
 //! - `business_day_delta(from, to)` — non-negative business day count between dates
 

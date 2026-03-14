@@ -25,12 +25,12 @@ import {
   businessDaysDelta,
   taskEndDate,
   taskDuration,
+  isWeekendDate,
 } from '../../utils/dateUtils';
 import {
   validateTaskName,
   validateDuration,
   validateEndDate,
-  validateStartDate,
 } from '../../utils/taskFieldValidation';
 
 interface TaskRowProps {
@@ -204,7 +204,7 @@ export default function TaskRow({
             displayValue={formatDisplayDate(task.startDate)}
             type="date"
             onSave={(v) => handleDateUpdate('startDate', v)}
-            validate={(v) => validateStartDate(v, task.endDate)}
+            validate={(v) => (isWeekendDate(v) ? 'Start date cannot be a weekend' : null)}
           />
         );
       case 'endDate':

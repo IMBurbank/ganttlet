@@ -147,9 +147,11 @@ function parseConstraintFields(
     return { constraintType };
   }
 
-  // Snap weekend constraint dates to next business day
+  // Snap weekend constraint dates: forward for start constraints, backward for finish constraints
   let constraintDate = rawDate;
-  const snapped = format(ensureBusinessDay(parseISO(rawDate)), 'yyyy-MM-dd');
+  const FINISH_CONSTRAINTS = new Set(['FNET', 'FNLT', 'MFO']);
+  const snapFn = FINISH_CONSTRAINTS.has(ct) ? prevBusinessDay : ensureBusinessDay;
+  const snapped = format(snapFn(parseISO(rawDate)), 'yyyy-MM-dd');
   if (snapped !== rawDate) {
     console.warn(`parseConstraintFields: snapped constraintDate "${rawDate}" to "${snapped}"`);
     constraintDate = snapped;

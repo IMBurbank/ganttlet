@@ -21,8 +21,8 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 - `cascade.rs` — `cascade_dependents()`: BFS propagation of date delta to all 4 dep types (FS/SS/FF/SF). Only forward moves propagate (asymmetric). Slack-aware: only cascades when constraint violated. Preserves duration, handles weekends, avoids double-shifting in diamonds.
 - `constraints.rs` — `compute_earliest_start()` (per-task from deps + SNET floor) and `recalculate_earliest()` (full recalc via Kahn's topo sort with today-floor and all 8 constraint types)
 - `graph.rs` — `would_create_cycle()`: BFS reachability check
-- `date_utils.rs` — `shift_date()` (pub(crate)), `task_duration()`, `task_end_date()`, dep-type helpers, `is_weekend()`, `parse_date()`/`format_date()`. Hand-rolled, no external lib.
-- `lib.rs` — 7 `#[wasm_bindgen]` exports + `ConflictResult` struct + `find_conflicts()`. Uses `serde_wasm_bindgen` for JsValue conversion.
+- `date_utils.rs` — `shift_date()` (pub(crate)), `add_days()`, `task_duration()`, `task_end_date()`, dep-type helpers, `is_weekend_date()`, `parse_date()`/`format_date()`. Hand-rolled, no external lib.
+- `lib.rs` — 7 `#[wasm_bindgen]` exports + `ConflictResult` struct + `detect_conflicts()` (wraps internal `find_conflicts()`). Uses `serde_wasm_bindgen` for JsValue conversion.
 
 ## Constraint behavior (reference)
 - ASAP: no-op (default)
@@ -50,17 +50,10 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 5. If tests fail, diagnose and fix (up to 3 attempts)
 6. Return: what was changed, what tests were added, cargo test output
 
-## Date Convention Functions (date_utils.rs)
-- `task_duration(start, end)` — inclusive business day count
-- `task_end_date(start, dur)` — `shift_date(start, dur - 1)`
-- `task_start_date(end, dur)` — `shift_date(end, -(dur - 1))` (inverse of `task_end_date`)
-- `ensure_business_day(date)` — snap forward to Monday (replaces `next_biz_day_on_or_after`)
-- `prev_business_day(date)` — snap backward to Friday
-- `fs_successor_start(pred_end, lag)` — `shift_date(pred_end, 1 + lag)`
-- `ss_successor_start(pred_start, lag)` — `shift_date(pred_start, lag)`
-- `ff_successor_start(pred_end, lag, succ_dur)` — end-constrained: derives start from finish
-- `sf_successor_start(pred_start, lag, succ_dur)` — start-to-finish: derives start from finish
-- `business_day_delta(from, to)` — non-negative business day count; returns 0 if `to <= from`
+## Date Convention Functions
+Use LSP `hover` on any function in `date_utils.rs` for its contract, or
+`documentSymbol` to list all exports. The `///` doc comments are the source of truth.
+Do NOT maintain a duplicate function list here — it drifts from source.
 
 ## NEVER do math in your head
 Use `node -e` or `python3 -c` for any date/arithmetic calculations. LLMs get these wrong.

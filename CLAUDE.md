@@ -34,6 +34,10 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - Do NOT enter plan mode or ask for confirmation when executing from a prompt file.
 - Commit after each logical change, not just at the end.
 - Use conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
+- **When fixing a pattern bug**, use LSP `findReferences` on the affected symbol to find
+  all code callsites before committing. Fix all callsites atomically in one commit. Then
+  use Grep for the same pattern in comments, docs, prompts, and cross-language boundaries
+  (TS↔Rust/WASM) where LSP cannot reach.
 - If you encounter test-specific code paths in production builds, remove them.
 - Keep dependencies minimal — every added dependency is attack surface.
 - NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).

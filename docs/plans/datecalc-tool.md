@@ -880,6 +880,8 @@ produces the binary; this should be part of the dev container setup.
 | `crates/scheduler/CLAUDE.md` | Modify | 1 | Update "Never" section |
 | `.claude/settings.json` | Modify | 0 | Add PostToolUse verify hook |
 | `Dockerfile` | Modify | 1 | Add `bizday` to PATH |
+| `crates/scheduler/clippy.toml` | Create | — | `disallowed-methods` for `shift_date` (compile-time ban) |
+| `.eslintrc` / `eslint.config.js` | Modify | — | `no-restricted-syntax` for `differenceInBusinessDays` (lint-time ban) |
 | `.claude/logs/bizday.log` | Created at runtime | 0,1,2 | Unified event log (gitignored via `.claude/*` glob) |
 
 ---
@@ -1181,6 +1183,8 @@ representation needed; the number in `bizday` is the number in code.
 | Layer | What it prevents | When | Status |
 |-------|-----------------|------|--------|
 | API design (single convention) | Using wrong function entirely | Compile time | **Done** (Phase 16) |
+| Clippy `disallowed-methods` | Calling `shift_date` from external code | Lint/CI time | This plan |
+| ESLint `no-restricted-syntax` | Calling `differenceInBusinessDays` directly | Lint/CI time | This plan |
 | `bizday` CLI + hook | Agent writes wrong date/duration in test/code | Runtime | This plan |
 | Property-based tests (proptest) | Engine bugs in `date_utils` | Test time | This plan |
 | Pre-commit hook | Banned function names in new code | Commit time | **Done** (Phase 16c) |
@@ -1375,51 +1379,76 @@ Sheets data becomes a workflow.
 
 ## State-of-the-Art Comparison
 
-Assessed against professional scheduling tools (MS Project, Primavera P6, Smartsheet),
-date CLIs (`dateutils`, NumPy), agent safety frameworks (NeMo Guardrails, Bedrock
-Guardrails), and static analysis tools (ESLint, Clippy, Semgrep). As of March 2026:
+Assessed against deployed tools and published research as of March 2026.
 
-### Where `bizday` is ahead
+### What already exists (and should be used alongside `bizday`)
+
+**Clippy `disallowed-methods`** (Rust) and **ESLint `no-restricted-syntax`** (TS)
+can ban wrong functions at lint/CI time — stronger than a hook because they block
+the build. These should be added to the project independently of `bizday`:
+
+```toml
+# clippy.toml — ban direct shift_date calls from non-scheduler code
+disallowed-methods = [
+    { path = "ganttlet_scheduler::date_utils::shift_date", reason = "Use task_end_date() — shift_date is internal" },
+]
+```
+
+```json
+// .eslintrc — ban raw differenceInBusinessDays in favor of taskDuration
+{ "no-restricted-syntax": ["error",
+    { "selector": "CallExpression[callee.name='differenceInBusinessDays']",
+      "message": "Use taskDuration() for inclusive [start, end] counting" }
+]}
+```
+
+These solve the "agent calls wrong function" problem at compile/lint time.
+`bizday`'s hook does not need to duplicate this.
+
+### Where `bizday` is ahead of the field
 
 | Capability | Industry status | `bizday` |
 |---|---|---|
-| Passive date error detection | **Does not exist** — no framework detects date errors in agent output | Layer 0 PostToolUse hook, involuntary, 0% false positive |
-| Single-convention CLI | No date CLI matches a project's internal convention | `bizday` uses inclusive duration — same number goes into `taskEndDate()` |
-| Convention-aligned naming | NumPy `busday` uses `[begin, end)` half-open; creates training-data collision | `bizday` — no conflicting convention in LLM training data |
-| Stickiness bridge | No agent framework teaches tool usage via error messages | Hook warnings include `Run: bizday ...` commands — passive learning |
-| Same-engine guarantee | MS Project↔P6 imports have known divergence bugs | `bizday` IS the scheduler engine — zero divergence by construction |
-| Date-aware linting | No production linter catches date calculation bugs | Regex-based with measured AST upgrade path |
-| Tool adoption measurement | No framework measures whether agents actually use safety tools | Layer 2 coverage + proactive rate metrics |
+| Verify date computation results | **Nothing deployed** — no tool checks if an agent wrote a wrong date literal | PostToolUse hook computes correct answer, warns on mismatch |
+| Convention-specific date CLI | `dateutils` is best CLI but has no convention enforcement | `bizday <date> N` = `taskEndDate(start, N)` — same number in CLI and code |
+| Tool adoption measurement | **No framework** — AGENTIF measures single-session compliance, nothing measures longitudinal | Layer 2 (`bizday report --trend`) tracks proactive use across sessions |
+| Stickiness bridge | No agent framework teaches tool usage via error messages | Hook warnings include `Run: bizday ...` — passive learning |
 
-### Where `bizday` matches
+### What the research says about agent tool use
 
-- **Inclusive end-date convention**: Aligns with MS Project and P6 (`finish = start + duration - 1`
-  in working days). Industry standard for scheduling software.
-- **Property-based testing**: 6 properties cover the expert checklist (roundtrip, monotonicity,
-  weekend exclusion). Generators bias toward weekday dates.
-- **API design**: `shift_date` is `pub(crate)`, only `task_end_date`/`task_duration` are public.
-  Mirrors P6's approach (hours internally, days at display layer). Already implemented.
+AGENTIF (NeurIPS 2025) found that **the best LLMs follow fewer than 30% of
+tool constraints perfectly.** Tool constraints and condition constraints are
+the hardest categories. Performance degrades with instruction complexity.
 
-### Where `bizday` falls behind — and mitigations
+**Implication for `bizday`**: Proactive CLI use will likely be low — agents
+will forget to call it, exactly as predicted in the Problem Statement. This
+validates the passive-first architecture: the hook catches errors regardless
+of whether agents use the CLI. The CLI's value is for the cases where agents
+DO reach for a tool — making the right tool cheaper than the wrong one.
+
+### Where `bizday` matches the field
+
+- **Inclusive end-date convention**: Aligns with MS Project and P6. Industry
+  standard for scheduling software.
+- **API design prevention**: Same approach as MS Project SDK and P6 API —
+  the engine computes, the caller doesn't do the math. Already implemented
+  via Phase 16 (`shift_date` is `pub(crate)`).
+- **Property-based testing**: 6 properties cover the expert checklist.
+
+### Where `bizday` falls behind
 
 **1. No holiday calendar support.**
-Every professional tool supports custom non-working day calendars (MS Project exception days,
-P6 activity-level calendar overrides, NumPy `holidays` parameter, `dateutils` `--skip` flag).
-The scheduler doesn't support holidays either, so this is acceptable for now. **Dependency**:
-if the scheduler ever adds holiday support, `bizday` must gain it simultaneously — or the
-same-engine guarantee breaks.
+Every professional tool supports custom non-working day calendars. The
+scheduler doesn't support holidays either, so this is acceptable for now.
+If the scheduler adds holidays, `bizday` must follow.
 
 **2. No hours/sub-day resolution.**
-P6 avoids the fence-post problem entirely by tracking hours internally. A 1-day task is "8 hours
-starting at 09:00" — no ambiguity about endpoint inclusion. The plan's inclusive convention
-works but is inherently more error-prone than an hours-based model. This is an architectural
-constraint of the scheduler (integer-day model), not something `bizday` can address alone.
+P6 avoids fence-post errors by tracking hours internally. The scheduler
+uses integer days — an architectural constraint `bizday` can't address.
 
 **3. No cross-file relationship tracking.**
-Layer 0 verifies dates within a single edit. Semgrep-style cross-file pattern matching could
-detect inconsistencies between related files (e.g., a task start date in one file and its
-predecessor's end date in another). **Future option**: use the audit log as a session-scoped
-date registry — track dates written in one edit, verify consistency in subsequent edits.
+Layer 0 verifies dates within a single edit. Cross-file consistency would
+require a session-scoped date registry (future work).
 
 ---
 
@@ -1453,5 +1482,6 @@ Crate structure first, then core logic, property tests, then hook integration:
 11. Smoke test: reproduce all 3 historical bug cases with `bizday`
 12. `crates/bizday/src/report.rs` — `bizday report` (log parsing, metrics, --trend, --mismatches, --unverified, --false-matches, --slow, --pr-summary)
 13. `crates/bizday/tests/report.rs` — status output tests (known log input → expected metrics)
-14. Integration: CLAUDE.md, crates/scheduler/CLAUDE.md, Dockerfile
-15. Stickiness test: 5 sessions with coverage measurement
+14. Clippy `disallowed-methods` in `crates/scheduler/clippy.toml` + ESLint `no-restricted-syntax` — compile/lint-time function bans (independent of `bizday`, can land first)
+15. Integration: CLAUDE.md, crates/scheduler/CLAUDE.md, Dockerfile
+16. Stickiness test: 5 sessions with coverage measurement

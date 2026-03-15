@@ -80,11 +80,12 @@ A PostToolUse hook on `Edit|Write` that fires after every code edit. It:
 1. **Extracts date literals** (`YYYY-MM-DD` patterns) from the written content
 2. **Identifies scheduling contexts** — date literals near keywords like
    `start`, `end`, `duration`, `lag`, `assert`, `expect`, `constraint`,
-   `shift_date`, `taskDuration`, `taskEndDate`,
-   `task_duration`, `task_end_date`, `business_day_delta`
-3. **Checks for verifiable relationships** — if the edit contains both a
-   start date and an end date with a duration, or a date with `+N` business
-   days, the hook computes the expected result
+   `taskDuration`, `taskEndDate`, `task_duration`, `task_end_date`,
+   `business_day_delta`, `start_date`, `end_date`
+3. **Checks for verifiable relationships** — if the edit contains a
+   `taskEndDate`/`task_end_date` call with literal arguments near a date result,
+   or a `taskDuration`/`task_duration` call near a number, the hook computes
+   the expected result
 4. **Warns on mismatch** — emits a user-visible warning with the correct value
 
 ### What It Can Verify (100% accurate, 0% false positive)
@@ -110,9 +111,8 @@ has ONE correct answer — `shift_date(start, dur - 1)`. The hook can verify
 | Dates in comments/docs | Excluded by design — not executable |
 
 The first case (wrong function) is the only remaining gap — Layer 1 (`bizday`) helps
-agents catch this by comparing calendar vs business day results. Layer 1's **dual
-representation** output (see Output Format) also prevents the most common fence-post
-error: using an inclusive duration where an offset is needed, or vice versa.
+agents catch this when they check their work: `bizday <date> <date>` shows inclusive
+business days alongside calendar days, making the difference visible.
 
 ### Performance
 
@@ -174,7 +174,7 @@ zero divergence risk. Logs findings to `.claude/logs/bizday.log` for Layer 2.
 
 Performance budget: **~3ms** total (native binary, no interpreter startup).
 
-**Output format** (every warning includes a `bizday` command + dual representation):
+**Output format** (every warning includes a suggested `bizday` command):
 ```json
 {"warning": "Date check: taskEndDate(2026-03-11, 10) should be 2026-03-24, but code has 2026-03-25.\n  Run: bizday 2026-03-11 end 10"}
 ```
@@ -867,7 +867,7 @@ produces the binary; this should be part of the dev container setup.
 |------|--------|-------|---------|
 | `crates/bizday/Cargo.toml` | Create | 0,1 | Crate manifest — depends on `ganttlet-scheduler` + `serde_json` |
 | `crates/bizday/src/main.rs` | Create | 1 | CLI arg parsing, dispatch |
-| `crates/bizday/src/compute.rs` | Create | 1 | +N, -N, diff, end, info operations using `date_utils` |
+| `crates/bizday/src/compute.rs` | Create | 1 | Duration, diff, info operations using `date_utils` |
 | `crates/bizday/src/verify.rs` | Create | 0 | Lint/verify logic (shared: PostToolUse hook + `bizday lint`) |
 | `crates/bizday/src/log.rs` | Create | 0,1,2 | Append to `.claude/logs/bizday.log` (unified: usage + audit + latency) |
 | `crates/bizday/tests/compute.rs` | Create | 1 | Hand-written integration tests for all operations |
@@ -1441,7 +1441,7 @@ date registry — track dates written in one edit, verify consistency in subsequ
 Crate structure first, then core logic, property tests, then hook integration:
 
 1. `crates/bizday/Cargo.toml` — create crate with `ganttlet-scheduler` path dep, `proptest` + `tempfile` as dev-dependencies (no workspace — standalone crate)
-2. `crates/bizday/src/compute.rs` — core date math operations (+N, -N, diff, end, info) using `ganttlet_scheduler::date_utils`
+2. `crates/bizday/src/compute.rs` — core operations (duration → end date, two-date → duration, weekend check) using `ganttlet_scheduler::date_utils`
 3. `crates/bizday/src/main.rs` — CLI arg parsing + dispatch
 4. `crates/bizday/tests/compute.rs` — hand-written integration tests for all operations (duration, diff, info, verify)
 5. `crates/bizday/tests/proptest.rs` — property-based tests (6 properties, 256 cases each). Run early: these test the underlying `date_utils`, not just `bizday`. Any failure here is a scheduler engine bug.

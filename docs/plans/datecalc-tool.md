@@ -389,17 +389,17 @@ proptest = "1"
 tempfile = "3"
 ```
 
-**Note**: The scheduler crate is published as `ganttlet-scheduler`. In Rust
-code, import as `use ganttlet_scheduler::date_utils::*;` (hyphens become
-underscores). There is no workspace-level `Cargo.toml` — `bizday` is a
-standalone crate with a path dependency. No workspace setup is needed.
+**Note**: `bizday` depends on `ganttlet-scheduler` at runtime — same date math
+as the scheduling engine, zero divergence risk. There is no workspace-level
+`Cargo.toml` — `bizday` is a standalone crate with a path dependency. See the
+Future section on extracting `bizday` as an independent tool.
 
 ```
 crates/bizday/
 ├── Cargo.toml
 └── src/
     ├── main.rs      # CLI arg parsing, dispatch
-    ├── compute.rs   # +N, -N, diff, end, info operations
+    ├── compute.rs   # Date math operations via ganttlet_scheduler::date_utils
     ├── verify.rs    # lint/verify logic (shared with PostToolUse hook)
     ├── log.rs       # Append to .claude/logs/bizday.log (unified events)
     └── report.rs    # bizday report — log parsing, metrics, trend, drill-downs
@@ -418,9 +418,24 @@ crate keeps the WASM artifact clean and lets `bizday` pull in CLI-only dependenc
 (serde_json for stdin parsing, potentially `clap` later) without bloating the
 browser bundle.
 
-**No cross-verification needed**: The earlier plan had a stretch goal to cross-check
-date-fns against the Rust engine. Since `bizday` IS the Rust engine, this is
-automatic — every `bizday` computation uses the exact same code path as the scheduler.
+**No cross-verification needed**: Since `bizday` uses the scheduler's
+`date_utils`, every computation uses the exact same code path. No divergence.
+
+### Structure for Future Extraction
+
+`bizday` uses `ganttlet-scheduler` directly — full benefit, zero divergence.
+But the module structure should make future extraction straightforward:
+
+| Module | Project-specific? | Notes for extraction |
+|--------|------------------|---------------------|
+| `compute.rs` | **Yes** — calls `ganttlet_scheduler::date_utils` | Replace with self-contained biz day math (~20 lines each function) |
+| `verify.rs` | **Yes** — hardcodes `taskEndDate`/`task_end_date` patterns | Move function names to config file (`.bizday.toml`) |
+| `log.rs` | No | Fully general |
+| `report.rs` | No | Fully general |
+| `main.rs` | No | CLI parsing is convention-agnostic |
+
+**Don't do now**: self-contained math, config files, or abstraction layers.
+**Do now**: keep module boundaries clean so each "Yes" is a single-file change.
 
 ---
 
@@ -1250,6 +1265,31 @@ Compatibility:
 
 ---
 
+## Standalone Extraction (Future)
+
+`bizday` currently depends on `ganttlet-scheduler` for date math — this is
+the right choice for Ganttlet (zero divergence, same code path). To extract
+`bizday` as a standalone tool for other projects:
+
+1. **Copy `compute.rs` date math inline** — the functions are ~20 lines each
+   (weekend check via Zeller, day iteration). Remove the `ganttlet-scheduler`
+   runtime dependency. Keep it as a dev-dependency for proptest cross-checks.
+
+2. **Move function-name patterns to config** — `verify.rs` hardcodes
+   `taskEndDate`/`task_end_date`. Move to `.bizday.toml` so other projects
+   can define their own patterns (e.g., `calculateEndDate`, `getFinishDate`).
+
+3. **Make convention configurable** — inclusive duration is the default. Add
+   a config option for half-open convention if a project needs it.
+
+4. **Publish to crates.io** — the proptest suite becomes the compatibility
+   test between `bizday`'s internal math and whatever engine a project uses.
+
+**Trigger**: When a second project wants `bizday`. Until then, coupling to
+the scheduler is the simpler, safer choice.
+
+---
+
 ## Batch / Pipeline Mode (Future)
 
 `dateutils`' `datediff` and `dateadd` support stdin streaming for batch
@@ -1276,8 +1316,8 @@ Sheets data becomes a workflow.
 
 | Risk | Likelihood | Mitigation | Evidence |
 |------|-----------|------------|----------|
-| Agent forgets bizday exists | Medium | CLAUDE.md + Layer 0 catches some errors passively | Layer 0 catches 2/3 historical bugs — Layer 1 stickiness still matters |
-| Agent uses bizday but misinterprets output | Low | Line 1 is unambiguous; dual representation shows both duration and offset with function names | N/A — not yet tested |
+| Agent forgets bizday exists | Medium | CLAUDE.md + Layer 0 catches wrong literals passively | Layer 0 reliably catches weekend dates; partially catches wrong duration/end-date literals |
+| Agent uses bizday but misinterprets output | **Low** | Single convention — output number = `taskEndDate` argument directly | No dual representation to confuse |
 | bizday disagrees with scheduling engine | **Zero** | bizday IS the scheduling engine — same `date_utils` code | No cross-verification needed; single source of truth |
 | Hook false positives | **Proven: 0%** | Only checks provably unambiguous patterns | 13 test cases, 11 pass, 2 failures were from ambiguous check (now removed) |
 | Hook performance impact | **~3ms** | Native Rust binary, no interpreter startup | 40x faster than Node.js plan (~85ms). Existing verify.sh takes seconds |

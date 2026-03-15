@@ -273,13 +273,13 @@ agent's training data.
 ### Interface: Positional, No Flags, Business-Days-First
 
 ```
-bizday <date> N          → add N business days         (most common)
-bizday <date> -N         → subtract N business days
-bizday <date> Nc         → add N calendar days
-bizday <date> -Nc        → subtract N calendar days
+bizday <date> N          → end date for N-day task      (taskEndDate — most common)
 bizday <date> <date>     → duration (inclusive) + calendar days between dates
 bizday <date>            → info (day-of-week, weekend?, next biz day)
-bizday <date> end <dur>  → last working day (inclusive end) for start + duration
+bizday <date> +N         → shift N business days forward (rare — internal shift semantics)
+bizday <date> -N         → shift N business days back
+bizday <date> Nc         → add N calendar days
+bizday <date> -Nc        → subtract N calendar days
 bizday verify <date> N <expected>  → assert and exit 0/1
 bizday lint <file>       → scan file for date literals, verify all computable ones
 bizday false-match <file>:<line>  → report a false positive (appends to audit log)
@@ -292,22 +292,26 @@ bizday help              → usage summary (all operations above)
 ```
 
 **Design decisions**:
-1. **Business days is the default** — no flag needed. Calendar days require
+1. **Inclusive duration is the default** — `bizday 2026-03-11 10` means
+   "end date for a 10-day task starting March 11" = `taskEndDate(start, 10)`.
+   This matches the project's only public API. No conversion needed —
+   the number an agent writes in `bizday` is the same number they write in
+   `taskEndDate()`. The old plan used offset semantics (like `addBusinessDays`),
+   which required agents to remember which convention they were in.
+2. **Shift requires explicit `+` prefix** — `bizday 2026-03-11 +5` shifts 5
+   business days forward (like `shift_date`). This is rare — only needed when
+   agents reason about cascade internals or arbitrary date offsets. The `+`
+   makes it visually distinct from duration. A bare number is always a duration.
+3. **Business days is the default** — no flag needed. Calendar days require
    explicit `c` suffix. This matches the scheduler engine's convention and
    makes the safe choice the easy choice.
-2. **Signed integer offset** — `bizday 2026-03-11 5` adds 5 business days,
-   `bizday 2026-03-11 -5` subtracts. Mirrors NumPy's `busday_offset(date, N)`
-   where the sign is part of the integer, not a separate flag. No ambiguity:
-   the parser distinguishes `5` (integer → offset) from `2026-03-24` (date →
-   diff). `+5` also works (shell treats it as `5`) but isn't required — one
-   fewer rule for agents to remember.
-3. **`end` uses the inclusive convention** — returns the last working day
-   (`shift_date(start, dur - 1)` internally). Matches the Phase 16 convention.
-4. **`bizday <date> <date>` IS the duration command** — no separate `dur` needed.
-   Two dates = diff. Returns inclusive duration (matching `taskDuration`) as
-   the headline number, plus calendar days. Fewer commands = less to remember.
+4. **`bizday <date> <date>` IS the duration command** — no separate subcommand
+   needed. Two dates = diff. Returns inclusive duration (matching `taskDuration`)
+   as the headline number, plus calendar days. Fewer commands = less to remember.
 5. **`verify` mode** — for use in tests and pre-commit hooks. Returns exit
-   code 0 if the expected date matches, 1 if not (with diff shown).
+   code 0 if the expected date matches, 1 if not (with diff shown). Uses
+   inclusive convention: `bizday verify 2026-03-11 10 2026-03-24` checks that
+   `taskEndDate("2026-03-11", 10) == "2026-03-24"`.
 6. **`lint` mode** — runs the same checks as the PostToolUse hook against a
    file. Agents can run `bizday lint src/state/ganttReducer.ts` to verify all
    date literals before committing. Cost is ~3ms per file (native binary,
@@ -320,37 +324,32 @@ bizday help              → usage summary (all operations above)
 number). Context goes on line 2+ as comments. This means `$(bizday ...)` in
 shell substitution always captures just the answer.
 
-**Dual-representation output**: Every date computation has two correct numbers —
-the inclusive duration (`taskDuration`) and the offset (`addBusinessDays`). Agents
-picking the wrong one is the #1 fence-post error. `bizday` shows both, mapped to
-the exact function names agents write in code, so they never need to do `+1`/`-1`
-conversion mentally.
+**Single convention**: Every number in `bizday` output is an inclusive duration,
+matching `taskEndDate` / `taskDuration` exactly. No offset, no `±1` conversion,
+no ambiguity about which number to use.
 
 ```
-$ bizday 2026-03-11 9
+$ bizday 2026-03-11 10
 2026-03-24
-# addBusinessDays(2026-03-11, 9)
-# taskEndDate(2026-03-11, 10) — inclusive duration 10
+# taskEndDate(2026-03-11, 10)
 
 $ bizday 2026-03-11 2026-03-24
 10
-# duration: 10 — taskDuration(2026-03-11, 2026-03-24), inclusive [start, end]
-# offset: 9 — addBusinessDays(2026-03-11, 9) = 2026-03-24
+# taskDuration(2026-03-11, 2026-03-24), inclusive [start, end]
 # calendar: 13 days
 
 $ bizday 2026-03-07
 Saturday (weekend) → next business day: 2026-03-09
 
-$ bizday 2026-03-11 end 10
+$ bizday 2026-03-11 +9
 2026-03-24
-# taskEndDate(2026-03-11, 10) = addBusinessDays(2026-03-11, 9)
-# taskDuration(2026-03-11, 2026-03-24) = 10
+# shift: 9 business days forward from 2026-03-11
 
-$ bizday verify 2026-03-11 5 2026-03-18
+$ bizday verify 2026-03-11 10 2026-03-24
 OK
 
-$ bizday verify 2026-03-11 5 2026-03-17
-MISMATCH: expected 2026-03-17, got 2026-03-18
+$ bizday verify 2026-03-11 10 2026-03-25
+MISMATCH: taskEndDate(2026-03-11, 10) = 2026-03-24, not 2026-03-25
 
 $ bizday lint crates/scheduler/src/cascade.rs
 Line 102: task_end_date("2026-03-11", 3) → "2026-03-13" ✓
@@ -359,13 +358,12 @@ Line 640: weekend date "2026-03-07" in start_date context ✗
 3 dates checked, 2 OK, 1 warning
 ```
 
-**Why dual representation matters**: An agent about to write
-`addBusinessDays(start, 10)` sees `offset: 9` in the output and self-corrects.
-An agent about to write `taskDuration(start, end)` sees `duration: 10` and
-confirms. The tool eliminates the mental `±1` conversion that causes fence-post
-bugs.
+**Why single convention matters**: The number an agent passes to `bizday` is
+the same number they write in `taskEndDate()`. No translation step, no chance
+to pick the wrong one. `bizday 2026-03-11 10` → `2026-03-24` →
+`taskEndDate("2026-03-11", 10)` in code. One number, one meaning, one answer.
 
-Agents can use inline: `start=$(bizday 2026-03-06 5)` captures `2026-03-13`.
+Agents can use inline: `end=$(bizday 2026-03-11 10)` captures `2026-03-24`.
 Duration: `dur=$(bizday 2026-03-11 2026-03-24)` captures `10`. The `#` comment
 lines are ignored by shell substitution.
 
@@ -722,9 +720,9 @@ Replace the verbose date math examples with:
 
 ```markdown
 - **Date/duration math**: Use `bizday` (native Rust binary). NEVER compute dates mentally.
-  - `bizday 2026-03-11 5` → add 5 business days
-  - `bizday 2026-03-11 2026-03-24` → diff between dates (inclusive duration + calendar)
-  - `bizday 2026-03-11 end 10` → last working day for duration 10 (inclusive)
+  - `bizday 2026-03-11 10` → end date for 10-day task (= taskEndDate)
+  - `bizday 2026-03-11 2026-03-24` → inclusive duration between dates (= taskDuration)
+  - `bizday 2026-03-07` → weekend check + next business day
   - See `bizday help` for all operations.
 ```
 
@@ -810,17 +808,15 @@ detector would also warn if the agent wrote `workingDaysBetween` instead of
 ```
 $ bizday 2026-03-06 2026-03-13
 6
-# duration: 6 — taskDuration(2026-03-06, 2026-03-13), inclusive [start, end]
-# offset: 5 — addBusinessDays(2026-03-06, 5) = 2026-03-13
+# taskDuration(2026-03-06, 2026-03-13), inclusive [start, end]
 # calendar: 7 days  ← DIFFERENT from business days
 
 $ bizday 2026-03-06 5c
 2026-03-11  ← calendar days: wrong answer for business days
 
-$ bizday 2026-03-06 5
+$ bizday 2026-03-06 6
 2026-03-13
-# addBusinessDays(2026-03-06, 5)
-# taskEndDate(2026-03-06, 6) — inclusive duration 6
+# taskEndDate(2026-03-06, 6)
 ```
 
 **Verdict**: Partial Layer 0 (catches wrong duration value), Layer 1 for
@@ -839,8 +835,9 @@ fires with 100% accuracy.
 $ bizday 2026-03-07
 Saturday (weekend) → next business day: 2026-03-09
 
-$ bizday 2026-03-06 1
-2026-03-09  ← Monday: skips weekend correctly
+$ bizday 2026-03-06 2
+2026-03-09
+# taskEndDate(2026-03-06, 2)  ← Fri + 2-day task = Mon
 ```
 
 **Verdict**: Both layers. Layer 0 catches it passively even if agent forgets
@@ -859,14 +856,12 @@ is an algorithm bug, not a date math bug — no hook can catch that.
 ```
 $ bizday 2026-03-10 2026-03-13
 3
-# duration: 3 — taskDuration(2026-03-10, 2026-03-13), inclusive [start, end]
-# offset: 2 — addBusinessDays(2026-03-10, 2) = 2026-03-13
+# taskDuration(2026-03-10, 2026-03-13), inclusive [start, end]
 # calendar: 3 days
 
-$ bizday 2026-03-06 1
+$ bizday 2026-03-06 2
 2026-03-09
-# addBusinessDays(2026-03-06, 1)
-# taskEndDate(2026-03-06, 2) — inclusive duration 2
+# taskEndDate(2026-03-06, 2)
 
 # Required (Mar 09) < current (Mar 13) → slack absorbs, no cascade needed
 ```
@@ -1101,16 +1096,16 @@ uses only inclusive duration:
 | `task_start_date(end, duration)` | Start from end + duration | **`pub`** |
 | `shift_date(date, offset)` | Move a date by N business days | **`pub(crate)`** — internal only |
 
-One convention (inclusive) in all external code. `bizday`'s dual representation
-shows both duration and offset as informational context — agents see the
-function names they should use in code.
+One convention (inclusive) in all external code. `bizday` uses the same
+convention — `bizday <date> N` = `taskEndDate(start, N)`. No dual
+representation needed; the number in `bizday` is the number in code.
 
 ### Layered Safety Model
 
 | Layer | What it prevents | When | Status |
 |-------|-----------------|------|--------|
 | API design (single convention) | Using wrong function entirely | Compile time | **Done** (Phase 16) |
-| `bizday` dual representation | Agent writes wrong number in test/code | Runtime | This plan |
+| `bizday` CLI + hook | Agent writes wrong date/duration in test/code | Runtime | This plan |
 | Property-based tests (proptest) | Engine bugs in `date_utils` | Test time | This plan |
 | Pre-commit hook | Banned function names in new code | Commit time | **Done** (Phase 16c) |
 | Weekend validation | Weekend dates in task start/end | WASM boundary | **Done** (Phase 16) |
@@ -1251,12 +1246,12 @@ Sheets data becomes a workflow.
 8. Verify hook logs all findings to `.claude/logs/bizday.log` (unified log)
 
 **Layer 1 (active)**:
-9. `bizday 2026-03-11 5` returns `2026-03-18` in <10ms
-10. All operations work correctly (add, subtract, cal-add, cal-sub, diff, info, end, verify, lint, false-match, report, help)
+9. `bizday 2026-03-11 10` returns `2026-03-24` (= `taskEndDate`) in <10ms
+10. All operations work correctly (duration, diff, info, shift, cal-shift, verify, lint, false-match, report, help)
 11. `verify` mode exits 0 on match, 1 on mismatch
 12. `lint` mode scans a file and reports all verifiable date relationships
 13. All historical bug cases (1880999, 8ee19f8, 23ad90b) are reproducible and caught
-14. Dual-representation output shows both `duration` and `offset` for every computation
+14. Output uses inclusive convention — `bizday <date> N` matches `taskEndDate(date, N)` exactly
 
 **Property-based (correctness)**:
 15. All 6 proptest properties pass: 256 cases locally, 10,000 in CI (zero failures)
@@ -1289,7 +1284,7 @@ Guardrails), and static analysis tools (ESLint, Clippy, Semgrep). As of March 20
 | Capability | Industry status | `bizday` |
 |---|---|---|
 | Passive date error detection | **Does not exist** — no framework detects date errors in agent output | Layer 0 PostToolUse hook, involuntary, 0% false positive |
-| Dual-representation output | No CLI shows both inclusive duration and offset with function names | Every computation shows both, mapped to project function signatures |
+| Single-convention CLI | No date CLI matches a project's internal convention | `bizday` uses inclusive duration — same number goes into `taskEndDate()` |
 | Convention-aligned naming | NumPy `busday` uses `[begin, end)` half-open; creates training-data collision | `bizday` — no conflicting convention in LLM training data |
 | Stickiness bridge | No agent framework teaches tool usage via error messages | Hook warnings include `Run: bizday ...` commands — passive learning |
 | Same-engine guarantee | MS Project↔P6 imports have known divergence bugs | `bizday` IS the scheduler engine — zero divergence by construction |
@@ -1348,7 +1343,7 @@ Crate structure first, then core logic, property tests, then hook integration:
 1. `crates/bizday/Cargo.toml` — create crate with `ganttlet-scheduler` path dep, `proptest` + `tempfile` as dev-dependencies (no workspace — standalone crate)
 2. `crates/bizday/src/compute.rs` — core date math operations (+N, -N, diff, end, info) using `ganttlet_scheduler::date_utils`
 3. `crates/bizday/src/main.rs` — CLI arg parsing + dispatch
-4. `crates/bizday/tests/compute.rs` — hand-written integration tests for all 9 operations
+4. `crates/bizday/tests/compute.rs` — hand-written integration tests for all operations (duration, diff, info, shift, cal-shift, verify)
 5. `crates/bizday/tests/proptest.rs` — property-based tests (6 properties, 256 cases each). Run early: these test the underlying `date_utils`, not just `bizday`. Any failure here is a scheduler engine bug.
 6. `crates/bizday/src/verify.rs` — lint/verify logic (regex-based pattern extraction, relationship checking)
 7. `crates/bizday/src/log.rs` — unified log to `.claude/logs/bizday.log` (session markers, all event types, elapsed_ms, `BIZDAY_LOG_DIR` support)

@@ -1472,89 +1472,156 @@ require a session-scoped date registry (future work).
 
 ---
 
-## Implementation Order
+## Implementation and Validation
 
-### Phase 0: Validate assumptions (before building anything)
+All work happens on a single branch. Build everything, validate with real
+agent sessions, iterate, then PR.
 
-Deploy logging stubs to test whether agents use date computation tools,
-which names they prefer, and how often they do mental math. This takes
-~30 minutes to set up and 5 agent sessions to evaluate.
+### Step 1: Clippy/ESLint function bans
 
-**0a. Logging shell stubs** — add to Dockerfile / `.bashrc`:
+Independent of `bizday`. Provides compile/lint-time safety immediately.
+
+1a. `crates/scheduler/clippy.toml` — `disallowed-methods` for `shift_date`
+    from external code
+1b. ESLint `no-restricted-syntax` for raw `differenceInBusinessDays`
+
+### Step 2: Rust binary (`crates/bizday/`)
+
+Build the binary with all operations, tests, hook, and measurement:
+
+2a. `Cargo.toml` — crate with `ganttlet-scheduler` path dep
+2b. `src/compute.rs` — duration→end date, two-date→duration, weekend check
+2c. `src/main.rs` — CLI arg parsing + dispatch
+2d. `tests/compute.rs` — hand-written integration tests
+2e. `tests/proptest.rs` — 6 properties, 256 local / 10,000 CI
+2f. `src/verify.rs` — lint/verify logic (regex patterns)
+2g. `src/log.rs` — unified log (session markers, event types, elapsed_ms)
+2h. `tests/log.rs` — 8 logging integration tests
+2i. `tests/verify.rs` — lint mode tests
+2j. `src/report.rs` — `bizday report` (metrics, --trend, --eval, drill-downs)
+2k. `tests/report.rs` — report output tests
+
+### Step 3: Shell function aliases + hook registration
+
+3a. `scripts/datecalc-functions.sh` — shell aliases sourced from `.bashrc`:
+    ```bash
+    taskEndDate()   { bizday "$1" "$2"; }
+    task_end_date() { bizday "$1" "$2"; }
+    taskDuration()  { bizday "$1" "$2"; }
+    task_duration() { bizday "$1" "$2"; }
+    ```
+3b. Dockerfile — `source scripts/datecalc-functions.sh` + `bizday` on PATH
+3c. `.claude/settings.json` — register PostToolUse hook
+3d. CLAUDE.md — replace `node -e` examples with shell function names
+3e. `crates/scheduler/CLAUDE.md` — update "Never" section
+
+### Step 4: Validation prompts
+
+Create 5 prompt files in `docs/plans/datecalc-validation/` that give agents
+substantial date-heavy work in throwaway worktrees. Each task should require
+10-20 date computations and produce real test files, even though the code
+won't merge to main.
+
+**Task 1: Write cascade test suite** (`validation-01-cascade-tests.md`)
+Write 8 new test cases for `cascade.rs` covering FS/SS/FF/SF dependencies
+with various lags across weekends. Each test requires computing predecessor
+end dates, successor start dates, and verifying the cascade result. The agent
+must compute ~16 dates to write the assertions.
+
+**Task 2: Audit existing test dates** (`validation-02-audit-tests.md`)
+Review all `assert_eq!` in `crates/scheduler/src/date_utils.rs` and
+`src/utils/__tests__/dateUtils.test.ts`. For each assertion containing a
+date literal, verify the expected value is correct by computing it
+independently. Fix any that are wrong. Report the total count and any
+errors found. Requires computing ~30 dates.
+
+**Task 3: Write constraint boundary tests** (`validation-03-constraint-tests.md`)
+Write tests for FNET, FNLT, SNET, SNLT, MFO, MSO constraints where the
+constraint date falls on a Friday, the following Monday, and mid-week.
+Each test needs a start date, duration, expected end date, and constraint
+date — all computed. Requires ~20 date computations.
+
+**Task 4: Debug a wrong duration report** (`validation-04-debug-duration.md`)
+Provide a scenario: "A user reports that a task from 2026-04-06 to 2026-04-24
+shows duration 15 in the UI but they expected 14. Investigate whether 15 is
+correct. Write a test that proves the correct value." The agent must compute
+the duration, reason about inclusive counting, and write a definitive test.
+Requires careful date reasoning.
+
+**Task 5: Add cross-language date tests** (`validation-05-cross-lang.md`)
+Add 5 new canonical date pairs to both `date_utils.rs::cross_language_tests`
+and `dateUtils.test.ts` cross-language consistency tests. Each pair must
+include a start date, duration, and end date — all independently verified.
+Choose dates that cross month boundaries, quarter boundaries, and year-end.
+Requires ~15 date computations.
+
+### Step 5: Run validation sessions
+
+Launch 5 agent sessions, one per task, in isolated worktrees branched from
+this branch. Each agent gets the shell functions, the Rust binary, the hook,
+and the updated CLAUDE.md.
+
 ```bash
-_datecalc_log() {
-  local cmd="$1"; shift
-  local result=$(node -e "const d=require('date-fns'),p=d.parseISO,f=d.format;
-    if('$2'.match(/^\d+$/)){console.log(f(d.addBusinessDays(p('$1'),$2-1),'yyyy-MM-dd'))}
-    else{console.log(d.differenceInBusinessDays(p('$2'),p('$1'))+1)}")
-  echo "$result"
-  echo "$(date -Iseconds) $cmd $* → $result" >> .claude/logs/datecalc-usage.log
-}
-taskEndDate()    { _datecalc_log taskEndDate "$@"; }
-task_end_date()  { _datecalc_log task_end_date "$@"; }
-taskDuration()   { _datecalc_log taskDuration "$@"; }
-task_duration()  { _datecalc_log task_duration "$@"; }
-bizday()         { _datecalc_log bizday "$@"; }
+# For each task (1-5):
+git worktree add .claude/worktrees/datecalc-val-N -b datecalc-val-N
+# Launch agent with the prompt file
+claude --dangerously-skip-permissions \
+  -p docs/plans/datecalc-validation/validation-0N-*.md \
+  --cwd .claude/worktrees/datecalc-val-N
 ```
 
-All five names available from day one. Same logging, same node-backed
-computation. ~107ms per call (node startup) — fine for explicit agent use.
+Agents work independently. No coordination needed. Each session produces:
+- Code changes in the worktree (test files)
+- `.claude/logs/bizday.log` entries (tool usage)
+- Session transcript (Bash tool calls)
 
-**0b. Update CLAUDE.md** — replace the verbose `node -e` examples:
-```markdown
-- **Date/duration math**: NEVER compute dates mentally. Use shell functions:
-  - `taskEndDate 2026-03-11 10` → `2026-03-24` (end date for 10-day task)
-  - `taskDuration 2026-03-11 2026-03-24` → `10` (inclusive duration)
-  - Also available as: `task_end_date`, `task_duration`, `bizday`
-```
+### Step 6: Analyze results
 
-**0c. Run 5 agent sessions** with date-heavy tasks. After each, check:
+After all 5 sessions complete, run the analysis:
+
 ```bash
-# Which names did agents use?
-cut -d' ' -f2 .claude/logs/datecalc-usage.log | sort | uniq -c | sort -rn
+# 6a. Which tool names did agents use?
+bizday report --trend
 
-# Did they fall back to node -e with date-fns?
-# (check session transcripts for raw node -e calls with date functions)
+# 6b. Raw name preference
+grep "COMPUTE" .claude/logs/bizday.log | \
+  sed 's/.*COMPUTE  //' | cut -d' ' -f1 | sort | uniq -c | sort -rn
 
-# Mental math rate: dates in edits with no preceding tool call
-# (manual check: review last 5 date-containing edits per session)
+# 6c. Did agents fall back to node -e with date-fns?
+# Search session transcripts for raw date-fns usage
+grep -r "node -e.*date-fns\|node -e.*addBusinessDays\|node -e.*differenceInBusiness" \
+  .claude/worktrees/datecalc-val-*/
+
+# 6d. Mental math rate
+bizday report --unverified
+
+# 6e. Did the hook catch anything?
+bizday report --mismatches
+
+# 6f. False positive rate
+bizday report --false-matches
 ```
 
-**0d. Decision gate** — review results before building the Rust binary:
-- If agents use the shell functions → build `bizday` binary as planned,
-  keep shell functions as aliases to the binary
-- If agents prefer `node -e` → the shell functions aren't sticky enough,
-  investigate why (naming? discoverability? trust?)
-- If agents do mental math → the hook is the only layer that matters,
-  deprioritize the CLI and focus on hook accuracy
-- Which name won? → make that the primary name in CLAUDE.md
+### Step 7: Decision and iteration
 
-### Phase 1: Clippy/ESLint function bans (independent, can land immediately)
+Review the analysis and decide:
 
-14a. Clippy `disallowed-methods` in `crates/scheduler/clippy.toml`
-14b. ESLint `no-restricted-syntax` for `differenceInBusinessDays`
+| Signal | Outcome | Action |
+|--------|---------|--------|
+| Agents use shell functions frequently | CLI is valuable | Keep as-is |
+| Agents prefer one name variant | Clear winner | Make that the primary in CLAUDE.md |
+| Agents fall back to `node -e` | Shell functions not discoverable enough | Investigate — naming? CLAUDE.md placement? |
+| Agents do mental math (high unverified rate) | CLI not reaching them | Hook is the primary value; CLI is secondary |
+| Hook caught mismatches | Hook provides real value | Keep hook, refine patterns if needed |
+| Hook had false positives | Hook needs tuning | Fix patterns before PR |
+| Hook caught nothing | May not be needed | Keep for now, evaluate at 50-session checkpoint |
 
-These are 5 minutes of work and provide compile/lint-time safety regardless
-of whether `bizday` is built. Land them first.
+Make changes based on findings. Re-run any failing validation task to
+confirm the fix. When satisfied, squash into clean commits and create PR.
 
-### Phase 2: Rust binary + hook (after Phase 0 validates assumptions)
+### Step 8: PR
 
-1. `crates/bizday/Cargo.toml` — create crate with `ganttlet-scheduler` path dep, `proptest` + `tempfile` as dev-dependencies (no workspace — standalone crate)
-2. `crates/bizday/src/compute.rs` — core operations (duration → end date, two-date → duration, weekend check) using `ganttlet_scheduler::date_utils`
-3. `crates/bizday/src/main.rs` — CLI arg parsing + dispatch
-4. `crates/bizday/tests/compute.rs` — hand-written integration tests (duration, diff, info, verify)
-5. `crates/bizday/tests/proptest.rs` — property-based tests (6 properties, 256 local / 10,000 CI)
-6. `crates/bizday/src/verify.rs` — lint/verify logic (regex patterns, relationship checking)
-7. `crates/bizday/src/log.rs` — unified log to `.claude/logs/bizday.log` (session markers, event types, elapsed_ms, `BIZDAY_LOG_DIR`)
-8. `crates/bizday/tests/log.rs` — logging integration tests (8 tests)
-9. `crates/bizday/tests/verify.rs` — lint mode tests
-10. `.claude/settings.json` — register PostToolUse hook
-11. `crates/bizday/src/report.rs` — `bizday report` (metrics, --trend, --eval, drill-downs)
-12. `crates/bizday/tests/report.rs` — report output tests
-13. Replace node stubs with shell aliases to the Rust binary
-14. Integration: CLAUDE.md, crates/scheduler/CLAUDE.md, Dockerfile
-
-### Phase 3: Measure and evaluate
-
-15. Stickiness test: 5 sessions with `bizday report --trend`
-16. 10-session checkpoint: `bizday report --eval`
+Rebase on main, run `./scripts/full-verify.sh`, create PR with:
+- What was built (binary, hook, shell functions, Clippy/ESLint bans)
+- Validation results (which names agents used, mental-math rate, hook catches)
+- Decision rationale (what was kept/changed/removed based on data)

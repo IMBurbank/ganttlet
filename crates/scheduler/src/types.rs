@@ -7,7 +7,7 @@
 //! - `ConstraintType` — the eight scheduling constraint types
 //!
 //! And result types returned by WASM exports:
-//! - `CascadeResult` — per-task old/new dates from cascade propagation
+//! - `CascadeResult` — per-task updated dates from cascade propagation
 //! - `RecalcResult` — per-task recalculated start/end from constraint evaluation
 //! - `ConflictResult` — constraint violation details (task, type, dates)
 //! - `CriticalPathResult` — critical task IDs and edges from CPM

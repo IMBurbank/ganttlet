@@ -97,16 +97,15 @@ A PostToolUse hook on `Edit|Write` that fires after every code edit. It:
 | Date in `assert_eq!` / `expect()` | Verifies if computable, logs otherwise | 100% where computable |
 | Banned function call (`workingDaysBetween`, `shift_date`) | Warns: "use taskDuration / task_end_date" | 100% — string match |
 
-**Key improvement over earlier plan**: The unified inclusive convention eliminates
-the fence-post ambiguity. `taskEndDate(start, dur)` has ONE correct answer —
-`addBusinessDays(start, dur - 1)`. The hook can now verify `start + duration → end`
-relationships, which it previously had to skip. This was the most dangerous gap.
+**Key design property**: The unified inclusive convention means `taskEndDate(start, dur)`
+has ONE correct answer — `shift_date(start, dur - 1)`. The hook can verify
+`start + duration → end` relationships with zero ambiguity.
 
 ### What It Does NOT Verify
 
 | Pattern | Why not |
 |---------|---------|
-| Wrong function used (`addDays` instead of `addBusinessDays`) | Hook sees the result, not the intent |
+| Wrong function used (`addDays` instead of `taskEndDate`) | Hook sees the result, not the intent |
 | Cross-file relationships | No context across edits |
 | Dates in comments/docs | Excluded by design — not executable |
 
@@ -131,17 +130,14 @@ scheduling engine. No interpreter startup, no library load.
 (seconds). The bizday hook adds ~3ms — unmeasurable. Over a session with 50 Edit/Write
 calls, total overhead is 150ms vs the old plan's 4.25 seconds.
 
-### Accuracy: Revised (inclusive convention unlocks new checks)
+### Accuracy
 
-The earlier plan dropped `start + duration → end` verification because two
-conventions produced two valid answers. With the unified inclusive convention,
-there's only one answer: `taskEndDate(start, dur) = addBusinessDays(start, dur - 1)`.
-
-**What changed**: The hook can now pattern-match `taskEndDate("A", N)` and
-`task_end_date("A", N)` calls — these are the ONLY sanctioned way to compute
-end dates. If the hook sees `taskEndDate("2026-03-11", 10)` near
-`"2026-03-25"`, it computes `addBusinessDays(Mar 11, 9)` = `2026-03-24` and
-warns. Similarly for `taskDuration("A", "B")` near a wrong number.
+The inclusive convention means `taskEndDate(start, dur)` has exactly one correct
+answer: `shift_date(start, dur - 1)`. The hook pattern-matches `taskEndDate("A", N)`
+and `task_end_date("A", N)` calls — these are the ONLY sanctioned way to compute
+end dates. If the hook sees `taskEndDate("2026-03-11", 10)` near `"2026-03-25"`,
+it computes the correct result `2026-03-24` and warns. Similarly for
+`taskDuration("A", "B")` near a wrong number.
 
 The hook also detects **banned function names** — `workingDaysBetween` (deleted)
 and direct `shift_date` calls (internal only, `pub(crate)`). The pre-commit hook
@@ -306,7 +302,7 @@ bizday help              → usage summary (all operations above)
    diff). `+5` also works (shell treats it as `5`) but isn't required — one
    fewer rule for agents to remember.
 3. **`end` uses the inclusive convention** — returns the last working day
-   (`addBusinessDays(start, dur - 1)`). Aligns with the date-calc-fixes plan.
+   (`shift_date(start, dur - 1)` internally). Matches the Phase 16 convention.
 4. **`bizday <date> <date>` IS the duration command** — no separate `dur` needed.
    Two dates = diff. Returns inclusive duration (matching `taskDuration`) as
    the headline number, plus calendar days. Fewer commands = less to remember.
@@ -357,7 +353,7 @@ $ bizday verify 2026-03-11 5 2026-03-17
 MISMATCH: expected 2026-03-17, got 2026-03-18
 
 $ bizday lint crates/scheduler/src/cascade.rs
-Line 102: add_business_days("2026-03-11", 3) → "2026-03-16" ✓
+Line 102: task_end_date("2026-03-11", 3) → "2026-03-13" ✓
 Line 237: task_end_date("2026-03-09", 5) → "2026-03-13" ✓
 Line 640: weekend date "2026-03-07" in start_date context ✗
 3 dates checked, 2 OK, 1 warning
@@ -855,7 +851,7 @@ Layer 1. This is the strongest case.
 **Bug**: Cascade shifted by full delta even when slack absorbed the move.
 
 **Layer 0 (hook)**: **Would partially catch this.** If the test contains
-`count_biz_days_to("2026-03-10", "2026-03-15")` with a wrong expected value,
+`business_day_delta("2026-03-10", "2026-03-15")` with a wrong expected value,
 the hook verifies it. But the underlying logic error (shifting when not needed)
 is an algorithm bug, not a date math bug — no hook can catch that.
 
@@ -1129,8 +1125,8 @@ and function calls from source code. This is fast and simple but has limitations
 | Aspect | Regex (initial) | AST-aware (future) |
 |--------|----------------|-------------------|
 | Speed | ~1ms per file | ~2-3ms per file (tree-sitter parse, 20-40KB files) |
-| False matches | `add_business_days` in strings/comments may match | Zero — AST knows call vs. string |
-| Cross-expression | Can't trace date through variables | Can follow `let d = "2026-03-11"; add_business_days(d, 5)` |
+| False matches | `task_end_date` in strings/comments may match | Zero — AST knows call vs. string |
+| Cross-expression | Can't trace date through variables | Can follow `let d = "2026-03-11"; task_end_date(d, 5)` |
 | Implementation | Simple regex in `verify.rs` | Requires `tree-sitter` (TS) or `syn` (Rust) dependency |
 
 **Decision**: Start with regex. The comment-line exclusion (`//`, `#`, `*`)
@@ -1174,13 +1170,13 @@ Correctness — must pass all existing tests plus new ones:
 2. Zero false matches on the accumulated `FALSE_MATCH` corpus: replay every
    `FALSE_MATCH` entry from the audit log. Tree-sitter must produce no warning
    on each. This is the primary justification for the upgrade.
-3. Comment/string exclusion: `add_business_days` inside a string literal,
+3. Comment/string exclusion: `task_end_date` inside a string literal,
    comment, or doc comment produces no warning. Test with real examples from
    the codebase (e.g., log messages, CLAUDE.md references).
-4. Cross-expression tracing: `let d = "2026-03-11"; add_business_days(d, 5)`
+4. Cross-expression tracing: `let d = "2026-03-11"; task_end_date(d, 5)`
    near `"2026-03-19"` triggers a mismatch warning. Regex can't do this —
    tree-sitter must.
-5. Nested expressions: `add_business_days(task.start_date, task.duration)`
+5. Nested expressions: `task_end_date(task.start_date, task.duration)`
    where neither argument is a literal → no warning (unverifiable). Must not
    crash or false-match.
 

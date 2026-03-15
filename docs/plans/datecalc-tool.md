@@ -265,16 +265,12 @@ agent's training data.
 - `bizday` — signals "business day" clearly, no conflicting convention in
   training data. Agents get the right domain without inheriting wrong semantics.
 
-### Interface: Positional, No Flags, Business-Days-First
+### Interface: Positional, No Flags, Inclusive Duration
 
 ```
-bizday <date> N          → end date for N-day task      (taskEndDate — most common)
-bizday <date> <date>     → duration (inclusive) + calendar days between dates
+bizday <date> N          → end date for N-day task      (= taskEndDate)
+bizday <date> <date>     → inclusive duration + calendar days (= taskDuration)
 bizday <date>            → info (day-of-week, weekend?, next biz day)
-bizday <date> +N         → shift N business days forward (rare — internal shift semantics)
-bizday <date> -N         → shift N business days back
-bizday <date> Nc         → add N calendar days
-bizday <date> -Nc        → subtract N calendar days
 bizday verify <date> N <expected>  → assert and exit 0/1
 bizday lint <file>       → scan file for date literals, verify all computable ones
 bizday false-match <file>:<line>  → report a false positive (appends to audit log)
@@ -287,32 +283,42 @@ bizday report --eval        → full evaluation at checkpoints (10, 50, every 50
 bizday help              → usage summary (all operations above)
 ```
 
+**Three operations, one convention.** `bizday` only does what the project's
+public API does: `taskEndDate`, `taskDuration`, and weekend detection. No shift
+mode, no calendar-day mode, no offset semantics. If agents need raw shifts or
+calendar math, they use `node -e` with `date-fns` — the same way they do today
+for any general-purpose computation.
+
+**Why no shift/calendar modes**: Every additional mode is a chance for an agent
+to pick the wrong one. An agent typing `bizday 2026-03-11 5` must always get
+`taskEndDate` semantics — there's no mode flag, no prefix, no suffix that could
+change the meaning. One command, one convention, one answer. The modes that were
+removed (`+N` shift, `Nc` calendar) solve problems agents in this project don't
+have — raw shifts are `pub(crate)` (agents never write them), and calendar day
+math is not used in scheduling logic.
+
 **Design decisions**:
-1. **Inclusive duration is the default** — `bizday 2026-03-11 10` means
-   "end date for a 10-day task starting March 11" = `taskEndDate(start, 10)`.
-   This matches the project's only public API. No conversion needed —
-   the number an agent writes in `bizday` is the same number they write in
-   `taskEndDate()`. The old plan used offset semantics (like `addBusinessDays`),
-   which required agents to remember which convention they were in.
-2. **Shift requires explicit `+` prefix** — `bizday 2026-03-11 +5` shifts 5
-   business days forward (like `shift_date`). This is rare — only needed when
-   agents reason about cascade internals or arbitrary date offsets. The `+`
-   makes it visually distinct from duration. A bare number is always a duration.
-3. **Business days is the default** — no flag needed. Calendar days require
-   explicit `c` suffix. This matches the scheduler engine's convention and
-   makes the safe choice the easy choice.
-4. **`bizday <date> <date>` IS the duration command** — no separate subcommand
-   needed. Two dates = diff. Returns inclusive duration (matching `taskDuration`)
-   as the headline number, plus calendar days. Fewer commands = less to remember.
-5. **`verify` mode** — for use in tests and pre-commit hooks. Returns exit
-   code 0 if the expected date matches, 1 if not (with diff shown). Uses
-   inclusive convention: `bizday verify 2026-03-11 10 2026-03-24` checks that
+1. **Inclusive duration is the only mode** — `bizday 2026-03-11 10` means
+   `taskEndDate(start, 10)`. The number in `bizday` is the number in code.
+   No conversion, no convention to remember, no ambiguity.
+2. **Business days only** — no calendar-day mode. Calendar days are not part
+   of the scheduling convention. If an agent needs `addDays`, they use
+   `node -e` — that's a general computation, not a scheduling operation.
+3. **`bizday <date> <date>` IS the duration command** — two dates = diff.
+   Returns inclusive duration (matching `taskDuration`) as the headline number,
+   plus calendar days for context. Fewer commands = less to remember.
+4. **`verify` mode** — for use in tests and pre-commit hooks. Returns exit
+   code 0 if the expected date matches, 1 if not. Uses inclusive convention:
+   `bizday verify 2026-03-11 10 2026-03-24` checks
    `taskEndDate("2026-03-11", 10) == "2026-03-24"`.
-6. **`lint` mode** — runs the same checks as the PostToolUse hook against a
+5. **`lint` mode** — runs the same checks as the PostToolUse hook against a
    file. Agents can run `bizday lint src/state/ganttReducer.ts` to verify all
-   date literals before committing. Cost is ~3ms per file (native binary,
-   no interpreter startup). Fast enough to run in the pre-commit hook on
-   all staged `.ts`/`.rs` files without noticeable delay.
+   date literals before committing. Cost is ~3ms per file.
+6. **No negative numbers** — duration is always positive. There's no
+   `bizday 2026-03-11 -5` because there's no `taskEndDate(start, -5)`.
+   If agents need to go backwards, `task_start_date(end, dur)` exists in code
+   and `bizday <earlier-date> <later-date>` gives the duration between any
+   two dates.
 
 ### Output Format
 
@@ -336,10 +342,6 @@ $ bizday 2026-03-11 2026-03-24
 
 $ bizday 2026-03-07
 Saturday (weekend) → next business day: 2026-03-09
-
-$ bizday 2026-03-11 +9
-2026-03-24
-# shift: 9 business days forward from 2026-03-11
 
 $ bizday verify 2026-03-11 10 2026-03-24
 OK
@@ -428,7 +430,7 @@ But the module structure should make future extraction straightforward:
 
 | Module | Project-specific? | Notes for extraction |
 |--------|------------------|---------------------|
-| `compute.rs` | **Yes** — calls `ganttlet_scheduler::date_utils` | Replace with self-contained biz day math (~20 lines each function) |
+| `compute.rs` | **Yes** — calls `ganttlet_scheduler::date_utils` (`task_end_date`, `task_duration`, `is_weekend_date`) | Replace 3 functions with self-contained implementations (~20 lines each) |
 | `verify.rs` | **Yes** — hardcodes `taskEndDate`/`task_end_date` patterns | Move function names to config file (`.bizday.toml`) |
 | `log.rs` | No | Fully general |
 | `report.rs` | No | Fully general |
@@ -811,11 +813,12 @@ enables running `bizday` in CI without polluting the project's log directory.
 Replace the verbose date math examples with:
 
 ```markdown
-- **Date/duration math**: Use `bizday` (native Rust binary). NEVER compute dates mentally.
-  - `bizday 2026-03-11 10` → end date for 10-day task (= taskEndDate)
-  - `bizday 2026-03-11 2026-03-24` → inclusive duration between dates (= taskDuration)
-  - `bizday 2026-03-07` → weekend check + next business day
-  - See `bizday help` for all operations.
+- **Date/duration math**: Use `bizday` — same convention as `taskEndDate`/`taskDuration`.
+  NEVER compute dates mentally, even for "simple" operations.
+  - `bizday 2026-03-11 10` → `2026-03-24` (end date for 10-day task)
+  - `bizday 2026-03-11 2026-03-24` → `10` (inclusive duration between dates)
+  - `bizday 2026-03-07` → Saturday — next business day: `2026-03-09`
+  - `bizday verify 2026-03-11 10 2026-03-24` → OK (assert in scripts)
 ```
 
 This is 4 lines instead of the current 8, and the examples are directly
@@ -1344,7 +1347,7 @@ Sheets data becomes a workflow.
 
 **Layer 1 (active)**:
 8. `bizday 2026-03-11 10` returns `2026-03-24` (= `taskEndDate`) in <10ms
-9. All operations work correctly (duration, diff, info, shift, cal-shift, verify, lint, false-match, report, help)
+9. All operations work correctly (duration, diff, info, verify, lint, false-match, report, help)
 10. `verify` mode exits 0 on match, 1 on mismatch
 11. `lint` mode scans a file and reports all verifiable date relationships
 12. All historical bug cases (1880999, 8ee19f8, 23ad90b) are reproducible and caught
@@ -1440,7 +1443,7 @@ Crate structure first, then core logic, property tests, then hook integration:
 1. `crates/bizday/Cargo.toml` — create crate with `ganttlet-scheduler` path dep, `proptest` + `tempfile` as dev-dependencies (no workspace — standalone crate)
 2. `crates/bizday/src/compute.rs` — core date math operations (+N, -N, diff, end, info) using `ganttlet_scheduler::date_utils`
 3. `crates/bizday/src/main.rs` — CLI arg parsing + dispatch
-4. `crates/bizday/tests/compute.rs` — hand-written integration tests for all operations (duration, diff, info, shift, cal-shift, verify)
+4. `crates/bizday/tests/compute.rs` — hand-written integration tests for all operations (duration, diff, info, verify)
 5. `crates/bizday/tests/proptest.rs` — property-based tests (6 properties, 256 cases each). Run early: these test the underlying `date_utils`, not just `bizday`. Any failure here is a scheduler engine bug.
 6. `crates/bizday/src/verify.rs` — lint/verify logic (regex-based pattern extraction, relationship checking)
 7. `crates/bizday/src/log.rs` — unified log to `.claude/logs/bizday.log` (session markers, all event types, elapsed_ms, `BIZDAY_LOG_DIR` support)

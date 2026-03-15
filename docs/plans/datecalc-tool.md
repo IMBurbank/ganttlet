@@ -241,29 +241,35 @@ Specifically:
 
 ## Layer 1: The `bizday` Command
 
-### Why `bizday`
+### Agent Interface: Function Names They Already Know
 
-| Factor | `dc` | `bday` | `busday` | `bizday` |
-|--------|------|--------|----------|----------|
-| Tokens | 1 | 1 | 1 | 1-2 |
-| Self-documenting | No (desk calculator?) | "birthday"? | "business day" | "business day" |
-| Training collision | GNU RPN calculator — harmful | Birthday — confusing | NumPy `busday_count` — helpful but **end-exclusive** | None — clean |
-| Agent recall | Confusion with GNU dc | Domain mismatch | Right domain, wrong fence-post convention | Right domain, no conflicting convention |
+The lowest-friction interface is the one agents don't have to learn. Agents
+in this project write `taskEndDate` (TS) and `task_end_date` (Rust) dozens
+of times per session. Shell functions with the same names mean the agent
+types what's already in their head:
 
-**Agent-first reasoning**: Agents don't type — they generate tokens. Character
-count is irrelevant; what matters is whether the name is unambiguous in the
-agent's training data.
+```
+$ taskEndDate 2026-03-11 10
+2026-03-24
 
-- `dc` — strong prior as GNU's reverse-polish calculator. Harmful: same domain
-  (math), different semantics.
-- `bday` — strong prior as "birthday." Mildly confusing: unrelated domain.
-- `busday` — strong prior from NumPy (`busday_count`, `busday_offset`). Helpful
-  for domain recognition, but **dangerous**: NumPy uses `[begin, end)` counting
-  while this project uses `[start, end]` inclusive. An agent might assume
-  end-exclusive semantics and produce off-by-one errors — exactly the bug class
-  this tool exists to prevent.
-- `bizday` — signals "business day" clearly, no conflicting convention in
-  training data. Agents get the right domain without inheriting wrong semantics.
+$ task_duration 2026-03-11 2026-03-24
+10
+```
+
+All five names resolve to the same binary:
+
+| Shell function | For agents thinking in... | Calls |
+|---|---|---|
+| `taskEndDate` | TypeScript | `bizday <date> N` |
+| `task_end_date` | Rust | `bizday <date> N` |
+| `taskDuration` | TypeScript | `bizday <date> <date>` |
+| `task_duration` | Rust | `bizday <date> <date>` |
+| `bizday` | Direct (lint, verify, report) | `bizday ...` |
+
+The `bizday` name is for subcommands agents don't call during normal work
+(`bizday lint`, `bizday verify`, `bizday report`). For the most common
+operation — "what's the end date?" — the agent types `taskEndDate`,
+the function name they were about to write in code.
 
 ### Interface: Positional, No Flags, Inclusive Duration
 
@@ -813,10 +819,11 @@ enables running `bizday` in CI without polluting the project's log directory.
 Replace the verbose date math examples with:
 
 ```markdown
-- **Date/duration math**: Use `bizday` — same convention as `taskEndDate`/`taskDuration`.
-  NEVER compute dates mentally, even for "simple" operations.
-  - `bizday 2026-03-11 10` → `2026-03-24` (end date for 10-day task)
-  - `bizday 2026-03-11 2026-03-24` → `10` (inclusive duration between dates)
+- **Date/duration math**: NEVER compute dates mentally, even for "simple" operations.
+  Use the shell functions — same names as the code you're writing:
+  - `taskEndDate 2026-03-11 10` → `2026-03-24` (end date for 10-day task)
+  - `taskDuration 2026-03-11 2026-03-24` → `10` (inclusive duration between dates)
+  - Also available as `task_end_date`, `task_duration`, `bizday`
   - `bizday 2026-03-07` → Saturday — next business day: `2026-03-09`
   - `bizday verify 2026-03-11 10 2026-03-24` → OK (assert in scripts)
 ```
@@ -879,7 +886,7 @@ produces the binary; this should be part of the dev container setup.
 | `CLAUDE.md` | Modify | all | Replace verbose examples with bizday; document hook |
 | `crates/scheduler/CLAUDE.md` | Modify | 1 | Update "Never" section |
 | `.claude/settings.json` | Modify | 0 | Add PostToolUse verify hook |
-| `Dockerfile` | Modify | 1 | Add `bizday` to PATH |
+| `Dockerfile` / `.bashrc` | Modify | 1 | Add `bizday` to PATH + shell function aliases (`taskEndDate`, `task_end_date`, `taskDuration`, `task_duration`) |
 | `crates/scheduler/clippy.toml` | Create | — | `disallowed-methods` for `shift_date` (compile-time ban) |
 | `.eslintrc` / `eslint.config.js` | Modify | — | `no-restricted-syntax` for `differenceInBusinessDays` (lint-time ban) |
 | `.claude/logs/bizday.log` | Created at runtime | 0,1,2 | Unified event log (gitignored via `.claude/*` glob) |
@@ -1467,21 +1474,87 @@ require a session-scoped date registry (future work).
 
 ## Implementation Order
 
-Crate structure first, then core logic, property tests, then hook integration:
+### Phase 0: Validate assumptions (before building anything)
+
+Deploy logging stubs to test whether agents use date computation tools,
+which names they prefer, and how often they do mental math. This takes
+~30 minutes to set up and 5 agent sessions to evaluate.
+
+**0a. Logging shell stubs** — add to Dockerfile / `.bashrc`:
+```bash
+_datecalc_log() {
+  local cmd="$1"; shift
+  local result=$(node -e "const d=require('date-fns'),p=d.parseISO,f=d.format;
+    if('$2'.match(/^\d+$/)){console.log(f(d.addBusinessDays(p('$1'),$2-1),'yyyy-MM-dd'))}
+    else{console.log(d.differenceInBusinessDays(p('$2'),p('$1'))+1)}")
+  echo "$result"
+  echo "$(date -Iseconds) $cmd $* → $result" >> .claude/logs/datecalc-usage.log
+}
+taskEndDate()    { _datecalc_log taskEndDate "$@"; }
+task_end_date()  { _datecalc_log task_end_date "$@"; }
+taskDuration()   { _datecalc_log taskDuration "$@"; }
+task_duration()  { _datecalc_log task_duration "$@"; }
+bizday()         { _datecalc_log bizday "$@"; }
+```
+
+All five names available from day one. Same logging, same node-backed
+computation. ~107ms per call (node startup) — fine for explicit agent use.
+
+**0b. Update CLAUDE.md** — replace the verbose `node -e` examples:
+```markdown
+- **Date/duration math**: NEVER compute dates mentally. Use shell functions:
+  - `taskEndDate 2026-03-11 10` → `2026-03-24` (end date for 10-day task)
+  - `taskDuration 2026-03-11 2026-03-24` → `10` (inclusive duration)
+  - Also available as: `task_end_date`, `task_duration`, `bizday`
+```
+
+**0c. Run 5 agent sessions** with date-heavy tasks. After each, check:
+```bash
+# Which names did agents use?
+cut -d' ' -f2 .claude/logs/datecalc-usage.log | sort | uniq -c | sort -rn
+
+# Did they fall back to node -e with date-fns?
+# (check session transcripts for raw node -e calls with date functions)
+
+# Mental math rate: dates in edits with no preceding tool call
+# (manual check: review last 5 date-containing edits per session)
+```
+
+**0d. Decision gate** — review results before building the Rust binary:
+- If agents use the shell functions → build `bizday` binary as planned,
+  keep shell functions as aliases to the binary
+- If agents prefer `node -e` → the shell functions aren't sticky enough,
+  investigate why (naming? discoverability? trust?)
+- If agents do mental math → the hook is the only layer that matters,
+  deprioritize the CLI and focus on hook accuracy
+- Which name won? → make that the primary name in CLAUDE.md
+
+### Phase 1: Clippy/ESLint function bans (independent, can land immediately)
+
+14a. Clippy `disallowed-methods` in `crates/scheduler/clippy.toml`
+14b. ESLint `no-restricted-syntax` for `differenceInBusinessDays`
+
+These are 5 minutes of work and provide compile/lint-time safety regardless
+of whether `bizday` is built. Land them first.
+
+### Phase 2: Rust binary + hook (after Phase 0 validates assumptions)
 
 1. `crates/bizday/Cargo.toml` — create crate with `ganttlet-scheduler` path dep, `proptest` + `tempfile` as dev-dependencies (no workspace — standalone crate)
 2. `crates/bizday/src/compute.rs` — core operations (duration → end date, two-date → duration, weekend check) using `ganttlet_scheduler::date_utils`
 3. `crates/bizday/src/main.rs` — CLI arg parsing + dispatch
-4. `crates/bizday/tests/compute.rs` — hand-written integration tests for all operations (duration, diff, info, verify)
-5. `crates/bizday/tests/proptest.rs` — property-based tests (6 properties, 256 cases each). Run early: these test the underlying `date_utils`, not just `bizday`. Any failure here is a scheduler engine bug.
-6. `crates/bizday/src/verify.rs` — lint/verify logic (regex-based pattern extraction, relationship checking)
-7. `crates/bizday/src/log.rs` — unified log to `.claude/logs/bizday.log` (session markers, all event types, elapsed_ms, `BIZDAY_LOG_DIR` support)
-8. `crates/bizday/tests/log.rs` — logging integration tests (8 tests: event format, session markers, directory creation, append behavior)
-9. `crates/bizday/tests/verify.rs` — tests for lint mode (mismatch, weekend, deprecated fn, false positive)
-10. `.claude/settings.json` — register PostToolUse hook (`./target/release/bizday lint --stdin`)
-11. Smoke test: reproduce all 3 historical bug cases with `bizday`
-12. `crates/bizday/src/report.rs` — `bizday report` (log parsing, metrics, --trend, --mismatches, --unverified, --false-matches, --slow, --pr-summary)
-13. `crates/bizday/tests/report.rs` — status output tests (known log input → expected metrics)
-14. Clippy `disallowed-methods` in `crates/scheduler/clippy.toml` + ESLint `no-restricted-syntax` — compile/lint-time function bans (independent of `bizday`, can land first)
-15. Integration: CLAUDE.md, crates/scheduler/CLAUDE.md, Dockerfile
-16. Stickiness test: 5 sessions with coverage measurement
+4. `crates/bizday/tests/compute.rs` — hand-written integration tests (duration, diff, info, verify)
+5. `crates/bizday/tests/proptest.rs` — property-based tests (6 properties, 256 local / 10,000 CI)
+6. `crates/bizday/src/verify.rs` — lint/verify logic (regex patterns, relationship checking)
+7. `crates/bizday/src/log.rs` — unified log to `.claude/logs/bizday.log` (session markers, event types, elapsed_ms, `BIZDAY_LOG_DIR`)
+8. `crates/bizday/tests/log.rs` — logging integration tests (8 tests)
+9. `crates/bizday/tests/verify.rs` — lint mode tests
+10. `.claude/settings.json` — register PostToolUse hook
+11. `crates/bizday/src/report.rs` — `bizday report` (metrics, --trend, --eval, drill-downs)
+12. `crates/bizday/tests/report.rs` — report output tests
+13. Replace node stubs with shell aliases to the Rust binary
+14. Integration: CLAUDE.md, crates/scheduler/CLAUDE.md, Dockerfile
+
+### Phase 3: Measure and evaluate
+
+15. Stickiness test: 5 sessions with `bizday report --trend`
+16. 10-session checkpoint: `bizday report --eval`

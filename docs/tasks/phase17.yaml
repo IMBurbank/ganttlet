@@ -1,0 +1,155 @@
+phase: 17
+status: pending
+context: >
+  LLMs routinely get date math wrong. CLAUDE.md bans mental math but enforcement
+  is instruction-only — agents skip it. Phase 16 established the inclusive end-date
+  convention with task_end_date/task_duration as the only public API and shift_date
+  as pub(crate). This phase adds runtime verification (PostToolUse hook), a
+  convention-aware CLI (bizday), shell function aliases matching code function names
+  (taskEndDate, task_end_date, taskDuration, task_duration), Clippy disallowed-methods
+  for compile-time enforcement, and a measurement framework to validate whether these
+  tools actually help. AGENTIF research (NeurIPS 2025) shows agents follow <30% of
+  tool constraints — validating passive-first architecture.
+
+stages:
+  - name: "Stage 1 — Implementation"
+    description: >
+      Three parallel groups: (A) lint bans + shell functions + docs,
+      (B) Rust bizday binary + all tests, (C) hook registration + validation prompts.
+      No file overlap between groups.
+    tasks:
+      - id: A1
+        summary: "Clippy disallowed-methods for shift_date"
+        description: >
+          Create crates/scheduler/clippy.toml banning shift_date calls from
+          external code. Verify with cargo clippy.
+        files: [crates/scheduler/clippy.toml]
+        tests: "cargo clippy -p ganttlet-scheduler"
+        complexity: trivial
+
+      - id: A2
+        summary: "Shell function aliases (taskEndDate, task_end_date, etc.)"
+        description: >
+          Create scripts/datecalc-functions.sh with shell functions that alias
+          to the bizday binary. Source from Dockerfile. Functions: taskEndDate,
+          task_end_date, taskDuration, task_duration.
+        files: [scripts/datecalc-functions.sh, Dockerfile]
+        tests: "source scripts/datecalc-functions.sh && taskEndDate 2026-03-11 10"
+        complexity: small
+
+      - id: A3
+        summary: "Update CLAUDE.md date math examples"
+        description: >
+          Replace node -e date-fns examples with shell function examples.
+          Update crates/scheduler/CLAUDE.md similarly.
+        files: [CLAUDE.md, crates/scheduler/CLAUDE.md]
+        tests: none
+        complexity: small
+
+      - id: B1
+        summary: "bizday crate setup + compute module"
+        description: >
+          Create crates/bizday/ with Cargo.toml (ganttlet-scheduler dep),
+          src/main.rs (CLI dispatch), src/compute.rs (task_end_date, task_duration,
+          is_weekend_date wrappers). Inclusive duration only — bizday <date> N
+          means taskEndDate(start, N).
+        files: [crates/bizday/Cargo.toml, crates/bizday/src/main.rs, crates/bizday/src/compute.rs]
+        tests: "cargo test -p bizday"
+        complexity: medium
+
+      - id: B2
+        summary: "bizday compute + proptest tests"
+        description: >
+          Create tests/compute.rs (hand-written) and tests/proptest.rs (6 properties,
+          PROPTEST_CASES env var for tiered 256/10000). All use public API only —
+          task_end_date, task_duration, task_start_date, is_weekend_date, business_day_delta.
+        files: [crates/bizday/tests/compute.rs, crates/bizday/tests/proptest.rs]
+        tests: "cargo test -p bizday"
+        complexity: medium
+
+      - id: B3
+        summary: "bizday verify + lint module"
+        description: >
+          Create src/verify.rs — regex pattern extraction for taskEndDate/task_end_date
+          and taskDuration/task_duration calls with literal arguments. Weekend detection.
+          PostToolUse stdin JSON parsing. Create tests/verify.rs.
+        files: [crates/bizday/src/verify.rs, crates/bizday/tests/verify.rs]
+        tests: "cargo test -p bizday verify"
+        complexity: medium
+
+      - id: B4
+        summary: "bizday log + report modules"
+        description: >
+          Create src/log.rs (unified logging, session markers, elapsed_ms, BIZDAY_LOG_DIR),
+          src/report.rs (--trend, --mismatches, --unverified, --false-matches, --slow,
+          --pr-summary, --eval with checkpoint prompts). Create tests/log.rs and tests/report.rs.
+        files: [crates/bizday/src/log.rs, crates/bizday/src/report.rs, crates/bizday/tests/log.rs, crates/bizday/tests/report.rs]
+        tests: "cargo test -p bizday"
+        complexity: large
+
+      - id: B5
+        summary: "Add build:bizday to package.json"
+        description: >
+          Add "build:bizday": "cargo build --release -p bizday" to package.json scripts.
+        files: [package.json]
+        tests: "npm run build:bizday"
+        complexity: trivial
+
+      - id: C1
+        summary: "Register PostToolUse hook in settings.json"
+        description: >
+          Add PostToolUse entry to .claude/settings.json hooks object.
+          Matcher: Edit|Write. Command: ./target/release/bizday lint --stdin.
+          Must coexist with existing PreToolUse hooks.
+        files: [.claude/settings.json]
+        tests: none
+        complexity: trivial
+
+      - id: C2
+        summary: "Create 6 validation prompt files"
+        description: >
+          Create docs/plans/datecalc-validation/validation-01 through 06.md.
+          3 medium tasks (~10-15 date computations), 3 large tasks (~30-50).
+          Each is a standalone prompt for an agent session.
+        files: [docs/plans/datecalc-validation/]
+        tests: none
+        complexity: medium
+
+  - name: "Stage 2 — Validation"
+    description: >
+      Run 6 agent sessions (3 medium, 3 large) to validate tool adoption,
+      name preference, mental-math rate, hook catches, and decay patterns.
+      Analyze results and iterate.
+    tasks:
+      - id: V1
+        summary: "Run 6 validation agent sessions"
+        description: >
+          Launch agents in worktrees branched from the merged Stage 1 code.
+          Each runs one validation prompt. Collect bizday.log and transcripts.
+        files: []
+        tests: "bizday report --trend"
+        complexity: large
+
+      - id: V2
+        summary: "Analyze results and document findings"
+        description: >
+          Run analysis commands from Step 6 of the plan. Compare medium vs large
+          tasks. Document tool adoption rate, name preference, decay signal,
+          hook catches, false positives. Update plan with findings.
+        files: [docs/plans/datecalc-tool.md]
+        tests: none
+        complexity: medium
+
+verification:
+  - "./scripts/full-verify.sh"
+  - "cargo test -p bizday"
+  - "bizday report --trend"
+
+scope_boundaries:
+  - "No changes to crates/scheduler/src/ (Phase 16 is stable)"
+  - "No changes to src/utils/dateUtils.ts (Phase 16 is stable)"
+  - "No new npm dependencies"
+  - "bizday uses inclusive duration only — no offset/shift/calendar modes"
+
+estimated_complexity: large
+estimated_groups: 4

@@ -616,6 +616,58 @@ proactive rates via `--trend`. If proactive rate drops >10 percentage points,
 the tool isn't sticky enough — needs stronger integration (e.g., move from
 warning to soft-block).
 
+### Validating Whether the Hook Actually Helps
+
+The hook is only worth its complexity if it catches real errors that would
+otherwise reach a commit. Measure this with three signals over time:
+
+**Signal 1: MISMATCH count (does it catch bugs?)**
+
+Track `bizday report --mismatches` after each session. Each MISMATCH is a
+date the agent wrote wrong and the hook corrected. If MISMATCH count is
+consistently 0 across 20+ sessions, one of two things is true:
+- (a) Agents don't make date errors → the hook is unnecessary
+- (b) Agents make errors but not in patterns the hook checks → the hook
+  is checking the wrong things
+
+Distinguish by checking `--unverified`: if agents write many date literals
+that the hook can't verify, (b) is more likely. If agents write few date
+literals overall, (a) is more likely.
+
+**Decision**: If 0 mismatches across 20+ sessions with date-heavy work,
+consider downgrading the hook to log-only (no warnings) to reduce noise,
+or removing it entirely. The proptest and cross-language tests provide
+compile/test-time safety regardless.
+
+**Signal 2: False match rate (is it trustworthy?)**
+
+Track `bizday report --false-matches`. If agents report false matches via
+`bizday false-match`, the hook is crying wolf. An untrustworthy hook is
+worse than no hook — agents learn to ignore warnings.
+
+**Decision**: If FP rate exceeds 5% over 5+ sessions, either improve the
+regex patterns or remove the offending check. If tree-sitter would fix
+the false matches, evaluate the upgrade (see Lint Mode section).
+
+**Signal 3: Bug-escape rate (do date bugs still reach main?)**
+
+Track date-related bugs that reach `main` despite the hook. For each one:
+1. Was the hook running? (Check `bizday.log` for the session)
+2. Did the hook see the bad date? (Check for VERIFIED/UNVERIFIABLE events)
+3. If UNVERIFIABLE — what pattern would have caught it?
+4. If VERIFIED but no MISMATCH — the hook computed the wrong answer (engine bug)
+
+**Decision**: If bugs escape because the hook can't see the pattern (item 3),
+add the pattern. If bugs escape because agents bypass the hook (item 1 — no
+log entries), the binary isn't built or the hook isn't registered.
+
+**Evaluation cadence**: After 10 sessions, after 50 sessions, then quarterly.
+At each checkpoint, answer: "Has the hook caught at least one real error that
+would have otherwise shipped?" If no after 50 sessions, the hook's value is
+primarily the stickiness bridge (teaching agents about `bizday` via warnings),
+not direct bug prevention — and a simpler approach (just CLAUDE.md instructions)
+may suffice.
+
 ### How to Review
 
 Everything is `bizday report`. Same binary, nothing new to remember.
@@ -784,99 +836,80 @@ produces the binary; this should be part of the dev container setup.
 
 ---
 
-## Handling Historical Bug Cases
+## Historical Bugs: Honest Assessment
 
-Each of the 3 historical bug rounds, analyzed by which layer would have caught it:
+Each of the 3 historical bug rounds, assessed against what the hook actually
+checks (taskEndDate/taskDuration verification and weekend detection):
 
 ### Case 1: Duration as calendar days (`1880999`)
 
-**Bug**: `endDate - startDate` in calendar days ≠ business day duration.
+**Bug**: Agent used calendar-day math where business-day math was needed.
 
-**Layer 0 (hook)**: **Partially catches this.** The hook can't detect that the
-wrong function was used (`addDays` vs `addBusinessDays`). But if the agent writes
-`taskDuration("2026-03-06", "2026-03-11")` with the wrong result (5 calendar days
-instead of 4 business days), the hook catches the mismatch. The deprecated-function
-detector would also warn if the agent wrote `workingDaysBetween` instead of
-`taskDuration`.
+**Layer 0 (hook)**: **Only catches specific patterns.** If the agent writes
+`taskDuration("2026-03-06", "2026-03-11")` with expected value `5` (calendar),
+the hook computes `4` (business, inclusive) and warns. But if the agent used
+`addDays` instead of `taskEndDate` and never wrote a `taskEndDate` call, the
+hook sees nothing — it only verifies patterns it recognizes.
 
-**Layer 1 (bizday CLI)**: **Would catch this** — if the agent uses it:
+**Layer 1 (bizday CLI)**: Catches it if the agent checks their work:
 ```
 $ bizday 2026-03-06 2026-03-13
 6
 # taskDuration(2026-03-06, 2026-03-13), inclusive [start, end]
 # calendar: 7 days  ← DIFFERENT from business days
-
-$ bizday 2026-03-06 5c
-2026-03-11  ← calendar days: wrong answer for business days
-
-$ bizday 2026-03-06 6
-2026-03-13
-# taskEndDate(2026-03-06, 6)
 ```
 
-**Verdict**: Partial Layer 0 (catches wrong duration value), Layer 1 for
-reasoning about which function to use.
+**Verdict**: Hook catches it only when the wrong value appears near a
+`taskEndDate`/`taskDuration` call with literal arguments. If the agent uses
+the wrong function entirely, neither layer catches it automatically.
 
 ### Case 2: Lag as calendar days, weekend landing (`8ee19f8`)
 
 **Bug**: FS predecessor ends Friday, lag 0 → successor starts Saturday.
 
-**Layer 0 (hook)**: **Would catch this.** If the agent writes
+**Layer 0 (hook)**: **Catches this.** If the agent writes
 `start_date: "2026-03-07"` (Saturday) in scheduling code, the weekend detector
-fires with 100% accuracy.
+fires. This is deterministic — a weekend date in a scheduling context is always
+wrong.
 
 **Layer 1 (bizday CLI)**: Also catches it:
 ```
 $ bizday 2026-03-07
 Saturday (weekend) → next business day: 2026-03-09
-
-$ bizday 2026-03-06 2
-2026-03-09
-# taskEndDate(2026-03-06, 2)  ← Fri + 2-day task = Mon
 ```
 
 **Verdict**: Both layers. Layer 0 catches it passively even if agent forgets
-Layer 1. This is the strongest case.
+Layer 1. This is the only historical bug the hook reliably catches.
 
 ### Case 3: Cascade slack miscalculation (`23ad90b`)
 
 **Bug**: Cascade shifted by full delta even when slack absorbed the move.
 
-**Layer 0 (hook)**: **Would partially catch this.** If the test contains
-`business_day_delta("2026-03-10", "2026-03-15")` with a wrong expected value,
-the hook verifies it. But the underlying logic error (shifting when not needed)
-is an algorithm bug, not a date math bug — no hook can catch that.
+**Layer 0 (hook)**: **Does not catch this.** The hook doesn't verify
+`business_day_delta` calls — only `taskEndDate` and `taskDuration`. And even
+if it did, the bug was algorithmic (cascade shifting when it shouldn't), not
+arithmetic (wrong date computation). No hook can catch logic errors.
 
-**Layer 1 (bizday CLI)**: Helps reason about it:
-```
-$ bizday 2026-03-10 2026-03-13
-3
-# taskDuration(2026-03-10, 2026-03-13), inclusive [start, end]
-# calendar: 3 days
+**Layer 1 (bizday CLI)**: Helps reason about the dates involved, but can't
+detect that the algorithm applied the shift incorrectly.
 
-$ bizday 2026-03-06 2
-2026-03-09
-# taskEndDate(2026-03-06, 2)
+**Verdict**: Neither layer catches this. The bug was fixed by correcting the
+cascade logic, not by verifying date arithmetic.
 
-# Required (Mar 09) < current (Mar 13) → slack absorbs, no cascade needed
-```
+### Summary: Honest Layer Coverage
 
-**Verdict**: Partial Layer 0 (catches wrong test values), Layer 1 for reasoning.
-The core bug was algorithmic, not arithmetic.
+| Bug | Layer 0 (hook) | Layer 1 (CLI) | Root cause |
+|-----|----------------|---------------|------------|
+| `1880999` calendar duration | **Conditional** — only if agent writes `taskDuration`/`taskEndDate` with wrong literal | Helps distinguish biz vs cal | Wrong function choice |
+| `8ee19f8` weekend landing | **Yes** — weekend detection is deterministic | Yes | Wrong date produced |
+| `23ad90b` slack cascade | **No** — algorithm bug, not arithmetic | Reasoning aid only | Algorithm logic |
 
-### Summary: Layer Coverage by Historical Bug
-
-| Bug | Layer 0 (passive) | Layer 1 (active) | Root cause |
-|-----|------------------|-----------------|------------|
-| `1880999` calendar duration | **Partial** (wrong duration value, deprecated fn) | Yes (if used) | Wrong function (`addDays` vs `addBusinessDays`) |
-| `8ee19f8` weekend landing | **Yes** (weekend detect) | Yes | Wrong date produced |
-| `23ad90b` slack cascade | **Partial** (wrong test values) | Yes (reasoning aid) | Algorithm logic |
-
-**Revised assessment**: Layer 0 now catches or partially catches all 3 historical
-bugs thanks to the unified inclusive convention. The `taskEndDate`/`taskDuration`
-verification and deprecated-function detection are new capabilities that the earlier
-plan couldn't support. Layer 1 remains valuable for reasoning about which function
-to use (Case 1) and algorithmic logic (Case 3).
+**What the hook actually prevents**: The hook's value is not in catching past
+bugs — those are fixed and have regression tests. Its value is in catching the
+ongoing class of errors where agents write wrong date literals in test
+assertions, task data, and function calls with literal arguments. This is the
+most common agent failure mode and exactly what `taskEndDate`/`taskDuration`
+verification targets.
 
 ---
 

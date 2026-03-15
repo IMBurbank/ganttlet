@@ -283,6 +283,7 @@ bizday report --trend    → per-session table with cumulative row
 bizday report --mismatches | --unverified | --false-matches | --slow  → drill-down
 bizday report --session <id>  → filter any mode to a specific session
 bizday report --pr-summary  → markdown block for PR descriptions
+bizday report --eval        → full evaluation at checkpoints (10, 50, every 50)
 bizday help              → usage summary (all operations above)
 ```
 
@@ -661,12 +662,41 @@ Track date-related bugs that reach `main` despite the hook. For each one:
 add the pattern. If bugs escape because agents bypass the hook (item 1 — no
 log entries), the binary isn't built or the hook isn't registered.
 
-**Evaluation cadence**: After 10 sessions, after 50 sessions, then quarterly.
-At each checkpoint, answer: "Has the hook caught at least one real error that
-would have otherwise shipped?" If no after 50 sessions, the hook's value is
-primarily the stickiness bridge (teaching agents about `bizday` via warnings),
-not direct bug prevention — and a simpler approach (just CLAUDE.md instructions)
-may suffice.
+**Evaluation cadence**: `bizday report` tracks session count automatically.
+At session 10, 50, and every 50 after, the default output adds a checkpoint
+prompt:
+
+```
+$ bizday report
+Coverage: 91% (10/11) | Proactive: 36% | Mismatches: 0 | FP: 0%
+⚠ 10-session checkpoint: 0 mismatches so far — run bizday report --eval
+```
+
+`bizday report --eval` shows all three signals, the decision criteria, and
+a recommendation:
+
+```
+$ bizday report --eval
+Sessions: 10 | Checkpoint: 10-session review
+
+Signal 1 — Mismatches:  0 total
+  → No date errors caught by hook in 10 sessions.
+  → Too early to judge. Continue to 50-session checkpoint.
+
+Signal 2 — False matches: 0 (0.0%)
+  → Hook signal is clean.
+
+Signal 3 — Bug escapes: (manual — check git log for date-related fixes on main)
+
+Recommendation: KEEP — insufficient data, no false-match problems.
+```
+
+At 50 sessions with 0 mismatches: "Consider downgrading hook to log-only
+or removing. The hook hasn't caught a real error — its value may be limited
+to the stickiness bridge. The proptest and cross-language tests provide
+compile/test-time safety regardless."
+
+You never have to remember to check — the tool tells you when it's time.
 
 ### How to Review
 

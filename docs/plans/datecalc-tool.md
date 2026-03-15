@@ -1517,52 +1517,65 @@ Build the binary with all operations, tests, hook, and measurement:
 
 ### Step 4: Validation prompts
 
-Create 5 prompt files in `docs/plans/datecalc-validation/` that give agents
-substantial date-heavy work in throwaway worktrees. Each task should require
-10-20 date computations and produce real test files, even though the code
-won't merge to main.
+Create 6 prompt files in `docs/plans/datecalc-validation/`. Three medium
+tasks (~10-15 date computations) test adoption. Three large tasks (~30-50
+computations) test whether agents sustain tool use or drift to mental math
+as the work gets tedious.
 
-**Task 1: Write cascade test suite** (`validation-01-cascade-tests.md`)
-Write 8 new test cases for `cascade.rs` covering FS/SS/FF/SF dependencies
+**Medium tasks** (adoption signal — does the agent use the tool at all?):
+
+**Task 1: Write cascade tests** (`validation-01-cascade-tests.md`)
+Write 6 new test cases for `cascade.rs` covering FS/SS/FF/SF dependencies
 with various lags across weekends. Each test requires computing predecessor
-end dates, successor start dates, and verifying the cascade result. The agent
-must compute ~16 dates to write the assertions.
+end dates, successor start dates, and verifying the cascade result.
+~12-16 date computations.
 
-**Task 2: Audit existing test dates** (`validation-02-audit-tests.md`)
-Review all `assert_eq!` in `crates/scheduler/src/date_utils.rs` and
-`src/utils/__tests__/dateUtils.test.ts`. For each assertion containing a
-date literal, verify the expected value is correct by computing it
-independently. Fix any that are wrong. Report the total count and any
-errors found. Requires computing ~30 dates.
+**Task 2: Debug a wrong duration** (`validation-02-debug-duration.md`)
+"A user reports that a task from 2026-04-06 to 2026-04-24 shows duration
+15 in the UI but they expected 14. Investigate whether 15 is correct.
+Write a test that proves the correct value." One investigation, then
+write 3 related edge-case tests. ~10-12 date computations.
 
-**Task 3: Write constraint boundary tests** (`validation-03-constraint-tests.md`)
-Write tests for FNET, FNLT, SNET, SNLT, MFO, MSO constraints where the
-constraint date falls on a Friday, the following Monday, and mid-week.
-Each test needs a start date, duration, expected end date, and constraint
-date — all computed. Requires ~20 date computations.
-
-**Task 4: Debug a wrong duration report** (`validation-04-debug-duration.md`)
-Provide a scenario: "A user reports that a task from 2026-04-06 to 2026-04-24
-shows duration 15 in the UI but they expected 14. Investigate whether 15 is
-correct. Write a test that proves the correct value." The agent must compute
-the duration, reason about inclusive counting, and write a definitive test.
-Requires careful date reasoning.
-
-**Task 5: Add cross-language date tests** (`validation-05-cross-lang.md`)
+**Task 3: Add cross-language date tests** (`validation-03-cross-lang.md`)
 Add 5 new canonical date pairs to both `date_utils.rs::cross_language_tests`
-and `dateUtils.test.ts` cross-language consistency tests. Each pair must
-include a start date, duration, and end date — all independently verified.
-Choose dates that cross month boundaries, quarter boundaries, and year-end.
-Requires ~15 date computations.
+and `dateUtils.test.ts`. Choose dates crossing month boundaries, quarter
+boundaries, and year-end. Each needs start, duration, end — all verified.
+~15 date computations.
+
+**Large tasks** (decay signal — does the agent keep using the tool over
+20+ edits, or drift to mental math when the novelty wears off?):
+
+**Task 4: Full constraint test matrix** (`validation-04-constraint-matrix.md`)
+Write tests for all 6 constraint types (FNET, FNLT, SNET, SNLT, MFO, MSO)
+× 3 date positions (Friday, Monday, mid-week) × with and without FS
+dependencies. That's up to 36 test cases, each needing start date, duration,
+end date, and constraint date computed. ~40-50 date computations. The agent
+must sustain disciplined tool use across a large, repetitive task.
+
+**Task 5: Audit all test dates in the project** (`validation-05-audit-all.md`)
+Review every `assert_eq!` containing a date literal across 5 files:
+`date_utils.rs`, `cascade.rs`, `constraints.rs`, `dateUtils.test.ts`,
+`ganttReducer.test.ts`. For each assertion, verify the expected value by
+computing it independently. Log a summary: total assertions, verified
+correct, wrong (if any). Fix any errors found. ~50+ date verifications.
+This is deliberately tedious — the agent has no shortcut.
+
+**Task 6: Historical bug regression suite** (`validation-06-regression.md`)
+Take the 3 historical bug commits (`1880999`, `8ee19f8`, `23ad90b`).
+For each: reconstruct the exact scenario, write a regression test for the
+original bug, then write 3-4 variations (different start day, different lag
+value, weekend boundary). Cover the predecessor chain, cascade logic, and
+expected date outputs. ~30-40 date computations across complex multi-step
+reasoning.
 
 ### Step 5: Run validation sessions
 
-Launch 5 agent sessions, one per task, in isolated worktrees branched from
+Launch 6 agent sessions, one per task, in isolated worktrees branched from
 this branch. Each agent gets the shell functions, the Rust binary, the hook,
 and the updated CLAUDE.md.
 
 ```bash
-# For each task (1-5):
+# For each task (1-6):
 git worktree add .claude/worktrees/datecalc-val-N -b datecalc-val-N
 # Launch agent with the prompt file
 claude --dangerously-skip-permissions \
@@ -1570,37 +1583,49 @@ claude --dangerously-skip-permissions \
   --cwd .claude/worktrees/datecalc-val-N
 ```
 
-Agents work independently. No coordination needed. Each session produces:
+Agents work independently. No coordination needed. Run medium tasks (1-3)
+first — they're faster and give early signal. Then run large tasks (4-6)
+which take longer but reveal decay patterns.
+
+Each session produces:
 - Code changes in the worktree (test files)
 - `.claude/logs/bizday.log` entries (tool usage)
 - Session transcript (Bash tool calls)
 
 ### Step 6: Analyze results
 
-After all 5 sessions complete, run the analysis:
+After all 6 sessions complete, run the analysis:
 
 ```bash
-# 6a. Which tool names did agents use?
+# 6a. Overall tool usage
 bizday report --trend
 
-# 6b. Raw name preference
+# 6b. Name preference
 grep "COMPUTE" .claude/logs/bizday.log | \
   sed 's/.*COMPUTE  //' | cut -d' ' -f1 | sort | uniq -c | sort -rn
 
 # 6c. Did agents fall back to node -e with date-fns?
-# Search session transcripts for raw date-fns usage
 grep -r "node -e.*date-fns\|node -e.*addBusinessDays\|node -e.*differenceInBusiness" \
   .claude/worktrees/datecalc-val-*/
 
-# 6d. Mental math rate
+# 6d. Mental math rate (dates written without preceding tool call)
 bizday report --unverified
 
-# 6e. Did the hook catch anything?
+# 6e. Did the hook catch real errors?
 bizday report --mismatches
 
 # 6f. False positive rate
 bizday report --false-matches
 ```
+
+**Compare medium vs large tasks:**
+
+| Signal | Medium (tasks 1-3) | Large (tasks 4-6) | What it means |
+|--------|-------------------|-------------------|---------------|
+| Tool calls per date written | Baseline adoption rate | Same, lower, or higher? | Decay = lower in large tasks |
+| Mental math rate | Baseline | Higher? | Agents take shortcuts under tedium |
+| Tool calls per edit (early vs late) | N/A (too few edits) | First 10 edits vs last 10 | Within-session decay |
+| Hook mismatches | Baseline | More in late edits? | Mental math errors increase with fatigue |
 
 ### Step 7: Decision and iteration
 

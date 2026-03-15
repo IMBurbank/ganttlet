@@ -46,34 +46,28 @@ An active-only approach (even a great CLI) requires the agent to remember to
 use it at exactly the moment when it's most tempted to skip. A passive hook
 fires regardless of agent behavior — it cannot be forgotten.
 
-### Dependency on date-calc-fixes Plan
+### Foundation: Convention Work Complete (Phase 16/16b/16c)
 
-This plan depends on functions and renames proposed by a separate
-date-calc-fixes plan. The current state and what's needed:
+All prerequisite date convention work has landed on `main`. The functions
+`bizday` needs already exist:
 
-| What `bizday` needs | Current state | Created by |
-|---|---|---|
-| `task_end_date(start, dur)` | **Does not exist** in Rust | date-calc-fixes |
-| `task_duration(start, end)` | **Does not exist** in Rust | date-calc-fixes |
-| `taskEndDate(start, dur)` | **Does not exist** in TypeScript | date-calc-fixes |
-| `taskDuration(start, end)` | **Does not exist** in TypeScript | date-calc-fixes |
-| `is_weekend` → use `day_of_week` | `is_weekend` is private; `day_of_week` is public (0=Sun, 6=Sat) | No change needed — `bizday` uses `day_of_week` directly |
-| `count_biz_days_to` → `business_day_delta` | Not yet renamed | date-calc-fixes |
-| `workingDaysBetween` deprecated | Currently active (~20 TS call sites) | date-calc-fixes |
+| Function | Location | Visibility | Status |
+|---|---|---|---|
+| `task_end_date(start, dur)` | Rust `date_utils.rs` | `pub` | **Exists** |
+| `task_duration(start, end)` | Rust `date_utils.rs` | `pub` | **Exists** |
+| `task_start_date(end, dur)` | Rust `date_utils.rs` | `pub` | **Exists** |
+| `is_weekend_date(date)` | Rust `date_utils.rs` | `pub` | **Exists** |
+| `shift_date(date, n)` | Rust `date_utils.rs` | `pub(crate)` | **Internal only** |
+| `business_day_delta(from, to)` | Rust `date_utils.rs` | `pub` | **Exists** |
+| `ensure_business_day(date)` | Rust `date_utils.rs` | `pub` | **Exists** |
+| `prev_business_day(date)` | Rust `date_utils.rs` | `pub` | **Exists** |
+| `taskEndDate(start, dur)` | TS `dateUtils.ts` | exported | **Exists** |
+| `taskDuration(start, end)` | TS `dateUtils.ts` | exported | **Exists** |
+| `workingDaysBetween` | TS | — | **Deleted** (pre-commit rejects) |
 
-**What can be built immediately** (steps 1-4, 6-9, 11-14):
-- CLI compute operations (use `add_business_days`, `count_biz_days_to` directly)
-- Hook verification of `add_business_days` patterns and weekend dates
-- Logging, `bizday report`, integration
-
-**What is blocked until date-calc-fixes lands** (step 5, parts of step 9):
-- proptest properties 1, 2, 4, 5, 6 (need `task_end_date`, `task_duration`)
-- Hook verification of `taskEndDate`/`taskDuration` patterns
-- Deprecated-function warnings (would fire on current, correct code)
-
-The implementing agent can add minimal `task_end_date` / `task_duration` /
-`is_weekend_day` functions to unblock proptest (see Property-Based Testing §
-Prerequisites), or wait for date-calc-fixes to land.
+**No blockers.** All layers of `bizday` can be built immediately. The hook
+can verify `taskEndDate`/`taskDuration` patterns from day one. Cross-language
+consistency tests already verify Rust ↔ TS agreement.
 
 ---
 
@@ -86,8 +80,8 @@ A PostToolUse hook on `Edit|Write` that fires after every code edit. It:
 1. **Extracts date literals** (`YYYY-MM-DD` patterns) from the written content
 2. **Identifies scheduling contexts** — date literals near keywords like
    `start`, `end`, `duration`, `lag`, `assert`, `expect`, `constraint`,
-   `add_business_days`, `addBusinessDays`, `taskDuration`, `taskEndDate`,
-   `task_duration`, `task_end_date`, `count_biz_days_to`
+   `shift_date`, `taskDuration`, `taskEndDate`,
+   `task_duration`, `task_end_date`, `business_day_delta`
 3. **Checks for verifiable relationships** — if the edit contains both a
    start date and an end date with a duration, or a date with `+N` business
    days, the hook computes the expected result
@@ -97,12 +91,11 @@ A PostToolUse hook on `Edit|Write` that fires after every code edit. It:
 
 | Pattern in code | Hook action | Accuracy |
 |----------------|------------|----------|
-| `add_business_days("A", N)` near `"B"` | Computes, warns if B wrong | 100% — one correct answer |
-| `task_end_date("A", N)` / `taskEndDate("A", N)` near `"B"` | Computes `addBusinessDays(A, N-1)`, warns if B wrong | 100% — inclusive convention, one answer |
-| `task_duration("A", "B")` / `taskDuration("A", "B")` near `N` | Computes `differenceInBusinessDays(B, A) + 1`, warns if N wrong | 100% — inclusive convention, one answer |
+| `task_end_date("A", N)` / `taskEndDate("A", N)` near `"B"` | Computes `shift_date(A, N-1)`, warns if B wrong | 100% — inclusive convention, one answer |
+| `task_duration("A", "B")` / `taskDuration("A", "B")` near `N` | Computes `business_day_delta(A, B) + 1`, warns if N wrong | 100% — inclusive convention, one answer |
 | Weekend date in `start_date`/`end_date` field | Always warns | 100% — weekend task dates forbidden |
 | Date in `assert_eq!` / `expect()` | Verifies if computable, logs otherwise | 100% where computable |
-| Deprecated function call (`workingDaysBetween`, `count_biz_days_to`) in new lines | Warns: "use taskDuration / task_duration" | 100% — string match on added lines |
+| Banned function call (`workingDaysBetween`, `addBusinessDays`, `shift_date`) | Warns: "use taskDuration / task_end_date" | 100% — string match |
 
 **Key improvement over earlier plan**: The unified inclusive convention eliminates
 the fence-post ambiguity. `taskEndDate(start, dur)` has ONE correct answer —
@@ -150,27 +143,19 @@ end dates. If the hook sees `taskEndDate("2026-03-11", 10)` near
 `"2026-03-25"`, it computes `addBusinessDays(Mar 11, 9)` = `2026-03-24` and
 warns. Similarly for `taskDuration("A", "B")` near a wrong number.
 
-**Deployment dependency**: The `taskEndDate`/`taskDuration` verification patterns
-only work after the date-calc-fixes plan creates these functions. Until then,
-the hook verifies `add_business_days` patterns and weekend dates (which work
-immediately).
-
-The hook also detects **deprecated function names** (`workingDaysBetween`,
-`count_biz_days_to`) in **new** code. These functions are currently in active
-use (~20 TS call sites, 4 Rust call sites) — the deprecated-function check
-must only fire on lines added in the current edit, not on pre-existing code.
-After the date-calc-fixes plan replaces all existing usage, any new occurrence
-is a regression.
+The hook also detects **banned function names** — `workingDaysBetween` (deleted),
+`addBusinessDays` / `addBusinessDaysToDate` (replaced by `taskEndDate`), and
+direct `shift_date` calls (internal only). These are already enforced by the
+pre-commit hook; the PostToolUse hook catches them earlier, before commit.
 
 **Accuracy by category:**
 
 | Category | Cases | Pass rate | Notes |
 |----------|-------|-----------|-------|
 | Weekend detection | 3/3 | 100% | Forbidden — always wrong |
-| `add_business_days(A, N) → B` | 3/3 | 100% | One correct answer |
-| `taskEndDate(A, N) → B` | NEW | 100% | Inclusive convention, one answer |
-| `taskDuration(A, B) → N` | NEW | 100% | Inclusive convention, one answer |
-| Deprecated function name | NEW | 100% | String match — zero false positives |
+| `taskEndDate(A, N) → B` | — | 100% | Inclusive convention, one answer |
+| `taskDuration(A, B) → N` | — | 100% | Inclusive convention, one answer |
+| Banned function name | — | 100% | String match — zero false positives |
 | Comment exclusion | 2/2 | 100% | Regex skips `//`, `#`, `*` prefixes |
 | Non-scheduling context | 2/2 | 100% | No false positives on plain code |
 
@@ -183,10 +168,9 @@ reads PostToolUse JSON from stdin, extracts date literals, and verifies all
 computable relationships:
 
 - Weekend dates in scheduling contexts → warn
-- `add_business_days(A, N)` near wrong `B` → warn with correct value
 - `taskEndDate(A, N)` / `task_end_date(A, N)` near wrong `B` → warn
 - `taskDuration(A, B)` / `task_duration(A, B)` near wrong `N` → warn
-- Deprecated functions (`workingDaysBetween`, `count_biz_days_to`) in new lines → warn
+- Banned functions (`workingDaysBetween`, `addBusinessDays`, `shift_date`) → warn
 - Every warning includes a suggested `bizday` command (stickiness bridge)
 
 All date math uses the same `date_utils` functions as the scheduling engine —
@@ -196,16 +180,13 @@ Performance budget: **~3ms** total (native binary, no interpreter startup).
 
 **Output format** (every warning includes a `bizday` command + dual representation):
 ```json
-{"warning": "Date check: taskEndDate(2026-03-11, 10) should be 2026-03-24, but code has 2026-03-25.\n  addBusinessDays(2026-03-11, 9) = 2026-03-24\n  Run: bizday 2026-03-11 end 10"}
-```
-```json
-{"warning": "Date check: addBusinessDays(2026-03-11, 5) should be 2026-03-18, but code has 2026-03-17.\n  taskEndDate(2026-03-11, 6) = 2026-03-18 (inclusive duration 6)\n  Run: bizday 2026-03-11 5"}
+{"warning": "Date check: taskEndDate(2026-03-11, 10) should be 2026-03-24, but code has 2026-03-25.\n  Run: bizday 2026-03-11 end 10"}
 ```
 ```json
 {"warning": "Weekend date: 2026-03-07 (Saturday) used as start_date. Tasks cannot start on weekends.\n  Run: bizday 2026-03-07"}
 ```
 ```json
-{"warning": "Deprecated: workingDaysBetween is deleted. Use taskDuration() for inclusive [start, end] counting."}
+{"warning": "Banned: workingDaysBetween is deleted. Use taskDuration() for inclusive [start, end] counting."}
 ```
 
 The `Run: bizday ...` suffix is a **stickiness bridge** — agents that never knew about
@@ -793,7 +774,7 @@ produces the binary; this should be part of the dev container setup.
 
 | File | Action | Layer | Purpose |
 |------|--------|-------|---------|
-| `crates/bizday/Cargo.toml` | Create | 0,1 | Crate manifest — depends on `scheduler` + `serde_json` |
+| `crates/bizday/Cargo.toml` | Create | 0,1 | Crate manifest — depends on `ganttlet-scheduler` + `serde_json` |
 | `crates/bizday/src/main.rs` | Create | 1 | CLI arg parsing, dispatch |
 | `crates/bizday/src/compute.rs` | Create | 1 | +N, -N, diff, end, info operations using `date_utils` |
 | `crates/bizday/src/verify.rs` | Create | 0 | Lint/verify logic (shared: PostToolUse hook + `bizday lint`) |
@@ -915,51 +896,44 @@ to use (Case 1) and algorithmic logic (Case 3).
 
 This is the subtlest source of bugs. The project has specific conventions:
 
-**Convention (aligns with date-calc-fixes plan):**
+**Convention (established by Phase 16):**
 
 | Operation | Convention | Example |
 |-----------|-----------|---------|
 | Duration | `[start, end]` inclusive of both endpoints | Mar 11 to Mar 24 = 10 working days |
-| End from duration | `taskEndDate(start, dur)` = `addBusinessDays(start, dur - 1)` | Mar 11 + 10 → Mar 24 |
-| Duration from dates | `taskDuration(start, end)` = `differenceInBusinessDays(end, start) + 1` | Mar 11 to Mar 24 → 10 |
-| `add_business_days(date, n)` | Skips weekends, doesn't count start | Mar 6 + 5 = Mar 13 |
-| Cascade shift | `count_biz_days_to(current, required)` (renamed `business_day_delta` by date-calc-fixes) | Only shifts if required > current |
-| Weekend dates | Forbidden | UI prevents, Sheets import warns via WEEKEND_VIOLATION |
+| End from duration | `task_end_date(start, dur)` = `shift_date(start, dur - 1)` | Mar 11 + 10 → Mar 24 |
+| Duration from dates | `task_duration(start, end)` = `business_day_delta(start, end) + 1` | Mar 11 to Mar 24 → 10 |
+| `shift_date(date, n)` | `pub(crate)` — internal only | Never called directly |
+| Cascade shift | `business_day_delta(current, required)` | Only shifts if required > current |
+| Weekend dates | Forbidden | `find_conflicts()` emits `WEEKEND_VIOLATION` |
 
-**No Rust/TS divergence.** Both sides use the same inclusive convention after the
-date-calc-fixes plan lands. `bizday` uses the new convention from day one.
+**No Rust/TS divergence.** Cross-language consistency tests in both
+`date_utils.rs::cross_language_tests` and `dateUtils.test.ts` verify
+identical results for canonical cases.
 
-**No counting-function divergence.** `differenceInBusinessDays` and
-`count_biz_days_to` (to be renamed `business_day_delta` by date-calc-fixes) and
-`differenceInBusinessDays` only disagree when an endpoint falls on a weekend.
-The date-calc-fixes plan (Bug 9) enforces that all task dates are business days,
-making the divergence impossible. `bizday <date> <date>` (two-date mode) uses
-the Rust `count_biz_days_to` directly — no need to show two values.
+**No counting-function divergence.** Weekend dates are banned — both
+`business_day_delta` (Rust) and `businessDaysDelta` (TS) always agree for
+valid task dates. `bizday <date> <date>` uses `business_day_delta` directly.
 
 ---
 
 ## Edge Cases: Weekend Handling
 
-`bizday` uses the scheduler's `is_weekend()` and `add_business_days()` directly.
-Weekend edge cases are handled consistently with the engine:
+`bizday` uses the scheduler's `is_weekend_date()` and `ensure_business_day()`
+directly. Weekend edge cases are handled consistently with the engine:
 
-| Operation | Rust `add_business_days` | bizday behavior |
-|-----------|------------------------|-------------|
-| `add_business_days("Saturday", 0)` | Returns Saturday (no-op) | Warn: "Saturday — next business day: Monday" |
-| `add_business_days("Friday", 1)` | Monday | Correct |
-| `add_business_days("Sunday", 1)` | Monday | Correct (next day is Monday, a business day) |
+| Input | `ensure_business_day` | `bizday` behavior |
+|-------|----------------------|-------------|
+| Saturday | Monday | Warn: "Saturday — next business day: Monday" |
+| Sunday | Monday | Warn: "Sunday — next business day: Monday" |
+| Friday | Friday (no-op) | No warning |
 
-The `bizday info` command uses `is_weekend()` for weekend detection, NOT
-`add_business_days(date, 0)` (which is a no-op even on weekends).
+The `bizday info` command uses `is_weekend_date()` for weekend detection.
 
-**Historical note on counting-function divergence**: `count_biz_days_to` (Rust)
-and `differenceInBusinessDays` (date-fns) appeared to have different endpoint
-semantics, but this divergence only occurs when an endpoint is a weekend day.
-With weekend dates banned (date-calc-fixes Bug 9), both functions always agree
-for any valid task dates. Verified empirically across all weekday-to-weekday
-pairs. `count_biz_days_to` will be renamed to `business_day_delta` by the
-date-calc-fixes plan — `bizday` uses whichever name exists at build time
-(`count_biz_days_to` now, `business_day_delta` after the rename).
+Weekend dates are banned project-wide — `find_conflicts()` emits
+`WEEKEND_VIOLATION` for any task with a weekend start or end date.
+`business_day_delta` and `businessDaysDelta` always agree for valid
+(weekday-only) task dates.
 
 ---
 
@@ -969,43 +943,6 @@ Hand-written test cases verify known examples. Property-based tests (`proptest`)
 verify **invariants** across thousands of randomly generated dates, catching edge
 cases at year boundaries, leap years, month boundaries, and long weekday/weekend
 sequences that hand-written tests miss.
-
-### Prerequisites
-
-The proptest code references functions that **don't exist yet** in
-`crates/scheduler/src/date_utils.rs`:
-
-| Function | Current state | Required by |
-|----------|--------------|-------------|
-| `task_end_date(start, dur)` | **Does not exist** — created by date-calc-fixes plan | Properties 1, 2, 4, 6 |
-| `task_duration(start, end)` | **Does not exist** — created by date-calc-fixes plan | Properties 1, 2, 5 |
-| weekend check | `is_weekend` is private. Use `pub fn day_of_week()` → `dow == 0 \|\| dow == 6` | Property 4, Generator |
-| `add_business_days(start, n)` | Exists, `pub fn` | Properties 3, 6 |
-| `add_days(start, delta)` | Exists, `pub fn` | Generator |
-| `parse_date(s)` | Exists, `pub fn` | Property 4, Generator |
-
-**Implementation dependency**: Steps 1-4 of the implementation order (crate
-setup, compute, CLI, compute tests) can proceed using only `add_business_days`,
-`add_days`, and `parse_date`. But step 5 (proptest) requires `task_end_date`,
-`task_duration`, and `pub fn is_weekend` — these must be added to the scheduler
-crate first. Either:
-- (a) the date-calc-fixes agent lands these functions before `bizday` proptest, or
-- (b) the `bizday` implementer adds minimal versions to `date_utils.rs`:
-  ```rust
-  pub fn task_end_date(start: &str, duration: i32) -> String {
-      add_business_days(start, duration - 1)
-  }
-  pub fn task_duration(start: &str, end: &str) -> i32 {
-      count_biz_days_to(start, end) + 1
-  }
-  ```
-  Note: `is_weekend` exists but is private. The proptest code uses the public
-  `day_of_week(y, m, d)` function instead (0=Sun, 6=Sat) — no changes to the
-  scheduler crate are needed for weekend detection.
-
-  Also note: `count_biz_days_to` is the current name — the plan references
-  `business_day_delta` (a rename proposed by date-calc-fixes) which does not
-  exist yet. Use `count_biz_days_to` until the rename lands.
 
 ### Round-Trip Properties
 
@@ -1038,28 +975,26 @@ proptest! {
     }
 }
 
-// Property 3: addBusinessDays round-trips
-// ∀ start (weekday), n > 0:
-//   addBusinessDays(addBusinessDays(start, n), -n) == start
+// Property 3: task_end_date / task_start_date round-trip
+// ∀ start (weekday), dur > 0:
+//   task_start_date(task_end_date(start, dur), dur) == start
 proptest! {
     #[test]
-    fn add_sub_roundtrip(start in weekday_date(), n in 1..500i32) {
-        let forward = add_business_days(&start, n);
-        let back = add_business_days(&forward, -n);
+    fn end_start_roundtrip(start in weekday_date(), dur in 1..500i32) {
+        let end = task_end_date(&start, dur);
+        let back = task_start_date(&end, dur);
         prop_assert_eq!(back, start);
     }
 }
 
 // Property 4: taskEndDate is always a weekday
 // ∀ start (weekday), dur > 0:
-//   day_of_week(taskEndDate(start, dur)) is Mon-Fri
+//   is_weekend_date(taskEndDate(start, dur)) == false
 proptest! {
     #[test]
     fn end_date_never_weekend(start in weekday_date(), dur in 1..500i32) {
         let end = task_end_date(&start, dur);
-        let (y, m, d) = parse_date(&end);
-        let dow = day_of_week(y, m, d);
-        prop_assert!(dow != 0 && dow != 6, "end date {} is weekend (dow={})", end, dow);
+        prop_assert!(!is_weekend_date(&end), "end date {} is a weekend", end);
     }
 }
 
@@ -1074,14 +1009,17 @@ proptest! {
     }
 }
 
-// Property 6: addBusinessDays(start, dur) == taskEndDate(start, dur + 1)
-// The offset/duration relationship, verified exhaustively
+// Property 6: business_day_delta is consistent with task_duration
+// ∀ start, end (both weekdays, start <= end):
+//   business_day_delta(start, end) + 1 == task_duration(start, end)
 proptest! {
     #[test]
-    fn offset_duration_relationship(start in weekday_date(), n in 1..500i32) {
-        let via_offset = add_business_days(&start, n);
-        let via_end = task_end_date(&start, n + 1);
-        prop_assert_eq!(via_offset, via_end);
+    fn delta_duration_relationship(pair in ordered_weekday_pair()) {
+        let (start, end) = pair;
+        prop_assert_eq!(
+            business_day_delta(&start, &end) + 1,
+            task_duration(&start, &end)
+        );
     }
 }
 ```
@@ -1093,17 +1031,15 @@ proptest! {
 fn weekday_date() -> impl Strategy<Value = String> {
     (2020i32..2030, 1i32..366).prop_filter_map("weekday only", |(y, day)| {
         let date = add_days(&format!("{y}-01-01"), day - 1);
-        let (yy, m, d) = parse_date(&date);
-        let dow = day_of_week(yy, m, d);
-        if dow == 0 || dow == 6 { None } else { Some(date) }  // 0=Sun, 6=Sat
+        if is_weekend_date(&date) { None } else { Some(date) }
     })
 }
 
 /// Generate an ordered pair of weekday dates
 fn ordered_weekday_pair() -> impl Strategy<Value = (String, String)> {
     weekday_date().prop_flat_map(|start| {
-        (Just(start.clone()), 1..500i32).prop_map(move |(s, n)| {
-            (s, add_business_days(&start, n))
+        (Just(start.clone()), 1..500i32).prop_map(move |(s, dur)| {
+            (s, task_end_date(&start, dur))
         })
     })
 }
@@ -1155,86 +1091,31 @@ If any property produces a counterexample, it's a bug in `date_utils` (since
 
 ---
 
-## Future: Eliminate the Dual Convention at the API Level
+## API Design: Single Convention (Completed)
 
-### The Root Cause
-
-The dual representation in `bizday` output exists because the codebase exposes
-two public functions that take numbers differing by 1 for the same operation:
-
-```rust
-add_business_days(&start, 9);   // offset (half-open) → 2026-03-24
-task_end_date(&start, 10);      // duration (inclusive) → 2026-03-24
-```
-
-Every callsite of `add_business_days` is an opportunity for an off-by-one error.
-`bizday` catches these at runtime. Newtypes catch them at compile time. But the
-cleanest solution is: **don't expose both conventions in the public API.**
-
-### Target API Design
-
-`add_business_days` becomes an internal primitive. The public API uses only
-inclusive duration:
+Phase 16 eliminated the dual convention at the API level. The public API
+uses only inclusive duration:
 
 | Function | Semantic | Visibility |
 |----------|----------|------------|
-| `taskEndDate(start, duration)` | End date from inclusive duration | **Public** — task creation, tests, agents |
-| `taskDuration(start, end)` | Inclusive duration from dates | **Public** — display, validation, agents |
-| `shiftDate(date, offset)` | Move a date by N business days | **`pub(crate)`** — cascade internals only |
+| `task_end_date(start, duration)` | End date from inclusive duration | **`pub`** |
+| `task_duration(start, end)` | Inclusive duration from dates | **`pub`** |
+| `task_start_date(end, duration)` | Start from end + duration | **`pub`** |
+| `shift_date(date, offset)` | Move a date by N business days | **`pub(crate)`** — internal only |
 
-`shiftDate` is `addBusinessDays` renamed to signal "this is a shift amount,
-not a duration." It's not exposed to WASM or TypeScript. Agents never see it.
-The `-1` conversion happens once, inside `taskEndDate`, encapsulated and tested.
-
-**Result**: One convention (inclusive) in all external code. The off-by-one
-opportunity is eliminated structurally, not detected after the fact. `bizday`'s
-dual representation becomes informational context, not a safety net.
-
-### Why This Is a Separate Effort
-
-This touches the scheduler's public API and the WASM boundary — every callsite
-of `add_business_days` in Rust, and every reference in TypeScript via the WASM
-bindings. The date-calc-fixes agent is better positioned for this work since
-it's already refactoring the date convention across the codebase.
+One convention (inclusive) in all external code. `bizday`'s dual representation
+shows both duration and offset as informational context — agents see the
+function names they should use in code.
 
 ### Layered Safety Model
 
-Each layer eliminates a class of bugs the previous layer can't:
-
-| Layer | What it prevents | When |
-|-------|-----------------|------|
-| API design (single convention) | Using wrong function entirely | Compile time / code review |
-| Newtypes (`Duration` vs `Offset`) | Passing duration where offset is expected | Compile time |
-| `bizday` dual representation | Agent writes wrong number in test/code | Runtime (hook + CLI) |
-| Property-based tests (proptest) | Engine bugs in `date_utils` | Test time |
-
-`bizday` is valuable at every layer — even with a perfect API, agents still
-need to compute dates during reasoning (Layer 1) and the hook still catches
-wrong literals in test assertions (Layer 0). But the API refactor eliminates
-the most dangerous class: agents calling `addBusinessDays` directly with a
-duration value.
-
-### Newtype Option (Complementary)
-
-If the API refactor doesn't fully hide `shiftDate` (e.g., some WASM callers
-need it), newtypes provide an additional compile-time safety layer:
-
-```rust
-pub struct Duration(pub i32);   // inclusive count
-pub struct Offset(pub i32);     // shift amount
-
-impl Duration {
-    pub fn to_offset(self) -> Offset { Offset(self.0 - 1) }
-}
-```
-
-This makes `shiftDate(date, duration)` a compile error — it requires `Offset`.
-
-**Recommendation**: The date-calc-fixes agent should evaluate whether
-`addBusinessDays` can be made `pub(crate)` as part of the convention
-unification. If not (some external callers need raw shifts), newtypes are
-the fallback. The proptest properties serve as a safety net during either
-refactoring.
+| Layer | What it prevents | When | Status |
+|-------|-----------------|------|--------|
+| API design (single convention) | Using wrong function entirely | Compile time | **Done** (Phase 16) |
+| `bizday` dual representation | Agent writes wrong number in test/code | Runtime | This plan |
+| Property-based tests (proptest) | Engine bugs in `date_utils` | Test time | This plan |
+| Pre-commit hook | Banned function names in new code | Commit time | **Done** (Phase 16c) |
+| Weekend validation | Weekend dates in task start/end | WASM boundary | **Done** (Phase 16) |
 
 ---
 
@@ -1351,7 +1232,7 @@ Sheets data becomes a workflow.
 | Hook performance impact | **~3ms** | Native Rust binary, no interpreter startup | 40x faster than Node.js plan (~85ms). Existing verify.sh takes seconds |
 | Binary not built | Medium | Hook exits silently if `bizday` not found; build step in dev setup | First `cargo build -p bizday` creates the binary; CI builds it too |
 | `bizday` name collision | **None** | No known `bizday` command on Linux | `which bizday` returns nothing |
-| `start+dur→end` bugs undetected | **Medium** | Layer 1 `end` command computes correct inclusive value | Hook detects `taskEndDate`/`task_end_date` patterns; agents may still use raw `add_business_days` |
+| `start+dur→end` bugs undetected | **Low** | Hook verifies `taskEndDate`/`task_end_date` patterns; `shift_date` is `pub(crate)` — agents can't call it | Pre-commit hook also rejects banned function names |
 | Edge case dates (leap year, year boundary) | **Low** | proptest round-trip tests cover 2020-2030 with random dates | 6 properties × 10,000 cases in CI = 60,000 automated checks |
 | Regex lint false matches | Low | Comment-line exclusion handles common case; AST-aware parsing planned as future upgrade | No false positives observed in 13 test cases |
 | Log silently fails | Medium | `BIZDAY_LOG_DIR` env var + 8 integration tests in `tests/log.rs` verify directory creation, append, format | Auto-create directory; exit gracefully if write fails (don't block agent) |
@@ -1362,43 +1243,42 @@ Sheets data becomes a workflow.
 ## Acceptance Criteria
 
 **Layer 0 (passive — highest priority)**:
-1. Verify hook detects wrong `add_business_days` results
-2. Verify hook detects wrong `taskEndDate`/`task_end_date` results (inclusive convention)
-3. Verify hook detects wrong `taskDuration`/`task_duration` results (inclusive convention)
-4. Verify hook warns on weekend dates used as task start/end
-5. Verify hook warns on deprecated function names (`workingDaysBetween`, `count_biz_days_to`)
-6. Verify hook suggests `bizday` command in every warning (stickiness bridge)
-7. Verify hook completes in <10ms (target: ~3ms, native binary)
-8. Verify hook produces 0% false positives
-9. Verify hook logs all findings to `.claude/logs/bizday.log` (unified log)
+1. Verify hook detects wrong `taskEndDate`/`task_end_date` results (inclusive convention)
+2. Verify hook detects wrong `taskDuration`/`task_duration` results (inclusive convention)
+3. Verify hook warns on weekend dates used as task start/end
+4. Verify hook warns on banned function names (`workingDaysBetween`, `addBusinessDays`, `shift_date`)
+5. Verify hook suggests `bizday` command in every warning (stickiness bridge)
+6. Verify hook completes in <10ms (target: ~3ms, native binary)
+7. Verify hook produces 0% false positives
+8. Verify hook logs all findings to `.claude/logs/bizday.log` (unified log)
 
 **Layer 1 (active)**:
-10. `bizday 2026-03-11 5` returns `2026-03-18` in <10ms
-11. All date operations work correctly (add, subtract, cal-add, cal-sub, diff, info, end, verify, lint, false-match, report, help)
-12. `verify` mode exits 0 on match, 1 on mismatch
-13. `lint` mode scans a file and reports all verifiable date relationships
-14. All historical bug cases (1880999, 8ee19f8, 23ad90b) are reproducible and caught
-15. Dual-representation output shows both `duration` and `offset` for every computation
+9. `bizday 2026-03-11 5` returns `2026-03-18` in <10ms
+10. All operations work correctly (add, subtract, cal-add, cal-sub, diff, info, end, verify, lint, false-match, report, help)
+11. `verify` mode exits 0 on match, 1 on mismatch
+12. `lint` mode scans a file and reports all verifiable date relationships
+13. All historical bug cases (1880999, 8ee19f8, 23ad90b) are reproducible and caught
+14. Dual-representation output shows both `duration` and `offset` for every computation
 
 **Property-based (correctness)**:
-16. All 6 proptest properties pass: 256 cases locally, 10,000 in CI (zero failures)
-17. Round-trip: `taskDuration(start, taskEndDate(start, dur)) == dur` for all valid inputs
-18. Round-trip: `addBusinessDays(addBusinessDays(start, n), -n) == start` for all valid inputs
-19. `taskEndDate` never returns a weekend date
+15. All 6 proptest properties pass: 256 cases locally, 10,000 in CI (zero failures)
+16. Round-trip: `task_duration(start, task_end_date(start, dur)) == dur` for all valid inputs
+17. Round-trip: `task_start_date(task_end_date(start, dur), dur) == start` for all valid inputs
+18. `task_end_date` never returns a weekend date
 
 **Layer 2 (measurement)**:
-20. Unified log records all event types with `elapsed_ms` and session markers
-21. Log directory auto-created if missing; log appended, never overwritten
-22. All 8 `tests/log.rs` integration tests pass (event format, session markers, directory creation)
-23. `bizday report` reports coverage, proactive rate, mismatch rate, FP rate in one line
-24. `bizday report --trend` shows per-session summary table with cumulative row
-25. `bizday report` drill-down modes (`--mismatches`, `--unverified`, `--false-matches`, `--slow`) work
-26. `bizday report --pr-summary` outputs valid markdown table
-27. All `tests/report.rs` tests pass (known log input → expected metrics output)
+19. Unified log records all event types with `elapsed_ms` and session markers
+20. Log directory auto-created if missing; log appended, never overwritten
+21. All 8 `tests/log.rs` integration tests pass (event format, session markers, directory creation)
+22. `bizday report` reports coverage, proactive rate, mismatch rate, FP rate in one line
+23. `bizday report --trend` shows per-session summary table with cumulative row
+24. `bizday report` drill-down modes (`--mismatches`, `--unverified`, `--false-matches`, `--slow`) work
+25. `bizday report --pr-summary` outputs valid markdown table
+26. All `tests/report.rs` tests pass (known log input → expected metrics output)
 
 **Integration**:
-28. CLAUDE.md updated with bizday as primary tool; hook documented
-29. Stickiness test: 90%+ coverage across 5 sessions
+27. CLAUDE.md updated with bizday as primary tool; hook documented
+28. Stickiness test: 90%+ coverage across 5 sessions
 
 ## State-of-the-Art Comparison
 
@@ -1424,8 +1304,8 @@ Guardrails), and static analysis tools (ESLint, Clippy, Semgrep). As of March 20
   in working days). Industry standard for scheduling software.
 - **Property-based testing**: 6 properties cover the expert checklist (roundtrip, monotonicity,
   weekend exclusion). Generators bias toward weekday dates.
-- **API design direction**: Making `addBusinessDays` internal mirrors P6's approach (hours-based
-  internally, days at display layer). "One convention externally, convert once internally" is proven.
+- **API design**: `shift_date` is `pub(crate)`, only `task_end_date`/`task_duration` are public.
+  Mirrors P6's approach (hours internally, days at display layer). Already implemented.
 
 ### Where `bizday` falls behind — and mitigations
 
@@ -1448,12 +1328,6 @@ detect inconsistencies between related files (e.g., a task start date in one fil
 predecessor's end date in another). **Future option**: use the audit log as a session-scoped
 date registry — track dates written in one edit, verify consistency in subsequent edits.
 
-**4. proptest case count — 256 is low for CI.**
-Expert recommendation: 100-256 for local development feedback, 1,000+ for CI, 10,000+ for
-release validation. The `proptest` framework supports biasing toward edge values, but 256
-uniform-random cases may miss month-boundary and leap-year edge cases. **Mitigated**: the
-plan now specifies tiered case counts (see Property-Based Testing section).
-
 ---
 
 ## Non-Goals (This Plan)
@@ -1463,7 +1337,7 @@ plan now specifies tiered case counts (see Property-Based Testing section).
 - Interactive mode / REPL
 - Replacing date-fns in TypeScript application code (bizday is an agent/hook tool, not a browser runtime dep)
 - Blocking edits (Layer 0 warns, never blocks — false positives must not stop work)
-- Newtype `Duration`/`Offset` migration in scheduler (see Future section — separate refactoring)
+- Newtype `Duration`/`Offset` in scheduler (the API already uses single convention; newtypes add marginal safety)
 - AST-aware lint parsing (see Lint Mode section — upgrade if regex false matches become a problem)
 - Batch/pipeline stdin streaming (see Pipeline Mode section — add when needed)
 
@@ -1474,7 +1348,7 @@ plan now specifies tiered case counts (see Property-Based Testing section).
 Crate structure first, then core logic, property tests, then hook integration:
 
 1. `crates/bizday/Cargo.toml` — create crate with `ganttlet-scheduler` path dep, `proptest` + `tempfile` as dev-dependencies (no workspace — standalone crate)
-2. `crates/bizday/src/compute.rs` — core date math operations (+N, -N, diff, end, info) using `scheduler::date_utils`
+2. `crates/bizday/src/compute.rs` — core date math operations (+N, -N, diff, end, info) using `ganttlet_scheduler::date_utils`
 3. `crates/bizday/src/main.rs` — CLI arg parsing + dispatch
 4. `crates/bizday/tests/compute.rs` — hand-written integration tests for all 9 operations
 5. `crates/bizday/tests/proptest.rs` — property-based tests (6 properties, 256 cases each). Run early: these test the underlying `date_utils`, not just `bizday`. Any failure here is a scheduler engine bug.

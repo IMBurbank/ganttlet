@@ -78,6 +78,17 @@ export function getColumnWidth(zoom: ZoomLevel): number {
   }
 }
 
+/**
+ * Pixel width of a single calendar day at the given zoom level.
+ * Day zoom: 1 column = 1 day, so dayPx = colWidth.
+ * Week zoom: 1 column = 7 days, so dayPx = colWidth / 7.
+ * Month zoom: 1 column = 30 days, so dayPx = colWidth / 30.
+ */
+export function getDayPx(zoom: ZoomLevel): number {
+  const colWidth = getColumnWidth(zoom);
+  return zoom === 'day' ? colWidth : zoom === 'week' ? colWidth / 7 : colWidth / 30;
+}
+
 export function getTimelineDays(start: Date, end: Date): Date[] {
   return eachDayOfInterval({ start, end });
 }

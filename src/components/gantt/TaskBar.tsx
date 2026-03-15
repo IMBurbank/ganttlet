@@ -15,6 +15,7 @@ import {
   daysBetween,
   businessDaysDelta,
   getColumnWidth,
+  getDayPx,
   ensureBusinessDay,
   prevBusinessDay,
   taskDuration,
@@ -100,7 +101,7 @@ export default function TaskBar({
   const barHeight = 28;
   const barY = y + (rowHeight - barHeight) / 2;
   const colWidth = getColumnWidth(zoom);
-  const dayPx = zoom === 'day' ? colWidth : zoom === 'week' ? colWidth / 7 : colWidth / 30;
+  const dayPx = getDayPx(zoom);
   const minWidth = colWidth * 0.5;
 
   const handleMouseDown = useCallback(

@@ -1,3 +1,17 @@
+//! Core data structures for the scheduling engine.
+//!
+//! Defines the domain types shared across all modules:
+//! - `Task` — a schedulable unit with dates, duration, deps, and constraints
+//! - `Dependency` — a typed edge (FS/SS/FF/SF) with optional lag
+//! - `DepType` — the four dependency relationship types
+//! - `ConstraintType` — the eight scheduling constraint types
+//!
+//! And result types returned by WASM exports:
+//! - `CascadeResult` — per-task updated dates from cascade propagation
+//! - `RecalcResult` — per-task recalculated start/end from constraint evaluation
+//! - `ConflictResult` — constraint violation details (task, type, dates)
+//! - `CriticalPathResult` — critical task IDs and edges from CPM
+
 use serde::{Deserialize, Serialize};
 
 /// Constraint type for a task.

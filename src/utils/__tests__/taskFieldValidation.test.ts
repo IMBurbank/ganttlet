@@ -75,25 +75,16 @@ describe('validateEndDate', () => {
 describe('validateStartDate', () => {
   it('rejects start date that is a Saturday', () => {
     // 2026-03-07 is Saturday
-    expect(validateStartDate('2026-03-07', '2026-03-20')).not.toBeNull();
+    expect(validateStartDate('2026-03-07')).not.toBeNull();
   });
 
   it('rejects start date that is a Sunday', () => {
     // 2026-03-08 is Sunday
-    expect(validateStartDate('2026-03-08', '2026-03-20')).not.toBeNull();
+    expect(validateStartDate('2026-03-08')).not.toBeNull();
   });
 
-  it('rejects start date after end date', () => {
-    expect(validateStartDate('2026-03-20', '2026-03-10')).not.toBeNull();
-  });
-
-  it('accepts valid start date before end date', () => {
+  it('accepts valid weekday start date', () => {
     // 2026-03-09 is Monday
-    expect(validateStartDate('2026-03-09', '2026-03-20')).toBeNull();
-  });
-
-  it('accepts start date equal to end date on a weekday', () => {
-    // 2026-03-09 is Monday
-    expect(validateStartDate('2026-03-09', '2026-03-09')).toBeNull();
+    expect(validateStartDate('2026-03-09')).toBeNull();
   });
 });

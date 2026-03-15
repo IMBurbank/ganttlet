@@ -1,3 +1,10 @@
+//! Task dependency graph utilities.
+//!
+//! `would_create_cycle` uses BFS reachability to check whether adding a
+//! dependency edge would introduce a cycle in the task graph. This is called
+//! before inserting any new dependency to maintain a DAG invariant.
+
+use crate::date_utils::is_weekend_date;
 use crate::types::Task;
 use std::collections::HashSet;
 
@@ -35,10 +42,17 @@ mod tests {
     use crate::types::{DepType, Dependency};
 
     fn make_task(id: &str) -> Task {
+        let start = "2026-03-02";
+        let end = "2026-03-10";
+        debug_assert!(
+            !is_weekend_date(start),
+            "make_task start is weekend: {start}"
+        );
+        debug_assert!(!is_weekend_date(end), "make_task end is weekend: {end}");
         Task {
             id: id.to_string(),
-            start_date: "2026-03-01".to_string(),
-            end_date: "2026-03-10".to_string(),
+            start_date: start.to_string(),
+            end_date: end.to_string(),
             duration: 7,
             is_milestone: false,
             is_summary: false,

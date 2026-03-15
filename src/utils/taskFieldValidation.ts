@@ -31,8 +31,7 @@ export function validateEndDate(startDate: string, endDate: string): string | nu
   return null;
 }
 
-export function validateStartDate(value: string, endDate: string): string | null {
+export function validateStartDate(value: string): string | null {
   if (isWeekendDate(value)) return 'Start date cannot be a weekend';
-  if (value > endDate) return 'Start date must be on or before end date';
   return null;
 }

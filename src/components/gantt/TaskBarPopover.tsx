@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import type { Task } from '../../types';
-import { businessDaysDelta, taskEndDate, taskDuration } from '../../utils/dateUtils';
+import { businessDaysDelta, taskEndDate, taskDuration, isWeekendDate } from '../../utils/dateUtils';
+import { validateEndDate } from '../../utils/taskFieldValidation';
 
 const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
   ASAP: 'As Soon As Possible',
@@ -35,6 +36,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
   const [startDate, setStartDate] = useState(task?.startDate ?? '');
   const [endDate, setEndDate] = useState(task?.endDate ?? '');
   const [owner, setOwner] = useState(task?.owner ?? '');
+  const [dateError, setDateError] = useState<string | null>(null);
 
   useEffect(() => {
     nameInputRef.current?.focus();
@@ -42,6 +44,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
   }, []);
 
   const handleClose = useCallback(() => {
+    setDateError(null);
     onClose();
   }, [onClose]);
 
@@ -70,6 +73,12 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
     if (value === oldValue) return;
 
     if (field === 'startDate') {
+      // Only check weekend — skip ordering check since endDate is recalculated below
+      if (isWeekendDate(value)) {
+        setDateError('Start date cannot be a weekend');
+        return;
+      }
+      setDateError(null);
       const newEndDate = taskEndDate(value, task!.duration);
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'startDate', value });
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value: newEndDate });
@@ -88,6 +97,12 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
       }
     } else if (field === 'endDate') {
+      const error = validateEndDate(task!.startDate, value);
+      if (error) {
+        setDateError(error);
+        return;
+      }
+      setDateError(null);
       const newDuration = taskDuration(task!.startDate, value);
       if (newDuration < 1) return;
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
@@ -106,6 +121,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
       }
     } else {
+      setDateError(null);
       dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field, value });
       dispatch({
         type: 'ADD_CHANGE_RECORD',
@@ -179,6 +195,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             />
           </div>
         </div>
+        {dateError && <span className="text-[10px] text-red-400">{dateError}</span>}
         <div>
           <label className="text-[10px] text-text-muted uppercase">Duration</label>
           <span className="block text-xs text-text-secondary px-2 py-1">{task.duration}d</span>
@@ -227,6 +244,11 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
               type="date"
               value={task.constraintDate ?? ''}
               onChange={(e) => {
+                if (isWeekendDate(e.target.value)) {
+                  setDateError('Constraint date cannot be a weekend');
+                  return;
+                }
+                setDateError(null);
                 dispatch({
                   type: 'SET_CONSTRAINT',
                   taskId,

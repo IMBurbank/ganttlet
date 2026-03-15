@@ -1,3 +1,23 @@
+//! Constraint evaluation and earliest-start recalculation.
+//!
+//! - `compute_earliest_start(tasks, task_id)` — computes the earliest possible
+//!   start for a single task from its dependencies and an optional SNET floor.
+//!   Returns `None` if the task is unconstrained.
+//!
+//! - `recalculate_earliest(tasks)` — performs a full topological-sort
+//!   recalculation (Kahn's algorithm) applying a today-floor and all 8
+//!   constraint types to every task.
+//!
+//! ## Constraint types
+//! - **ASAP** — As Soon As Possible (default, no-op)
+//! - **ALAP** — As Late As Possible (handled in CPM backward pass)
+//! - **SNET** — Start No Earlier Than
+//! - **SNLT** — Start No Later Than
+//! - **FNET** — Finish No Earlier Than
+//! - **FNLT** — Finish No Later Than
+//! - **MSO** — Must Start On
+//! - **MFO** — Must Finish On
+
 use crate::date_utils::{
     ff_successor_start, fs_successor_start, sf_successor_start, ss_successor_start, task_end_date,
     task_start_date,
@@ -302,6 +322,17 @@ mod tests {
     use crate::types::Dependency;
 
     fn make_task(id: &str, start: &str, end: &str, duration: i32) -> Task {
+        use crate::date_utils::{is_weekend_date, task_duration};
+        debug_assert!(
+            !is_weekend_date(start),
+            "make_task start is weekend: {start}"
+        );
+        debug_assert!(!is_weekend_date(end), "make_task end is weekend: {end}");
+        debug_assert!(
+            task_duration(start, end) == duration,
+            "make_task duration mismatch: task_duration({start}, {end}) = {} != {duration}",
+            task_duration(start, end)
+        );
         Task {
             id: id.to_string(),
             start_date: start.to_string(),
@@ -328,17 +359,17 @@ mod tests {
 
     #[test]
     fn no_deps_returns_none() {
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10)];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 7)];
         assert_eq!(compute_earliest_start(&tasks, "a"), None);
     }
 
     #[test]
     fn single_fs_dep() {
-        // A(start 03-01, end 03-10) -> B(FS, lag 0). Earliest start for B = 03-11
-        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        // A(start 03-02, end 03-10, dur=7) -> B(FS, lag 0). Earliest start for B = 03-11
+        let mut b = make_task("b", "2026-03-11", "2026-03-20", 8);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 7), b];
         assert_eq!(
             compute_earliest_start(&tasks, "b"),
             Some("2026-03-11".to_string())
@@ -347,11 +378,11 @@ mod tests {
 
     #[test]
     fn fs_dep_with_lag() {
-        // A(end 03-10) -> B(FS, lag 2). Earliest = 03-13
-        let mut b = make_task("b", "2026-03-13", "2026-03-22", 10);
+        // A(start 03-02, end 03-10, dur=7) -> B(FS, lag 2). Earliest = 03-13
+        let mut b = make_task("b", "2026-03-13", "2026-03-20", 6);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 2)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 7), b];
         assert_eq!(
             compute_earliest_start(&tasks, "b"),
             Some("2026-03-13".to_string())
@@ -360,17 +391,18 @@ mod tests {
 
     #[test]
     fn multiple_deps_latest_wins() {
-        // A(end 03-10) and C(end 03-15) both FS to B. Earliest = 03-16
-        let mut b = make_task("b", "2026-03-16", "2026-03-25", 10);
+        // A(start 03-02, end 03-10, dur=7) and C(start 03-06, end 03-13, dur=6) both FS to B.
+        // fs_start(A.end=03-10, 0)=03-11; fs_start(C.end=03-13, 0)=03-16 → B earliest = 03-16
+        let mut b = make_task("b", "2026-03-16", "2026-03-25", 8);
         b.dependencies = vec![
             make_dep("a", "b", DepType::FS, 0),
             make_dep("c", "b", DepType::FS, 0),
         ];
 
         let tasks = vec![
-            make_task("a", "2026-03-01", "2026-03-10", 10),
+            make_task("a", "2026-03-02", "2026-03-10", 7),
             b,
-            make_task("c", "2026-03-06", "2026-03-15", 10),
+            make_task("c", "2026-03-06", "2026-03-13", 6),
         ];
         assert_eq!(
             compute_earliest_start(&tasks, "b"),
@@ -380,21 +412,21 @@ mod tests {
 
     #[test]
     fn ss_dep() {
-        // A(start 03-01) -> B(SS, lag 3). Earliest = 03-04
-        let mut b = make_task("b", "2026-03-04", "2026-03-13", 10);
+        // A(start 03-02 Mon, dur=7) -> B(SS, lag 3). ss_start(03-02,3)=03-05 Thu
+        let mut b = make_task("b", "2026-03-05", "2026-03-13", 7);
         b.dependencies = vec![make_dep("a", "b", DepType::SS, 3)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 7), b];
         assert_eq!(
             compute_earliest_start(&tasks, "b"),
-            Some("2026-03-04".to_string())
+            Some("2026-03-05".to_string())
         );
     }
 
     #[test]
     fn snet_no_deps() {
         // Task with SNET constraint and no deps: earliest start = constraint date
-        let mut a = make_task("a", "2026-03-01", "2026-03-10", 10);
+        let mut a = make_task("a", "2026-03-02", "2026-03-10", 7);
         a.constraint_type = Some(ConstraintType::SNET);
         a.constraint_date = Some("2026-03-15".to_string());
 
@@ -407,13 +439,13 @@ mod tests {
 
     #[test]
     fn snet_with_fs_dep_constraint_wins() {
-        // A(end 03-10) -> B(FS, lag 0). Dep-driven ES = 03-11. SNET = 03-20. SNET wins.
-        let mut b = make_task("b", "2026-03-11", "2026-03-20", 10);
+        // A(start 03-02, end 03-10, dur=7) -> B(FS, lag 0). Dep-driven ES = 03-11. SNET = 03-20. SNET wins.
+        let mut b = make_task("b", "2026-03-11", "2026-03-20", 8);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::SNET);
         b.constraint_date = Some("2026-03-20".to_string());
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 7), b];
         assert_eq!(
             compute_earliest_start(&tasks, "b"),
             Some("2026-03-20".to_string())
@@ -422,13 +454,13 @@ mod tests {
 
     #[test]
     fn snet_with_dep_dep_wins() {
-        // A(end 03-25) -> B(FS, lag 0). Dep-driven ES = 03-26. SNET = 03-15. Dep wins.
-        let mut b = make_task("b", "2026-03-26", "2026-04-04", 10);
+        // A(start 03-16 Mon, end 03-25 Wed, dur=8) -> B(FS, lag 0). Dep-driven ES = 03-26. SNET = 03-15. Dep wins.
+        let mut b = make_task("b", "2026-03-26", "2026-04-03", 7);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::SNET);
         b.constraint_date = Some("2026-03-15".to_string());
 
-        let tasks = vec![make_task("a", "2026-03-16", "2026-03-25", 10), b];
+        let tasks = vec![make_task("a", "2026-03-16", "2026-03-25", 8), b];
         assert_eq!(
             compute_earliest_start(&tasks, "b"),
             Some("2026-03-26".to_string())
@@ -438,7 +470,7 @@ mod tests {
     #[test]
     fn asap_constraint_no_effect() {
         // ASAP constraint behaves like no constraint
-        let mut a = make_task("a", "2026-03-01", "2026-03-10", 10);
+        let mut a = make_task("a", "2026-03-02", "2026-03-10", 7);
         a.constraint_type = Some(ConstraintType::ASAP);
         a.constraint_date = Some("2026-03-15".to_string());
 
@@ -449,7 +481,7 @@ mod tests {
     #[test]
     fn no_constraint_fields_unchanged() {
         // None constraint fields: same as original behavior
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10)];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 7)];
         assert_eq!(compute_earliest_start(&tasks, "a"), None);
     }
 
@@ -463,6 +495,15 @@ mod tests {
         project: &str,
         ws: &str,
     ) -> Task {
+        use crate::date_utils::is_weekend_date;
+        debug_assert!(
+            !is_weekend_date(start),
+            "make_task_with_project start is weekend: {start}"
+        );
+        debug_assert!(
+            !is_weekend_date(end),
+            "make_task_with_project end is weekend: {end}"
+        );
         Task {
             id: id.to_string(),
             start_date: start.to_string(),
@@ -522,7 +563,7 @@ mod tests {
     fn recalc_today_floor() {
         // Task with no deps, start in the past. Should be floored at today (Wed).
         // task_end_date("2026-03-04", 5) = add_biz("2026-03-04", 4) = 2026-03-10
-        let tasks = vec![make_task("a", "2025-01-01", "2025-01-06", 5)];
+        let tasks = vec![make_task("a", "2025-01-01", "2025-01-07", 5)];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-04");
 
         assert_eq!(results.len(), 1);
@@ -617,7 +658,7 @@ mod tests {
     fn fs_lag0_across_weekend() {
         // A ends Friday 2026-03-06. FS lag=0 means B starts next business day = Monday 2026-03-09.
         // Bug: was returning 2026-03-07 (Saturday) because add_days skips no weekends.
-        let mut b = make_task("b", "2026-03-09", "2026-03-18", 5);
+        let mut b = make_task("b", "2026-03-09", "2026-03-13", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
         let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
@@ -631,7 +672,7 @@ mod tests {
     fn fs_lag_in_business_days() {
         // A ends Friday 2026-03-06. FS lag=2 means 2 business days after end.
         // Next biz day after Friday = Monday 03-09, +2 biz days = Wednesday 03-11.
-        let mut b = make_task("b", "2026-03-11", "2026-03-20", 5);
+        let mut b = make_task("b", "2026-03-11", "2026-03-17", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 2)];
 
         let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
@@ -645,10 +686,10 @@ mod tests {
     fn ss_lag_in_business_days() {
         // A starts Friday 2026-03-06. SS lag=1 means 1 business day after start.
         // 1 biz day after Friday = Monday 03-09 (not Saturday 03-07).
-        let mut b = make_task("b", "2026-03-09", "2026-03-18", 5);
+        let mut b = make_task("b", "2026-03-09", "2026-03-13", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::SS, 1)];
 
-        let tasks = vec![make_task("a", "2026-03-06", "2026-03-13", 5), b];
+        let tasks = vec![make_task("a", "2026-03-06", "2026-03-12", 5), b];
         assert_eq!(
             compute_earliest_start(&tasks, "b"),
             Some("2026-03-09".to_string()) // Monday
@@ -694,7 +735,7 @@ mod tests {
         // A starts 2026-03-10 (Tue), 3d task. SF lag 0 to B (2d task).
         // SF: B's end must be >= A's start (03-10).
         // B's required_end = 03-10, B's start = 03-10 - (2-1) = 03-10 - 1 biz day = 03-09 (Mon)
-        let mut b = make_task("b", "2026-03-05", "2026-03-09", 2);
+        let mut b = make_task("b", "2026-03-05", "2026-03-06", 2);
         b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
 
         let tasks = vec![make_task("a", "2026-03-10", "2026-03-12", 3), b];
@@ -792,7 +833,7 @@ mod tests {
         // A: 5d from 03-09 (Mon), inclusive end = add_biz(03-09,4) = 03-13 (Fri).
         // B FS from A → fs_successor_start(03-13,0) = 03-16 (Mon).
         // 03-16 > SNLT 03-10 → conflict.
-        let mut b = make_task("b", "2026-03-05", "2026-03-12", 5);
+        let mut b = make_task("b", "2026-03-05", "2026-03-11", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::SNLT);
         b.constraint_date = Some("2026-03-10".to_string());
@@ -812,9 +853,9 @@ mod tests {
     #[test]
     fn fnet_pushes_start() {
         // 3d task starting Mar 10 with FNET Mar 20.
-        // Computed end = add_biz(03-10, 3) = 03-13. 03-13 < 03-20 → push.
-        // new_start = add_biz(03-20, -3) = 03-17 (Tue)
-        let mut a = make_task("a", "2026-03-10", "2026-03-13", 3);
+        // Computed end = task_end_date(03-10, 3) = add_biz(03-10, 2) = 03-12. 03-12 < 03-20 → push.
+        // new_start = task_start_date(03-20, 3) = add_biz(03-20, -2) = 03-18 (Wed)
+        let mut a = make_task("a", "2026-03-10", "2026-03-12", 3);
         a.constraint_type = Some(ConstraintType::FNET);
         a.constraint_date = Some("2026-03-20".to_string());
 
@@ -849,7 +890,7 @@ mod tests {
         // 5d task, dep pushes start to Mar 16 (fs_successor_start(03-13,0)).
         // End = task_end_date(03-16, 5) = add_biz(03-16, 4) = 03-20 (Fri).
         // FNLT = Mar 19. 03-20 > 03-19 → conflict.
-        let mut b = make_task("b", "2026-03-05", "2026-03-12", 5);
+        let mut b = make_task("b", "2026-03-05", "2026-03-11", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::FNLT);
         b.constraint_date = Some("2026-03-19".to_string());
@@ -864,14 +905,15 @@ mod tests {
 
     #[test]
     fn fnlt_no_conflict() {
-        // 3d task, dep pushes start to Mar 10. End = add_biz(03-10, 3) = 03-13.
-        // FNLT = Mar 20. 03-13 <= 03-20 → no conflict.
-        let mut b = make_task("b", "2026-03-05", "2026-03-10", 3);
+        // A(dur=3) ends 03-04. fs_start(03-04,0)=03-05. B starts 03-03 (before earliest), moves to 03-05.
+        // B ends task_end_date(03-05, 3) = add_biz(03-05, 2) = 03-09 Mon.
+        // FNLT = Mar 20. 03-09 <= 03-20 → no conflict.
+        let mut b = make_task("b", "2026-03-03", "2026-03-05", 3);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::FNLT);
         b.constraint_date = Some("2026-03-20".to_string());
 
-        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 3), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-04", 3), b];
         let results = recalculate_earliest(&tasks, None, None, None, "2026-03-02");
 
         let b_result = results.iter().find(|r| r.id == "b").unwrap();
@@ -882,8 +924,8 @@ mod tests {
 
     #[test]
     fn mso_pins_start() {
-        // MSO Mar 15, no deps → starts Mar 15
-        let mut a = make_task("a", "2026-03-10", "2026-03-17", 5);
+        // MSO Mar 16 (Mon), no deps → starts Mar 16
+        let mut a = make_task("a", "2026-03-10", "2026-03-16", 5);
         a.constraint_type = Some(ConstraintType::MSO);
         a.constraint_date = Some("2026-03-16".to_string());
 
@@ -897,8 +939,8 @@ mod tests {
 
     #[test]
     fn mso_conflict_when_deps_push_past() {
-        // MSO Mar 15, dep requires start Mar 18 → conflict, but still pinned to Mar 15
-        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
+        // MSO Mar 12, dep requires start Mar 16 → conflict, but still pinned to Mar 12
+        let mut b = make_task("b", "2026-03-10", "2026-03-16", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::MSO);
         b.constraint_date = Some("2026-03-12".to_string());
@@ -917,8 +959,8 @@ mod tests {
 
     #[test]
     fn mfo_derives_start() {
-        // MFO Mar 20 (Fri), 5d task → start = add_biz(03-20, -5) = 03-13 (Fri)
-        let mut a = make_task("a", "2026-03-10", "2026-03-17", 5);
+        // MFO Mar 20 (Fri), 5d task → derived start = task_start_date(03-20, 5) = add_biz(03-20, -4) = 03-16 (Mon)
+        let mut a = make_task("a", "2026-03-10", "2026-03-16", 5);
         a.constraint_type = Some(ConstraintType::MFO);
         a.constraint_date = Some("2026-03-20".to_string());
 
@@ -932,9 +974,9 @@ mod tests {
 
     #[test]
     fn mfo_conflict_when_deps_push_past() {
-        // MFO Mar 13, 5d task → derived start = add_biz(03-13, -5) = 03-06.
+        // MFO Mar 13, 5d task → derived start = task_start_date(03-13, 5) = add_biz(03-13, -4) = 03-09.
         // Dep pushes to Mar 16 → conflict (deps require later start than MFO allows)
-        let mut b = make_task("b", "2026-03-10", "2026-03-17", 5);
+        let mut b = make_task("b", "2026-03-10", "2026-03-16", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::MFO);
         b.constraint_date = Some("2026-03-13".to_string());
@@ -973,7 +1015,7 @@ mod tests {
         // A starts 2026-03-10, 3d. SF lag 0 to B (2d).
         // B's earliest: required_end = 03-10, start = 03-10 - 1 biz = 03-09
         // B at 03-05, should move to 03-09
-        let mut b = make_task("b", "2026-03-05", "2026-03-09", 2);
+        let mut b = make_task("b", "2026-03-05", "2026-03-06", 2);
         b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
 
         let tasks = vec![make_task("a", "2026-03-10", "2026-03-12", 3), b];

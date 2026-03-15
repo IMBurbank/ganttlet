@@ -95,7 +95,7 @@ A PostToolUse hook on `Edit|Write` that fires after every code edit. It:
 | `task_duration("A", "B")` / `taskDuration("A", "B")` near `N` | Computes `business_day_delta(A, B) + 1`, warns if N wrong | 100% — inclusive convention, one answer |
 | Weekend date in `start_date`/`end_date` field | Always warns | 100% — weekend task dates forbidden |
 | Date in `assert_eq!` / `expect()` | Verifies if computable, logs otherwise | 100% where computable |
-| Banned function call (`workingDaysBetween`, `addBusinessDays`, `shift_date`) | Warns: "use taskDuration / task_end_date" | 100% — string match |
+| Banned function call (`workingDaysBetween`, `shift_date`) | Warns: "use taskDuration / task_end_date" | 100% — string match |
 
 **Key improvement over earlier plan**: The unified inclusive convention eliminates
 the fence-post ambiguity. `taskEndDate(start, dur)` has ONE correct answer —
@@ -143,10 +143,12 @@ end dates. If the hook sees `taskEndDate("2026-03-11", 10)` near
 `"2026-03-25"`, it computes `addBusinessDays(Mar 11, 9)` = `2026-03-24` and
 warns. Similarly for `taskDuration("A", "B")` near a wrong number.
 
-The hook also detects **banned function names** — `workingDaysBetween` (deleted),
-`addBusinessDays` / `addBusinessDaysToDate` (replaced by `taskEndDate`), and
-direct `shift_date` calls (internal only). These are already enforced by the
-pre-commit hook; the PostToolUse hook catches them earlier, before commit.
+The hook also detects **banned function names** — `workingDaysBetween` (deleted)
+and direct `shift_date` calls (internal only, `pub(crate)`). The pre-commit hook
+already rejects `workingDaysBetween`; the PostToolUse hook catches it earlier,
+before commit. `addBusinessDays` is not banned — it's a `date-fns` library
+function used internally by `taskEndDate`; it's simply not exported from
+`dateUtils.ts`, so agents can't import it from the project.
 
 **Accuracy by category:**
 
@@ -170,7 +172,7 @@ computable relationships:
 - Weekend dates in scheduling contexts → warn
 - `taskEndDate(A, N)` / `task_end_date(A, N)` near wrong `B` → warn
 - `taskDuration(A, B)` / `task_duration(A, B)` near wrong `N` → warn
-- Banned functions (`workingDaysBetween`, `addBusinessDays`, `shift_date`) → warn
+- Banned functions (`workingDaysBetween`, `shift_date`) → warn
 - Every warning includes a suggested `bizday` command (stickiness bridge)
 
 All date math uses the same `date_utils` functions as the scheduling engine —
@@ -1246,7 +1248,7 @@ Sheets data becomes a workflow.
 1. Verify hook detects wrong `taskEndDate`/`task_end_date` results (inclusive convention)
 2. Verify hook detects wrong `taskDuration`/`task_duration` results (inclusive convention)
 3. Verify hook warns on weekend dates used as task start/end
-4. Verify hook warns on banned function names (`workingDaysBetween`, `addBusinessDays`, `shift_date`)
+4. Verify hook warns on banned function names (`workingDaysBetween`, `shift_date`)
 5. Verify hook suggests `bizday` command in every warning (stickiness bridge)
 6. Verify hook completes in <10ms (target: ~3ms, native binary)
 7. Verify hook produces 0% false positives

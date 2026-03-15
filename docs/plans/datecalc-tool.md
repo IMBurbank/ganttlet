@@ -95,7 +95,7 @@ A PostToolUse hook on `Edit|Write` that fires after every code edit. It:
 | `task_duration("A", "B")` / `taskDuration("A", "B")` near `N` | Computes `business_day_delta(A, B) + 1`, warns if N wrong | 100% — inclusive convention, one answer |
 | Weekend date in `start_date`/`end_date` field | Always warns | 100% — weekend task dates forbidden |
 | Date in `assert_eq!` / `expect()` | Verifies if computable, logs otherwise | 100% where computable |
-| Banned function call (`workingDaysBetween`, `shift_date`) | Warns: "use taskDuration / task_end_date" | 100% — string match |
+| Weekend date in `assert_eq!` / test assertion | Verifies date isn't Sat/Sun | 100% — `is_weekend_date` is deterministic |
 
 **Key design property**: The unified inclusive convention means `taskEndDate(start, dur)`
 has ONE correct answer — `shift_date(start, dur - 1)`. The hook can verify
@@ -139,12 +139,12 @@ end dates. If the hook sees `taskEndDate("2026-03-11", 10)` near `"2026-03-25"`,
 it computes the correct result `2026-03-24` and warns. Similarly for
 `taskDuration("A", "B")` near a wrong number.
 
-The hook also detects **banned function names** — `workingDaysBetween` (deleted)
-and direct `shift_date` calls (internal only, `pub(crate)`). The pre-commit hook
-already rejects `workingDaysBetween`; the PostToolUse hook catches it earlier,
-before commit. `addBusinessDays` is not banned — it's a `date-fns` library
-function used internally by `taskEndDate`; it's simply not exported from
-`dateUtils.ts`, so agents can't import it from the project.
+**Banned function detection is NOT in the hook.** `workingDaysBetween` is deleted
+(won't compile/run), `shift_date` is `pub(crate)` (can't call from external code),
+and `addBusinessDays` is not exported from `dateUtils.ts`. These are structural
+guards — the language's module system enforces them. String-matching in a hook
+adds no safety over what the compiler/runtime already provides. The pre-commit
+hook retains a `workingDaysBetween` check as a belt-and-suspenders measure.
 
 **Accuracy by category:**
 
@@ -153,7 +153,6 @@ function used internally by `taskEndDate`; it's simply not exported from
 | Weekend detection | 3/3 | 100% | Forbidden — always wrong |
 | `taskEndDate(A, N) → B` | — | 100% | Inclusive convention, one answer |
 | `taskDuration(A, B) → N` | — | 100% | Inclusive convention, one answer |
-| Banned function name | — | 100% | String match — zero false positives |
 | Comment exclusion | 2/2 | 100% | Regex skips `//`, `#`, `*` prefixes |
 | Non-scheduling context | 2/2 | 100% | No false positives on plain code |
 
@@ -168,7 +167,6 @@ computable relationships:
 - Weekend dates in scheduling contexts → warn
 - `taskEndDate(A, N)` / `task_end_date(A, N)` near wrong `B` → warn
 - `taskDuration(A, B)` / `task_duration(A, B)` near wrong `N` → warn
-- Banned functions (`workingDaysBetween`, `shift_date`) → warn
 - Every warning includes a suggested `bizday` command (stickiness bridge)
 
 All date math uses the same `date_utils` functions as the scheduling engine —
@@ -182,9 +180,6 @@ Performance budget: **~3ms** total (native binary, no interpreter startup).
 ```
 ```json
 {"warning": "Weekend date: 2026-03-07 (Saturday) used as start_date. Tasks cannot start on weekends.\n  Run: bizday 2026-03-07"}
-```
-```json
-{"warning": "Banned: workingDaysBetween is deleted. Use taskDuration() for inclusive [start, end] counting."}
 ```
 
 The `Run: bizday ...` suffix is a **stickiness bridge** — agents that never knew about
@@ -1225,7 +1220,7 @@ Sheets data becomes a workflow.
 | Hook performance impact | **~3ms** | Native Rust binary, no interpreter startup | 40x faster than Node.js plan (~85ms). Existing verify.sh takes seconds |
 | Binary not built | Medium | Hook exits silently if `bizday` not found; build step in dev setup | First `cargo build -p bizday` creates the binary; CI builds it too |
 | `bizday` name collision | **None** | No known `bizday` command on Linux | `which bizday` returns nothing |
-| `start+dur→end` bugs undetected | **Low** | Hook verifies `taskEndDate`/`task_end_date` patterns; `shift_date` is `pub(crate)` — agents can't call it | Pre-commit hook also rejects banned function names |
+| `start+dur→end` bugs undetected | **Low** | Hook verifies `taskEndDate`/`task_end_date` patterns; `shift_date` is `pub(crate)` — agents can't call it | Structural: only `task_end_date` is public |
 | Edge case dates (leap year, year boundary) | **Low** | proptest round-trip tests cover 2020-2030 with random dates | 6 properties × 10,000 cases in CI = 60,000 automated checks |
 | Regex lint false matches | Low | Comment-line exclusion handles common case; AST-aware parsing planned as future upgrade | No false positives observed in 13 test cases |
 | Log silently fails | Medium | `BIZDAY_LOG_DIR` env var + 8 integration tests in `tests/log.rs` verify directory creation, append, format | Auto-create directory; exit gracefully if write fails (don't block agent) |
@@ -1239,39 +1234,38 @@ Sheets data becomes a workflow.
 1. Verify hook detects wrong `taskEndDate`/`task_end_date` results (inclusive convention)
 2. Verify hook detects wrong `taskDuration`/`task_duration` results (inclusive convention)
 3. Verify hook warns on weekend dates used as task start/end
-4. Verify hook warns on banned function names (`workingDaysBetween`, `shift_date`)
-5. Verify hook suggests `bizday` command in every warning (stickiness bridge)
-6. Verify hook completes in <10ms (target: ~3ms, native binary)
-7. Verify hook produces 0% false positives
-8. Verify hook logs all findings to `.claude/logs/bizday.log` (unified log)
+4. Verify hook suggests `bizday` command in every warning (stickiness bridge)
+5. Verify hook completes in <10ms (target: ~3ms, native binary)
+6. Verify hook produces 0% false positives
+7. Verify hook logs all findings to `.claude/logs/bizday.log` (unified log)
 
 **Layer 1 (active)**:
-9. `bizday 2026-03-11 10` returns `2026-03-24` (= `taskEndDate`) in <10ms
-10. All operations work correctly (duration, diff, info, shift, cal-shift, verify, lint, false-match, report, help)
-11. `verify` mode exits 0 on match, 1 on mismatch
-12. `lint` mode scans a file and reports all verifiable date relationships
-13. All historical bug cases (1880999, 8ee19f8, 23ad90b) are reproducible and caught
-14. Output uses inclusive convention — `bizday <date> N` matches `taskEndDate(date, N)` exactly
+8. `bizday 2026-03-11 10` returns `2026-03-24` (= `taskEndDate`) in <10ms
+9. All operations work correctly (duration, diff, info, shift, cal-shift, verify, lint, false-match, report, help)
+10. `verify` mode exits 0 on match, 1 on mismatch
+11. `lint` mode scans a file and reports all verifiable date relationships
+12. All historical bug cases (1880999, 8ee19f8, 23ad90b) are reproducible and caught
+13. Output uses inclusive convention — `bizday <date> N` matches `taskEndDate(date, N)` exactly
 
 **Property-based (correctness)**:
-15. All 6 proptest properties pass: 256 cases locally, 10,000 in CI (zero failures)
-16. Round-trip: `task_duration(start, task_end_date(start, dur)) == dur` for all valid inputs
-17. Round-trip: `task_start_date(task_end_date(start, dur), dur) == start` for all valid inputs
-18. `task_end_date` never returns a weekend date
+14. All 6 proptest properties pass: 256 cases locally, 10,000 in CI (zero failures)
+15. Round-trip: `task_duration(start, task_end_date(start, dur)) == dur` for all valid inputs
+16. Round-trip: `task_start_date(task_end_date(start, dur), dur) == start` for all valid inputs
+17. `task_end_date` never returns a weekend date
 
 **Layer 2 (measurement)**:
-19. Unified log records all event types with `elapsed_ms` and session markers
-20. Log directory auto-created if missing; log appended, never overwritten
-21. All 8 `tests/log.rs` integration tests pass (event format, session markers, directory creation)
-22. `bizday report` reports coverage, proactive rate, mismatch rate, FP rate in one line
-23. `bizday report --trend` shows per-session summary table with cumulative row
-24. `bizday report` drill-down modes (`--mismatches`, `--unverified`, `--false-matches`, `--slow`) work
-25. `bizday report --pr-summary` outputs valid markdown table
-26. All `tests/report.rs` tests pass (known log input → expected metrics output)
+18. Unified log records all event types with `elapsed_ms` and session markers
+19. Log directory auto-created if missing; log appended, never overwritten
+20. All 8 `tests/log.rs` integration tests pass (event format, session markers, directory creation)
+21. `bizday report` reports coverage, proactive rate, mismatch rate, FP rate in one line
+22. `bizday report --trend` shows per-session summary table with cumulative row
+23. `bizday report` drill-down modes (`--mismatches`, `--unverified`, `--false-matches`, `--slow`) work
+24. `bizday report --pr-summary` outputs valid markdown table
+25. All `tests/report.rs` tests pass (known log input → expected metrics output)
 
 **Integration**:
-27. CLAUDE.md updated with bizday as primary tool; hook documented
-28. Stickiness test: 90%+ coverage across 5 sessions
+26. CLAUDE.md updated with bizday as primary tool; hook documented
+27. Stickiness test: 90%+ coverage across 5 sessions
 
 ## State-of-the-Art Comparison
 

@@ -176,15 +176,16 @@ Performance budget: **~3ms** total (native binary, no interpreter startup).
 
 **Output format** (every warning includes a suggested `bizday` command):
 ```json
-{"warning": "Date check: taskEndDate(2026-03-11, 10) should be 2026-03-24, but code has 2026-03-25.\n  Run: bizday 2026-03-11 end 10"}
+{"warning": "Date check: taskEndDate(2026-03-11, 10) should be 2026-03-24, but code has 2026-03-25.\n  Run: taskEndDate 2026-03-11 10"}
 ```
 ```json
-{"warning": "Weekend date: 2026-03-07 (Saturday) used as start_date. Tasks cannot start on weekends.\n  Run: bizday 2026-03-07"}
+{"warning": "Weekend date: 2026-03-07 (Saturday) used as start_date. Tasks cannot start on weekends.\n  Check: bizday 2026-03-07"}
 ```
 
-The `Run: bizday ...` suffix is a **stickiness bridge** — agents that never knew about
-`bizday` learn its syntax from hook warnings. Over time, they start using `bizday` proactively
-because they've seen the pattern in previous warnings.
+The `Run: taskEndDate ...` suffix is a **stickiness bridge** — agents see the
+shell function name in hook warnings. Since `taskEndDate` is the same name they
+write in code, they naturally start using it for pre-computation. The bridge
+works because the tool name IS the function name — nothing new to learn.
 
 ### Hook Registration
 
@@ -469,9 +470,9 @@ container restarts). A single unified log keeps things simple:
 **`.claude/logs/bizday.log`** — one file, all events:
 ```
 2026-03-13T10:00:00Z  SESSION  id=datecalc-plan
-2026-03-13T10:01:00Z  COMPUTE  bizday 2026-03-06 5 → 2026-03-13
-2026-03-13T10:02:00Z  VERIFIED  start=2026-03-06 end=2026-03-13 dur=6 → OK  elapsed_ms=2
-2026-03-13T10:03:00Z  MISMATCH  start=2026-03-06 end=2026-03-12 dur=6 → expected 2026-03-13  elapsed_ms=2
+2026-03-13T10:01:00Z  COMPUTE  taskEndDate 2026-03-06 6 → 2026-03-13
+2026-03-13T10:02:00Z  VERIFIED  taskEndDate(2026-03-06, 6) = 2026-03-13 → OK  elapsed_ms=2
+2026-03-13T10:03:00Z  MISMATCH  taskEndDate(2026-03-06, 6) = 2026-03-13, code has 2026-03-12  elapsed_ms=2
 2026-03-13T10:04:00Z  UNVERIFIABLE  date=2026-04-15 context=assert_eq  elapsed_ms=1
 2026-03-13T10:05:00Z  WEEKEND  date=2026-03-07 context=start_date  elapsed_ms=1
 2026-03-13T10:06:00Z  SUPPRESSED  date=2026-03-11 context=comment  elapsed_ms=1
@@ -610,35 +611,6 @@ A date literal is "unverified" if:
 The measurement infrastructure adds essentially nothing to runtime and minimal
 review burden. The `--trend` one-liner is the primary review surface — everything
 else is drill-down for investigating anomalies.
-
-### Measurement Protocol for Stickiness Testing
-
-Run 5 independent agent sessions, each with a date-math-heavy task:
-
-| Session | Task | Expected bizday calls |
-|---------|------|-------------------|
-| 1 | Fix: FS lag across weekend produces wrong date | 5-10 |
-| 2 | Add: new constraint type with date boundary | 5-10 |
-| 3 | Debug: cascade chain produces wrong end date | 8-15 |
-| 4 | Test: write 10 date-math test assertions | 10-20 |
-| 5 | Review: verify 5 existing test dates are correct | 5-10 |
-
-After each session, run `bizday report --trend`. **Target: 90%+ coverage**.
-
-If coverage drops below 80% in any session, drill down:
-```
-$ bizday report --session <id> --unverified
-```
-- Were they trivial (same-day, obvious) or non-trivial?
-- Was the agent's reasoning correct despite skipping bizday?
-- What would have caught it faster: shorter syntax? better warning?
-
-### Stickiness Decay Test
-
-Run sessions 1-5 again after 10 intervening non-date sessions. Compare
-proactive rates via `--trend`. If proactive rate drops >10 percentage points,
-the tool isn't sticky enough — needs stronger integration (e.g., move from
-warning to soft-block).
 
 ### Validating Whether the Hook Actually Helps
 
@@ -878,7 +850,7 @@ produces the binary; this should be part of the dev container setup.
 | `crates/bizday/src/verify.rs` | Create | 0 | Lint/verify logic (shared: PostToolUse hook + `bizday lint`) |
 | `crates/bizday/src/log.rs` | Create | 0,1,2 | Append to `.claude/logs/bizday.log` (unified: usage + audit + latency) |
 | `crates/bizday/tests/compute.rs` | Create | 1 | Hand-written integration tests for all operations |
-| `crates/bizday/tests/verify.rs` | Create | 0 | Lint mode tests (mismatch, weekend, deprecated, false positive) |
+| `crates/bizday/tests/verify.rs` | Create | 0 | Lint mode tests (mismatch, weekend, false positive) |
 | `crates/bizday/tests/log.rs` | Create | 2 | Logging integration tests (event format, directory creation, session markers) |
 | `crates/bizday/tests/proptest.rs` | Create | 1 | Property-based round-trip + invariant tests (6 properties) |
 | `crates/bizday/src/report.rs` | Create | 2 | `bizday report` — log parsing, metrics, trend table, drill-downs |
@@ -1351,7 +1323,7 @@ Sheets data becomes a workflow.
 1. Verify hook detects wrong `taskEndDate`/`task_end_date` results (inclusive convention)
 2. Verify hook detects wrong `taskDuration`/`task_duration` results (inclusive convention)
 3. Verify hook warns on weekend dates used as task start/end
-4. Verify hook suggests `bizday` command in every warning (stickiness bridge)
+4. Verify hook suggests shell function (`taskEndDate`/`taskDuration`) in every warning (stickiness bridge)
 5. Verify hook completes in <10ms (target: ~3ms, native binary)
 6. Verify hook produces 0% false positives
 7. Verify hook logs all findings to `.claude/logs/bizday.log` (unified log)
@@ -1361,7 +1333,7 @@ Sheets data becomes a workflow.
 9. All operations work correctly (duration, diff, info, verify, lint, false-match, report, help)
 10. `verify` mode exits 0 on match, 1 on mismatch
 11. `lint` mode scans a file and reports all verifiable date relationships
-12. All historical bug cases (1880999, 8ee19f8, 23ad90b) are reproducible and caught
+12. Weekend bug case (`8ee19f8`) caught by hook; other historical cases documented with coverage limits
 13. Output uses inclusive convention — `bizday <date> N` matches `taskEndDate(date, N)` exactly
 
 **Property-based (correctness)**:
@@ -1381,8 +1353,15 @@ Sheets data becomes a workflow.
 25. All `tests/report.rs` tests pass (known log input → expected metrics output)
 
 **Integration**:
-26. CLAUDE.md updated with bizday as primary tool; hook documented
-27. Stickiness test: 90%+ coverage across 5 sessions
+26. Shell functions (`taskEndDate`, `task_end_date`, `taskDuration`, `task_duration`) alias to `bizday`
+27. CLAUDE.md updated with shell function examples; hook documented
+28. Clippy `disallowed-methods` and ESLint `no-restricted-syntax` configured
+
+**Validation** (Step 5-7 of implementation):
+29. 6 agent sessions complete (3 medium, 3 large)
+30. Tool adoption data collected (name preference, fallback rate, mental-math rate)
+31. Medium-vs-large decay analysis complete
+32. Decision table reviewed and any iteration applied
 
 ## State-of-the-Art Comparison
 
@@ -1419,7 +1398,7 @@ These solve the "agent calls wrong function" problem at compile/lint time.
 | Verify date computation results | **Nothing deployed** — no tool checks if an agent wrote a wrong date literal | PostToolUse hook computes correct answer, warns on mismatch |
 | Convention-specific date CLI | `dateutils` is best CLI but has no convention enforcement | `bizday <date> N` = `taskEndDate(start, N)` — same number in CLI and code |
 | Tool adoption measurement | **No framework** — AGENTIF measures single-session compliance, nothing measures longitudinal | Layer 2 (`bizday report --trend`) tracks proactive use across sessions |
-| Stickiness bridge | No agent framework teaches tool usage via error messages | Hook warnings include `Run: bizday ...` — passive learning |
+| Stickiness bridge | No agent framework teaches tool usage via error messages | Hook warnings include `Run: taskEndDate ...` — function name agent already knows |
 
 ### What the research says about agent tool use
 

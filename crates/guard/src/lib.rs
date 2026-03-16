@@ -108,6 +108,29 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
+    // Check 7: Block destructive git commands (reset --hard, clean -f, branch -D)
+    if has_git_subcmd(cmd, "reset") && cmd.contains("--hard") {
+        return Some(
+            "git reset --hard is destructive and can discard uncommitted work. \
+             Consider git stash or git checkout -- <file> for targeted reverts."
+                .to_string(),
+        );
+    }
+    if has_git_subcmd(cmd, "clean") && (cmd.contains("-f") || cmd.contains("--force")) {
+        return Some(
+            "git clean -f is destructive and permanently deletes untracked files. \
+             Review untracked files with git clean -n first."
+                .to_string(),
+        );
+    }
+    if has_git_subcmd(cmd, "branch") && cmd.contains("-D") {
+        return Some(
+            "git branch -D force-deletes a branch even if not fully merged. \
+             Use git branch -d (lowercase) which checks merge status first."
+                .to_string(),
+        );
+    }
+
     // Check 5: Block git worktree remove/prune
     let ts = tokens(cmd);
     for i in 0..ts.len().saturating_sub(2) {
@@ -241,7 +264,8 @@ mod tests {
 
     #[test]
     fn edit_allows_workspace_worktree() {
-        let v = json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
+        let v =
+            json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
         assert!(check_edit(&v).is_none());
     }
 
@@ -289,6 +313,56 @@ mod tests {
     #[test]
     fn bash_allows_git_checkout_file_separator() {
         let v = json!({"tool_input": {"command": "git checkout -- src/file.ts"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- check_bash: destructive git command guard ---
+
+    #[test]
+    fn bash_blocks_git_reset_hard() {
+        let v = json!({"tool_input": {"command": "git reset --hard HEAD~3"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_git_reset_soft() {
+        let v = json!({"tool_input": {"command": "git reset --soft HEAD~1"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_reset_no_flag() {
+        let v = json!({"tool_input": {"command": "git reset HEAD~1"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_clean_f() {
+        let v = json!({"tool_input": {"command": "git clean -fd"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_git_clean_force() {
+        let v = json!({"tool_input": {"command": "git clean --force"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_git_clean_dry_run() {
+        let v = json!({"tool_input": {"command": "git clean -n"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_branch_force_delete() {
+        let v = json!({"tool_input": {"command": "git branch -D feature-branch"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_git_branch_safe_delete() {
+        let v = json!({"tool_input": {"command": "git branch -d feature-branch"}});
         assert!(check_bash(&v).is_none());
     }
 

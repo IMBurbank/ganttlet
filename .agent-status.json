@@ -1,19 +1,13 @@
 {
-  "group": "G",
-  "phase": "15b",
+  "group": "A",
+  "phase": 17,
   "tasks": {
-    "G1": {
+    "A1": {
       "status": "done"
     },
-    "G2": {
-      "status": "done"
-    },
-    "G3": {
-      "status": "done"
-    },
-    "G4": {
+    "A2": {
       "status": "done"
     }
   },
-  "last_updated": "2026-03-13T03:46:13.904Z"
+  "last_updated": "2026-03-16T02:07:02.640Z"
 }

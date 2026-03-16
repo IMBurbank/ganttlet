@@ -9,37 +9,11 @@
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const f=d.tool_input?.file_path||''; if(/package-lock\\.json|src\\/wasm\\/scheduler\\/|\\.env/.test(f)){console.log(JSON.stringify({decision:'block',reason:'Protected file: '+f}))}}catch(e){if(e.code==='ENXIO'||e.code==='EAGAIN'||e.code==='ENOENT')process.exit(0);console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
-          },
-          {
-            "type": "command",
-            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const f=d.tool_input?.file_path||''; if(f.startsWith('/workspace/')&&!f.startsWith('/workspace/.claude/worktrees/')){console.log(JSON.stringify({decision:'block',reason:'Do not edit files directly on main in /workspace. Create a worktree first: git worktree add /workspace/.claude/worktrees/<name> -b <branch>'}))}}catch(e){if(e.code==='ENXIO'||e.code==='EAGAIN'||e.code==='ENOENT')process.exit(0);console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
-          }
-        ]
+        "hooks": [{ "type": "command", "command": "./target/release/guard edit" }]
       },
       {
         "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const c=d.tool_input?.command||''; if(/git\\s+push/.test(c)&&/\\bmain\\b/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Cannot push directly to main. Use a feature branch and PR.'}))}}catch(e){if(e.code==='ENXIO'||e.code==='EAGAIN'||e.code==='ENOENT')process.exit(0);console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
-          },
-          {
-            "type": "command",
-            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const c=d.tool_input?.command||''; if(/git\\s+(checkout|switch)/.test(c)&&!/--\\s/.test(c)&&!/worktree/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Do not use git checkout/switch in /workspace. Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>'}))}}catch(e){if(e.code==='ENXIO'||e.code==='EAGAIN'||e.code==='ENOENT')process.exit(0);console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
-          },
-          {
-            "type": "command",
-            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const c=d.tool_input?.command||''; if(/git\\s+worktree\\s+(remove|prune)/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Worktree removal blocked. Only remove worktrees you created, and only after your PR is merged. Never remove or prune other agents worktrees.'}))}}catch(e){if(e.code==='ENXIO'||e.code==='EAGAIN'||e.code==='ENOENT')process.exit(0);console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
-          },
-          {
-            "type": "command",
-            "command": "node -e \"try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const c=d.tool_input?.command||'';if(/(?:sed\\s+-i\\s+.*\\/workspace\\/(?!\\.claude\\/worktrees)|>\\s*\\/workspace\\/(?!\\.claude\\/worktrees)|tee\\s+.*\\/workspace\\/(?!\\.claude\\/worktrees))/.test(c)){console.log(JSON.stringify({decision:'block',reason:'Do not modify files directly in /workspace via Bash. Use a worktree.'}))}}catch(e){if(e.code==='ENXIO'||e.code==='EAGAIN'||e.code==='ENOENT')process.exit(0);console.log(JSON.stringify({decision:'block',reason:'Hook error — blocking: '+e.message}))}\""
-          }
-        ]
+        "hooks": [{ "type": "command", "command": "./target/release/guard bash" }]
       }
     ],
     "PostToolUse": [

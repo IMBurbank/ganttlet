@@ -1,0 +1,4 @@
+[workspace]
+members = ["crates/guard"]
+exclude = ["crates/scheduler", "server"]
+resolver = "2"

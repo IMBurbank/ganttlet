@@ -85,6 +85,28 @@ Triggered on `pull_request: [opened, synchronize]`. Runs `/code-review` on non-a
 ### Code Review Plugin
 Uses confidence-based scoring (threshold: 80) with 5 parallel review agents (CLAUDE.md compliance, bug scan, git history, previous PR comments, code comment compliance). See `docs/plugin-adoption-plan.md` for full plugin details.
 
+## Hook Infrastructure
+
+Agent guardrails are enforced via Claude Code's **PreToolUse** hooks. A compiled Rust
+binary (`crates/guard/`) replaces the original `node -e` hook scripts for reliability
+and performance.
+
+**`settings.json` structure:** The `.claude/settings.json` file registers hooks by tool
+matcher (e.g., `"Edit|Write"` or `"Bash"`). Each hook entry specifies a command that
+receives the tool invocation as JSON on stdin.
+
+**How checks are enforced:** PreToolUse hooks run *before* the tool executes. The guard
+binary parses stdin, runs the relevant checks (protected files, workspace isolation,
+push-to-main, checkout/switch, worktree removal, bash file modification), and prints a
+`{"decision": "block", "reason": "..."}` JSON object to stdout to block the operation.
+Empty stdout means allow.
+
+**Fail-open on infrastructure errors:** When stdin is unavailable (ENXIO/EAGAIN/ENOENT —
+common in subagent contexts), the guard exits cleanly to avoid bricking the session.
+
+See `.claude/skills/hooks/SKILL.md` for full details: adding new checks, stdin JSON
+schema, testing locally, and ENXIO history.
+
 ## Completed Work
 Phases 0-14 are done, plus plugin adoption. Details in `docs/completed-phases.md`.
 

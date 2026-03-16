@@ -146,6 +146,7 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 - PostToolUse hook (`scripts/verify.sh`) auto-runs `tsc` + `vitest` after `.ts/.tsx` edits
 - Pre-commit hook: `ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit` (auto-formats staged files, rejects todo!(), stubs, commented-out tests)
 - Git workflow: `main` always deployable, feature branches, PRs before merge
+- **Guard binary** (required by `.claude/settings.json` hooks): built automatically by `docker-entrypoint.sh` on container start. Outside Docker, run: `cargo build --release -p guard`
 
 ## Single-Agent Issue Workflow
 
@@ -205,6 +206,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
   - `issue-workflow` — Single-agent issue procedures, error handling
   - `rust-wasm` — WASM build, wasm-pack, Rust→JS bindings
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
+  - `hooks` — Guard binary, PreToolUse/PostToolUse hooks, adding new checks
 - `.claude/agents/` — Subagents (auto-delegated, isolated context windows):
   - `codebase-explorer` — Read-only exploration, returns structured reports (haiku)
   - `rust-scheduler` — Scheduling engine specialist for crates/scheduler/ (sonnet)

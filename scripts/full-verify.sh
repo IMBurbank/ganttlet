@@ -17,6 +17,10 @@ echo "=== Vitest unit tests ==="
 npx vitest run --reporter=dot
 
 echo ""
+echo "=== Rust guard tests ==="
+cargo test -p guard
+
+echo ""
 echo "=== Rust scheduler tests ==="
 (cd crates/scheduler && cargo test)
 

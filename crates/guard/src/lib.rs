@@ -44,6 +44,27 @@ fn has_token(s: &str, word: &str) -> bool {
     tokens(s).iter().any(|t| *t == word)
 }
 
+/// True if a short-flag token after `git <subcmd>` contains the given character.
+/// Only checks args belonging to the git subcommand (stops at `|`, `&&`, `;`).
+/// Handles combined flags like `-fd` matching 'f', `-Df` matching 'D'.
+fn has_git_flag(cmd: &str, subcmd: &str, flag_char: char) -> bool {
+    let ts = tokens(cmd);
+    if let Some(pos) = ts.iter().position(|t| *t == "git") {
+        if ts.get(pos + 1).map(|t| *t == subcmd).unwrap_or(false) {
+            // Check tokens after `git <subcmd>` until a pipe/chain operator
+            for t in &ts[pos + 2..] {
+                if *t == "|" || *t == "&&" || *t == ";" || *t == "||" {
+                    break;
+                }
+                if t.starts_with('-') && !t.starts_with("--") && t.contains(flag_char) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// True if `s` contains "/workspace/" that is NOT immediately followed by ".claude/worktrees/".
 fn workspace_but_not_worktree(s: &str) -> bool {
     let needle = "/workspace/";
@@ -108,22 +129,24 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 7: Block destructive git commands (reset --hard, clean -f, branch -D)
-    if has_git_subcmd(cmd, "reset") && cmd.contains("--hard") {
+    // Check 5: Block destructive git commands (reset --hard, clean -f, branch -D)
+    if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
         return Some(
             "git reset --hard is destructive and can discard uncommitted work. \
              Consider git stash or git checkout -- <file> for targeted reverts."
                 .to_string(),
         );
     }
-    if has_git_subcmd(cmd, "clean") && (cmd.contains("-f") || cmd.contains("--force")) {
+    if has_git_subcmd(cmd, "clean")
+        && (has_git_flag(cmd, "clean", 'f') || has_token(cmd, "--force"))
+    {
         return Some(
             "git clean -f is destructive and permanently deletes untracked files. \
              Review untracked files with git clean -n first."
                 .to_string(),
         );
     }
-    if has_git_subcmd(cmd, "branch") && cmd.contains("-D") {
+    if has_git_subcmd(cmd, "branch") && has_git_flag(cmd, "branch", 'D') {
         return Some(
             "git branch -D force-deletes a branch even if not fully merged. \
              Use git branch -d (lowercase) which checks merge status first."
@@ -131,7 +154,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 5: Block git worktree remove/prune
+    // Check 6: Block git worktree remove/prune
     let ts = tokens(cmd);
     for i in 0..ts.len().saturating_sub(2) {
         if ts[i] == "git"
@@ -147,7 +170,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // Check 6: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
+    // Check 7: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
 
     // sed -i ... /workspace/...
     if has_token(cmd, "sed") && cmd.contains("-i") && workspace_but_not_worktree(cmd) {
@@ -364,6 +387,19 @@ mod tests {
     fn bash_allows_git_branch_safe_delete() {
         let v = json!({"tool_input": {"command": "git branch -d feature-branch"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_branch_list_piped_with_grep_d() {
+        // grep -D appears in pipeline — must not trigger branch -D check
+        let v = json!({"tool_input": {"command": "git branch -a | grep -D 3 pattern"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_clean_combined_fd() {
+        let v = json!({"tool_input": {"command": "git clean -xfd"}});
+        assert!(check_bash(&v).is_some());
     }
 
     // --- check_bash: worktree removal guard ---

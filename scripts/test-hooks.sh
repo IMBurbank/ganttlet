@@ -86,6 +86,8 @@ test_block  "Block git clean --force"           bash '{"tool_input":{"command":"
 test_allow  "Allow git clean -n (dry run)"      bash '{"tool_input":{"command":"git clean -n"}}'
 test_block  "Block git branch -D"               bash '{"tool_input":{"command":"git branch -D feature-branch"}}'
 test_allow  "Allow git branch -d (safe delete)" bash '{"tool_input":{"command":"git branch -d feature-branch"}}'
+test_allow  "Allow git branch piped to grep -D" bash '{"tool_input":{"command":"git branch -a | grep -D 3 pattern"}}'
+test_block  "Block git clean -xfd (combined)"   bash '{"tool_input":{"command":"git clean -xfd"}}'
 
 # --- Bash: worktree removal guard ---
 echo "--- Worktree removal guard (bash mode) ---"

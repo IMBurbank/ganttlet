@@ -25,6 +25,12 @@ stages:
         branch: feature/17-validation-results
         merge_message: "Merge feature/17-validation-results: Agent validation findings and plan updates"
 
+  - name: "Stage 3: Final Verification"
+    groups:
+      - id: validate
+        branch: feature/phase17-datecalc
+        merge_message: "Final verification — no file changes, read-only checks"
+
 pr:
   title: "feat: bizday date math safety — passive hook + convention CLI + measurement"
   summary: |

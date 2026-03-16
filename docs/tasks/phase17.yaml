@@ -130,16 +130,63 @@ stages:
         tests: none
         complexity: medium
 
+  - name: "Stage 3 — Final Verification"
+    description: >
+      Run full-verify.sh and confirm all deliverables are present and working.
+      Read-only — no file modifications.
+    tasks:
+      - id: F1
+        summary: "Run full-verify.sh"
+        description: "Full project verification — tsc, vitest, cargo test, E2E."
+        files: []
+        tests: "./scripts/full-verify.sh"
+        complexity: trivial
+
+      - id: F2
+        summary: "Verify bizday binary works"
+        description: "cargo test -p bizday, build release, test CLI commands + proptest."
+        files: []
+        tests: "cargo test -p bizday && cargo build --release -p bizday"
+        complexity: trivial
+
+      - id: F3
+        summary: "Verify shell functions work"
+        description: "Source datecalc-functions.sh and test all 4 aliases."
+        files: []
+        tests: "source scripts/datecalc-functions.sh && taskEndDate 2026-03-11 10"
+        complexity: trivial
+
+      - id: F4
+        summary: "Verify hook is registered"
+        description: "Parse settings.json and confirm PostToolUse bizday hook exists."
+        files: []
+        tests: none
+        complexity: trivial
+
+      - id: F5
+        summary: "Verify CLAUDE.md updated"
+        description: "Grep for taskEndDate/bizday references in CLAUDE.md files."
+        files: []
+        tests: none
+        complexity: trivial
+
+      - id: F6
+        summary: "Verify validation results documented"
+        description: "Check results.md exists and bizday report --trend runs."
+        files: []
+        tests: "bizday report --trend"
+        complexity: trivial
+
 verification:
   - "./scripts/full-verify.sh"
   - "cargo test -p bizday"
   - "bizday report --trend"
 
 scope_boundaries:
-  - "No changes to crates/scheduler/src/ (Phase 16 is stable)"
+  - "No changes to crates/scheduler/src/ (Phase 16 is stable) — applies to merged deliverables only; Stage 2 validation agents write throwaway tests in scheduler files within isolated worktrees that are NOT merged"
   - "No changes to src/utils/dateUtils.ts (Phase 16 is stable)"
   - "No new npm dependencies"
   - "bizday uses inclusive duration only — no offset/shift/calendar modes"
 
 estimated_complexity: large
-estimated_groups: 4
+estimated_groups: 5

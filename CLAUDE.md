@@ -206,6 +206,7 @@ When working from a GitHub issue (via `agent-ready` label or manual assignment):
   - `issue-workflow` — Single-agent issue procedures, error handling
   - `rust-wasm` — WASM build, wasm-pack, Rust→JS bindings
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
+  - `hooks` — Guard binary, PreToolUse/PostToolUse hooks, adding new checks
 - `.claude/agents/` — Subagents (auto-delegated, isolated context windows):
   - `codebase-explorer` — Read-only exploration, returns structured reports (haiku)
   - `rust-scheduler` — Scheduling engine specialist for crates/scheduler/ (sonnet)

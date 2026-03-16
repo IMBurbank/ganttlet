@@ -15,9 +15,20 @@ to enforce project invariants (no direct edits to `/workspace/`, no push to main
 - **PostToolUse** — runs *after* the tool executes. Cannot block; used for linting,
   notifications, or post-edit verification.
 
-### Registration in `settings.json`
+### Registration: `settings.json` vs `settings.local.json`
 
-Hooks are declared in `.claude/settings.json` under the `"hooks"` key:
+Hooks live in two files under `.claude/`:
+
+- **`settings.json`** (committed) — safety hooks that all developers/agents must have. Contains
+  the guard binary (PreToolUse) and bizday lint (PostToolUse).
+- **`settings.local.json`** (gitignored, per-developer) — developer-experience hooks like
+  `verify.sh` (PostToolUse: auto-runs tsc + vitest after edits). Not committed because it adds
+  latency that not all workflows need (e.g., Rust-only agents don't need tsc).
+
+Copy `.claude/settings.local.json.example` to `.claude/settings.local.json` to enable verify.sh.
+Claude Code merges both files at runtime — local settings extend committed settings.
+
+Committed hooks are declared in `.claude/settings.json` under the `"hooks"` key:
 
 ```json
 {
@@ -142,8 +153,9 @@ The binary takes one positional argument — the check mode:
 **`check_bash(input)`** — for the Bash tool:
 1. **Push to main** — blocks `git push ... main`
 2. **Checkout/switch** — blocks `git checkout`/`git switch` (allows `-- ` file separator and `worktree` commands)
-3. **Worktree removal** — blocks `git worktree remove` and `git worktree prune`
-4. **File modification via bash** — blocks `sed -i`, `>` redirect, and `tee` targeting `/workspace/` directly (not worktrees)
+3. **Destructive git commands** — blocks `git reset --hard`, `git clean -f`/`--force`, `git branch -D` (allows `git reset --soft`, `git clean -n`, `git branch -d`)
+4. **Worktree removal** — blocks `git worktree remove` and `git worktree prune`
+5. **File modification via bash** — blocks `sed -i`, `>` redirect, and `tee` targeting `/workspace/` directly (not worktrees)
 
 ## How to Add a New Check
 

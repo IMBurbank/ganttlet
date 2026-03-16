@@ -5,6 +5,7 @@
 
 # Local configurations
 settings.local*
+!settings.local.json.example
 
 # Dependencies
 node_modules/
@@ -27,6 +28,7 @@ Thumbs.db
 # You MUST add an !.claude/<dir>/ exception here for any new tracked directory.
 .claude/*
 !.claude/settings.json
+!.claude/settings.local.json.example
 !.claude/agents/
 !.claude/skills/
 !.claude/metrics/

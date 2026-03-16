@@ -51,12 +51,18 @@ fn run_compute(args: &[String]) {
             process::exit(1);
         }
         let result = compute::end_date(first, dur);
+        log::log_compute("end_date", &format!("{first} {dur}"), &result);
         println!("{result}");
         println!("# task_end_date(\"{first}\", {dur}) = \"{result}\"");
     } else {
         // bizday <date> <date> — duration mode
         let biz_days = compute::duration(first, second);
         let cal_days = compute::calendar_days(first, second);
+        log::log_compute(
+            "duration",
+            &format!("{first} {second}"),
+            &biz_days.to_string(),
+        );
         println!("{biz_days}");
         println!(
             "# task_duration(\"{first}\", \"{second}\") = {biz_days} business days ({cal_days} calendar days)"
@@ -81,11 +87,21 @@ fn run_verify(args: &[String]) {
     };
     let expected = &args[2];
 
+    let start_time = std::time::Instant::now();
     let actual = compute::end_date(start, dur);
+    let elapsed_ms = start_time.elapsed().as_millis() as u64;
     if actual == *expected {
+        log::log_verified(
+            &format!("task_end_date({start}, {dur}) = {actual}"),
+            elapsed_ms,
+        );
         println!("OK");
         println!("# task_end_date(\"{start}\", {dur}) = \"{actual}\" (matches expected)");
     } else {
+        log::log_mismatch(
+            &format!("task_end_date({start}, {dur}) expected={expected} actual={actual}"),
+            elapsed_ms,
+        );
         println!("MISMATCH");
         println!("# task_end_date(\"{start}\", {dur}) = \"{actual}\" (expected \"{expected}\")");
         process::exit(1);

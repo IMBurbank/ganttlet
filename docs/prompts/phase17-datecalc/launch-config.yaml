@@ -27,8 +27,8 @@ stages:
     gate:
       commands:
         - "./scripts/full-verify.sh"
-        - "cargo test -p bizday"
-        - "cargo build --release -p bizday"
+        - "cd crates/bizday && cargo test"
+        - "cd crates/bizday && cargo build --release"
         - "./target/release/bizday 2026-03-11 10"        # must output 2026-03-24
         - "./target/release/bizday 2026-03-11 2026-03-24" # must output 10
         - "./target/release/bizday verify 2026-03-11 10 2026-03-24" # exit 0

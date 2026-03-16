@@ -115,8 +115,8 @@ stages:
     gate: true
     commands:
       - "./scripts/full-verify.sh"
-      - "cargo test -p bizday"
-      - "cargo build --release -p bizday"
+      - "cd crates/bizday && cargo test"
+      - "cd crates/bizday && cargo build --release"
       - "./target/release/bizday 2026-03-11 10"
       - "source scripts/datecalc-functions.sh && taskEndDate 2026-03-11 10"
 
@@ -194,7 +194,7 @@ stages:
 
 verification:
   - "./scripts/full-verify.sh"
-  - "cargo test -p bizday"
+  - "cd crates/bizday && cargo test"
   - "bizday report --trend"
 
 scope_boundaries:

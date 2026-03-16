@@ -11,7 +11,8 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "e2e:collab": "E2E_RELAY=1 playwright test",
-    "test:e2e": "npx playwright test"
+    "test:e2e": "npx playwright test",
+    "build:bizday": "cd crates/bizday && cargo build --release"
   },
   "dependencies": {
     "date-fns": "^4.1.0",

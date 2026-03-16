@@ -136,7 +136,7 @@ The binary takes one positional argument — the check mode:
 ### Check Registry
 
 **`check_edit(input)`** — for Edit and Write tools:
-1. **Protected files** — blocks edits to `package-lock.json`, `src/wasm/scheduler/`, `.env`
+1. **Protected files** — blocks edits to paths containing `package-lock.json`, `src/wasm/scheduler/`, or `.env` (uses substring matching — adding a new pattern like `.gitignore` would also block paths containing that substring, e.g. `.gitignore-backup`)
 2. **Workspace isolation** — blocks edits to `/workspace/` that are not under `/workspace/.claude/worktrees/`
 
 **`check_bash(input)`** — for the Bash tool:

@@ -200,10 +200,20 @@ false positives.
 cd crates/guard && cargo test
 ```
 
-### Step 4: Rebuild
+### Step 4: Rebuild the binary
+
+**Critical**: The guard binary in `target/release/guard` is what the hooks actually run.
+After modifying `lib.rs`, you MUST rebuild or the hooks will use the old binary with
+the old behavior. Your new check won't take effect until you rebuild.
 
 ```bash
 cargo build --release -p guard
+```
+
+Verify your new check works end-to-end:
+```bash
+echo '{"tool_input":{"command":"dangerous-command --flag"}}' | ./target/release/guard bash
+# Should output: {"decision":"block","reason":"..."}
 ```
 
 ## How to Add a New Hook Entry

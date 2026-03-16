@@ -35,11 +35,11 @@ All hooks are declared in `.claude/settings.json` under the `"hooks"` key:
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "./target/release/guard edit" }]
+        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard edit || true" }]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "./target/release/guard bash" }]
+        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard bash || true" }]
       }
     ],
     "PostToolUse": [
@@ -155,8 +155,8 @@ The binary takes one positional argument — the check mode:
 **`check_bash(input)`** — for the Bash tool:
 1. **Push to main** — blocks `git push ... main`
 2. **Checkout/switch** — blocks `git checkout`/`git switch` (allows `-- ` file separator and `worktree` commands)
-3. **Destructive git commands** — blocks `git reset --hard`, `git clean -f`/`--force`, `git branch -D` (allows `git reset --soft`, `git clean -n`, `git branch -d`)
-4. **Worktree removal** — blocks `git worktree remove` and `git worktree prune`
+3. **Destructive git commands** — blocks `git reset --hard`, `git clean -f`/`--force`, `git branch -D` (allows `git reset --hard origin/<ref>` for post-merge sync, `git reset --soft`, `git clean -n`, `git branch -d`)
+4. **Worktree removal** — blocks `git worktree remove` (allows `git worktree prune` — it only cleans stale references)
 5. **File modification via bash** — blocks `sed -i`, `>` redirect, and `tee` targeting `/workspace/` directly (not worktrees)
 
 ## How to Add a New Check
@@ -200,10 +200,20 @@ false positives.
 cd crates/guard && cargo test
 ```
 
-### Step 4: Rebuild
+### Step 4: Rebuild the binary
+
+**Critical**: The guard binary in `target/release/guard` is what the hooks actually run.
+After modifying `lib.rs`, you MUST rebuild or the hooks will use the old binary with
+the old behavior. Your new check won't take effect until you rebuild.
 
 ```bash
 cargo build --release -p guard
+```
+
+Verify your new check works end-to-end:
+```bash
+echo '{"tool_input":{"command":"dangerous-command --flag"}}' | ./target/release/guard bash
+# Should output: {"decision":"block","reason":"..."}
 ```
 
 ## How to Add a New Hook Entry

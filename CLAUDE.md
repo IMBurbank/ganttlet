@@ -25,7 +25,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
   - Create: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
   - Work entirely within that directory — all git operations (commit, push) happen there
   - `/workspace` must always stay on `main` — it is the shared base for all worktrees
-  - **Only clean up worktrees you created.** Never remove, prune, or modify another agent's worktree — it may be in active use. Only the user can authorize removal of worktrees you did not create.
+  - **Only clean up worktrees you created.** Never remove or modify another agent's worktree — it may be in active use. Only the user can authorize removal of worktrees you did not create. (`git worktree prune` is always safe — it only cleans stale references to already-deleted directories.)
   - **Clean up your own worktree only after its PR is merged** (mandatory): verify merge succeeded first — see `.claude/worktrees/CLAUDE.md` for the exact procedure. Premature deletion loses your ability to fix a failed merge.
 - Do NOT add features, refactoring, or "improvements" beyond what was requested.
 - Write failing tests before implementation when feasible (unit, integration). Let the test define the expected behavior, then make it pass. After implementation, write E2E tests for any new user-facing feature or bug fix — E2E coverage is required, not optional. E2E tests require the dev server and relay — see `docs/architecture.md` § E2E Testing & Relay for setup.

@@ -78,7 +78,9 @@ test_block  "Fail-closed on bad JSON"         bash 'not-json'
 
 # --- Bash: destructive git command guard ---
 echo "--- Destructive git command guard (bash mode) ---"
-test_block  "Block git reset --hard"            bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
+test_block  "Block git reset --hard HEAD~3"     bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
+test_block  "Block git reset --hard (bare)"     bash '{"tool_input":{"command":"git reset --hard"}}'
+test_allow  "Allow git reset --hard origin/main" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
 test_allow  "Allow git reset --soft"            bash '{"tool_input":{"command":"git reset --soft HEAD~1"}}'
 test_allow  "Allow git reset (no flag)"         bash '{"tool_input":{"command":"git reset HEAD~1"}}'
 test_block  "Block git clean -fd"               bash '{"tool_input":{"command":"git clean -fd"}}'
@@ -92,7 +94,7 @@ test_block  "Block git clean -xfd (combined)"   bash '{"tool_input":{"command":"
 # --- Bash: worktree removal guard ---
 echo "--- Worktree removal guard (bash mode) ---"
 test_block  "Block git worktree remove"       bash '{"tool_input":{"command":"git worktree remove /tmp/test"}}'
-test_block  "Block git worktree prune"        bash '{"tool_input":{"command":"git worktree prune"}}'
+test_allow  "Allow git worktree prune"        bash '{"tool_input":{"command":"git worktree prune"}}'
 test_allow  "Allow git worktree add"          bash '{"tool_input":{"command":"git worktree add /tmp/test"}}'
 test_block  "Fail-closed on bad JSON"         bash 'not-json'
 
@@ -120,6 +122,46 @@ for mode in edit bash; do
     FAIL=$((FAIL + 1))
   fi
 done
+
+# --- Agent lifecycle integration tests ---
+# These test the full workflows agents actually perform, not just individual checks.
+echo "--- Agent lifecycle: post-merge cleanup ---"
+
+# After a squash merge, agents need to sync their worktree with origin/main
+test_allow  "Lifecycle: git reset --hard origin/main (post-merge sync)" \
+            bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+
+# After removing a worktree directory, agents run prune to clean git references
+test_allow  "Lifecycle: git worktree prune (clean stale refs)" \
+            bash '{"tool_input":{"command":"git worktree prune"}}'
+
+# Agents delete merged branches with -d (safe) not -D (force)
+test_allow  "Lifecycle: git branch -d merged-branch (safe delete)" \
+            bash '{"tool_input":{"command":"git branch -d feature/my-merged-branch"}}'
+
+# Agents push deletions to remote after local cleanup
+test_allow  "Lifecycle: git push origin --delete branch" \
+            bash '{"tool_input":{"command":"git push origin --delete feature/my-merged-branch"}}'
+
+# But agents must NOT force-delete unmerged branches
+test_block  "Lifecycle: git branch -D blocks (force delete)" \
+            bash '{"tool_input":{"command":"git branch -D feature/unmerged-work"}}'
+
+# And must NOT reset to relative refs (loses commits)
+test_block  "Lifecycle: git reset --hard HEAD~3 blocks (loses commits)" \
+            bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
+
+echo "--- Agent lifecycle: fresh clone (no binary) ---"
+# When guard binary doesn't exist, hooks should fail-open (not brick the session)
+MISSING_GUARD="./nonexistent-guard-binary"
+out=$(printf '{"tool_input":{"command":"git status"}}' | sh -c "test -x $MISSING_GUARD && $MISSING_GUARD bash || true" 2>/dev/null)
+if [ -z "$out" ]; then
+  printf '  PASS: missing binary exits clean (fail-open)\n'
+  PASS=$((PASS + 1))
+else
+  printf '  FAIL: missing binary produced output: %s\n' "$out"
+  FAIL=$((FAIL + 1))
+fi
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

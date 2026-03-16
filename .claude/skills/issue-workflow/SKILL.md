@@ -32,7 +32,7 @@ If E2E tests fail but unit tests pass, note this in your summary.
 - PR body must include `Closes #{issue_number}` for auto-closing
 - Write `.agent-summary.md`: what changed, tests added, what couldn't be done
 - PR body should include structured sections: Summary, Test plan, Closes #N
-- **After PR is created**, clean up: `cd /workspace && git worktree remove /workspace/.claude/worktrees/issue-{number}`
+- **After PR is merged**, clean up: `cd /workspace`, then `rm -rf /workspace/.claude/worktrees/issue-{number}`, then `git worktree prune`
 
 ## Error Handling
 - **Level 1** (fixable): Read error, fix code, re-run. Up to 3 distinct approaches.

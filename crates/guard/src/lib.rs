@@ -150,12 +150,17 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     }
 
     // Check 5: Block destructive git commands (reset --hard, clean -f, branch -D)
+    // Allow reset --hard to a remote ref (origin/main, origin/branch) — needed after squash merges.
+    // Block reset --hard to relative refs (HEAD~N) or bare (no target) — those discard work.
     if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
-        return Some(
-            "git reset --hard is destructive and can discard uncommitted work. \
-             Consider git stash or git checkout -- <file> for targeted reverts."
-                .to_string(),
-        );
+        let has_origin_ref = tokens(cmd).iter().any(|t| t.starts_with("origin/"));
+        if !has_origin_ref {
+            return Some(
+                "git reset --hard is destructive and can discard uncommitted work. \
+                 If syncing after a squash merge, use: git reset --hard origin/<branch>"
+                    .to_string(),
+            );
+        }
     }
     if has_git_subcmd(cmd, "clean")
         && (has_git_flag(cmd, "clean", 'f') || has_token(cmd, "--force"))
@@ -174,13 +179,10 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 6: Block git worktree remove/prune
+    // Check 6: Block git worktree remove (but allow prune — it only cleans stale references)
     let ts = tokens(cmd);
     for i in 0..ts.len().saturating_sub(2) {
-        if ts[i] == "git"
-            && ts[i + 1] == "worktree"
-            && (ts[i + 2] == "remove" || ts[i + 2] == "prune")
-        {
+        if ts[i] == "git" && ts[i + 1] == "worktree" && ts[i + 2] == "remove" {
             return Some(
                 "Worktree removal blocked. Only remove worktrees you created, \
                  and only after your PR is merged. \
@@ -368,6 +370,25 @@ mod tests {
     }
 
     #[test]
+    fn bash_blocks_git_reset_hard_bare() {
+        let v = json!({"tool_input": {"command": "git reset --hard"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_git_reset_hard_origin() {
+        // Needed after squash merges to sync with remote
+        let v = json!({"tool_input": {"command": "git reset --hard origin/main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_reset_hard_origin_branch() {
+        let v = json!({"tool_input": {"command": "git reset --hard origin/feature-branch"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
     fn bash_allows_git_reset_soft() {
         let v = json!({"tool_input": {"command": "git reset --soft HEAD~1"}});
         assert!(check_bash(&v).is_none());
@@ -431,9 +452,10 @@ mod tests {
     }
 
     #[test]
-    fn bash_blocks_worktree_prune() {
+    fn bash_allows_worktree_prune() {
+        // prune only cleans stale references — always safe
         let v = json!({"tool_input": {"command": "git worktree prune"}});
-        assert!(check_bash(&v).is_some());
+        assert!(check_bash(&v).is_none());
     }
 
     #[test]

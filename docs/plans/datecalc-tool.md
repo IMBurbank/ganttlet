@@ -92,8 +92,8 @@ A PostToolUse hook on `Edit|Write` that fires after every code edit. It:
 
 | Pattern in code | Hook action | Accuracy |
 |----------------|------------|----------|
-| `task_end_date("A", N)` / `taskEndDate("A", N)` near `"B"` | Computes `shift_date(A, N-1)`, warns if B wrong | 100% — inclusive convention, one answer |
-| `task_duration("A", "B")` / `taskDuration("A", "B")` near `N` | Computes `business_day_delta(A, B) + 1`, warns if N wrong | 100% — inclusive convention, one answer |
+| `task_end_date("A", N)` / `taskEndDate("A", N)` near `"B"` | Computes `task_end_date(A, N)`, warns if B wrong | 100% — inclusive convention, one answer |
+| `task_duration("A", "B")` / `taskDuration("A", "B")` near `N` | Computes `task_duration(A, B)`, warns if N wrong | 100% — inclusive convention, one answer |
 | Weekend date in `start_date`/`end_date` field | Always warns | 100% — weekend task dates forbidden |
 | Date in `assert_eq!` / `expect()` | Verifies if computable, logs otherwise | 100% where computable |
 | Weekend date in `assert_eq!` / test assertion | Verifies date isn't Sat/Sun | 100% — `is_weekend_date` is deterministic |
@@ -119,14 +119,13 @@ business days alongside calendar days, making the difference visible.
 `bizday` is a native Rust binary — it uses the same `date_utils` functions as the
 scheduling engine. No interpreter startup, no library load.
 
-| Metric | Node.js (old plan) | Rust binary |
+| Metric | Node.js (measured) | Rust binary (estimated) |
 |--------|-------------------|-------------|
-| Cold start | 79-87ms (Node + `require('date-fns')`) | ~2ms (native exec) |
-| Computation (1-2 dates) | 0.015-0.021ms | ~0.01ms |
-| Computation (200 dates) | 0.706ms | ~0.5ms |
-| Total per hook call | ~85ms | **~3ms** |
+| Cold start | ~107ms (Node + `require('date-fns')`) | ~2ms (native exec) |
+| Computation (1-2 dates) | <1ms | <1ms |
+| Total per hook call | ~107ms | **~3ms** |
 
-**40x faster.** The existing `verify.sh` PostToolUse hook runs `tsc` + `vitest`
+**~35x faster** (estimated — Rust cold start will be measured after build). The existing `verify.sh` PostToolUse hook runs `tsc` + `vitest`
 (seconds). The bizday hook adds ~3ms — unmeasurable. Over a session with 50 Edit/Write
 calls, total overhead is 150ms vs the old plan's 4.25 seconds.
 
@@ -406,13 +405,13 @@ Future section on extracting `bizday` as an independent tool.
 ```
 crates/bizday/
 ├── Cargo.toml
-└── src/
-    ├── main.rs      # CLI arg parsing, dispatch
-    ├── compute.rs   # Date math operations via ganttlet_scheduler::date_utils
-    ├── verify.rs    # lint/verify logic (shared with PostToolUse hook)
-    ├── log.rs       # Append to .claude/logs/bizday.log (unified events)
-    └── report.rs    # bizday report — log parsing, metrics, trend, drill-downs
-    tests/
+├── src/
+│   ├── main.rs      # CLI arg parsing, dispatch
+│   ├── compute.rs   # Date math operations via ganttlet_scheduler::date_utils
+│   ├── verify.rs    # lint/verify logic (shared with PostToolUse hook)
+│   ├── log.rs       # Append to .claude/logs/bizday.log (unified events)
+│   └── report.rs    # bizday report — log parsing, metrics, trend, drill-downs
+└── tests/
     ├── compute.rs   # Hand-written integration tests
     ├── verify.rs    # Lint mode tests
     ├── log.rs       # Logging integration tests
@@ -1279,7 +1278,7 @@ processing. `bizday` could support a similar mode:
 
 ```
 $ echo -e "2026-03-11 5\n2026-03-06 2026-03-20" | bizday --batch
-2026-03-18
+2026-03-17
 11
 ```
 
@@ -1352,11 +1351,11 @@ Sheets data becomes a workflow.
 26. Shell functions (`taskEndDate`, `task_end_date`, `taskDuration`, `task_duration`) alias to `bizday`
 27. CLAUDE.md updated with shell function examples; hook documented
 
-**Validation** (Step 5-7 of implementation):
-29. 6 agent sessions complete (3 medium, 3 large)
-30. Tool adoption data collected (name preference, fallback rate, mental-math rate)
-31. Medium-vs-large decay analysis complete
-32. Decision table reviewed and any iteration applied
+**Validation** (Step 4-6 of implementation):
+28. 6 agent sessions complete (3 medium, 3 large)
+29. Tool adoption data collected (name preference, fallback rate, mental-math rate)
+30. Medium-vs-large decay analysis complete
+31. Decision table reviewed and any iteration applied
 
 ## State-of-the-Art Comparison
 
@@ -1439,31 +1438,31 @@ agent sessions, iterate, then PR.
 
 Build the binary with all operations, tests, hook, and measurement:
 
-2a. `Cargo.toml` — crate with `ganttlet-scheduler` path dep
-2b. `src/compute.rs` — duration→end date, two-date→duration, weekend check
-2c. `src/main.rs` — CLI arg parsing + dispatch
-2d. `tests/compute.rs` — hand-written integration tests
-2e. `tests/proptest.rs` — 6 properties, 256 local / 10,000 CI
-2f. `src/verify.rs` — lint/verify logic (regex patterns)
-2g. `src/log.rs` — unified log (session markers, event types, elapsed_ms)
-2h. `tests/log.rs` — 8 logging integration tests
-2i. `tests/verify.rs` — lint mode tests
-2j. `src/report.rs` — `bizday report` (metrics, --trend, --eval, drill-downs)
-2k. `tests/report.rs` — report output tests
+1a. `Cargo.toml` — crate with `ganttlet-scheduler` path dep
+1b. `src/compute.rs` — duration→end date, two-date→duration, weekend check
+1c. `src/main.rs` — CLI arg parsing + dispatch
+1d. `tests/compute.rs` — hand-written integration tests
+1e. `tests/proptest.rs` — 6 properties, 256 local / 10,000 CI
+1f. `src/verify.rs` — lint/verify logic (regex patterns)
+1g. `src/log.rs` — unified log (session markers, event types, elapsed_ms)
+1h. `tests/log.rs` — 8 logging integration tests
+1i. `tests/verify.rs` — lint mode tests
+1j. `src/report.rs` — `bizday report` (metrics, --trend, --eval, drill-downs)
+1k. `tests/report.rs` — report output tests
 
 ### Step 2: Shell function aliases + hook registration
 
-3a. `scripts/datecalc-functions.sh` — shell aliases sourced from `.bashrc`:
+2a. `scripts/datecalc-functions.sh` — shell aliases sourced from `.bashrc`:
     ```bash
     taskEndDate()   { bizday "$1" "$2"; }
     task_end_date() { bizday "$1" "$2"; }
     taskDuration()  { bizday "$1" "$2"; }
     task_duration() { bizday "$1" "$2"; }
     ```
-3b. Dockerfile — `source scripts/datecalc-functions.sh` + `bizday` on PATH
-3c. `.claude/settings.json` — register PostToolUse hook
-3d. CLAUDE.md — replace `node -e` examples with shell function names
-3e. `crates/scheduler/CLAUDE.md` — update "Never" section
+2b. Dockerfile — `source scripts/datecalc-functions.sh` + `bizday` on PATH
+2c. `.claude/settings.json` — register PostToolUse hook
+2d. CLAUDE.md — replace `node -e` examples with shell function names
+2e. `crates/scheduler/CLAUDE.md` — update "Never" section
 
 ### Step 3: Validation prompts
 

@@ -78,7 +78,9 @@ test_block  "Fail-closed on bad JSON"         bash 'not-json'
 
 # --- Bash: destructive git command guard ---
 echo "--- Destructive git command guard (bash mode) ---"
-test_block  "Block git reset --hard"            bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
+test_block  "Block git reset --hard HEAD~3"     bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
+test_block  "Block git reset --hard (bare)"     bash '{"tool_input":{"command":"git reset --hard"}}'
+test_allow  "Allow git reset --hard origin/main" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
 test_allow  "Allow git reset --soft"            bash '{"tool_input":{"command":"git reset --soft HEAD~1"}}'
 test_allow  "Allow git reset (no flag)"         bash '{"tool_input":{"command":"git reset HEAD~1"}}'
 test_block  "Block git clean -fd"               bash '{"tool_input":{"command":"git clean -fd"}}'
@@ -92,7 +94,7 @@ test_block  "Block git clean -xfd (combined)"   bash '{"tool_input":{"command":"
 # --- Bash: worktree removal guard ---
 echo "--- Worktree removal guard (bash mode) ---"
 test_block  "Block git worktree remove"       bash '{"tool_input":{"command":"git worktree remove /tmp/test"}}'
-test_block  "Block git worktree prune"        bash '{"tool_input":{"command":"git worktree prune"}}'
+test_allow  "Allow git worktree prune"        bash '{"tool_input":{"command":"git worktree prune"}}'
 test_allow  "Allow git worktree add"          bash '{"tool_input":{"command":"git worktree add /tmp/test"}}'
 test_block  "Fail-closed on bad JSON"         bash 'not-json'
 

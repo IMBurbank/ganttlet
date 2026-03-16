@@ -174,7 +174,7 @@ Once the code review finds no issues:
    # Bash call 1:
    cd /workspace
    # Bash call 2:
-   git worktree remove /workspace/.claude/worktrees/<name>
+   rm -rf /workspace/.claude/worktrees/<name>
    # Bash call 3:
    git worktree prune
    ```

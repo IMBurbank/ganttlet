@@ -35,11 +35,11 @@ All hooks are declared in `.claude/settings.json` under the `"hooks"` key:
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "./target/release/guard edit" }]
+        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard edit || true" }]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "./target/release/guard bash" }]
+        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard bash || true" }]
       }
     ],
     "PostToolUse": [

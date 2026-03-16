@@ -19,16 +19,15 @@ to enforce project invariants (no direct edits to `/workspace/`, no push to main
 
 Hooks live in two files under `.claude/`:
 
-- **`settings.json`** (committed) — safety hooks that all developers/agents must have. Contains
-  the guard binary (PreToolUse) and bizday lint (PostToolUse).
-- **`settings.local.json`** (gitignored, per-developer) — developer-experience hooks like
-  `verify.sh` (PostToolUse: auto-runs tsc + vitest after edits). Not committed because it adds
-  latency that not all workflows need (e.g., Rust-only agents don't need tsc).
+- **`settings.json`** (committed) — all hooks that every environment needs. Contains the guard
+  binary (PreToolUse safety), verify.sh (PostToolUse tsc+vitest feedback), and bizday lint
+  (PostToolUse date verification). These run in local dev, multi-agent phases, and CI workflows.
+- **`settings.local.json`** (gitignored, per-developer) — personal overrides only (e.g.,
+  extra permissions). See `.claude/settings.local.json.example`.
 
-Copy `.claude/settings.local.json.example` to `.claude/settings.local.json` to enable verify.sh.
 Claude Code merges both files at runtime — local settings extend committed settings.
 
-Committed hooks are declared in `.claude/settings.json` under the `"hooks"` key:
+All hooks are declared in `.claude/settings.json` under the `"hooks"` key:
 
 ```json
 {
@@ -46,7 +45,10 @@ Committed hooks are declared in `.claude/settings.json` under the `"hooks"` key:
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "./crates/bizday/target/release/bizday lint --stdin 2>/dev/null || true" }]
+        "hooks": [
+          { "type": "command", "command": "./scripts/verify.sh" },
+          { "type": "command", "command": "./crates/bizday/target/release/bizday lint --stdin 2>/dev/null || true" }
+        ]
       }
     ]
   }

@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(env)",
-      "Bash(cat:*)",
-      "Bash(git branch:*)"
-    ]
-  }
-}

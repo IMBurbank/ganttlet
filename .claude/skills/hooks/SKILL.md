@@ -23,7 +23,7 @@ Hooks live in two files under `.claude/`:
   binary (PreToolUse safety), verify.sh (PostToolUse tsc+vitest feedback), and bizday lint
   (PostToolUse date verification). These run in local dev, multi-agent phases, and CI workflows.
 - **`settings.local.json`** (gitignored, per-developer) — personal overrides only (e.g.,
-  extra permissions). See `.claude/settings.local.json.example`.
+  extra permissions, plugin toggles). Create manually if needed.
 
 Claude Code merges both files at runtime — local settings extend committed settings.
 

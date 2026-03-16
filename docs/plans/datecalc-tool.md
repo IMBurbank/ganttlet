@@ -859,7 +859,6 @@ produces the binary; this should be part of the dev container setup.
 | `crates/scheduler/CLAUDE.md` | Modify | 1 | Update "Never" section |
 | `.claude/settings.json` | Modify | 0 | Add PostToolUse verify hook |
 | `Dockerfile` / `.bashrc` | Modify | 1 | Add `bizday` to PATH + shell function aliases (`taskEndDate`, `task_end_date`, `taskDuration`, `task_duration`) |
-| `crates/scheduler/clippy.toml` | Create | — | `disallowed-methods` for `shift_date` (compile-time ban) |
 | `.claude/logs/bizday.log` | Created at runtime | 0,1,2 | Unified event log (gitignored via `.claude/*` glob) |
 
 ---
@@ -1161,7 +1160,6 @@ representation needed; the number in `bizday` is the number in code.
 | Layer | What it prevents | When | Status |
 |-------|-----------------|------|--------|
 | API design (single convention) | Using wrong function entirely | Compile time | **Done** (Phase 16) |
-| Clippy `disallowed-methods` | Calling `shift_date` internally where convention function should be used | Lint/CI time | This plan |
 | `bizday` CLI + hook | Agent writes wrong date/duration in test/code | Runtime | This plan |
 | Property-based tests (proptest) | Engine bugs in `date_utils` | Test time | This plan |
 | Pre-commit hook | Banned function names in new code | Commit time | **Done** (Phase 16c) |
@@ -1353,7 +1351,6 @@ Sheets data becomes a workflow.
 **Integration**:
 26. Shell functions (`taskEndDate`, `task_end_date`, `taskDuration`, `task_duration`) alias to `bizday`
 27. CLAUDE.md updated with shell function examples; hook documented
-28. Clippy `disallowed-methods` configured (no ESLint — project doesn't use it)
 
 **Validation** (Step 5-7 of implementation):
 29. 6 agent sessions complete (3 medium, 3 large)
@@ -1367,20 +1364,11 @@ Assessed against deployed tools and published research as of March 2026.
 
 ### What already exists (and should be used alongside `bizday`)
 
-**Clippy `disallowed-methods`** (Rust) can ban wrong functions at lint/CI time —
-stronger than a hook because it blocks the build:
-
-```toml
-# clippy.toml — ban direct shift_date calls from non-scheduler code
-disallowed-methods = [
-    { path = "ganttlet_scheduler::date_utils::shift_date", reason = "Use task_end_date() — shift_date is internal" },
-]
-```
-
-The project has no ESLint (uses `tsc` + Prettier only). TypeScript enforcement
-relies on structural guards (`addBusinessDays` not exported from `dateUtils.ts`)
-and the pre-commit hook (rejects `workingDaysBetween`). Adding ESLint solely for
-one ban rule would violate the minimal-dependencies constraint.
+**Structural guards already enforce function bans** — no linter configuration
+needed. `shift_date` is `pub(crate)` (compiler rejects external calls).
+`addBusinessDays` is not exported from `dateUtils.ts` (module system prevents
+import). `workingDaysBetween` is deleted (won't compile/run). The pre-commit
+hook rejects `workingDaysBetween` as belt-and-suspenders.
 
 ### Where `bizday` is ahead of the field
 
@@ -1447,16 +1435,7 @@ require a session-scoped date registry (future work).
 All work happens on a single branch. Build everything, validate with real
 agent sessions, iterate, then PR.
 
-### Step 1: Clippy function bans
-
-Independent of `bizday`. Provides compile-time safety immediately.
-
-1a. `crates/scheduler/clippy.toml` — `disallowed-methods` for `shift_date`
-
-Note: no ESLint — the project uses `tsc` + Prettier only. TypeScript enforcement
-relies on structural guards and the pre-commit hook.
-
-### Step 2: Rust binary (`crates/bizday/`)
+### Step 1: Rust binary (`crates/bizday/`)
 
 Build the binary with all operations, tests, hook, and measurement:
 
@@ -1472,7 +1451,7 @@ Build the binary with all operations, tests, hook, and measurement:
 2j. `src/report.rs` — `bizday report` (metrics, --trend, --eval, drill-downs)
 2k. `tests/report.rs` — report output tests
 
-### Step 3: Shell function aliases + hook registration
+### Step 2: Shell function aliases + hook registration
 
 3a. `scripts/datecalc-functions.sh` — shell aliases sourced from `.bashrc`:
     ```bash
@@ -1486,7 +1465,7 @@ Build the binary with all operations, tests, hook, and measurement:
 3d. CLAUDE.md — replace `node -e` examples with shell function names
 3e. `crates/scheduler/CLAUDE.md` — update "Never" section
 
-### Step 4: Validation prompts
+### Step 3: Validation prompts
 
 Create 6 prompt files in `docs/plans/datecalc-validation/`. Three medium
 tasks (~10-15 date computations) test adoption. Three large tasks (~30-50
@@ -1539,7 +1518,7 @@ value, weekend boundary). Cover the predecessor chain, cascade logic, and
 expected date outputs. ~30-40 date computations across complex multi-step
 reasoning.
 
-### Step 5: Run validation sessions
+### Step 4: Run validation sessions
 
 Launch 6 agent sessions, one per task, in isolated worktrees branched from
 this branch. Each agent gets the shell functions, the Rust binary, the hook,
@@ -1563,7 +1542,7 @@ Each session produces:
 - `.claude/logs/bizday.log` entries (tool usage)
 - Session transcript (Bash tool calls)
 
-### Step 6: Analyze results
+### Step 5: Analyze results
 
 After all 6 sessions complete, run the analysis:
 
@@ -1598,7 +1577,7 @@ bizday report --false-matches
 | Tool calls per edit (early vs late) | N/A (too few edits) | First 10 edits vs last 10 | Within-session decay |
 | Hook mismatches | Baseline | More in late edits? | Mental math errors increase with fatigue |
 
-### Step 7: Decision and iteration
+### Step 6: Decision and iteration
 
 Review the analysis and decide:
 
@@ -1615,9 +1594,9 @@ Review the analysis and decide:
 Make changes based on findings. Re-run any failing validation task to
 confirm the fix. When satisfied, squash into clean commits and create PR.
 
-### Step 8: PR
+### Step 7: PR
 
 Rebase on main, run `./scripts/full-verify.sh`, create PR with:
-- What was built (binary, hook, shell functions, Clippy bans)
+- What was built (binary, hook, shell functions)
 - Validation results (which names agents used, mental-math rate, hook catches)
 - Decision rationale (what was kept/changed/removed based on data)

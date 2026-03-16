@@ -6,8 +6,7 @@ context: >
   convention with task_end_date/task_duration as the only public API and shift_date
   as pub(crate). This phase adds runtime verification (PostToolUse hook), a
   convention-aware CLI (bizday), shell function aliases matching code function names
-  (taskEndDate, task_end_date, taskDuration, task_duration), Clippy disallowed-methods
-  for compile-time enforcement, and a measurement framework to validate whether these
+  (taskEndDate, task_end_date, taskDuration, task_duration), and a measurement framework to validate whether these
   tools actually help. AGENTIF research (NeurIPS 2025) shows agents follow <30% of
   tool constraints — validating passive-first architecture.
 
@@ -19,15 +18,6 @@ stages:
       No file overlap between groups.
     tasks:
       - id: A1
-        summary: "Clippy disallowed-methods for shift_date"
-        description: >
-          Create crates/scheduler/clippy.toml banning shift_date calls from
-          external code. Verify with cargo clippy.
-        files: [crates/scheduler/clippy.toml]
-        tests: "cargo clippy -p ganttlet-scheduler"
-        complexity: trivial
-
-      - id: A2
         summary: "Shell function aliases (taskEndDate, task_end_date, etc.)"
         description: >
           Create scripts/datecalc-functions.sh with shell functions that alias
@@ -37,7 +27,7 @@ stages:
         tests: "source scripts/datecalc-functions.sh && taskEndDate 2026-03-11 10"
         complexity: small
 
-      - id: A3
+      - id: A2
         summary: "Update CLAUDE.md date math examples"
         description: >
           Replace node -e date-fns examples with shell function examples.

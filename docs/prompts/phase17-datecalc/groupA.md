@@ -5,7 +5,6 @@ stage: 1
 agent_count: 1
 scope:
   modify:
-    - crates/scheduler/clippy.toml
     - scripts/datecalc-functions.sh
     - Dockerfile
     - CLAUDE.md
@@ -17,14 +16,12 @@ scope:
 depends_on: []
 tasks:
   - id: A1
-    summary: "Clippy disallowed-methods for shift_date"
-  - id: A2
     summary: "Shell function aliases"
-  - id: A3
+  - id: A2
     summary: "Update CLAUDE.md date math examples"
 ---
 
-# Phase 17 Group A — Lint Bans + Shell Functions + Docs
+# Phase 17 Group A — Shell Functions + Docs
 
 You are implementing Phase 17 Group A for the Ganttlet project.
 Read `CLAUDE.md` for full project context.
@@ -36,14 +33,13 @@ Execute all tasks sequentially without stopping for approval.
 ## Context
 
 Phase 16 established the inclusive end-date convention with `task_end_date`/`task_duration`
-as the only public API and `shift_date` as `pub(crate)`. This group adds compile-time
-enforcement (Clippy) and agent-facing shell functions that match the code function names
-agents already write.
+as the only public API and `shift_date` as `pub(crate)`. This group adds agent-facing
+shell functions that match the code function names agents already write, and updates
+CLAUDE.md to reference them.
 
 ## Your files (ONLY modify these):
 
 **Modify:**
-- `/workspace/crates/scheduler/clippy.toml` (CREATE)
 - `/workspace/scripts/datecalc-functions.sh` (CREATE)
 - `/workspace/Dockerfile`
 - `/workspace/CLAUDE.md`
@@ -56,28 +52,7 @@ agents already write.
 
 ## Tasks — execute in order:
 
-### A1: Clippy disallowed-methods for shift_date
-
-Create `crates/scheduler/clippy.toml`:
-
-```toml
-disallowed-methods = [
-    { path = "ganttlet_scheduler::date_utils::shift_date", reason = "shift_date is pub(crate) — use task_end_date() for end dates or dep-type helpers (fs_successor_start, etc.) for dependencies" },
-]
-```
-
-Verify it works:
-```bash
-cargo clippy -p ganttlet-scheduler 2>&1 | head -20
-```
-
-Note: `shift_date` is `pub(crate)`, so external crates can't call it regardless.
-This Clippy rule catches internal misuse within the scheduler crate where someone
-calls `shift_date` directly instead of using the convention functions.
-
-Commit: `"feat: add Clippy disallowed-methods for shift_date"`
-
-### A2: Shell function aliases
+### A1: Shell function aliases
 
 Create `scripts/datecalc-functions.sh`:
 
@@ -110,7 +85,7 @@ Note: The shell functions will fail gracefully until the `bizday` binary is buil
 
 Commit: `"feat: add shell function aliases for bizday (taskEndDate, task_end_date, etc.)"`
 
-### A3: Update CLAUDE.md date math examples
+### A2: Update CLAUDE.md date math examples
 
 In `/workspace/CLAUDE.md`, find the date math section (starts with
 `NEVER do any arithmetic, date/time calculation, or duration math in your head`).
@@ -149,10 +124,10 @@ Commit: `"docs: update CLAUDE.md date math examples to use shell functions"`
 ### Final verification
 
 ```bash
-cargo clippy -p ganttlet-scheduler 2>&1 | grep -i disallowed || echo "No disallowed-methods violations (expected)"
 cat scripts/datecalc-functions.sh
 grep -n "datecalc-functions" Dockerfile
 grep -n "taskEndDate\|bizday" CLAUDE.md | head -10
+grep -n "taskEndDate\|bizday" crates/scheduler/CLAUDE.md | head -5
 ```
 
 ## Progress Tracking

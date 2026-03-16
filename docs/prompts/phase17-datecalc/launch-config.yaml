@@ -6,7 +6,7 @@ stages:
     groups:
       - id: groupA
         branch: feature/17-lint-shell-docs
-        merge_message: "Merge feature/17-lint-shell-docs: Clippy bans, shell functions, CLAUDE.md updates"
+        merge_message: "Merge feature/17-lint-shell-docs: shell functions, CLAUDE.md updates"
       - id: groupB
         branch: feature/17-bizday-binary
         merge_message: "Merge feature/17-bizday-binary: Rust bizday crate with compute, verify, log, report"
@@ -27,7 +27,7 @@ pr:
     - Rust `bizday` binary: convention-aware date CLI (inclusive duration only)
     - Shell function aliases: `taskEndDate`, `task_end_date`, `taskDuration`, `task_duration`
     - PostToolUse hook: verifies date literals in agent-written code (~3ms per edit)
-    - Clippy `disallowed-methods`: compile-time ban on `shift_date` from external code
+    - Structural guards: `shift_date` is `pub(crate)`, `addBusinessDays` not exported
     - Measurement framework: `bizday report --trend`, `--eval` with checkpoint prompts
     - Property-based tests: 6 properties × 10,000 CI cases verifying date_utils invariants
     - Validated with 6 agent sessions (3 medium, 3 large date-heavy tasks)
@@ -35,7 +35,6 @@ pr:
     Plan: docs/plans/datecalc-tool.md
   test_plan: |
     - [ ] `cargo test -p bizday` — all unit + proptest + integration tests pass
-    - [ ] `cargo clippy -p ganttlet-scheduler` — shift_date ban enforced
     - [ ] `./scripts/full-verify.sh` — no regressions
     - [ ] Shell functions work: `taskEndDate 2026-03-11 10` returns `2026-03-24`
     - [ ] PostToolUse hook fires on Edit/Write and logs to `.claude/logs/bizday.log`

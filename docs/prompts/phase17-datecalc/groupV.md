@@ -35,7 +35,7 @@ Execute all tasks sequentially without stopping for approval.
 ## Context
 
 Stage 1 built the `bizday` binary, shell function aliases, PostToolUse hook,
-Clippy bans, and CLAUDE.md updates. This stage validates whether agents
+and CLAUDE.md updates. This stage validates whether agents
 actually use these tools by running 6 agent sessions (3 medium, 3 large)
 with date-heavy tasks and analyzing the results.
 

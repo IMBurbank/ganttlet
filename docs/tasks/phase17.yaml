@@ -108,9 +108,10 @@ stages:
   - name: "Stage 1.5 — Verification Gate"
     description: >
       After merging Stage 1 groups, run full-verify.sh + bizday-specific
-      checks on the merged feature branch. Must pass before spending tokens
-      on 6 validation agent sessions. Catches build failures, test regressions,
-      and integration issues early.
+      checks on the merged feature branch. If any check fails, diagnose and
+      fix the issue, then re-run until all checks pass. Do not proceed to
+      Stage 2 until every gate command exits 0. Use the Error Handling
+      Protocol (Level 1: fix and retry, up to 3 approaches per issue).
     gate: true
     commands:
       - "./scripts/full-verify.sh"

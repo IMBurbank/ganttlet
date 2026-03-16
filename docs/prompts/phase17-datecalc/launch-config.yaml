@@ -34,7 +34,7 @@ stages:
         - "./target/release/bizday verify 2026-03-11 10 2026-03-24" # exit 0
         - "source scripts/datecalc-functions.sh && taskEndDate 2026-03-11 10" # must work
         - "node -e \"const s=JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8')); if(!s.hooks?.PostToolUse) process.exit(1);\""
-      on_failure: "STOP — do not proceed to Stage 2. Fix failures first."
+      on_failure: "Fix the failure, re-run the failing check, and repeat until all checks pass. Do not proceed to Stage 2 until every gate command exits 0."
 
   - name: "Stage 2: Validation"
     groups:

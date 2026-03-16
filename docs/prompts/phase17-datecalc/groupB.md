@@ -157,7 +157,7 @@ Create `tests/compute.rs` — hand-written integration tests:
 - `bizday verify 2026-03-11 10 2026-03-24` → exit 0
 - `bizday verify 2026-03-11 10 2026-03-25` → exit 1
 
-IMPORTANT: Verify ALL expected values with `node -e` BEFORE writing assertions.
+IMPORTANT: Verify ALL expected values with `taskEndDate`/`taskDuration` shell functions BEFORE writing assertions.
 NEVER compute dates mentally.
 
 Create `tests/proptest.rs` — 6 properties using `PROPTEST_CASES` env var:
@@ -292,5 +292,5 @@ Update `.agent-status.json` after each task.
 - Level 1: Fix and retry (up to 3 approaches)
 - Level 2: Commit WIP, move to next task
 - Level 3: Commit, mark blocked
-- **Calculations**: NEVER do mental math — use `node -e` or `python3 -c`
-  Example: `node -e "const d=require('date-fns'); console.log(d.format(d.addBusinessDays(d.parseISO('2026-03-11'), 9), 'yyyy-MM-dd'))"`
+- **Calculations**: NEVER do mental math — use `taskEndDate`/`taskDuration` shell functions for dates, `python3 -c` for arithmetic
+  Example: `taskEndDate 2026-03-11 10` → `2026-03-24`

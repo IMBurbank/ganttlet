@@ -252,4 +252,4 @@ Update `.agent-status.json` after each task.
 - Level 1: Fix and retry (up to 3 approaches)
 - Level 2: Commit WIP, move to next task
 - Level 3: Commit, mark blocked
-- **Calculations**: NEVER do mental math — use `node -e` or `python3 -c`
+- **Calculations**: NEVER do mental math — use `taskEndDate`/`taskDuration` shell functions for dates, `python3 -c` for arithmetic

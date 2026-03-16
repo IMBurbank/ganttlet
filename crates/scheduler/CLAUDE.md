@@ -13,7 +13,7 @@
 
 ## Never
 - Add external date/time crates
-- Do arithmetic in your head — use `node -e` or `python3 -c`
+- Do arithmetic in your head — use `taskEndDate`/`taskDuration` shell functions or `bizday` CLI for dates, `python3 -c` for general arithmetic
 
 ## Date Convention
 - `end_date` is INCLUSIVE — last working day of the task.

@@ -321,4 +321,4 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and `
 - Level 2 (stuck): Commit WIP with honest message, move to NEXT TASK (not "stop all work").
 - Level 3 (blocked): Commit, update .agent-status.json with "status": "blocked", skip dependent tasks.
 - Emergency: If running out of context, `git add -A && git commit -m "emergency: groupA saving work"`.
-- **Calculations**: NEVER do mental math or date arithmetic. Use `node -e "const {differenceInCalendarDays,addDays}=require('date-fns'); ..."` or `date -d '2026-03-06 + 17 days' +%Y-%m-%d` or `python3 -c "print(...)"`. Prefer `date-fns` directly (`differenceInCalendarDays`, `addDays`, `addBusinessDays`) over project wrappers when writing new code.
+- **Calculations**: NEVER do mental math or date arithmetic. Use `taskEndDate`/`taskDuration` shell functions for dates, `python3 -c` for arithmetic. Example: `taskEndDate 2026-03-11 10` → `2026-03-24`.

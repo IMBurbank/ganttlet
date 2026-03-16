@@ -40,8 +40,8 @@ allowed bugs to hide — e.g., an ALAP test used `2026-03-22` (Sunday) as an end
 and passed because the test only asserted on `new_start`. Adding `debug_assert` to
 test helpers catches these at test time.
 
-**Critical rule**: NEVER do date arithmetic in your head. Use `node -e` or `python3 -c`
-for EVERY date computation — day-of-week checks, `task_end_date` derivations,
+**Critical rule**: NEVER do date arithmetic in your head. Use `taskEndDate`/`taskDuration` shell functions
+(or `bizday` CLI) for EVERY date computation — day-of-week checks, `task_end_date` derivations,
 `business_day_delta` counts, everything.
 
 ## Your files (ONLY modify these):
@@ -85,9 +85,10 @@ The debug_asserts will fire for every test using weekend dates. Fix them one by 
 
 **Weekend dates to fix (~18 occurrences across 5 distinct dates):**
 
-Before fixing ANY date, verify the day-of-week using `node -e`:
+Before fixing ANY date, verify the day-of-week using `bizday`:
 ```bash
-node -e "const d=new Date('2026-03-01T12:00:00Z'); console.log(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()])"
+bizday 2026-03-01
+# Shows day-of-week and nearest business day
 ```
 
 | Current date | Day | Replacement | Day | Notes |
@@ -102,14 +103,14 @@ node -e "const d=new Date('2026-03-01T12:00:00Z'); console.log(['Sun','Mon','Tue
 using `task_end_date(new_start, 7)` — the make_task helper hardcodes `duration=7`.
 Example:
 ```bash
-node -e "const {addBusinessDays,parseISO,format}=require('date-fns'); console.log(format(addBusinessDays(parseISO('2026-03-02'),6),'yyyy-MM-dd'))"
+taskEndDate 2026-03-02 7
+# Returns 2026-03-10 (inclusive convention)
 ```
-(`task_end_date(start, 7) = addBusinessDays(start, 6)` because inclusive convention)
 
 **Step 3: Recompute ALL downstream assertions**
 
-After changing dates, every `assert_eq!` on output dates must be recomputed. Use `node -e`
-for each one. Do NOT guess — compute.
+After changing dates, every `assert_eq!` on output dates must be recomputed. Use `taskEndDate`/`taskDuration`
+shell functions for each one. Do NOT guess — compute.
 
 **Step 4: Duration consistency for FF/SF tests**
 
@@ -150,8 +151,8 @@ has 0 mismatches — its `duration=5` with Mon-Fri windows is correct). Most use
 `duration=10` with date windows containing weekends (actual business days ~7-8).
 
 **For each failing test:**
-1. Verify the start and end dates are weekdays using `node -e`
-2. Compute `task_duration(start, end)` using `node -e`
+1. Verify the start and end dates are weekdays using `bizday <date>`
+2. Compute `task_duration(start, end)` using `taskDuration <start> <end>`
 3. Fix EITHER the duration OR the dates to make them consistent
 4. Prefer fixing the duration to match the dates (less cascading impact on test assertions)
 5. If fixing dates, recompute ALL assertions that depend on those dates
@@ -231,4 +232,4 @@ Update `.agent-status.json` after each task.
 - Level 2: Commit WIP, move to next task.
 - Level 3: Commit, mark blocked.
 - Emergency: `git add -A && git commit -m "emergency: groupC saving work"`.
-- **Calculations**: NEVER do mental math — use `node -e` or `python3 -c`.
+- **Calculations**: NEVER do mental math — use `taskEndDate`/`taskDuration` shell functions for dates, `python3 -c` for arithmetic.

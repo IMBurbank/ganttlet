@@ -187,7 +187,7 @@ Update all test assertions for inclusive duration:
 3. Verify `rowToTask` computes correct inclusive duration
 4. Add test: row with weekend start date → task created (no rejection — conflict detection handles it)
 
-**IMPORTANT:** Use `node -e` to calculate ALL expected values. NEVER compute by hand.
+**IMPORTANT:** Use `taskEndDate`/`taskDuration` shell functions to calculate ALL expected values. NEVER compute by hand.
 
 Commit: `"test: update sheetsMapper tests for inclusive convention"`
 
@@ -201,4 +201,4 @@ Update `.agent-status.json` after each task.
 - Level 2: Commit WIP, move to next task.
 - Level 3: Commit, mark blocked.
 - Emergency: `git add -A && git commit -m "emergency: groupG saving work"`.
-- **Calculations**: NEVER do mental math. Use `node -e` with date-fns for ALL arithmetic.
+- **Calculations**: NEVER do mental math. Use `taskEndDate`/`taskDuration` shell functions for ALL date arithmetic.

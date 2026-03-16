@@ -189,7 +189,7 @@ After completing each major task (C1-C4), update `.agent-status.json` in the wor
 - Level 2 (stuck): Commit WIP with honest message, move to NEXT TASK.
 - Level 3 (blocked): Commit, update .agent-status.json with "status": "blocked", skip dependent tasks.
 - Emergency: `git add -A && git commit -m "emergency: groupC saving work"`.
-- **Calculations**: NEVER do mental math or date arithmetic. Use `node -e` or `python3 -c`.
+- **Calculations**: NEVER do mental math or date arithmetic. Use `taskEndDate`/`taskDuration` shell functions for dates, `python3 -c` for arithmetic.
 
 ## Design Notes
 

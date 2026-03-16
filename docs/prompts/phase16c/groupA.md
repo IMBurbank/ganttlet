@@ -166,4 +166,4 @@ Update `.agent-status.json` after each task.
 - Level 2: Commit WIP, move to next task.
 - Level 3: Commit, mark blocked.
 - Emergency: `git add -A && git commit -m "emergency: groupA saving work"`.
-- **Calculations**: NEVER do mental math — use `node -e` or `python3 -c`.
+- **Calculations**: NEVER do mental math — use `taskEndDate`/`taskDuration` shell functions for dates, `python3 -c` for arithmetic.

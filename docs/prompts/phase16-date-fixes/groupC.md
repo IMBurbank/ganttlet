@@ -203,7 +203,7 @@ pub fn sf_successor_start(pred_start: &str, lag: i32, succ_duration: i32) -> Str
 }
 ```
 
-**Test cases (use `node -e` or `cargo test` to verify):**
+**Test cases (use `taskEndDate`/`taskDuration` shell functions or `cargo test` to verify):**
 - `fs_successor_start("2026-03-06", 0)` → `"2026-03-09"` (Fri → Mon)
 - `fs_successor_start("2026-03-06", 1)` → `"2026-03-10"` (Fri + 2 biz = Tue)
 - `ss_successor_start("2026-03-02", 0)` → `"2026-03-02"` (same day)
@@ -271,4 +271,4 @@ Update `.agent-status.json` after each task.
 - Level 2: Commit WIP, move to next task.
 - Level 3: Commit, mark blocked.
 - Emergency: `git add -A && git commit -m "emergency: groupC saving work"`.
-- **Calculations**: NEVER do mental math. Use `node -e` or verify with `cargo test`.
+- **Calculations**: NEVER do mental math. Use `taskEndDate`/`taskDuration` shell functions or verify with `cargo test`.

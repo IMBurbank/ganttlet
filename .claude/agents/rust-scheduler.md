@@ -56,4 +56,4 @@ Use LSP `hover` on any function in `date_utils.rs` for its contract, or
 Do NOT maintain a duplicate function list here — it drifts from source.
 
 ## NEVER do math in your head
-Use `node -e` or `python3 -c` for any date/arithmetic calculations. LLMs get these wrong.
+Use `taskEndDate`/`taskDuration` shell functions (or `bizday` CLI) for date calculations, `python3 -c` for general arithmetic. LLMs get these wrong.

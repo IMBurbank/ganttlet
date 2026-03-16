@@ -43,9 +43,13 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).
 - NEVER do any arithmetic, date/time calculation, or duration math in your head — even for "simple" operations. LLMs get these wrong routinely. Always use a tool:
   - **Any arithmetic**: `python3 -c "print(17 * 3 + 42)"` or `node -e "console.log(...)"`
-  - **Date/time math**: `date -d '2026-03-06 + 17 days' +%Y-%m-%d` or `node -e "..."` with `date-fns`
-  - **Business days / weekends**: `node -e "const d=require('date-fns'); console.log(d.differenceInBusinessDays(d.parseISO('2026-03-20'), d.parseISO('2026-03-06')))"` — prefer `date-fns` functions (`differenceInBusinessDays`, `addBusinessDays`, `isWeekend`) over project wrappers
-  - **In code**: prefer `date-fns` directly (`differenceInCalendarDays`, `addDays`, `addBusinessDays`, `format`, `parseISO`) — project helpers in `src/utils/dateUtils.ts` and `crates/scheduler/src/date_utils.rs` exist but are thin wrappers; use the standard library when writing new code to minimize bug surface
+  - **Date/time math**: NEVER compute dates mentally. Use the shell functions — same names as the code you're writing:
+    - `taskEndDate 2026-03-11 10` → `2026-03-24` (end date for 10-day task = `taskEndDate` in code)
+    - `taskDuration 2026-03-11 2026-03-24` → `10` (inclusive duration = `taskDuration` in code)
+    - Also available as `task_end_date`, `task_duration`, `bizday`
+    - `bizday 2026-03-07` → Saturday — next business day: `2026-03-09`
+    - `bizday verify 2026-03-11 10 2026-03-24` → OK (assert in scripts)
+  - **In code**: use `taskEndDate`/`taskDuration` (TS) or `task_end_date`/`task_duration` (Rust). NEVER use `addBusinessDays` directly for end dates — `taskEndDate` handles the inclusive convention.
 - When you discover a non-obvious gotcha or debugging insight, append it to the relevant skill's "Lessons Learned" section (`.claude/skills/<skill>/SKILL.md`). Only append if you've confirmed the behavior by reading the relevant source or running a test — do not write speculative lessons.
 
 ## Error Handling Protocol

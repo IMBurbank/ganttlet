@@ -61,7 +61,7 @@ Each agent MUST run in its own git worktree. `/workspace` stays on `main` always
 
 ## Prompt Boilerplate Patterns
 Every group prompt should include in its Error Handling section:
-- The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `node -e`, `python3 -c`, `date -d` with standard libraries (`date-fns`, Python stdlib). Prefer standard library functions over project wrappers.
+- The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `taskEndDate`/`taskDuration` shell functions (or `bizday` CLI) for dates, `python3 -c` for general arithmetic. Example: `taskEndDate 2026-03-11 10` → `2026-03-24`.
 - Progress tracking in pipe-delimited format: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`
 
 ## Subagent Delegation in Orchestrated Agents

@@ -306,7 +306,7 @@ Update every test in cascade.rs, constraints.rs, and lib.rs to use inclusive end
 - All test task end dates must be the last working day (inclusive), not the day after
 - All expected cascade result end dates change similarly
 - Duration values change: `taskDuration(start, newEnd) = oldDuration + 1` for most tasks
-- Use `node -e` or `cargo test` to verify expected values — NEVER compute by hand
+- Use `taskEndDate`/`taskDuration` shell functions or `cargo test` to verify expected values — NEVER compute by hand
 
 Example transformations:
 - Task Mon 3/2 → Fri 3/6 (exclusive) becomes Mon 3/2 → Thu 3/5 (inclusive), duration 4→4
@@ -335,4 +335,4 @@ Update `.agent-status.json` after each task.
 - Level 2: Commit WIP, move to next task.
 - Level 3: Commit, mark blocked.
 - Emergency: `git add -A && git commit -m "emergency: groupD saving work"`.
-- **Calculations**: NEVER do mental math. Use `node -e` or `cargo test` for ALL date arithmetic.
+- **Calculations**: NEVER do mental math. Use `taskEndDate`/`taskDuration` shell functions or `cargo test` for ALL date arithmetic.

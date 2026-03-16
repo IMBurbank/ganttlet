@@ -14,6 +14,7 @@ modify files — you only read, search, and analyze.
 
 ## Project structure (verify with `ls` if unsure — this map may lag behind changes)
 - `crates/scheduler/src/` — Rust scheduling engine (CPM, cascade, constraints, WASM bindings)
+- `crates/bizday/` — Rust CLI + library: business-day date arithmetic tool (taskEndDate, taskDuration, verify subcommand)
 - `src/types/index.ts` — TypeScript type definitions (mirror of Rust types)
 - `src/state/` — React state management (actions.ts, ganttReducer.ts, GanttContext.tsx)
 - `src/utils/schedulerWasm.ts` — WASM bridge (TS ↔ Rust)

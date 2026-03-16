@@ -206,11 +206,11 @@ Update all test assertions to use inclusive duration values:
    - `UPDATE_TASK_FIELD` recomputes inclusive duration
    - Summary duration recomputed after children move
 
-**IMPORTANT:** Use `node -e` to calculate ALL expected duration values. NEVER compute by hand.
+**IMPORTANT:** Use `taskDuration`/`taskEndDate` shell functions to calculate ALL expected duration values. NEVER compute by hand.
 
 Example verification:
 ```bash
-node -e "const d=require('date-fns'); console.log(d.differenceInBusinessDays(d.parseISO('2026-03-06'), d.parseISO('2026-03-02')) + 1)"
+taskDuration 2026-03-02 2026-03-06
 # Should output 5 (Mon-Fri inclusive)
 ```
 
@@ -226,4 +226,4 @@ Update `.agent-status.json` after each task.
 - Level 2: Commit WIP, move to next task.
 - Level 3: Commit, mark blocked.
 - Emergency: `git add -A && git commit -m "emergency: groupE saving work"`.
-- **Calculations**: NEVER do mental math. Use `node -e` with date-fns for ALL arithmetic.
+- **Calculations**: NEVER do mental math. Use `taskEndDate`/`taskDuration` shell functions for ALL date arithmetic.

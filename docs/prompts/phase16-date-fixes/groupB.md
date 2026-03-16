@@ -82,7 +82,7 @@ export function taskDuration(start: string, end: string): number {
 }
 ```
 
-**Test cases (use `node -e` to verify before writing tests):**
+**Test cases (use `taskDuration`/`taskEndDate` shell functions to verify before writing tests):**
 - `taskDuration('2026-03-11', '2026-03-24')` → 10 (Wed to Tue, 2 full weeks)
 - `taskDuration('2026-03-02', '2026-03-02')` → 1 (same day)
 - `taskDuration('2026-03-06', '2026-03-10')` → 3 (Fri, Mon, Tue)
@@ -215,7 +215,7 @@ Add a new `describe('inclusive convention functions')` block to `dateUtils.test.
    - Recomputes correct duration from dates
    - Preserves other task fields
 
-**IMPORTANT:** Use `node -e` with `date-fns` to verify ALL expected values before writing tests. NEVER do date math in your head.
+**IMPORTANT:** Use `taskEndDate`/`taskDuration` shell functions to verify ALL expected values before writing tests. NEVER do date math in your head.
 
 Commit: `"test: comprehensive tests for inclusive convention functions"`
 
@@ -229,4 +229,4 @@ Update `.agent-status.json` after each task.
 - Level 2: Commit WIP, move to next task.
 - Level 3: Commit, mark blocked.
 - Emergency: `git add -A && git commit -m "emergency: groupB saving work"`.
-- **Calculations**: NEVER do mental math. Use `node -e` for ALL date arithmetic.
+- **Calculations**: NEVER do mental math. Use `taskEndDate`/`taskDuration` shell functions for ALL date arithmetic.

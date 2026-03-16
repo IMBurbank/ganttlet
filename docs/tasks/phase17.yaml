@@ -105,6 +105,20 @@ stages:
         tests: none
         complexity: medium
 
+  - name: "Stage 1.5 — Verification Gate"
+    description: >
+      After merging Stage 1 groups, run full-verify.sh + bizday-specific
+      checks on the merged feature branch. Must pass before spending tokens
+      on 6 validation agent sessions. Catches build failures, test regressions,
+      and integration issues early.
+    gate: true
+    commands:
+      - "./scripts/full-verify.sh"
+      - "cargo test -p bizday"
+      - "cargo build --release -p bizday"
+      - "./target/release/bizday 2026-03-11 10"
+      - "source scripts/datecalc-functions.sh && taskEndDate 2026-03-11 10"
+
   - name: "Stage 2 — Validation"
     description: >
       Run 6 agent sessions (3 medium, 3 large) to validate tool adoption,

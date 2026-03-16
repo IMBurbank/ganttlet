@@ -19,6 +19,23 @@ stages:
         branch: feature/17-hook-validation
         merge_message: "Merge feature/17-hook-validation: PostToolUse hook registration, validation prompts"
 
+  - name: "Stage 1.5: Verification Gate"
+    # After merging Stage 1 groups, run full-verify.sh + bizday-specific checks
+    # on the merged feature branch BEFORE starting agent validation.
+    # This catches build failures, test regressions, and integration issues
+    # before spending tokens on 6 validation agent sessions.
+    gate:
+      commands:
+        - "./scripts/full-verify.sh"
+        - "cargo test -p bizday"
+        - "cargo build --release -p bizday"
+        - "./target/release/bizday 2026-03-11 10"        # must output 2026-03-24
+        - "./target/release/bizday 2026-03-11 2026-03-24" # must output 10
+        - "./target/release/bizday verify 2026-03-11 10 2026-03-24" # exit 0
+        - "source scripts/datecalc-functions.sh && taskEndDate 2026-03-11 10" # must work
+        - "node -e \"const s=JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8')); if(!s.hooks?.PostToolUse) process.exit(1);\""
+      on_failure: "STOP — do not proceed to Stage 2. Fix failures first."
+
   - name: "Stage 2: Validation"
     groups:
       - id: groupV

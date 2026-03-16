@@ -22,6 +22,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "./scripts/verify.sh"
+          },
+          {
+            "type": "command",
             "command": "./crates/bizday/target/release/bizday lint --stdin 2>/dev/null || true"
           }
         ]

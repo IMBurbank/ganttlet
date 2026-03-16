@@ -24,24 +24,65 @@ pub fn block_json(reason: &str) -> String {
 
 // --- Internal helpers ---
 
+/// Split a command string on shell operators (|, &&, ||, ;) first,
+/// then whitespace-tokenize. Returns tokens for the first segment only
+/// if `first_segment` is true, otherwise all tokens.
 fn tokens(s: &str) -> Vec<&str> {
     s.split_whitespace().collect()
 }
 
-/// True if `cmd` has a top-level "git <subcmd>" invocation.
-/// Checks only the FIRST occurrence of "git" to avoid false positives from
-/// commit messages that contain git subcommand names (e.g. `git commit -m "... git push ..."`).
-fn has_git_subcmd(cmd: &str, subcmd: &str) -> bool {
-    let ts = tokens(cmd);
-    if let Some(pos) = ts.iter().position(|t| *t == "git") {
-        return ts.get(pos + 1).map(|t| *t == subcmd).unwrap_or(false);
+/// Extract tokens belonging to the first shell command segment
+/// (before any |, &&, ||, ;). Handles both spaced and unspaced operators.
+fn first_segment_tokens(s: &str) -> Vec<&str> {
+    // Split on shell operators — handles |, ||, &&, ;
+    // Find the earliest operator position
+    let mut end = s.len();
+    for op in &["||", "&&", "|", ";"] {
+        if let Some(pos) = s.find(op) {
+            if pos < end {
+                end = pos;
+            }
+        }
     }
-    false
+    s[..end].split_whitespace().collect()
+}
+
+/// Find the position of `git <subcmd>` in a token list.
+/// Returns the index of `subcmd` (pos+1) if found, None otherwise.
+/// Only checks the FIRST occurrence of "git" to avoid false positives from
+/// commit messages (e.g. `git commit -m "... git push ..."`).
+fn git_subcmd_pos(ts: &[&str], subcmd: &str) -> Option<usize> {
+    if let Some(pos) = ts.iter().position(|t| *t == "git") {
+        if ts.get(pos + 1).map(|t| *t == subcmd).unwrap_or(false) {
+            return Some(pos + 1);
+        }
+    }
+    None
+}
+
+/// True if `cmd` has a top-level "git <subcmd>" invocation.
+fn has_git_subcmd(cmd: &str, subcmd: &str) -> bool {
+    git_subcmd_pos(&tokens(cmd), subcmd).is_some()
 }
 
 /// True if `s` contains `word` as a whitespace-delimited token.
 fn has_token(s: &str, word: &str) -> bool {
     tokens(s).iter().any(|t| *t == word)
+}
+
+/// True if a short-flag token after `git <subcmd>` contains the given character.
+/// Only checks args in the same shell segment (before |, &&, ;, ||).
+/// Handles combined flags like `-fd` matching 'f', `-Df` matching 'D'.
+fn has_git_flag(cmd: &str, subcmd: &str, flag_char: char) -> bool {
+    let ts = first_segment_tokens(cmd);
+    if let Some(subcmd_pos) = git_subcmd_pos(&ts, subcmd) {
+        for t in &ts[subcmd_pos + 1..] {
+            if t.starts_with('-') && !t.starts_with("--") && t.contains(flag_char) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// True if `s` contains "/workspace/" that is NOT immediately followed by ".claude/worktrees/".
@@ -108,7 +149,32 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 5: Block git worktree remove/prune
+    // Check 5: Block destructive git commands (reset --hard, clean -f, branch -D)
+    if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
+        return Some(
+            "git reset --hard is destructive and can discard uncommitted work. \
+             Consider git stash or git checkout -- <file> for targeted reverts."
+                .to_string(),
+        );
+    }
+    if has_git_subcmd(cmd, "clean")
+        && (has_git_flag(cmd, "clean", 'f') || has_token(cmd, "--force"))
+    {
+        return Some(
+            "git clean -f is destructive and permanently deletes untracked files. \
+             Review untracked files with git clean -n first."
+                .to_string(),
+        );
+    }
+    if has_git_subcmd(cmd, "branch") && has_git_flag(cmd, "branch", 'D') {
+        return Some(
+            "git branch -D force-deletes a branch even if not fully merged. \
+             Use git branch -d (lowercase) which checks merge status first."
+                .to_string(),
+        );
+    }
+
+    // Check 6: Block git worktree remove/prune
     let ts = tokens(cmd);
     for i in 0..ts.len().saturating_sub(2) {
         if ts[i] == "git"
@@ -124,7 +190,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // Check 6: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
+    // Check 7: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
 
     // sed -i ... /workspace/...
     if has_token(cmd, "sed") && cmd.contains("-i") && workspace_but_not_worktree(cmd) {
@@ -241,7 +307,8 @@ mod tests {
 
     #[test]
     fn edit_allows_workspace_worktree() {
-        let v = json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
+        let v =
+            json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
         assert!(check_edit(&v).is_none());
     }
 
@@ -290,6 +357,69 @@ mod tests {
     fn bash_allows_git_checkout_file_separator() {
         let v = json!({"tool_input": {"command": "git checkout -- src/file.ts"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    // --- check_bash: destructive git command guard ---
+
+    #[test]
+    fn bash_blocks_git_reset_hard() {
+        let v = json!({"tool_input": {"command": "git reset --hard HEAD~3"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_git_reset_soft() {
+        let v = json!({"tool_input": {"command": "git reset --soft HEAD~1"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_reset_no_flag() {
+        let v = json!({"tool_input": {"command": "git reset HEAD~1"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_clean_f() {
+        let v = json!({"tool_input": {"command": "git clean -fd"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_git_clean_force() {
+        let v = json!({"tool_input": {"command": "git clean --force"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_git_clean_dry_run() {
+        let v = json!({"tool_input": {"command": "git clean -n"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_branch_force_delete() {
+        let v = json!({"tool_input": {"command": "git branch -D feature-branch"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_git_branch_safe_delete() {
+        let v = json!({"tool_input": {"command": "git branch -d feature-branch"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_branch_list_piped_with_grep_d() {
+        // grep -D appears in pipeline — must not trigger branch -D check
+        let v = json!({"tool_input": {"command": "git branch -a | grep -D 3 pattern"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_clean_combined_fd() {
+        let v = json!({"tool_input": {"command": "git clean -xfd"}});
+        assert!(check_bash(&v).is_some());
     }
 
     // --- check_bash: worktree removal guard ---
@@ -366,6 +496,43 @@ mod tests {
         // because the first "git" subcommand is "commit", not "push"
         let cmd = "git commit -m \"block git push to the default branch\"";
         let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_reset_hard() {
+        let cmd = "git commit -m \"revert: undo git reset --hard changes\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_clean_f() {
+        let cmd = "git commit -m \"docs: warn about git clean -f\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_branch_d() {
+        let cmd = "git commit -m \"fix: guard git branch -D\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Unspaced pipe operator regression ---
+
+    #[test]
+    fn bash_allows_branch_piped_no_spaces() {
+        // git branch -a|grep pattern — no spaces around pipe
+        let v = json!({"tool_input": {"command": "git branch -a|grep -D 3 foo"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_clean_chained_no_spaces() {
+        // git clean -n&&echo done — no spaces around &&
+        let v = json!({"tool_input": {"command": "git clean -n&&echo done"}});
         assert!(check_bash(&v).is_none());
     }
 }

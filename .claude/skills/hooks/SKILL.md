@@ -15,9 +15,19 @@ to enforce project invariants (no direct edits to `/workspace/`, no push to main
 - **PostToolUse** — runs *after* the tool executes. Cannot block; used for linting,
   notifications, or post-edit verification.
 
-### Registration in `settings.json`
+### Registration: `settings.json` vs `settings.local.json`
 
-Hooks are declared in `.claude/settings.json` under the `"hooks"` key:
+Hooks live in two files under `.claude/`:
+
+- **`settings.json`** (committed) — all hooks that every environment needs. Contains the guard
+  binary (PreToolUse safety), verify.sh (PostToolUse tsc+vitest feedback), and bizday lint
+  (PostToolUse date verification). These run in local dev, multi-agent phases, and CI workflows.
+- **`settings.local.json`** (gitignored, per-developer) — personal overrides only (e.g.,
+  extra permissions, plugin toggles). Create manually if needed.
+
+Claude Code merges both files at runtime — local settings extend committed settings.
+
+All hooks are declared in `.claude/settings.json` under the `"hooks"` key:
 
 ```json
 {
@@ -35,7 +45,10 @@ Hooks are declared in `.claude/settings.json` under the `"hooks"` key:
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "./crates/bizday/target/release/bizday lint --stdin 2>/dev/null || true" }]
+        "hooks": [
+          { "type": "command", "command": "./scripts/verify.sh" },
+          { "type": "command", "command": "./crates/bizday/target/release/bizday lint --stdin 2>/dev/null || true" }
+        ]
       }
     ]
   }
@@ -142,8 +155,9 @@ The binary takes one positional argument — the check mode:
 **`check_bash(input)`** — for the Bash tool:
 1. **Push to main** — blocks `git push ... main`
 2. **Checkout/switch** — blocks `git checkout`/`git switch` (allows `-- ` file separator and `worktree` commands)
-3. **Worktree removal** — blocks `git worktree remove` and `git worktree prune`
-4. **File modification via bash** — blocks `sed -i`, `>` redirect, and `tee` targeting `/workspace/` directly (not worktrees)
+3. **Destructive git commands** — blocks `git reset --hard`, `git clean -f`/`--force`, `git branch -D` (allows `git reset --soft`, `git clean -n`, `git branch -d`)
+4. **Worktree removal** — blocks `git worktree remove` and `git worktree prune`
+5. **File modification via bash** — blocks `sed -i`, `>` redirect, and `tee` targeting `/workspace/` directly (not worktrees)
 
 ## How to Add a New Check
 

@@ -36,7 +36,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
     && cargo install wasm-pack \
     && rustup component add rust-analyzer
 
-ENV PATH="/home/node/.local/bin:/home/node/.cargo/bin:${PATH}"
+ENV PATH="/workspace/target/release:/home/node/.local/bin:/home/node/.cargo/bin:${PATH}"
 
 # Install Playwright Chromium browser binary (OS deps already installed above)
 RUN npx playwright@1.58.2 install chromium
@@ -53,6 +53,9 @@ WORKDIR /workspace
 COPY --chown=node:node scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN echo 'alias cc="claude \${CLAUDE_CLI_FLAGS}"' >> ~/.bashrc
+
+# Date math shell functions — same names as code functions
+RUN echo 'source /workspace/scripts/datecalc-functions.sh' >> ~/.bashrc
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["bash"]

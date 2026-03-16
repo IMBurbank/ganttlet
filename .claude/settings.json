@@ -41,6 +41,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./target/release/bizday lint --stdin"
+          }
+        ]
+      }
     ]
   }
 }

@@ -478,4 +478,25 @@ mod tests {
         let v = json!({"tool_input": {"command": cmd}});
         assert!(check_bash(&v).is_none());
     }
+
+    #[test]
+    fn bash_allows_commit_referencing_reset_hard() {
+        let cmd = "git commit -m \"revert: undo git reset --hard changes\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_clean_f() {
+        let cmd = "git commit -m \"docs: warn about git clean -f\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_branch_d() {
+        let cmd = "git commit -m \"fix: guard git branch -D\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
 }

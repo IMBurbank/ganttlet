@@ -204,7 +204,10 @@ fn run_trend(events: &[Event]) {
 }
 
 fn run_mismatches(events: &[Event]) {
-    let mismatches: Vec<_> = events.iter().filter(|e| e.event_type == "MISMATCH").collect();
+    let mismatches: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "MISMATCH")
+        .collect();
     if mismatches.is_empty() {
         println!("No mismatches found");
         return;
@@ -297,20 +300,17 @@ fn run_eval(events: &[Event]) {
             let total_computes: u32 = stats.values().map(|s| s.computes).sum();
             let total_verified: u32 = stats.values().map(|s| s.verified).sum();
             let total_mismatches: u32 = stats.values().map(|s| s.mismatches).sum();
-            let coverage =
-                if total_computes + total_verified > 0 {
-                    ((total_verified as f64) / (total_computes + total_verified) as f64) * 100.0
-                } else {
-                    0.0
-                };
+            let coverage = if total_computes + total_verified > 0 {
+                ((total_verified as f64) / (total_computes + total_verified) as f64) * 100.0
+            } else {
+                0.0
+            };
             println!(
                 "Checkpoint {c}: {sessions} sessions, coverage={coverage:.0}%, mismatches={total_mismatches}"
             );
         }
         None => {
-            println!(
-                "Not enough sessions for evaluation ({sessions} < 10). Keep going!"
-            );
+            println!("Not enough sessions for evaluation ({sessions} < 10). Keep going!");
         }
     }
 }

@@ -38,6 +38,13 @@ the "Step 5: Run validation sessions" section for orchestration.
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
 Execute all tasks sequentially without stopping for approval.
 
+## Worktree Rules (Non-Negotiable)
+
+You are working in a **git worktree** — NOT in `/workspace`.
+All file paths below are **relative to your worktree root** (your CWD).
+**NEVER** modify, read from, or `cd` into `/workspace` — that is `main` and must not be touched.
+All git operations (commit, push) happen in this worktree directory.
+
 ## Context
 
 This group does two things: (1) register the PostToolUse hook so the `bizday`
@@ -47,30 +54,30 @@ math tools.
 
 ## Your files (ONLY modify these):
 
-**Modify:**
-- `/workspace/.claude/settings.json`
+**Modify (paths relative to worktree root):**
+- `.claude/settings.json`
 
 **Create:**
-- `/workspace/docs/plans/datecalc-validation/validation-01-cascade-tests.md`
-- `/workspace/docs/plans/datecalc-validation/validation-02-debug-duration.md`
-- `/workspace/docs/plans/datecalc-validation/validation-03-cross-lang.md`
-- `/workspace/docs/plans/datecalc-validation/validation-04-constraint-matrix.md`
-- `/workspace/docs/plans/datecalc-validation/validation-05-audit-all.md`
-- `/workspace/docs/plans/datecalc-validation/validation-06-regression.md`
+- `docs/plans/datecalc-validation/validation-01-cascade-tests.md`
+- `docs/plans/datecalc-validation/validation-02-debug-duration.md`
+- `docs/plans/datecalc-validation/validation-03-cross-lang.md`
+- `docs/plans/datecalc-validation/validation-04-constraint-matrix.md`
+- `docs/plans/datecalc-validation/validation-05-audit-all.md`
+- `docs/plans/datecalc-validation/validation-06-regression.md`
 
 **Read-only:**
-- `/workspace/docs/plans/datecalc-tool.md`
-- `/workspace/crates/scheduler/src/date_utils.rs`
-- `/workspace/crates/scheduler/src/cascade.rs`
-- `/workspace/crates/scheduler/src/constraints.rs`
-- `/workspace/src/utils/__tests__/dateUtils.test.ts`
-- `/workspace/src/state/__tests__/ganttReducer.test.ts`
+- `docs/plans/datecalc-tool.md`
+- `crates/scheduler/src/date_utils.rs`
+- `crates/scheduler/src/cascade.rs`
+- `crates/scheduler/src/constraints.rs`
+- `src/utils/__tests__/dateUtils.test.ts`
+- `src/state/__tests__/ganttReducer.test.ts`
 
 ## Tasks — execute in order:
 
 ### C1: Register PostToolUse hook
 
-Read `/workspace/.claude/settings.json`. It has a `"hooks"` key with
+Read `.claude/settings.json`. It has a `"hooks"` key with
 `"PreToolUse"` entries. Add a `"PostToolUse"` sibling key:
 
 ```json

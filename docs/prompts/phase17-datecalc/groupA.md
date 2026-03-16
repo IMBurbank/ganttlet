@@ -30,6 +30,13 @@ Read `docs/plans/datecalc-tool.md` for the detailed plan.
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
 Execute all tasks sequentially without stopping for approval.
 
+## Worktree Rules (Non-Negotiable)
+
+You are working in a **git worktree** — NOT in `/workspace`.
+All file paths below are **relative to your worktree root** (your CWD).
+**NEVER** modify, read from, or `cd` into `/workspace` — that is `main` and must not be touched.
+All git operations (commit, push) happen in this worktree directory.
+
 ## Context
 
 Phase 16 established the inclusive end-date convention with `task_end_date`/`task_duration`
@@ -39,16 +46,16 @@ CLAUDE.md to reference them.
 
 ## Your files (ONLY modify these):
 
-**Modify:**
-- `/workspace/scripts/datecalc-functions.sh` (CREATE)
-- `/workspace/Dockerfile`
-- `/workspace/CLAUDE.md`
-- `/workspace/crates/scheduler/CLAUDE.md`
+**Modify (paths relative to worktree root):**
+- `scripts/datecalc-functions.sh` (CREATE)
+- `Dockerfile`
+- `CLAUDE.md`
+- `crates/scheduler/CLAUDE.md`
 
 **Read-only:**
-- `/workspace/docs/plans/datecalc-tool.md`
-- `/workspace/crates/scheduler/src/date_utils.rs`
-- `/workspace/src/utils/dateUtils.ts`
+- `docs/plans/datecalc-tool.md`
+- `crates/scheduler/src/date_utils.rs`
+- `src/utils/dateUtils.ts`
 
 ## Tasks — execute in order:
 
@@ -87,7 +94,7 @@ Commit: `"feat: add shell function aliases for bizday (taskEndDate, task_end_dat
 
 ### A2: Update CLAUDE.md date math examples
 
-In `/workspace/CLAUDE.md`, find the date math section (starts with
+In `CLAUDE.md` (in your worktree root), find the date math section (starts with
 `NEVER do any arithmetic, date/time calculation, or duration math in your head`).
 
 Replace the current examples:
@@ -110,7 +117,7 @@ With:
   - **In code**: use `taskEndDate`/`taskDuration` (TS) or `task_end_date`/`task_duration` (Rust). NEVER use `addBusinessDays` directly for end dates — `taskEndDate` handles the inclusive convention.
 ```
 
-In `/workspace/crates/scheduler/CLAUDE.md`, find:
+In `crates/scheduler/CLAUDE.md` (in your worktree root), find:
 ```
 - Do arithmetic in your head — use `node -e` or `python3 -c`
 ```

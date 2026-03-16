@@ -1,5 +1,10 @@
 phase: phase17-datecalc
 merge_target: feature/phase17-datecalc
+base_branch: plan/datecalc-tool
+
+# All work happens in worktrees branched from base_branch.
+# /workspace MUST stay on main — it is the shared base for all worktrees.
+# Agents are launched with --cwd pointing to their worktree directory.
 
 stages:
   - name: "Stage 1: Implementation"

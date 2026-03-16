@@ -44,6 +44,13 @@ Read `docs/plans/datecalc-tool.md` for the detailed design specification.
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
 Execute all tasks sequentially without stopping for approval.
 
+## Worktree Rules (Non-Negotiable)
+
+You are working in a **git worktree** — NOT in `/workspace`.
+All file paths below are **relative to your worktree root** (your CWD).
+**NEVER** modify, read from, or `cd` into `/workspace` — that is `main` and must not be touched.
+All git operations (commit, push) happen in this worktree directory.
+
 ## Context
 
 You are building the `bizday` binary — a native Rust CLI for date math that uses
@@ -64,24 +71,24 @@ There is no workspace Cargo.toml — `bizday` is a standalone crate with a path 
 
 ## Your files (ONLY modify these):
 
-**Create (entire new crate):**
-- `/workspace/crates/bizday/Cargo.toml`
-- `/workspace/crates/bizday/src/main.rs`
-- `/workspace/crates/bizday/src/compute.rs`
-- `/workspace/crates/bizday/src/verify.rs`
-- `/workspace/crates/bizday/src/log.rs`
-- `/workspace/crates/bizday/src/report.rs`
-- `/workspace/crates/bizday/tests/compute.rs`
-- `/workspace/crates/bizday/tests/proptest.rs`
-- `/workspace/crates/bizday/tests/verify.rs`
-- `/workspace/crates/bizday/tests/log.rs`
-- `/workspace/crates/bizday/tests/report.rs`
-- `/workspace/package.json` (add one script)
+**Create (paths relative to worktree root — entire new crate):**
+- `crates/bizday/Cargo.toml`
+- `crates/bizday/src/main.rs`
+- `crates/bizday/src/compute.rs`
+- `crates/bizday/src/verify.rs`
+- `crates/bizday/src/log.rs`
+- `crates/bizday/src/report.rs`
+- `crates/bizday/tests/compute.rs`
+- `crates/bizday/tests/proptest.rs`
+- `crates/bizday/tests/verify.rs`
+- `crates/bizday/tests/log.rs`
+- `crates/bizday/tests/report.rs`
+- `package.json` (add one script)
 
 **Read-only:**
-- `/workspace/docs/plans/datecalc-tool.md` — full specification
-- `/workspace/crates/scheduler/src/date_utils.rs` — the functions you'll call
-- `/workspace/crates/scheduler/Cargo.toml` — package name is `ganttlet-scheduler`
+- `docs/plans/datecalc-tool.md` — full specification
+- `crates/scheduler/src/date_utils.rs` — the functions you'll call
+- `crates/scheduler/Cargo.toml` — package name is `ganttlet-scheduler`
 
 ## Tasks — execute in order:
 

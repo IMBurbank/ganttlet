@@ -32,6 +32,17 @@ Read `docs/plans/datecalc-tool.md` — especially Steps 5, 6, and 7.
 IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation before proceeding.
 Execute all tasks sequentially without stopping for approval.
 
+## Worktree Rules (Non-Negotiable)
+
+You are working in a **git worktree** — NOT in `/workspace`.
+All file paths below are **relative to your worktree root** (your CWD).
+**NEVER** modify, read from, or `cd` into `/workspace` — that is `main` and must not be touched.
+All git operations (commit, push) happen in this worktree directory.
+
+Validation sub-agents must also run in worktrees branched from this worktree's
+branch (`feature/phase17-datecalc`), NOT from `main`. This is critical — they
+need the Stage 1 code (bizday binary, shell functions, hook registration).
+
 ## Context
 
 Stage 1 built the `bizday` binary, shell function aliases, PostToolUse hook,
@@ -53,29 +64,36 @@ taskEndDate 2026-03-11 10  # must return 2026-03-24
 
 ### V1: Run 6 validation agent sessions
 
-Launch each session in an isolated worktree. Run medium tasks first (faster),
+Launch each session in an isolated worktree **branched from this worktree's
+branch** (so they inherit the Stage 1 code). Run medium tasks first (faster),
 then large tasks.
 
 **Important**: Each agent session must run in a SEPARATE worktree so logs
 don't collide. The `BIZDAY_LOG_DIR` should be set to a per-session directory
 OR all sessions can share `.claude/logs/` if session markers distinguish them.
 
+**Important**: All worktrees MUST branch from the current branch (which has
+the merged Stage 1 code), NOT from `main`. Use the explicit base ref.
+
 ```bash
+# Get the current branch name (should be feature/phase17-datecalc or similar)
+PHASE17_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
 # Medium tasks (run first — faster feedback)
 for i in 1 2 3; do
-  git worktree add /workspace/.claude/worktrees/datecalc-val-$i -b datecalc-val-$i
+  git worktree add "$(pwd)/../datecalc-val-$i" -b datecalc-val-$i "$PHASE17_BRANCH"
   claude --dangerously-skip-permissions \
     -p docs/plans/datecalc-validation/validation-0${i}-*.md \
-    --cwd /workspace/.claude/worktrees/datecalc-val-$i &
+    --cwd "$(pwd)/../datecalc-val-$i" &
 done
 wait
 
 # Large tasks (run after medium complete)
 for i in 4 5 6; do
-  git worktree add /workspace/.claude/worktrees/datecalc-val-$i -b datecalc-val-$i
+  git worktree add "$(pwd)/../datecalc-val-$i" -b datecalc-val-$i "$PHASE17_BRANCH"
   claude --dangerously-skip-permissions \
     -p docs/plans/datecalc-validation/validation-0${i}-*.md \
-    --cwd /workspace/.claude/worktrees/datecalc-val-$i &
+    --cwd "$(pwd)/../datecalc-val-$i" &
 done
 wait
 ```
@@ -102,7 +120,7 @@ grep "COMPUTE" .claude/logs/bizday.log | \
 for i in 1 2 3 4 5 6; do
   echo "=== Session $i ==="
   grep -r "node -e.*date-fns\|node -e.*addBusinessDays\|node -e.*differenceInBusiness" \
-    /workspace/.claude/worktrees/datecalc-val-$i/ 2>/dev/null | wc -l
+    "$(pwd)/../datecalc-val-$i/" 2>/dev/null | wc -l
 done
 
 # Mental math rate

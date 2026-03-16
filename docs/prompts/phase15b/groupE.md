@@ -170,4 +170,4 @@ On restart, read `.agent-status.json` and `git log --oneline -10` first. Skip co
 - Level 2 (stuck): Commit WIP with honest message, move to NEXT TASK.
 - Level 3 (blocked): Commit, update .agent-status.json with "status": "blocked".
 - Emergency: `git add -A && git commit -m "emergency: groupE saving work"`.
-- **Calculations**: NEVER do mental math. Use `node -e "..."` or `python3 -c "..."`.
+- **Calculations**: NEVER do mental math. Use `taskEndDate`/`taskDuration` shell functions for dates, `python3 -c` for arithmetic.

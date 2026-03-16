@@ -155,7 +155,7 @@ The binary takes one positional argument — the check mode:
 **`check_bash(input)`** — for the Bash tool:
 1. **Push to main** — blocks `git push ... main`
 2. **Checkout/switch** — blocks `git checkout`/`git switch` (allows `-- ` file separator and `worktree` commands)
-3. **Destructive git commands** — blocks `git reset --hard`, `git clean -f`/`--force`, `git branch -D` (allows `git reset --soft`, `git clean -n`, `git branch -d`)
+3. **Destructive git commands** — blocks `git reset --hard`, `git clean -f`/`--force`, `git branch -D` (allows `git reset --hard origin/<ref>` for post-merge sync, `git reset --soft`, `git clean -n`, `git branch -d`)
 4. **Worktree removal** — blocks `git worktree remove` (allows `git worktree prune` — it only cleans stale references)
 5. **File modification via bash** — blocks `sed -i`, `>` redirect, and `tee` targeting `/workspace/` directly (not worktrees)
 

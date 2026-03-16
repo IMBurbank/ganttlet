@@ -33,4 +33,10 @@ if [[ -d /workspace/.git ]]; then
   ln -sf ../../scripts/pre-commit-hook.sh /workspace/.git/hooks/pre-commit 2>/dev/null || true
 fi
 
+# Build guard binary (required by .claude/settings.json hooks) if not already built
+if [[ -f /workspace/Cargo.toml && ! -x /workspace/target/release/guard ]]; then
+  echo "[entrypoint] Building guard binary..."
+  (cd /workspace && cargo build --release -p guard 2>&1) || echo "[entrypoint] WARNING: guard build failed — hooks may not work"
+fi
+
 exec "$@"

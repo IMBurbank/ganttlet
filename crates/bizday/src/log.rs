@@ -113,7 +113,8 @@ pub fn record_false_match(file_line: &str) {
     append_log(&format!("{ts} FALSE_MATCH {file_line}"));
 }
 
-/// Reset session state (for testing).
+/// Reset session state (for testing only).
+#[cfg(test)]
 pub fn reset_session() {
     SESSION_INITIALIZED.store(false, Ordering::SeqCst);
 }

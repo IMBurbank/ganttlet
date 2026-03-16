@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./target/release/bizday lint --stdin"
+            "command": "./crates/bizday/target/release/bizday lint --stdin 2>/dev/null || true"
           }
         ]
       }

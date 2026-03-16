@@ -347,8 +347,10 @@ fn check_weekend_dates(line: &str, warnings: &mut Vec<Warning>) {
     for &(_pos, date) in &dates {
         if date_utils::is_weekend_date(date) {
             // Check if it's near a scheduling keyword
-            let near_start = lower.contains("start_date") || lower.contains("start");
-            let near_end = lower.contains("end_date") || lower.contains("end");
+            let near_start = lower.contains("start_date")
+                || (lower.contains("start") && !lower.contains("start_with"));
+            let near_end = lower.contains("end_date")
+                || (lower.contains("_end") && !lower.contains("weekend"));
 
             let (y, m, d) = date_utils::parse_date(date);
             let dow = date_utils::day_of_week(y, m, d);

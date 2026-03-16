@@ -37,15 +37,14 @@ pub fn info(date: &str) -> String {
     }
 }
 
-/// Compute calendar days between two dates (for display alongside business days).
+/// Compute calendar days between two dates (inclusive of both endpoints).
 pub fn calendar_days(start: &str, end: &str) -> i32 {
-    // Simple: count days by stepping
     let mut count = 0i32;
     let mut current = start.to_string();
     if start <= end {
-        while current < end.to_string() {
-            current = date_utils::add_days(&current, 1);
+        while current <= end.to_string() {
             count += 1;
+            current = date_utils::add_days(&current, 1);
         }
     }
     count

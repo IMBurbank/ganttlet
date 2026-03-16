@@ -3,7 +3,7 @@
 # Usage: source this file or add to .bashrc.
 # Agents call taskEndDate/task_end_date/taskDuration/task_duration directly.
 
-taskEndDate()    { bizday "$1" "$2"; }
-task_end_date()  { bizday "$1" "$2"; }
-taskDuration()   { bizday "$1" "$2"; }
-task_duration()  { bizday "$1" "$2"; }
+taskEndDate()    { bizday "$@" | head -1; }
+task_end_date()  { bizday "$@" | head -1; }
+taskDuration()   { bizday "$@" | head -1; }
+task_duration()  { bizday "$@" | head -1; }

@@ -34,11 +34,14 @@ If E2E tests fail but unit tests pass, note this in your summary.
 - PR body should include structured sections: Summary, Test plan, Closes #N
 - **After PR is merged**, clean up: `cd /workspace`, then `rm -rf /workspace/.claude/worktrees/issue-{number}`, then `git worktree prune`
 
-## Error Handling
+## Error Handling Protocol
+<!-- Canonical location for error escalation (moved from root CLAUDE.md) -->
 - **Level 1** (fixable): Read error, fix code, re-run. Up to 3 distinct approaches.
 - **Level 2** (stuck): Commit WIP with message explaining what's broken and why. Move to next task — do NOT stop all work.
-- **Level 3** (blocked): Commit, update `.agent-status.json` with `"status": "blocked"` and a `"blocker"` message, continue with non-dependent tasks.
-- **Emergency**: If running out of context: `git add -A && git commit -m "emergency: saving work"`
+- **Level 3** (blocked): Commit, update `.agent-status.json` with `"status": "blocked"` and a `"blocker"` message, skip dependent tasks, continue with independent ones.
+- **Emergency** (out of context/crashing): `git add -A && git commit -m "emergency: saving work"`
+
+After each major task, update `.agent-status.json` in the worktree root.
 
 ## Progress Tracking
 Initialize `.agent-status.json` at the start of issue work:

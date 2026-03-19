@@ -103,6 +103,35 @@ directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 
 See `docs/plans/tmux-supervisor.md` for the full design and test results.
 
+## Progress Tracking Format
+<!-- Moved from root CLAUDE.md — curator cleanup pending in step 12 -->
+
+Agents maintain `.agent-status.json` in the worktree root. Update it after each major task.
+
+**Multi-agent (phase work):**
+```json
+{
+  "group": "A",
+  "phase": 14,
+  "tasks": {
+    "A1": { "status": "done", "tests_passing": 4, "tests_failing": 0 },
+    "A2": { "status": "in_progress", "tests_passing": 2, "tests_failing": 1,
+             "blocker": "cross-scope dependency not propagating" },
+    "A3": { "status": "pending" }
+  },
+  "last_updated": "2026-03-06T14:30:00Z"
+}
+```
+
+**Status values:** `done`, `in_progress`, `blocked`, `pending`, `skipped`
+
+**Updating:** JSON cannot be appended — read, parse, modify, write:
+```bash
+node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileSync(f,'utf8'));d.tasks['A1']={status:'done',tests_passing:3,tests_failing:0};d.last_updated=new Date().toISOString();fs.writeFileSync(f,JSON.stringify(d,null,2))"
+```
+
+On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it exists) and `git log --oneline -10` first. Skip completed tasks.
+
 ## Lessons Learned
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.

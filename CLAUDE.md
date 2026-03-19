@@ -46,8 +46,6 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - **Promotable artifacts**: Images identical across environments. Config injected at deploy time via env vars / Secret Manager.
 - **Minimal dependencies**: Keep the dependency tree small on both client and server.
 
-
-
 ## Reference Docs & Skills
 - `docs/architecture.md` — Tech stack, architecture principles/constraints, E2E testing, deployment
 - `docs/multi-agent-guide.md` — launch-phase.sh usage, Claude CLI reference, phase setup

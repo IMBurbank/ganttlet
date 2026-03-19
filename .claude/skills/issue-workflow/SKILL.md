@@ -27,6 +27,9 @@ Run `./scripts/full-verify.sh` before declaring done. This runs:
 
 If E2E tests fail but unit tests pass, note this in your summary.
 
+After pushing, run `./scripts/attest-e2e.sh` to post the `e2e-verified` commit
+status. Or use `ATTEST_E2E=1 ./scripts/full-verify.sh` to auto-attest on success.
+
 ## PR Creation
 - `gh pr create` — never push directly to main
 - PR body must include `Closes #{issue_number}` for auto-closing
@@ -60,6 +63,17 @@ Update after each major task:
 ```bash
 node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileSync(f,'utf8'));d.tasks['write-tests']={status:'done'};d.last_updated=new Date().toISOString();fs.writeFileSync(f,JSON.stringify(d,null,2))"
 ```
+
+## If Stuck
+<!-- Moved from root CLAUDE.md — curator cleanup pending in step 12 -->
+- Follow the Error Handling Protocol above.
+- Commit WIP with clear status message.
+- Write `.agent-summary.md` explaining where you got stuck.
+- The PR will be created even with partial work — human reviewers can help.
+
+## Creating Issues
+- Use the template: `gh issue create --template agent-task.yml`
+- Fill in all required fields: Task Summary, Acceptance Criteria, Scope Boundaries, and Estimated Complexity.
 
 ## Context Conservation
 - Commit early and often (progress survives crashes)

@@ -43,6 +43,20 @@ npm run dev
 # Open http://localhost:5173 in your browser
 ```
 
+## Development Commands
+
+| Command | Purpose |
+|---------|---------|
+| `docker compose run --service-ports dev` | Enter dev container |
+| `npm run dev` | Build WASM + start Vite dev server (port 5173) |
+| `npm run build` | WASM + tsc + production build |
+| `npm run build:wasm` | Build Rust scheduler to WASM only |
+| `npm run test` | Unit tests (Vitest) |
+| `npm run e2e:collab` | E2E tests with relay server |
+| `./scripts/full-verify.sh` | Full verification (tsc + vitest + cargo test + E2E) |
+| `cd crates/scheduler && cargo test` | Rust unit tests |
+| `docker compose up --build relay` | Build + run relay server locally |
+
 ## Architecture
 
 Ganttlet has two components: a browser client (where all business logic runs) and a thin relay server (for real-time collaboration).

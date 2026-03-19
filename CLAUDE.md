@@ -44,41 +44,12 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - NEVER compute arithmetic or dates mentally — use tools (see scheduling-engine skill for full conventions and shell functions). NEVER use `addBusinessDays` directly for end dates — use `taskEndDate`.
 - When you discover a non-obvious gotcha or debugging insight, append it to the relevant skill's "Lessons Learned" section (`.claude/skills/<skill>/SKILL.md`). Only append if you've confirmed the behavior by reading the relevant source or running a test — do not write speculative lessons.
 
-
-## Commands Quick Reference
-| Command | Purpose |
-|---------|---------|
-| `npm run dev` | Build WASM + start Vite dev server (port 5173) |
-| `npm run build` | WASM + tsc + production build |
-| `npm run build:wasm` | Build Rust scheduler to WASM only |
-| `npm run test` | Unit tests (Vitest) |
-| `npm run e2e:collab` | E2E tests with relay server |
-| `./scripts/full-verify.sh` | **Full verification** (tsc + vitest + cargo test + E2E) |
-| `ATTEST_E2E=1 ./scripts/full-verify.sh` | Full verify + post E2E attestation (skips CI re-run) |
-| `./scripts/attest-e2e.sh` | Post E2E attestation for HEAD (after verify passes) |
-| `cd crates/scheduler && cargo test` | Rust unit tests |
-| `docker compose run --service-ports dev` | Enter dev container |
-| `docker compose up --build relay` | Build + run relay server locally |
-| `claude --dangerously-skip-permissions` | Start Claude without permission checks |
-| `./scripts/launch-supervisor.sh <config>` | Supervisor agent drives phase pipeline |
-| `./scripts/launch-supervisor.sh --tmux <config>` | Supervisor with direct tmux agent control |
-| `./scripts/launch-phase.sh <config> <cmd>` | Run pipeline step (stage/merge/validate/create-pr) |
-
 ## Architecture Constraints (do not violate)
 - **Thin server**: Relay forwards CRDT messages + validates OAuth. No business logic, no persistent state, no Sheets access.
 - **Google Sheets as durable store**: Sheets is the single source of truth. No application database.
 - **Browser-first**: All scheduling, rendering, Sheets I/O, and data transformation runs in the browser.
 - **Promotable artifacts**: Images identical across environments. Config injected at deploy time via env vars / Secret Manager.
 - **Minimal dependencies**: Keep the dependency tree small on both client and server.
-
-
-## Development Environment
-- Docker-based: `docker compose run --service-ports dev` to enter container
-- Vite on port 5173 (localhost:5173)
-- PostToolUse hook (`scripts/verify.sh`) auto-runs `tsc` + `vitest` after `.ts/.tsx` edits
-- Pre-commit hook: `ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit` (auto-formats staged files, rejects todo!(), stubs, commented-out tests)
-- Git workflow: `main` always deployable, feature branches, PRs before merge
-- **Guard binary** (required by `.claude/settings.json` hooks): built automatically by `docker-entrypoint.sh` on container start. Outside Docker, run: `cargo build --release -p guard`
 
 ## Single-Agent Issue Workflow
 

@@ -82,6 +82,7 @@ node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileS
 - Check `.agent-status.json` for task status on restart (fall back to `claude-progress.txt` if it exists)
 
 ## Lessons Learned
+<!-- Managed by curation pipeline — do not edit directly -->
 - `${{ github.event.issue.body }}` injected directly into a shell heredoc is a shell injection risk — always sanitize or use environment variables
 - The workflow's claude invocation needs `--max-turns` and `--max-budget-usd` to prevent runaway agents
 - PR body should include structured sections (Summary, Test plan, Closes #N) not generic boilerplate

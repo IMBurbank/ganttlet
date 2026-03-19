@@ -145,6 +145,7 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 For bash patterns (pipe exit codes, heredoc quoting, PIPESTATUS): see shell-scripting skill.
 
 ## Lessons Learned
+<!-- Managed by curation pipeline — do not edit directly -->
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.
 - **`PIPESTATUS[1]`** is required to capture claude's exit code through a `tee` pipe (`$?` gives tee's exit code).

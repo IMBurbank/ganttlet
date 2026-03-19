@@ -74,4 +74,4 @@ See `docs/cloud-verification-plan.md` for the staged verification plan:
 7. **The `deploy.yml` job named `deploy-dev` actually deploys to the ganttlet-dev project, not staging.** The cloud-verification-plan notes this naming confusion. The job condition `github.event_name == 'push'` means every merge to `main` auto-deploys to dev. Production requires `workflow_dispatch` with explicit environment selection plus GitHub environment approval.
 
 ## Lessons Learned
-<!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->
+<!-- Managed by curation pipeline — do not edit directly -->

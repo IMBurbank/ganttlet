@@ -84,7 +84,7 @@ via wasm-bindgen in `src/lib.rs`.
 - Tests use in-memory task graphs — no I/O, no browser dependencies
 
 ## Lessons Learned
-<!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->
+<!-- Managed by curation pipeline — do not edit directly -->
 - 2026-03-01: `cascade_dependents` silently skips tasks with no start date. Always validate dates before cascade.
 - 2026-03-01: Scoped CPM on a single-task workstream returns empty critical path. Need ≥2 tasks.
 - 2026-03-01: Cascade is asymmetric: forward moves propagate, backward moves expose slack. Don't expect backward cascade.

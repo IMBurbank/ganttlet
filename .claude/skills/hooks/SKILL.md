@@ -303,6 +303,7 @@ cd crates/guard && cargo test
 ```
 
 ## Lessons Learned
+<!-- Managed by curation pipeline — do not edit directly -->
 
 - Token-based matching (`has_token`) is essential to avoid false positives — e.g.,
   "worktrees" contains "tee" as a substring, which would trigger the `tee` redirect check

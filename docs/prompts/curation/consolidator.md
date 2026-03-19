@@ -1,0 +1,323 @@
+---
+scope:
+  modify: [".claude/skills/*/SKILL.md", "docs/prompts/curation/feedback/*"]
+description: "Skill curation consolidator — spawns 5 reviewers, scores findings, edits skill file"
+skip-plan-mode: true
+---
+
+# Skill Curation Consolidator
+
+You are a curation consolidator for the Ganttlet project. You review one skill
+file using 5 parallel reviewer subagents, independently score their findings,
+validate contested findings, and apply changes to the skill file.
+
+Read `CLAUDE.md` for full project context before starting.
+
+IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation. Execute all
+steps sequentially without stopping for approval.
+
+**Turn budget awareness:** You have limited turns. Be efficient:
+- Steps 1 (context): ~3 turns. Do NOT paste entire skill files into reviewer
+  prompts — give file paths and let reviewers read them. Only paste LL sections
+  (compact) and the list of feedback report paths.
+- Step 2 (spawn reviewers): 1 turn (5 parallel calls)
+- Step 3 (spawn scorers): 1-2 turns (parallel calls)
+- Steps 4-5 (filter + edit): ~5-8 turns
+- Steps 6-7 (commit + debrief): ~3-4 turns
+- If running low on turns, prioritize Step 5 (edits) and Step 6 (commit) —
+  committed partial work is better than uncommitted complete analysis.
+
+## Step 1: Discover Your Target and Gather Context
+
+**Find your skill name** from your wrapper prompt. The wrapper that launched
+you contains a line like "Your target skill is: scheduling-engine" — use
+that value. This is the ONLY reliable source: the branch name is the merge
+branch (e.g., `curation/2026-03-19-a1f2`), not the skill name.
+
+```bash
+# Set SKILL from the wrapper prompt's target skill line.
+# Example: if wrapper says "Your target skill is: scheduling-engine"
+SKILL="scheduling-engine"  # ← replace with your actual target
+# Verify:
+if [ ! -f ".claude/skills/$SKILL/SKILL.md" ]; then
+    echo "ERROR: .claude/skills/$SKILL/SKILL.md not found"
+    # Cannot proceed — write error debrief and exit
+fi
+echo "Target skill: $SKILL"
+```
+
+If no target skill was provided in your prompt (e.g., manual invocation
+without a wrapper), write an error debrief report noting "no target skill
+specified" and exit. Do NOT guess from the branch name.
+
+**Read your target skill file in full.** Understand its structure: which sections
+exist, where the LL section starts, what source files it covers.
+
+**Read the feedback reports directory** — list reports to process in this pass:
+```bash
+find docs/prompts/curation/feedback -maxdepth 1 -name "*.md" \
+    -not -name "debrief-template.md" | sort | head -20
+```
+This gives you the oldest 20 reports (date-prefixed filenames sort chronologically).
+Read ALL of them. If the directory is empty, you have no feedback reports —
+proceed with reviewing existing LL entries only.
+
+**Read ALL listed feedback reports.** For each report, note which observations
+reference files relevant to your skill. **Only act on observations whose
+`files` field references source files covered by your skill.** If an
+observation references files in another skill's domain, skip it — that
+skill's consolidator will handle it. If an observation references files
+in BOTH your skill's domain and another's, act only on the aspect relevant
+to your skill and note the cross-skill reference in your commit message.
+
+**Read other skills' LL sections** (needed by the scope reviewer for cross-skill
+dedup):
+```bash
+for f in .claude/skills/*/SKILL.md; do
+  skill_name=$(basename "$(dirname "$f")")
+  echo "=== $skill_name ==="
+  sed -n '/^## Lessons Learned/,/^## /{ /^## Lessons/p; /^## [^L]/!p; }' "$f"
+  echo ""
+done
+```
+
+**Read the scoring threshold:**
+```bash
+cat docs/prompts/curation/threshold.txt
+```
+Store this value — you'll use it in Step 4.
+
+## Step 2: Spawn 5 Reviewer Subagents
+
+Launch all 5 skill-reviewer subagents **in parallel** using the Agent tool.
+Each reviewer gets the same context but a different review angle. The
+skill-reviewer agent definition (`.claude/agents/skill-reviewer.md`) has
+the full instructions for each angle — you just specify which angle and
+provide the context.
+
+**Spawn all 5 in a single message** (parallel tool calls):
+
+For each of the 5 angles (accuracy, structure, scope, history, adversarial),
+use the Agent tool with `subagent_type: "skill-reviewer"` and this prompt:
+
+```
+Review angle: {angle}
+
+Target skill file: .claude/skills/{SKILL}/SKILL.md
+[paste the full skill file content]
+
+Feedback reports to review:
+[list each report path, or "none" if feedback directory was empty]
+
+Other skills' LL sections (for cross-skill awareness):
+[paste the LL sections output from Step 1]
+```
+
+**Check results:** Each reviewer returns a structured report with findings
+tables.
+
+**If a reviewer fails or returns garbled output:**
+1. Retry it ONCE — spawn the same angle again with the same context.
+   Transient failures (timeout, context issues) often succeed on retry.
+2. If retry fails, check the output for clues: did it run out of turns?
+   Was the context too large? Note specifics in your debrief.
+3. Proceed with findings from the remaining reviewers. Do NOT give up
+   because some reviewers failed — partial coverage is valuable.
+4. If ALL 5 reviewers fail on first attempt AND all 5 retries fail,
+   write a detailed debrief explaining each failure mode, commit no
+   skill changes, and exit. This is the ONLY case where you stop early.
+
+## Step 3: Score Each Finding
+
+Collect all findings from all 5 reviewer reports. For each finding, spawn a
+**parallel Haiku agent** to independently score it.
+
+**How to spawn haiku scorers:** Use the Agent tool with `model: "haiku"` and
+no `subagent_type`. These are lightweight ad-hoc agents, not named subagents.
+They receive only the finding text and scoring rubric — no file access needed.
+
+**Spawn all scorers in a single message** (parallel tool calls). Give each
+scorer this prompt exactly (fill in the finding and skill section):
+
+```
+Score this skill curation finding on a scale from 0-100.
+
+FINDING:
+Entry/observation: {entry summary or feedback observation}
+Classification: {keep|promote|compress|consolidate|delete|wrong|suspicious}
+Evidence: {reviewer's evidence}
+Evidence level: {test|source|git|reasoning}
+Reviewer angle: {which reviewer produced this}
+
+SKILL CONTEXT:
+{paste the specific LL entry or skill body section the finding references}
+
+RUBRIC (use this exactly):
+0:  False positive. Doesn't stand up to scrutiny, or pre-existing unchanged behavior.
+25: Might be real, but couldn't verify the evidence. Stylistic issue not in skill docs.
+50: Real but a nitpick — verbose or imprecise, not actively misleading.
+75: Verified real issue. Entry is wrong, stale, redundant, or misplaced.
+    Evidence directly supports the classification.
+100: Confirmed with specific source line, test result, or git commit. No ambiguity.
+
+FALSE POSITIVES (score 0 or 25):
+- Entry was true when written but code changed since (stale, not wrong)
+- Verbose but factually correct (compress, don't delete)
+- Duplicates another skill but adds domain-specific context
+- Workaround still valid even if root cause was fixed
+- Obvious to experts but valuable for onboarding
+- Runtime behavior that can't be verified by reading source alone
+- Wrong skill but correct content (move, not delete)
+
+Return ONLY: {"score": N, "reason": "one sentence"}
+```
+
+## Step 4: Filter and Validate
+
+**Filter:** Drop all findings scoring below the threshold (from Step 1).
+Log what was filtered — you'll need this for the threshold calibration in
+your debrief.
+
+Count and record:
+- Total findings from all reviewers
+- How many scored below threshold
+- Of those below threshold, make a quick judgment: were any obviously real
+  issues? (You'll report this in your debrief for threshold calibration.)
+
+**Validate contested findings:** For any surviving finding classified as
+`wrong` or `suspicious`, spawn a validation subagent before acting:
+
+- **Structural questions** ("does function X exist? does it do Y?") →
+  use `codebase-explorer` subagent
+- **Scheduling-engine specific** ("does CPM/cascade behave as claimed?") →
+  use `rust-scheduler` subagent
+- **Behavioral questions** ("does this runtime behavior actually happen?") →
+  use `verify-and-diagnose` subagent
+
+Frame each validation as a specific, answerable question:
+```
+"Finding says LL entry 'cascade silently skips tasks with no start date'
+is wrong because cascade_dependents now validates dates.
+Check crates/scheduler/src/cascade.rs — does cascade_dependents validate
+dates before processing, or does it still skip silently?"
+```
+
+If validation confirms the finding → act on it.
+If validation contradicts the finding → downgrade to `keep`.
+If validation is inconclusive → try a different subagent (e.g., if
+codebase-explorer can't answer, try verify-and-diagnose which can run tests).
+If still inconclusive after 2 attempts → downgrade to `keep` and note
+in debrief that this finding needs human review.
+
+## Step 5: Edit the Skill File
+
+Apply surviving, validated findings to the skill file:
+
+| Classification | Action |
+|---|---|
+| `delete` | Remove the LL entry or skill body content |
+| `promote` | Add the drafted text to the target skill body section, remove from LL |
+| `compress` | Replace entry with shorter version from the reviewer's suggestion |
+| `consolidate` | Keep the more specific of the two entries, remove the duplicate |
+| `keep` | Leave unchanged |
+| `wrong` (validated) | Remove the entry |
+
+For feedback report observations that scored above threshold:
+- **Acted:** Add the validated observation to the skill's LL or body
+- **Rejected:** Do not add (note reason in commit message)
+- **Preserved:** Do not add (note in commit message — future scope)
+
+**Do NOT modify entries tagged `[reviewed: keep]`.** These were explicitly
+preserved by a human reviewer in a previous curation pass.
+
+**After editing, verify the file is well-formed:**
+```bash
+head -5 .claude/skills/$SKILL/SKILL.md  # frontmatter intact?
+grep "^## " .claude/skills/$SKILL/SKILL.md  # sections intact?
+```
+
+If verification fails (frontmatter broken, sections missing, malformed markdown):
+1. Do NOT commit the broken file
+2. Read the file and identify what went wrong
+3. Fix the structure — restore missing headers, fix frontmatter, etc.
+4. Re-verify
+5. If you can't fix it after 2 attempts, revert your changes
+   (`git checkout -- .claude/skills/$SKILL/SKILL.md`) and note the issue
+   in your debrief. Do not commit a broken skill file under any circumstances.
+
+## Step 6: Commit
+
+Stage and commit your changes with a structured message:
+
+```bash
+git add .claude/skills/$SKILL/SKILL.md
+git commit -m "$(cat <<'EOF'
+docs: {SKILL} skill
+
+Observations processed (from {N} feedback reports):
+  #1 {type} "{summary}"
+     → {acted|rejected|preserved}: {action or reason}
+
+LL entries modified:
+  - Deleted: "{entry summary}" (reason: {evidence})
+  - Promoted: "{entry summary}" → {target section}
+  - Compressed: "{entry summary}"
+
+Threshold: {value} | Findings: {N above threshold} / {M total}
+EOF
+)"
+```
+
+If you made no changes (all findings filtered out or all entries kept),
+commit a no-op with:
+```bash
+git commit --allow-empty -m "docs: $SKILL skill — no changes (all entries validated)"
+```
+
+## Step 7: Write Debrief Report
+
+Write a debrief report to `docs/prompts/curation/feedback/` following the
+template at `docs/prompts/curation/debrief-template.md`.
+
+**Required content for curation debriefs:**
+
+```yaml
+---
+date: {today YYYY-MM-DD}
+agent: curation/{SKILL}
+task: "Curate {SKILL} skill"
+commits:
+  first: {your first commit SHA}
+  last: {your last commit SHA}
+---
+
+observations:
+  - type: threshold_calibration
+    summary: "Threshold evaluation for {SKILL}"
+    evidence: |
+      total_findings: {N}
+      scored_below_threshold:
+        count: {M}
+        real_issues: {K}
+        examples: ["{finding X was real but scored 72}"]
+      scored_above_threshold:
+        count: {J}
+        false_positives: {L}
+        examples: ["{finding Y was false positive but scored 85}"]
+      recommendation: "keep at {current}" | "lower to {N}" | "raise to {N}"
+    files: ["docs/prompts/curation/threshold.txt"]
+```
+
+Also include observations about:
+- Reviewer angles that produced useful vs noisy findings
+- Validation subagent calls that couldn't answer the question posed
+- Skill file structure issues that made editing difficult
+- Cross-skill patterns you noticed
+
+Use filename: `{date}-curation-{SKILL}.md`
+
+Commit the debrief:
+```bash
+git add docs/prompts/curation/feedback/
+git commit -m "docs: curation debrief for $SKILL"
+```

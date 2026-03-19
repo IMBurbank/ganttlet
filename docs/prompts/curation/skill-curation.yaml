@@ -1,0 +1,35 @@
+# Skill Curation — reusable launch config
+# Run via: ./scripts/curate-skills.sh (which sets _USER_MERGE_TARGET)
+# Or manually: _USER_MERGE_TARGET=curation/$(date +%Y-%m-%d) ./scripts/launch-phase.sh docs/prompts/curation/skill-curation.yaml stage 1
+
+phase: skill-curation
+merge_target: curation/run  # overridden by script via _USER_MERGE_TARGET env var
+
+stages:
+  - name: "Skill curation"
+    groups:
+      - id: scheduling-engine
+        branch: curation/scheduling-engine
+        merge_message: "docs: scheduling-engine skill"
+      - id: hooks
+        branch: curation/hooks
+        merge_message: "docs: hooks skill"
+      - id: multi-agent-orchestration
+        branch: curation/multi-agent-orchestration
+        merge_message: "docs: multi-agent-orchestration skill"
+      - id: e2e-testing
+        branch: curation/e2e-testing
+        merge_message: "docs: e2e-testing skill"
+      - id: shell-scripting
+        branch: curation/shell-scripting
+        merge_message: "docs: shell-scripting skill"
+      - id: issue-workflow
+        branch: curation/issue-workflow
+        merge_message: "docs: issue-workflow skill"
+      - id: cloud-deployment
+        branch: curation/cloud-deployment
+        merge_message: "docs: cloud-deployment skill"
+      - id: google-sheets-sync
+        branch: curation/google-sheets-sync
+        merge_message: "docs: google-sheets-sync skill"
+      # curation skill added here once self-curation is enabled (future)

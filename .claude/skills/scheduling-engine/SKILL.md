@@ -1,6 +1,6 @@
 ---
 name: scheduling-engine
-description: "Use when working on CPM (critical path), cascade, constraints, or any scheduling logic in crates/scheduler/. Covers the Rust→WASM scheduling engine architecture, known gotchas, and test patterns."
+description: "Use when working on CPM (critical path), cascade, constraints, any scheduling logic in crates/scheduler/, or building/debugging WASM. Covers architecture, date conventions, WASM build, gotchas, and test patterns."
 ---
 
 # Scheduling Engine Guide
@@ -56,6 +56,27 @@ via wasm-bindgen in `src/lib.rs`.
 - **Cascade preserves date gap, not duration field.** If duration is stale (not recomputed from dates), cascade and recalculate will disagree.
 - **FF/SF formulas use `-(duration-1)` not `-(duration)`.** This is correct for inclusive convention. The minus sign derives start from end, and inclusive duration is 1 larger than the gap.
 - **CPM is exclusive internally.** The integer model in cpm.rs uses exclusive convention — this is standard and intentional. Don't "fix" it.
+
+## WASM Build & Debug
+<!-- Absorbed from rust-wasm skill -->
+
+**Build:** `npm run build:wasm` — runs wasm-pack in `crates/scheduler/`, targeting browser ES modules.
+
+**wasm-pack options:** `--target web` (browser-native), debug for dev, release for production.
+
+**wasm-bindgen patterns:**
+- `#[wasm_bindgen]` on pub functions → JS exports
+- Complex types: `serde` serialization (JsValue ↔ Rust structs)
+- `lib.rs` is the public API surface — all exports go through here
+- Structs with `#[wasm_bindgen]` get JS class wrappers
+
+**Generated files:** `src/wasm/scheduler/` — `scheduler.js` (glue), `scheduler_bg.wasm` (binary), `scheduler.d.ts` (types)
+
+**Debugging build failures:**
+- Missing wasm-pack: `curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh`
+- Compilation errors: `cargo check` in `crates/scheduler/` for better messages
+- Binding errors: no lifetimes or generics on `#[wasm_bindgen]` exported fns
+- Size issues: check for unnecessary dependencies in `Cargo.toml`
 
 ## Testing
 - `cd crates/scheduler && cargo test` — run all unit tests

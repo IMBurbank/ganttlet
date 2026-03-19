@@ -55,13 +55,12 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - `docs/cloud-verification-plan.md` — Cloud-based verification stages and GCP layout
 - `docs/TASKS.md` — Task queue index; structured data in `docs/tasks/phaseN.yaml`
 - `.claude/skills/` — Domain-specific skills (loaded on demand):
-  - `scheduling-engine` — CPM, cascade, constraints, crates/scheduler/ patterns
+  - `scheduling-engine` — CPM, cascade, constraints, WASM build, crates/scheduler/ patterns
   - `e2e-testing` — Playwright, relay server, collab test patterns
   - `multi-agent-orchestration` — launch-phase.sh, prompts, worktrees, CLI reference
   - `google-sheets-sync` — Sheets API, OAuth, sync modules
   - `cloud-deployment` — Cloud Run, GCP, staging/prod environments
   - `issue-workflow` — Single-agent issue procedures, error handling
-  - `rust-wasm` — WASM build, wasm-pack, Rust→JS bindings
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
   - `hooks` — Guard binary, PreToolUse/PostToolUse hooks, adding new checks
 - `.claude/agents/` — Subagents (auto-delegated, isolated context windows):

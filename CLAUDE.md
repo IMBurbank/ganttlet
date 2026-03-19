@@ -52,13 +52,6 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - **Minimal dependencies**: Keep the dependency tree small on both client and server.
 
 
-## Context Conservation
-- Commit early and often — progress survives crashes and context loss.
-- On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and check `git log --oneline -10`.
-- Use subagents (Agent tool) for expensive file investigation to preserve main context.
-- Load `.claude/skills/` on demand — only read skills relevant to the current task.
-- If context is getting large, summarize findings and commit before continuing.
-- **Maintain agent structure maps**: If you add, rename, or delete directories, update the project structure map in `.claude/agents/codebase-explorer.md` to match. Do this before context compaction, not at the end of a session. Run `./scripts/lint-agent-paths.sh` to verify.
 
 ## Reference Docs & Skills
 - `docs/architecture.md` — Tech stack, architecture principles/constraints, E2E testing, deployment

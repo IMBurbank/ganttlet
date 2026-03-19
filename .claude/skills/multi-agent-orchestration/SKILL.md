@@ -103,6 +103,15 @@ directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 
 See `docs/plans/tmux-supervisor.md` for the full design and test results.
 
+## Context Conservation
+<!-- Moved from root CLAUDE.md -->
+- Commit early and often — progress survives crashes and context loss.
+- On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and check `git log --oneline -10`.
+- Use subagents (Agent tool) for expensive file investigation to preserve main context.
+- Load `.claude/skills/` on demand — only read skills relevant to the current task.
+- If context is getting large, summarize findings and commit before continuing.
+- **Maintain agent structure maps**: If you add, rename, or delete directories, update the project structure map in `.claude/agents/codebase-explorer.md` to match. Do this before context compaction, not at the end of a session. Run `./scripts/lint-agent-paths.sh` to verify.
+
 ## Progress Tracking Format
 <!-- Moved from root CLAUDE.md — curator cleanup pending in step 12 -->
 

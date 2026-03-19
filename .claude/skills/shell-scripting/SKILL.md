@@ -5,6 +5,8 @@ description: "Use when writing or modifying bash scripts (launch-phase.sh, verif
 
 # Shell Scripting Guide
 
+**Utility skill** — shared foundation used by orchestration, hooks, e2e, and deployment skills.
+
 ## Pipe Exit Codes
 `$?` in a pipeline returns the LAST command's exit code. Use `${PIPESTATUS[0]}` for the
 first command, `${PIPESTATUS[1]}` for the second, etc.

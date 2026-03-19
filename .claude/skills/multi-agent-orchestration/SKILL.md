@@ -142,6 +142,8 @@ node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileS
 
 On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it exists) and `git log --oneline -10` first. Skip completed tasks.
 
+For bash patterns (pipe exit codes, heredoc quoting, PIPESTATUS): see shell-scripting skill.
+
 ## Lessons Learned
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.

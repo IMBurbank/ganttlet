@@ -37,6 +37,7 @@ Phase launch configuration is defined in `docs/prompts/<phaseN>/launch-config.ya
 
 ## Worktree Isolation (Critical)
 Each agent MUST run in its own git worktree. `/workspace` stays on `main` always.
+For full worktree procedures (cleanup, PR merge, lifecycle): see `.claude/worktrees/CLAUDE.md`.
 - **Agent worktrees**: `setup_worktree()` creates per-group worktrees at `/workspace/.claude/worktrees/<phase>-<group>`
 - **Merge worktree**: `setup_merge_worktree()` creates a long-lived worktree at `/workspace/.claude/worktrees/<phase>-merge` for all merge/validate/PR operations. It persists across stages and is cleaned up after PR creation.
 - Manually-launched agents must create their own: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`

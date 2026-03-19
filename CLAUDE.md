@@ -41,15 +41,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - If you encounter test-specific code paths in production builds, remove them.
 - Keep dependencies minimal — every added dependency is attack surface.
 - NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).
-- NEVER do any arithmetic, date/time calculation, or duration math in your head — even for "simple" operations. LLMs get these wrong routinely. Always use a tool:
-  - **Any arithmetic**: `python3 -c "print(17 * 3 + 42)"` or `node -e "console.log(...)"`
-  - **Date/time math**: NEVER compute dates mentally. Use the shell functions — same names as the code you're writing:
-    - `taskEndDate 2026-03-11 10` → `2026-03-24` (end date for 10-day task = `taskEndDate` in code)
-    - `taskDuration 2026-03-11 2026-03-24` → `10` (inclusive duration = `taskDuration` in code)
-    - Also available as `task_end_date`, `task_duration`, `bizday`
-    - `bizday 2026-03-07` → Saturday — next business day: `2026-03-09`
-    - `bizday verify 2026-03-11 10 2026-03-24` → OK (assert in scripts)
-  - **In code**: use `taskEndDate`/`taskDuration` (TS) or `task_end_date`/`task_duration` (Rust). NEVER use `addBusinessDays` directly for end dates — `taskEndDate` handles the inclusive convention.
+- NEVER compute arithmetic or dates mentally — use tools (see scheduling-engine skill for full conventions and shell functions). NEVER use `addBusinessDays` directly for end dates — use `taskEndDate`.
 - When you discover a non-obvious gotcha or debugging insight, append it to the relevant skill's "Lessons Learned" section (`.claude/skills/<skill>/SKILL.md`). Only append if you've confirmed the behavior by reading the relevant source or running a test — do not write speculative lessons.
 
 ## Error Handling Protocol
@@ -130,15 +122,6 @@ On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it 
 - **Promotable artifacts**: Images identical across environments. Config injected at deploy time via env vars / Secret Manager.
 - **Minimal dependencies**: Keep the dependency tree small on both client and server.
 
-## Date Conventions (Non-Negotiable)
-- **end_date is INCLUSIVE** — the last working day the task occupies, not the day after.
-- **duration** = business days in [startDate, endDate] counting both endpoints.
-  `taskDuration('2026-03-02', '2026-03-06') = 5` (Mon–Fri).
-- **End from start+dur:** `taskEndDate(start, duration)` — the only public API for this. `shift_date` (Rust) and `addBusinessDays` (date-fns) are internal primitives; never call them directly.
-- **Duration from dates:** `taskDuration(start, end)` — NEVER `workingDaysBetween` (deleted) or raw `differenceInBusinessDays`.
-- **No weekend dates.** Tasks must not start or end on Sat/Sun. Use `ensureBusinessDay()` for starts, `prevBusinessDay()` for ends.
-- **Dependency helpers (Rust):** Always use `fs_successor_start`, `ss_successor_start`, `ff_successor_start`, `sf_successor_start` — NEVER hand-write FS/SS/FF/SF formulas.
-- **CPM exception:** `cpm.rs` uses a standard exclusive integer model internally. Do NOT apply inclusive convention to CPM — it's an abstract graph algorithm, not a date calculation.
 
 ## Development Environment
 - Docker-based: `docker compose run --service-ports dev` to enter container

@@ -26,6 +26,27 @@ via wasm-bindgen in `src/lib.rs`.
 - **Cascade**: Propagate date delta to FS successors only (asymmetric — forward only)
 - **Constraint types**: ASAP (default), SNET (start no earlier than), FNLT (finish no later than), etc.
 
+## Date Conventions (Non-Negotiable)
+<!-- Moved from root CLAUDE.md — curator cleanup pending in step 12 -->
+- **end_date is INCLUSIVE** — the last working day the task occupies, not the day after.
+- **duration** = business days in [startDate, endDate] counting both endpoints.
+  `taskDuration('2026-03-02', '2026-03-06') = 5` (Mon–Fri).
+- **End from start+dur:** `taskEndDate(start, duration)` — the only public API for this. `shift_date` (Rust) and `addBusinessDays` (date-fns) are internal primitives; never call them directly.
+- **Duration from dates:** `taskDuration(start, end)` — NEVER `workingDaysBetween` (deleted) or raw `differenceInBusinessDays`.
+- **No weekend dates.** Tasks must not start or end on Sat/Sun. Use `ensureBusinessDay()` for starts, `prevBusinessDay()` for ends.
+- **Dependency helpers (Rust):** Always use `fs_successor_start`, `ss_successor_start`, `ff_successor_start`, `sf_successor_start` — NEVER hand-write FS/SS/FF/SF formulas.
+- **CPM exception:** `cpm.rs` uses a standard exclusive integer model internally. Do NOT apply inclusive convention to CPM — it's an abstract graph algorithm, not a date calculation.
+
+### Date/Arithmetic Shell Tools
+- **Any arithmetic**: `python3 -c "print(17 * 3 + 42)"` or `node -e "console.log(...)"`
+- **Date/time math**: NEVER compute dates mentally. Use the shell functions:
+  - `taskEndDate 2026-03-11 10` → `2026-03-24` (end date for 10-day task)
+  - `taskDuration 2026-03-11 2026-03-24` → `10` (inclusive duration)
+  - Also available as `task_end_date`, `task_duration`, `bizday`
+  - `bizday 2026-03-07` → Saturday — next business day: `2026-03-09`
+  - `bizday verify 2026-03-11 10 2026-03-24` → OK (assert in scripts)
+- **In code**: use `taskEndDate`/`taskDuration` (TS) or `task_end_date`/`task_duration` (Rust). NEVER use `addBusinessDays` directly for end dates — `taskEndDate` handles the inclusive convention.
+
 ## Known Gotchas
 - ES must be computed from dependencies, NOT from stored task dates
 - Scoped CPM must run on full graph then filter results (not filter-then-compute)

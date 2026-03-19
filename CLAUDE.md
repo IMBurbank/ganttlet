@@ -37,7 +37,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - Keep dependencies minimal — every added dependency is attack surface.
 - NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).
 - NEVER compute arithmetic or dates mentally — use tools (see scheduling-engine skill for full conventions and shell functions). NEVER use `addBusinessDays` directly for end dates — use `taskEndDate`.
-- When you discover a non-obvious gotcha or debugging insight, append it to the relevant skill's "Lessons Learned" section (`.claude/skills/<skill>/SKILL.md`). Only append if you've confirmed the behavior by reading the relevant source or running a test — do not write speculative lessons.
+- When you discover a non-obvious gotcha or debugging insight, write a debrief report (the verify hook will remind you and point to the template at `docs/prompts/curation/debrief-template.md`).
 
 ## Architecture Constraints (do not violate)
 - **Thin server**: Relay forwards CRDT messages + validates OAuth. No business logic, no persistent state, no Sheets access.
@@ -63,11 +63,13 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
   - `issue-workflow` — Single-agent issue procedures, error handling
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
   - `hooks` — Guard binary, PreToolUse/PostToolUse hooks, adding new checks
+  - `curation` — Skill curation process, debrief reports, prompt templates
 - `.claude/agents/` — Subagents (auto-delegated, isolated context windows):
   - `codebase-explorer` — Read-only exploration, returns structured reports (haiku)
   - `rust-scheduler` — Scheduling engine specialist for crates/scheduler/ (sonnet)
   - `verify-and-diagnose` — Runs tsc/vitest/cargo test, diagnoses failures (sonnet)
   - `plan-reviewer` — Pre-launch phase review for scope overlap, dependencies, completeness (haiku)
+  - `skill-reviewer` — Reviews skill files from 5 angles for curation (sonnet)
 
 ## Task Queue
 See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.

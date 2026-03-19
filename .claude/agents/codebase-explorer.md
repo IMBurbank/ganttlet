@@ -32,9 +32,15 @@ modify files — you only read, search, and analyze.
 - `scripts/` — Build, verify, launch infrastructure
   - `scripts/lib/` — Modular helpers: `agent.sh`, `worktree.sh`, `stage.sh`, `merge.sh`, `validate.sh`, `pr.sh`, `config.sh`, `log.sh`, `watch.sh`, `tmux-supervisor.sh`
   - `scripts/test-hooks.sh` — Integration tests for worktree isolation hooks
-- `.claude/agents/` — Subagents: `codebase-explorer.md`, `rust-scheduler.md`, `verify-and-diagnose.md`, `plan-reviewer.md`
-- `.claude/skills/` — Domain-specific reference guides (read these for domain knowledge)
+  - `scripts/curate-skills.sh` — Skill curation pipeline runner
+  - `scripts/check-curation.sh` — Curation reminder hook (count + age thresholds)
+  - `scripts/generate-retry-config.sh` — Partial failure recovery for launch-phase
+- `.claude/agents/` — Subagents: `codebase-explorer.md`, `rust-scheduler.md`, `verify-and-diagnose.md`, `plan-reviewer.md`, `skill-reviewer.md`
+- `.claude/skills/` — Domain-specific reference guides (9 skills including `curation/`)
+- `.claude/settings.json` — Hook registration (PreToolUse guard, PostToolUse verify + bizday lint)
+- `.claude/worktrees/CLAUDE.md` — Canonical worktree procedures (PR workflow, cleanup, parallel awareness)
 - `.claude/metrics/` — Agent performance metrics schema
+- `docs/prompts/curation/` — Skill curation prompts, launch config, debrief template, feedback reports
 - Scoped `CLAUDE.md` files in: `crates/scheduler/`, `server/`, `src/`, `src/sheets/`, `e2e/`
 
 ## Investigation approach

@@ -84,4 +84,4 @@ Dependencies serialize as `fromId:type:lag` joined by `;`. Example: `task-1:FS:0
   conflicts in the UI. The user must fix them.
 
 ## Lessons Learned
-<!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->
+<!-- Managed by curation pipeline — do not edit directly -->

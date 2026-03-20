@@ -49,6 +49,6 @@ then starts the binary and waits for port 4000 before running tests.
   (typically from Sheets import).
 
 ## Lessons Learned
-<!-- Agents: append here ONLY after confirming the behavior by reading source or running a test. Format: YYYY-MM-DD: description -->
+<!-- Managed by curation pipeline — do not edit directly -->
 - 2026-03-01: E2E relay compilation failures are infrastructure issues, not code bugs. Note in summary but still write the tests.
 - 2026-03-01: Date-dependent tests can flake near midnight or weekend boundaries.

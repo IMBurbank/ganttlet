@@ -21,7 +21,6 @@ It does NOT apply to CI/workflow agents.
 
 ## Worktree Lifecycle
 - You are working in a worktree. All git operations (commit, push, rebase) happen here.
-- **Never remove worktrees you did not create** — another agent may be using them. Only clean up your own worktree, and only after your PR is merged. Only the user can authorize removal of other worktrees.
 - **Clean up your own worktree only after its PR is merged** — the worktree is your only working copy. If you delete it before the merge completes and the merge fails, you have no way to fix and retry.
 - **`git worktree prune` is always safe** — it only removes stale references to already-deleted directories. It never deletes files. Run it after removing a worktree directory.
 - **Cleanup order (each step is a separate Bash call — never chain with `&&`):**

@@ -43,6 +43,34 @@ npm run dev
 # Open http://localhost:5173 in your browser
 ```
 
+## Development Environment
+
+- Docker-based: `docker compose run --service-ports dev` to enter container
+- Vite dev server on port 5173 (`npm run dev`)
+- PostToolUse hook (`scripts/verify.sh`) auto-runs `tsc` + `vitest` after `.ts/.tsx` edits
+- Pre-commit hook: `ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit`
+- Git workflow: `main` always deployable, feature branches, PRs before merge
+- Guard binary: built automatically by `docker-entrypoint.sh`. Outside Docker: `cargo build --release -p guard`
+
+## Development Commands
+
+| Command | Purpose |
+|---------|---------|
+| `docker compose run --service-ports dev` | Enter dev container |
+| `npm run dev` | Build WASM + start Vite dev server (port 5173) |
+| `npm run build` | WASM + tsc + production build |
+| `npm run build:wasm` | Build Rust scheduler to WASM only |
+| `npm run test` | Unit tests (Vitest) |
+| `npm run e2e:collab` | E2E tests with relay server |
+| `./scripts/full-verify.sh` | Full verification (tsc + vitest + cargo test + E2E) |
+| `cd crates/scheduler && cargo test` | Rust unit tests |
+| `docker compose up --build relay` | Build + run relay server locally |
+| `ATTEST_E2E=1 ./scripts/full-verify.sh` | Full verify + post E2E attestation |
+| `./scripts/attest-e2e.sh` | Post E2E attestation for HEAD |
+| `claude --dangerously-skip-permissions` | Start Claude without permission checks |
+| `./scripts/launch-supervisor.sh <config>` | Supervisor agent drives phase pipeline |
+| `./scripts/launch-phase.sh <config> <cmd>` | Run pipeline step (stage/merge/validate) |
+
 ## Architecture
 
 Ganttlet has two components: a browser client (where all business logic runs) and a thin relay server (for real-time collaboration).

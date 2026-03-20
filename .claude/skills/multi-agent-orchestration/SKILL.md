@@ -37,6 +37,7 @@ Phase launch configuration is defined in `docs/prompts/<phaseN>/launch-config.ya
 
 ## Worktree Isolation (Critical)
 Each agent MUST run in its own git worktree. `/workspace` stays on `main` always.
+For full worktree procedures (cleanup, PR merge, lifecycle): see `.claude/worktrees/CLAUDE.md`.
 - **Agent worktrees**: `setup_worktree()` creates per-group worktrees at `/workspace/.claude/worktrees/<phase>-<group>`
 - **Merge worktree**: `setup_merge_worktree()` creates a long-lived worktree at `/workspace/.claude/worktrees/<phase>-merge` for all merge/validate/PR operations. It persists across stages and is cleaned up after PR creation.
 - Manually-launched agents must create their own: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
@@ -103,7 +104,48 @@ directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 
 See `docs/plans/tmux-supervisor.md` for the full design and test results.
 
+## Context Conservation
+<!-- Moved from root CLAUDE.md -->
+- Commit early and often — progress survives crashes and context loss.
+- On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and check `git log --oneline -10`.
+- Use subagents (Agent tool) for expensive file investigation to preserve main context.
+- Load `.claude/skills/` on demand — only read skills relevant to the current task.
+- If context is getting large, summarize findings and commit before continuing.
+- **Maintain agent structure maps**: If you add, rename, or delete directories, update the project structure map in `.claude/agents/codebase-explorer.md` to match. Do this before context compaction, not at the end of a session. Run `./scripts/lint-agent-paths.sh` to verify.
+
+## Progress Tracking Format
+<!-- Moved from root CLAUDE.md — curator cleanup pending in step 12 -->
+
+Agents maintain `.agent-status.json` in the worktree root. Update it after each major task.
+
+**Multi-agent (phase work):**
+```json
+{
+  "group": "A",
+  "phase": 14,
+  "tasks": {
+    "A1": { "status": "done", "tests_passing": 4, "tests_failing": 0 },
+    "A2": { "status": "in_progress", "tests_passing": 2, "tests_failing": 1,
+             "blocker": "cross-scope dependency not propagating" },
+    "A3": { "status": "pending" }
+  },
+  "last_updated": "2026-03-06T14:30:00Z"
+}
+```
+
+**Status values:** `done`, `in_progress`, `blocked`, `pending`, `skipped`
+
+**Updating:** JSON cannot be appended — read, parse, modify, write:
+```bash
+node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileSync(f,'utf8'));d.tasks['A1']={status:'done',tests_passing:3,tests_failing:0};d.last_updated=new Date().toISOString();fs.writeFileSync(f,JSON.stringify(d,null,2))"
+```
+
+On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it exists) and `git log --oneline -10` first. Skip completed tasks.
+
+For bash patterns (pipe exit codes, heredoc quoting, PIPESTATUS): see shell-scripting skill.
+
 ## Lessons Learned
+<!-- Managed by curation pipeline — do not edit directly -->
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.
 - **`PIPESTATUS[1]`** is required to capture claude's exit code through a `tee` pipe (`$?` gives tee's exit code).

@@ -373,6 +373,13 @@ Also include observations about:
 - Validation subagent calls that couldn't answer the question posed
 - Skill file structure issues that made editing difficult
 - Cross-skill patterns you noticed
+- **Issues in CLAUDE.md files or other instruction context:** if you noticed
+  stale or incorrect content in root CLAUDE.md, scoped CLAUDE.md files
+  (e.g., `crates/scheduler/CLAUDE.md`), worktree instructions, or subagent
+  definitions during your review, report them as `wrong_documentation`
+  observations with `files` referencing the affected instruction file.
+  These won't be acted on by the skill curation pipeline but will be
+  preserved in `feedback/processed/` for future instruction curation.
 
 Use filename: `{date}-curation-{SKILL}.md`
 

@@ -151,9 +151,10 @@ required for oldest-first batch selection.
 `unexpected_result`, `workflow_gap`, `nothing_to_report`.
 
 **Lifecycle:** feedback/ → consolidator reads directly (oldest 20) →
-consolidator processes and edits skill → script moves to feedback/processed/
-→ orchestrator writes outcomes into processed files. Reports in processed/
-are preserved permanently.
+5 reviewers assess skill + reports → haiku scorers validate findings →
+consolidator synthesizes a rewritten skill file (not append — full rewrite) →
+script moves reports to feedback/processed/ → orchestrator writes outcomes.
+Reports in processed/ are preserved permanently.
 
 ## How to Run Curation
 
@@ -231,6 +232,3 @@ scripts/
 
 ## Gotchas
 <!-- populated from curation pass experience -->
-
-## Lessons Learned
-<!-- managed by curation pipeline — do not edit directly -->

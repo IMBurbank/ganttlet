@@ -119,9 +119,8 @@ provide one classification:
 
 | Classification | When to use | Evidence required |
 |---|---|---|
-| `keep` | Correct, non-obvious, can't be derived from code/docs | Explain why it's valuable |
-| `promote` | Important enough for the skill body permanently | Draft 1-2 sentences for target section |
-| `compress` | Correct but verbose — can be shortened | Suggest compressed version |
+| `keep` | Correct, non-obvious, can't be derived from code/docs — should be in the skill body | Explain why it's valuable and suggest where it fits |
+| `compress` | Correct but verbose — can be said in fewer words | Suggest compressed version |
 | `consolidate` | Duplicates another entry (same skill or cross-skill) | Cite the other entry |
 | `delete` | Encoded in code (now enforced by function/test/hook) — entry was correct when written but is now redundant | Cite the function/line that encodes it |
 | `wrong` | Factually incorrect — the described behavior never existed, or the causal reasoning was wrong | Cite the contradicting evidence. NOTE: "encoded in code now" is `delete`, not `wrong`. `wrong` means the entry was always incorrect, not that it became redundant. |

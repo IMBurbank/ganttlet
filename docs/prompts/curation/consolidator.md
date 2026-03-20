@@ -209,41 +209,52 @@ codebase-explorer can't answer, try verify-and-diagnose which can run tests).
 If still inconclusive after 2 attempts → downgrade to `keep` and note
 in debrief that this finding needs human review.
 
-## Step 5: Edit the Skill File
+## Step 5: Rewrite the Skill File
 
-Apply surviving, validated findings to the skill file:
+This is NOT a per-entry append/delete pass. You are producing a **full
+synthesis** of the existing skill content and the validated findings.
+The result should be a better skill file — not the old file with patches.
 
-| Classification | Action |
-|---|---|
-| `delete` | Remove the LL entry or skill body content |
-| `promote` | Add the drafted text to the target skill body section, remove from LL |
-| `compress` | Replace entry with shorter version from the reviewer's suggestion |
-| `consolidate` | Keep the more specific of the two entries, remove the duplicate |
-| `keep` | Leave unchanged |
-| `wrong` (validated) | Remove the entry |
+**Your job:**
+1. Read the current skill file and understand what it teaches, how it's
+   organized, and what agents need from it.
+2. Integrate validated findings into the skill:
+   - New observations go into the appropriate existing section (woven in,
+     not appended). If no section fits, create one.
+   - Stale/wrong content is removed or corrected in place.
+   - Redundant content (encoded in code, duplicated across sections) is
+     removed. The code is the source of truth.
+   - Verbose content is compressed — say the same thing in fewer words.
+   - The `## Lessons Learned` section is eliminated. All valuable LL
+     content is promoted into the skill body. The section itself is removed.
+   - `<!-- curator cleanup pending -->` comments are removed.
+3. The output is a coherent, well-organized skill file that is equal or
+   smaller than the original — not bigger.
 
-For feedback report observations that scored above threshold:
-- **Acted:** Add the validated observation to the skill's LL or body
-- **Rejected:** Do not add (note reason in commit message)
-- **Preserved:** Do not add (note in commit message — future scope)
+**Guidelines for the rewrite:**
+- Preserve the frontmatter (`---` block with name/description) unchanged.
+- Keep the same top-level section structure unless a section is now empty.
+- Do not add commentary about what you changed — the commit message has that.
+- Every fact in the rewritten skill must be verifiable against current source.
+  If you can't verify a claim, leave it but note in the commit message.
+- `[reviewed: keep]` entries must be preserved verbatim (human override).
 
-**Do NOT modify entries tagged `[reviewed: keep]`.** These were explicitly
-preserved by a human reviewer in a previous curation pass.
+**For feedback report observations that scored above threshold:**
+- **Acted:** Integrate into the appropriate skill body section.
+- **Rejected:** Do not add (note reason in commit message).
+- **Preserved:** Do not add (note in commit message — future scope).
 
-**After editing, verify the file is well-formed:**
+**After writing, verify the file is well-formed:**
 ```bash
 head -5 .claude/skills/$SKILL/SKILL.md  # frontmatter intact?
 grep "^## " .claude/skills/$SKILL/SKILL.md  # sections intact?
 ```
 
-If verification fails (frontmatter broken, sections missing, malformed markdown):
-1. Do NOT commit the broken file
-2. Read the file and identify what went wrong
-3. Fix the structure — restore missing headers, fix frontmatter, etc.
-4. Re-verify
-5. If you can't fix it after 2 attempts, revert your changes
-   (`git checkout -- .claude/skills/$SKILL/SKILL.md`) and note the issue
-   in your debrief. Do not commit a broken skill file under any circumstances.
+If verification fails:
+1. Do NOT commit the broken file.
+2. Fix the structure — restore headers, fix frontmatter.
+3. If you can't fix it after 2 attempts, revert your changes
+   (`git checkout -- .claude/skills/$SKILL/SKILL.md`) and note in debrief.
 
 ## Step 6: Commit
 

@@ -434,6 +434,12 @@ or word of mouth. Their starting point is the sheet, not the app.
 - They can then move/remap data at their own pace
 - Ganttlet connects to the `Ganttlet` tab instead of `Sheet1`
 
+**Caveat:** The codebase currently hardcodes `DATA_RANGE = 'Sheet1'` in `sheetsSync.ts`
+for all reads, writes, and polling. Supporting a different tab name requires making this
+configurable — not hard, but touches every sync path (read, write, poll, clear). This
+is a medium effort, not a small one. The tab name would need to be stored (in the
+`_ganttlet_meta` tab or in localStorage) and passed through the sync layer.
+
 **Level 3 — Google Sheets Add-on (future):**
 - A Workspace add-on: Extensions → Ganttlet → "Open as Gantt Chart"
 - Reads the current sheet ID, opens `ganttlet.app/?sheet=ID&room=ID` in a new tab
@@ -518,24 +524,65 @@ deliver, not by priority — see "Priority & Phasing" for sequencing.
 3. **New project** — Create a new Google Sheet via Sheets API, optionally populate from a
    template (R5), redirect to connected mode.
 
-**State model**: Add a `dataSource` field to `GanttState`:
+**State model**: Add two fields to `GanttState`:
+
 ```typescript
 dataSource: 'sandbox' | 'loading' | 'sheet' | 'empty'
+syncError: { type: 'auth' | 'not_found' | 'forbidden' | 'rate_limit' | 'network';
+             message: string; since: number } | null
 ```
 
-The `'loading'` state is the key addition — it prevents fake data from flashing when a
-collaborator opens a shared link or a return visitor reconnects. Today the initial state
-is always `tasks: fakeTasks`. With this model:
+`dataSource` tracks the app mode. `syncError` tracks sync failures *within* connected
+mode — it overlays on `dataSource = 'sheet'`, it doesn't replace it. A rate-limited
+save doesn't change the mode; it sets `syncError` so the UI can show feedback while
+the user continues editing locally.
 
-- No `?sheet=` param → `dataSource = 'sandbox'`, load fakeTasks into local state
-- Has `?sheet=` param → `dataSource = 'loading'`, `tasks = []`, show skeleton UI
-  - `loadFromSheet()` succeeds with data → `dataSource = 'sheet'`, `SET_TASKS`
-  - `loadFromSheet()` succeeds empty → `dataSource = 'empty'`, show empty state
-  - `loadFromSheet()` fails (403/404) → `dataSource = 'error'`, show error
+**`dataSource` transitions (complete state machine):**
 
-**Feasibility of `'loading'` state:** Confirmed by code review. The change is small:
-- Add `dataSource` to `GanttState` type (1 field)
-- Add `SET_DATA_SOURCE` to reducer (1 case)
+```
+                    ┌──────────────────────────────────────────┐
+                    │                                          │
+  App loads:        │   Disconnect (R7) / "Explore Demo"       │
+  no ?sheet= ──► SANDBOX ◄────────────────────────────────────┤
+                    │                                          │
+                    │ Promotion (Journey 6)                    │
+                    ▼                                          │
+  App loads:     LOADING ──── success + data ──► SHEET ────────┤
+  has ?sheet= ──►   │                              ▲           │
+                    │── success + empty ──► EMPTY ──┘           │
+                    │                     (first edit)          │
+                    │                                          │
+                    └── failure (403/404/network) ──► LOADING   │
+                        (syncError set, UI shows error,        │
+                         retry or "Open another sheet")        │
+                                                               │
+  Disconnect from SHEET or EMPTY ─────────────────────────────►┘
+    clears ?sheet= from URL, resets to SANDBOX
+```
+
+Key transitions:
+- `sandbox → sheet`: only via explicit promotion flow (Journey 6)
+- `loading → sheet`: `loadFromSheet()` returns tasks
+- `loading → empty`: `loadFromSheet()` returns `[]`
+- `loading → loading` (with `syncError`): `loadFromSheet()` fails — stays in loading,
+  sets `syncError`, UI shows error with [Retry] and [Open another sheet] actions
+- `empty → sheet`: user performs first task-modifying action (intent gate)
+- `sheet → sandbox`: user clicks "Disconnect" in R7 dropdown
+- `empty → sandbox`: user clicks "Disconnect"
+- Any state → `sandbox`: user navigates to `ganttlet.app` with no params
+
+**`syncError` is independent of `dataSource`:** A user in `dataSource = 'sheet'` who
+hits a 429 rate limit stays in `'sheet'` mode (local editing works). `syncError` is set
+to `{ type: 'rate_limit', message: 'Sync paused — retrying', since: Date.now() }`. When
+sync recovers, `syncError` is cleared. The error UI reads `syncError`, not `dataSource`.
+
+Exception: if `dataSource = 'loading'` and the load itself fails (403/404), the error is
+shown in the loading UI (no chart to overlay on). `syncError` is still the mechanism —
+the loading screen checks it.
+
+**Feasibility:** Confirmed by code review. Changes needed:
+- Add `dataSource` and `syncError` to `GanttState` type (2 fields)
+- Add `SET_DATA_SOURCE` and `SET_SYNC_ERROR` to reducer (2 cases)
 - Set initial `dataSource` based on URL params in GanttContext
 - One conditional render in App.tsx / main layout: if `dataSource === 'loading'`, show
   skeleton instead of chart
@@ -553,12 +600,62 @@ Auto-save is gated on `dataSource === 'sheet'`. The transition from `'sandbox'` 
 - **Dispatch**: Sandbox uses `localDispatch` only (React state, no Yjs). The existing
   split dispatch architecture makes this straightforward.
 
+**Requirements:**
+
+```
+R1.1: GIVEN no ?sheet= param in the URL and user is not signed in
+      WHEN the app loads
+      THEN dataSource is set to 'sandbox'
+      AND fakeTasks are loaded into local state
+      AND a persistent banner shows: "You're exploring a demo project. Nothing is saved."
+      AND the banner includes a [Save to Google Sheet] button
+      AND no Sheets API calls are made
+      AND no WebSocket connection is opened
+
+R1.2: GIVEN dataSource='sandbox' and user drags a task bar
+      WHEN the task position changes
+      THEN state updates via localDispatch (React only)
+      AND scheduleSave() is NOT called
+      AND no Yjs document is updated
+
+R1.3: GIVEN dataSource='sandbox' and user signs in (to browse sheets)
+      WHEN sign-in completes
+      THEN dataSource remains 'sandbox' (signing in alone doesn't change mode)
+      AND no Yjs connection is opened (defense-in-depth guard)
+
+R1.4: GIVEN ?sheet=ABC123 in the URL
+      WHEN the app loads
+      THEN dataSource is set to 'loading'
+      AND tasks is set to [] (empty array, NOT fakeTasks)
+      AND the UI shows timeline scaffolding with a loading indicator
+      AND loadFromSheet() is called
+
+R1.5: GIVEN dataSource='loading' and loadFromSheet() returns 5 tasks
+      WHEN SET_TASKS is dispatched
+      THEN dataSource transitions to 'sheet'
+      AND the 5 tasks render in the Gantt chart
+      AND auto-save is enabled
+      AND polling starts (30s interval)
+
+R1.6: GIVEN dataSource='loading' and loadFromSheet() returns []
+      WHEN the load completes
+      THEN dataSource transitions to 'empty'
+      AND the empty state UI renders (R2)
+
+R1.7: GIVEN dataSource='loading' and loadFromSheet() fails with 403
+      WHEN the error is caught
+      THEN dataSource remains 'loading'
+      AND syncError is set to { type: 'forbidden', message: "Can't access this sheet..." }
+      AND the UI shows the error with [Open another sheet] and [Retry]
+```
+
 **Promotion flow** (Journey 6):
 ```typescript
 async function promoteToSheet(sheetId: string, tasks: Task[]) {
   // 1. Write current state to sheet
   const rows = tasksToRows(tasks);
-  await updateSheet(sheetId, `Sheet1!A1:T${rows.length}`, rows);
+  const endCol = columnLetter(SHEET_COLUMNS.length); // derived, not hardcoded
+  await updateSheet(sheetId, `Sheet1!A1:${endCol}${rows.length}`, rows);
 
   // 2. Initialize sync (enables polling + auto-save)
   initSync(sheetId, dispatch);
@@ -597,6 +694,29 @@ collaborators both Sheets sync and real-time collaboration.
 - Brief value prop copy: *"Changes sync to your Google Sheet in real time"*
 - The table panel shows column headers but no rows (except the add-task row)
 
+**Requirements:**
+
+```
+R2.1: GIVEN dataSource='empty'
+      WHEN the main layout renders
+      THEN the timeline panel shows grid lines, headers, and today marker
+      AND the table panel shows column headers with an add-task input row
+      AND a centered CTA area shows "Add your first task" and "Or start from a template"
+      AND no fake data is visible anywhere
+
+R2.2: GIVEN dataSource='empty' and user clicks "Add your first task"
+      WHEN the user types a task name and presses Enter
+      THEN a new task is created with sensible defaults (startDate=today, duration=1)
+      AND dataSource transitions from 'empty' to 'sheet'
+      AND auto-save writes the new task to the connected Google Sheet
+
+R2.3: GIVEN dataSource='empty' and user clicks "Or start from a template"
+      WHEN the template picker opens
+      THEN user can select a template (same options as R5)
+      AND selecting a template populates the sheet with template tasks
+      AND dataSource transitions to 'sheet'
+```
+
 ### R3: Sheet Selection UI
 
 **Problem**: Users must manually copy spreadsheet IDs into URLs.
@@ -628,10 +748,45 @@ Sheets URLs (extracts spreadsheet ID automatically).
 
 **Implementation notes:**
 - No new OAuth scopes needed — `drive.metadata.readonly` is already granted
-- Store recently-connected sheets in `localStorage` for quick reconnection (Journey 2)
 - Parse pasted URLs: extract ID from `docs.google.com/spreadsheets/d/{ID}/...`
 - Google Picker API (full Drive browsing, folder placement) is a future enhancement
   requiring `drive.file` scope via incremental authorization
+
+**Recent sheets list** stored in `localStorage` under key `ganttlet-recent-sheets`:
+- Schema: `Array<{ sheetId: string, title: string, lastOpened: number }>`
+- Updated on every successful sheet connection (load completes without error)
+- Max 10 entries, LRU eviction (oldest `lastOpened` dropped when full)
+- Entries removed when a sheet returns 403/404 (Journey 7 error handling)
+- Used by Journey 2 (return visitor welcome) and R7 (sheet management dropdown)
+
+**Requirements:**
+
+```
+R3.1: GIVEN user is signed in and clicks "Connect Existing Sheet"
+      WHEN the sheet selector modal opens
+      THEN it shows a list of the user's recent Google spreadsheets
+      (via GET drive/v3/files?q=mimeType='spreadsheet', max 20 results)
+      AND a text input for pasting a Google Sheets URL
+
+R3.2: GIVEN user pastes "https://docs.google.com/spreadsheets/d/ABC123/edit#gid=0"
+      WHEN the URL is parsed
+      THEN the spreadsheet ID "ABC123" is extracted
+      AND the [Connect] button becomes enabled
+
+R3.3: GIVEN user pastes an invalid URL (no spreadsheet ID found)
+      WHEN the URL is parsed
+      THEN an inline error shows: "Couldn't find a spreadsheet ID in this URL"
+
+R3.4: GIVEN user selects a sheet and clicks [Connect]
+      WHEN the connection succeeds
+      THEN the sheet is added to the recent sheets list in localStorage
+      AND the URL updates to include ?sheet=ID&room=ID
+
+R3.5: GIVEN the recent sheets list has 10 entries
+      WHEN a new sheet is connected
+      THEN the oldest entry (by lastOpened) is evicted
+      AND the new entry is added
+```
 
 ### R4: Column Auto-Detection & Mapping
 
@@ -642,10 +797,17 @@ garbled data.
 
 **Two-tier approach:**
 
-**Tier 1 — Header validation (ship early):** Read the header row, compare against
-`SHEET_COLUMNS`. If it doesn't match, show a clear error with the expected vs found
-columns, and offer to create a new sheet or download a header template. This is a small
-addition — string comparison on row 1 plus an error component.
+**Tier 1 — Header validation (ship early):** Read the first row of the sheet, compare
+against `SHEET_COLUMNS`. The match rules are:
+- Case-insensitive comparison (`StartDate` matches `startDate`)
+- Exact column names only (no fuzzy matching in Tier 1)
+- Order must match `SHEET_COLUMNS` — columns A through T in the defined order
+- All 20 columns must be present for a match
+- Extra columns after T are ignored (forward-compatible)
+- A sheet with no header row (row 1 empty) is treated as an empty sheet, not a mismatch
+
+If headers don't match, show a clear error with the expected vs found columns, and
+offer to create a new sheet or download a header template CSV.
 
 **Tier 2 — Column mapping UI (larger effort):** When connecting a sheet with data:
 
@@ -657,6 +819,36 @@ addition — string comparison on row 1 plus an error component.
 3. Show a mapping preview modal where users confirm or adjust mappings
 4. Store the mapping in a `_ganttlet_meta` tab (hidden, auto-created) so it persists
    across sessions
+
+**Requirements (Tier 1):**
+
+```
+R4.1: GIVEN a sheet with header row ["id","name","startDate","endDate","duration",
+      "owner","workStream","project","functionalArea","done","description",
+      "isMilestone","isSummary","parentId","childIds","dependencies","notes",
+      "okrs","constraintType","constraintDate"]
+      WHEN loadFromSheet() reads the data
+      THEN headers match and tasks load normally
+
+R4.2: GIVEN a sheet with header row ["Task","Start","End","Assignee","Priority"]
+      WHEN loadFromSheet() reads the data
+      THEN a column mismatch error is shown with expected vs found columns
+      AND no tasks are loaded (dataSource stays 'loading' with syncError set)
+      AND user sees [Create a new sheet instead] and [Download header template]
+
+R4.3: GIVEN a sheet with header row ["ID","Name","StartDate"] (case differs)
+      WHEN headers are compared
+      THEN comparison is case-insensitive — "StartDate" matches "startDate"
+      BUT only 3 of 20 required columns are present, so this is still a mismatch
+
+R4.4: GIVEN a sheet with row 1 completely empty and no data
+      WHEN loadFromSheet() reads the data
+      THEN it is treated as an empty sheet (dataSource='empty'), not a mismatch
+
+R4.5: GIVEN user clicks [Download header template]
+      WHEN the download triggers
+      THEN a CSV file is downloaded containing one row with all 20 SHEET_COLUMNS values
+```
 
 ### R5: Project Templates
 
@@ -680,6 +872,32 @@ The existing `fakeTasks` data is refactored into the "Software Release" template
 Google Sheet with the correct 20-column header and example rows. This serves Journey 8
 (sheets-first users) and doubles as documentation of the expected format. Users click
 "Use Template" in Google Sheets → get a copy in their Drive → connect to Ganttlet.
+
+**Requirements:**
+
+```
+R5.1: GIVEN user selects "Software Release" template and clicks [Create]
+      WHEN a new Google Sheet is created via POST /v4/spreadsheets
+      THEN the sheet title matches the user's project name input
+      AND row 1 contains all 20 SHEET_COLUMNS as headers
+      AND rows 2+ contain the template tasks (refactored from current fakeData.ts)
+      AND all task dates are business days (no weekends)
+      AND all durations match the inclusive convention (taskDuration(start, end))
+      AND the URL updates to ?sheet=ID&room=ID
+      AND dataSource transitions to 'sheet'
+
+R5.2: GIVEN user selects "Blank" template
+      WHEN the sheet is created
+      THEN only the header row is written (no task rows)
+      AND dataSource is set to 'empty' (shows empty state, R2)
+
+R5.3: GIVEN template data files exist in src/data/templates/
+      WHEN each template is validated
+      THEN every task has: id, name, startDate, endDate, duration
+      AND no task starts or ends on a weekend
+      AND duration === taskDuration(startDate, endDate) for every task
+      AND parent/child relationships are consistent (childIds ↔ parentId)
+```
 
 ### R6: Onboarding Flow
 
@@ -747,6 +965,34 @@ Google Sheet with the correct 20-column header and example rows. This serves Jou
 
 **Total time target**: Under 60 seconds from landing to seeing your Gantt chart.
 
+**Requirements:**
+
+```
+R6.1: GIVEN first visit (no auth in localStorage, no URL params)
+      WHEN the app loads
+      THEN the welcome screen shows with [Try the demo] and [Sign in with Google]
+      AND value props are visible without scrolling
+      AND clicking [Try the demo] enters sandbox mode with fakeTasks
+
+R6.2: GIVEN return visit (auth in localStorage, recent sheets list has entries)
+      WHEN the app loads (no URL params)
+      THEN the welcome screen shows "Welcome back, {name}"
+      AND recent projects are listed with titles and "last opened" times
+      AND clicking a recent project sets ?sheet=ID&room=ID and loads immediately
+      AND [New Project], [Connect Existing Sheet], and [Demo] buttons are shown
+
+R6.3: GIVEN ?sheet= or ?room= in URL and user is NOT signed in
+      WHEN the app loads
+      THEN the collaborator welcome screen shows
+      AND only [Sign in with Google] is offered (no demo, no template picker)
+      AND after sign-in, the sheet loads automatically (no intermediate screen)
+
+R6.4: GIVEN user signs in from the first-visit welcome (no URL params)
+      WHEN sign-in completes
+      THEN the "Choose path" screen shows with [New Project] and [Existing Sheet]
+      AND if recent sheets exist, they are also shown
+```
+
 ### R7: Sheet Management & Share Links
 
 **Problem**: No way to switch sheets, disconnect, see what's connected, or share.
@@ -766,6 +1012,36 @@ Google Sheet with the correct 20-column header and example rows. This serves Jou
   - "Create new project" → template picker (R5)
   - "Disconnect" → returns to welcome
 - **Recent sheets** stored in `localStorage` for quick switching
+
+**Requirements:**
+
+```
+R7.1: GIVEN dataSource='sheet' and user is signed in
+      WHEN the header renders
+      THEN the connected sheet's title is shown (fetched via spreadsheets.get)
+      AND clicking the title opens the sheet in Google Sheets in a new tab
+      AND a Share button is visible
+
+R7.2: GIVEN user clicks [Share]
+      WHEN the URL already has ?sheet=ID
+      THEN ?room=ID is added if missing (using sheet ID as room ID)
+      AND the full URL is copied to clipboard
+      AND a toast shows: "Link copied. Anyone with access to the Google Sheet can
+      collaborate."
+
+R7.3: GIVEN user clicks "Disconnect" in the sheet dropdown
+      WHEN the action is confirmed
+      THEN ?sheet= and ?room= are removed from the URL
+      AND dataSource transitions to 'sandbox'
+      AND polling and auto-save stop
+      AND Yjs disconnects
+      AND the welcome screen shows (return visitor variant if auth persists)
+
+R7.4: GIVEN user clicks "Switch sheet" in the dropdown
+      WHEN the sheet selector opens (same as R3)
+      THEN selecting a new sheet disconnects the current one
+      AND connects to the new sheet (full load cycle)
+```
 
 ### R8: Decouple Fake Data from Production Code
 
@@ -797,6 +1073,49 @@ const initialState: GanttState = {
 - Yjs hydration guard: only hydrate from loaded sheet tasks, never from fake data
 - `fakeData.ts` moves to `src/data/templates/softwareRelease.ts` and becomes a template
 
+**Requirements:**
+
+```
+R8.1: GIVEN the app loads with ?sheet=ABC123
+      WHEN GanttContext initializes
+      THEN initialState.tasks is [] (empty array)
+      AND initialState.dataSource is 'loading'
+      AND fakeData.ts / softwareRelease.ts is NOT imported
+
+R8.2: GIVEN the app loads with no URL params
+      WHEN GanttContext initializes
+      THEN initialState.dataSource is 'sandbox'
+      AND fakeTasks are loaded (lazy import from templates/softwareRelease.ts)
+      AND scheduleSave() is never called regardless of state.tasks changes
+
+R8.3: GIVEN dataSource='sandbox' and Yjs connection is attempted
+      WHEN connectCollab() is called
+      THEN the connection is blocked (guard checks dataSource !== 'sandbox')
+      AND no WebSocket is opened
+
+R8.4: GIVEN dataSource='sheet' and state.tasks changes
+      WHEN the useEffect fires
+      THEN scheduleSave() is called (auto-save active)
+
+R8.5: GIVEN dataSource='empty' and state.tasks changes (first edit)
+      WHEN the useEffect fires
+      THEN dataSource transitions to 'sheet'
+      AND scheduleSave() is called
+
+R8.6: GIVEN dataSource='sandbox' and user has modified tasks
+      WHEN the user attempts to close/navigate away from the tab
+      THEN a beforeunload dialog warns: "You have unsaved changes"
+
+R8.7: GIVEN dataSource='sandbox' and user has NOT modified tasks
+      WHEN the user closes the tab
+      THEN no beforeunload warning is shown
+```
+
+**Dirty tracking for beforeunload:** Compare `state.tasks` length and content against
+the initial `fakeTasks` snapshot. Set a `sandboxDirty` flag on any `TASK_MODIFYING_ACTION`
+dispatch when `dataSource === 'sandbox'`. The flag is cheap — just a boolean set once on
+first edit, not a deep comparison on every change.
+
 ### R9: Preserve Existing Sheet Data & Error Handling
 
 **Problem**: Auto-save can overwrite sheet data, and all sync errors are silent.
@@ -826,6 +1145,74 @@ const initialState: GanttState = {
   per error sequence, not per retry
 - Add `navigator.onLine` detection + `online`/`offline` event listeners
 - Add backoff to polling errors (currently polls every 30s regardless of failures)
+
+**Requirements:**
+
+```
+R9.1: GIVEN dataSource='sheet' and scheduleSave() gets a 429 response
+      WHEN retryWithBackoff begins retrying
+      THEN syncError is set to { type: 'rate_limit', ... }
+      AND the sync indicator shows "Sync paused — retrying automatically"
+      AND the indicator is shown ONCE (not re-shown per retry attempt)
+      AND when the save eventually succeeds, syncError is cleared
+      AND the indicator returns to "Synced"
+
+R9.2: GIVEN dataSource='sheet' and polling gets a 404 response
+      WHEN the error is caught
+      THEN syncError is set to { type: 'not_found', ... }
+      AND polling STOPS (no point retrying a deleted sheet)
+      AND a banner shows: "Can't access this sheet. It may have been deleted."
+      AND the sheet is removed from the recent sheets list
+      AND [Open another sheet] button is shown
+
+R9.3: GIVEN dataSource='sheet' and the OAuth token expires
+      WHEN a Sheets API call fails with 401
+      THEN syncError is set to { type: 'auth', ... }
+      AND a banner shows: "Session expired. [Re-authorize] to keep syncing."
+      AND unsaved changes are queued locally (not discarded)
+      AND clicking [Re-authorize] triggers token refresh
+      AND on success, syncError clears and queued changes are saved
+
+R9.4: GIVEN navigator.onLine transitions to false
+      WHEN the offline event fires
+      THEN syncError is set to { type: 'network', ... }
+      AND a banner shows: "You're offline. Changes saved locally."
+      AND when navigator.onLine transitions back to true
+      THEN syncError is cleared
+      AND a sync cycle runs immediately (save pending changes, poll for updates)
+
+R9.5: GIVEN dataSource='sheet' and polling errors occur 3 times consecutively
+      WHEN the third polling error is caught
+      THEN polling interval doubles (exponential backoff, max 5 min)
+      AND when a poll succeeds, interval resets to 30s
+
+R9.6: GIVEN syncError is set (any type) and user is editing tasks locally
+      WHEN the user drags a task bar or edits a field
+      THEN the edit succeeds locally (state updates, chart re-renders)
+      AND the edit is queued for sync when the error condition resolves
+      (local editing must NEVER be blocked by sync errors)
+```
+
+---
+
+## Implementation Order
+
+Rough sequencing — not rigid phases, but dependency-driven ordering:
+
+1. **Prerequisite: Write range fix** — Issue #62. Independent, ship first.
+2. **Foundation: R8 (decouple fake data) + R1 (dataSource state machine)** — Everything
+   else depends on the mode separation. Ship together.
+3. **Core UX: R2 (empty state) + R6 (onboarding flow) + R3 (sheet selector)** — These
+   form the first complete onboarding experience. Includes the return visitor welcome
+   (Journey 2) and the recent sheets list.
+4. **Creation: R5 (templates) + R7 (sheet management + share links)** — Enables
+   Journey 3 (new project) and completes Journey 2 (quick switching).
+5. **Safety: R9 (error handling + data safety)** — Can ship incrementally alongside
+   3 and 4 — each error type is independent.
+6. **Import: R4 Tier 1 (header validation)** — Small, can ship with group 3.
+   R4 Tier 2 (column mapping UI) is a separate larger effort.
+7. **Sheets-first: Journey 8** — Level 1 (template + docs) can ship anytime. Level 2
+   (prepare my sheet) depends on R4. Level 3 (add-on) is a separate project.
 
 ---
 
@@ -957,6 +1344,7 @@ The `scheduleSave()` function writes to range `Sheet1!A1:R{N}` — column R is t
 column. But `SHEET_COLUMNS` has 20 entries (columns A-T). Columns S (`constraintType`)
 and T (`constraintDate`) are silently dropped on every write. This is a critical bug that
 should be fixed in a separate PR before the onboarding work begins.
+Tracked in [issue #62](https://github.com/IMBurbank/ganttlet/issues/62).
 
 **Bug: Root task duration is 84, should be 85** (`fakeData.ts`)
 The root summary task "Q2 Product Launch" has `startDate: '2026-03-02'`,

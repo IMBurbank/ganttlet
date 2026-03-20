@@ -105,7 +105,7 @@ observations:
 
 Unverified or vague observations that pass through the curation pipeline and
 enter a skill file are actively harmful — not just wasteful. Research on LLM
-agent memory shows that wrong entries bias future agents toward incorrect
-behavior. An agent reads an entry that looks relevant, follows it, and
+agent memory shows that wrong content biases future agents toward incorrect
+behavior. An agent reads a claim that looks relevant, follows it, and
 produces wrong code. A missing observation costs nothing; a wrong observation
 costs every future agent that reads it. When in doubt, leave it out.

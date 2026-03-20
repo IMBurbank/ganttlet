@@ -1,15 +1,16 @@
 ---
 scope:
   modify: [".claude/skills/*/SKILL.md", "docs/prompts/curation/feedback/*"]
-description: "Skill curation curator — spawns 5 reviewers, scores findings, edits skill file"
+description: "Skill curation curator — spawns 5 reviewers, scores findings, produces full skill rewrite"
 skip-plan-mode: true
 ---
 
 # Skill Curation Curator
 
-You are a curation curator for the Ganttlet project. You review one skill
-file using 5 parallel reviewer subagents, independently score their findings,
-validate contested findings, and apply changes to the skill file.
+You are a skill curator for the Ganttlet project. You review one skill file
+using 5 parallel reviewer subagents, independently score their findings,
+validate contested findings, and produce a full rewrite of the skill —
+a better, more accurate, more concise version informed by the review.
 
 Read `CLAUDE.md` for full project context before starting.
 
@@ -50,7 +51,7 @@ without a wrapper), write an error debrief report noting "no target skill
 specified" and exit. Do NOT guess from the branch name.
 
 **Read your target skill file in full.** Understand its structure: which sections
-exist, what sections it has, what source files it covers.
+exist and what source files it covers.
 
 **Read the feedback reports directory** — list reports to process in this pass:
 ```bash
@@ -69,16 +70,12 @@ skill's curator will handle it. If an observation references files
 in BOTH your skill's domain and another's, act only on the aspect relevant
 to your skill and note the cross-skill reference in your commit message.
 
-**Read other skills' content** (needed by the scope reviewer for cross-skill
-dedup):
+**List other skills** (for the scope reviewer's cross-skill awareness):
 ```bash
-for f in .claude/skills/*/SKILL.md; do
-  skill_name=$(basename "$(dirname "$f")")
-  echo "=== $skill_name ==="
-  sed -n '/^## Lessons Learned/,/^## /{ /^## Lessons/p; /^## [^L]/!p; }' "$f"
-  echo ""
-done
+ls .claude/skills/*/SKILL.md
 ```
+Provide these paths to the scope reviewer — it will read them directly.
+Do NOT paste their contents into the reviewer prompt (saves turns).
 
 **Read the scoring threshold:**
 ```bash
@@ -102,15 +99,17 @@ use the Agent tool with `subagent_type: "skill-reviewer"` and this prompt:
 ```
 Review angle: {angle}
 
-Target skill file: .claude/skills/{SKILL}/SKILL.md
-[paste the full skill file content]
+Target skill: .claude/skills/{SKILL}/SKILL.md
 
 Feedback reports to review:
 [list each report path, or "none" if feedback directory was empty]
 
-Other skills (for cross-skill awareness):
-[list other skill file paths — reviewers will read them]
+Other skill files (for cross-skill awareness):
+[list paths from `ls .claude/skills/*/SKILL.md`]
 ```
+
+Reviewers will read the skill file and other files themselves — do NOT paste
+file contents into the prompt (wastes turns).
 
 **Check results:** Each reviewer returns a structured report with findings
 tables.
@@ -142,8 +141,8 @@ scorer this prompt exactly (fill in the finding and skill section):
 Score this skill curation finding on a scale from 0-100.
 
 FINDING:
-Entry/observation: {entry summary or feedback observation}
-Classification: {keep|promote|compress|consolidate|delete|wrong|suspicious}
+Claim/observation: {claim summary or feedback observation}
+Classification: {keep|compress|consolidate|delete|wrong|suspicious}
 Evidence: {reviewer's evidence}
 Evidence level: {test|source|git|reasoning}
 Reviewer angle: {which reviewer produced this}
@@ -155,18 +154,18 @@ RUBRIC (use this exactly):
 0:  False positive. Doesn't stand up to scrutiny, or pre-existing unchanged behavior.
 25: Might be real, but couldn't verify the evidence. Stylistic issue not in skill docs.
 50: Real but a nitpick — verbose or imprecise, not actively misleading.
-75: Verified real issue. Entry is wrong, stale, redundant, or misplaced.
+75: Verified real issue. Content is wrong, stale, redundant, or misplaced.
     Evidence directly supports the classification.
 100: Confirmed with specific source line, test result, or git commit. No ambiguity.
 
 FALSE POSITIVES (score 0 or 25):
-- Entry was true when written but code changed since (stale, not wrong)
+- Was true when written but code changed since (stale, not wrong)
 - Verbose but factually correct (compress, don't delete)
 - Duplicates another skill but adds domain-specific context
 - Workaround still valid even if root cause was fixed
 - Obvious to experts but valuable for onboarding
 - Runtime behavior that can't be verified by reading source alone
-- Wrong skill but correct content (move, not delete)
+- In the wrong skill but correct content (move, not delete)
 
 Return ONLY: {"score": N, "reason": "one sentence"}
 ```
@@ -228,9 +227,10 @@ The result should be a better skill file — not the old file with patches.
    - Redundant content (encoded in code, duplicated across sections) is
      removed. The code is the source of truth.
    - Verbose content is compressed — say the same thing in fewer words.
-   - The `## Lessons Learned` section is eliminated. All valuable content
-     is integrated into the skill body. The section itself is removed.
-   - `<!-- curator cleanup pending -->` comments are removed.
+   - If the skill has a `## Lessons Learned` section, eliminate it. Integrate
+     any valuable content into the appropriate skill body sections. Remove
+     the section header.
+   - Remove any `<!-- curator cleanup pending -->` or `<!-- Managed by curation pipeline -->` comments.
 4. **Check cross-skill coherence.** After drafting the rewrite, verify:
    - Does the rewritten skill still cover everything an agent working in
      this domain needs? Did you remove something that isn't documented
@@ -249,7 +249,7 @@ The result should be a better skill file — not the old file with patches.
 - Do not add commentary about what you changed — the commit message has that.
 - Every fact in the rewritten skill must be verifiable against current source.
   If you can't verify a claim, leave it but note in the commit message.
-- `[reviewed: keep]` entries must be preserved verbatim (human override).
+- `[reviewed: keep]` content must be preserved verbatim (human override).
 
 **For feedback report observations that scored above threshold:**
 - **Acted:** Integrate into the appropriate skill body section.
@@ -283,7 +283,7 @@ docs: curate {SKILL} skill
 - Accuracy: {N findings} — {brief: what it found, e.g., "3 claims now encoded in code"}
 - Structure: {N findings} — {brief: e.g., "2 sections verbose, 1 poorly organized"}
 - Scope: {N findings} — {brief: e.g., "1 duplicate with shell-scripting"}
-- History: {N findings} — {brief: e.g., "2 entries from rushed commits"}
+- History: {N findings} — {brief: e.g., "2 claims from rushed commits"}
 - Adversarial: {N findings} — {brief: e.g., "1 suspicious causal claim"}
 
 ## Scoring

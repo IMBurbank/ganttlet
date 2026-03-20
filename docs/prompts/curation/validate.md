@@ -12,7 +12,7 @@ Validate the skill curation results after merge.
 1. **Skill files parse correctly.** Read each modified SKILL.md and verify:
    - YAML frontmatter is valid (name, description fields present)
    - Sections are well-formed (## headers, no orphaned content)
-   - LL section has the "managed by curation pipeline" header comment
+   - No `## Lessons Learned` section remains (should have been eliminated by curator)
 
 2. **No broken cross-references.** For any skill body content that references
    other files (source paths, other skills, commands), verify the referenced
@@ -40,8 +40,8 @@ Validate the skill curation results after merge.
    [ -f docs/project-structure.md ] && grep "<!-- NEW:\|<!-- DELETED:" docs/project-structure.md
    ```
 
-5. **`[reviewed: keep]` entries preserved.** Verify that no `[reviewed: keep]`
-   tagged entries were modified or deleted:
+5. **`[reviewed: keep]` content preserved.** Verify that no `[reviewed: keep]`
+   tagged content was modified or deleted:
    ```bash
    git diff origin/main -- .claude/skills/ | grep "^-.*\[reviewed: keep\]"
    ```

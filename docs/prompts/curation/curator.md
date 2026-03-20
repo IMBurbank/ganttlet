@@ -1,6 +1,10 @@
 ---
 scope:
   modify: [".claude/skills/*/SKILL.md", "docs/prompts/curation/feedback/*"]
+  read_only:
+    - .claude/skills/curation/SKILL.md
+    - docs/prompts/curation/debrief-template.md
+    - docs/prompts/curation/threshold.txt
 description: "Skill curation curator — reviews skill with 5 subagents, produces full rewrite"
 skip-plan-mode: true
 ---

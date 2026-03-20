@@ -42,7 +42,10 @@ DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
 DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 STALL_TIMEOUT="${STALL_TIMEOUT:-30}"
 WORKSPACE="$(git rev-parse --show-toplevel)"
-WORKTREE_BASE="${WORKTREE_BASE:-${WORKSPACE}/.claude/worktrees}"
+# Worktrees are always created under the main repo's .claude/worktrees/,
+# not nested inside the current worktree. Use git's common dir to find it.
+_GIT_MAIN_WORKTREE="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
+WORKTREE_BASE="${WORKTREE_BASE:-${_GIT_MAIN_WORKTREE}/.claude/worktrees}"
 WATCH="${WATCH:-0}"
 VALIDATE_MAX_ATTEMPTS="${VALIDATE_MAX_ATTEMPTS:-3}"
 MAX_STAGE_DURATION="${MAX_STAGE_DURATION:-1800}"  # 30 minutes default

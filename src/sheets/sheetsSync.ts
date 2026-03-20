@@ -1,5 +1,5 @@
 import { readSheet, updateSheet } from './sheetsClient';
-import { tasksToRows, rowsToTasks } from './sheetsMapper';
+import { tasksToRows, rowsToTasks, SHEET_COLUMNS } from './sheetsMapper';
 import { isSignedIn } from './oauth';
 import { applyTasksToYjs } from '../collab/yjsBinding';
 import { getDoc } from '../collab/yjsProvider';
@@ -8,6 +8,16 @@ import type { GanttAction } from '../state/actions';
 
 const DATA_RANGE = 'Sheet1';
 const WRITE_DEBOUNCE_MS = 2000;
+
+export function columnLetter(n: number): string {
+  let s = '';
+  while (n > 0) {
+    n--;
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26);
+  }
+  return s;
+}
 const POLL_INTERVAL_MS = 30000;
 
 type SyncCallback = (action: GanttAction) => void;
@@ -63,7 +73,8 @@ export function scheduleSave(tasks: Task[]): void {
     try {
       dispatch?.({ type: 'START_SYNC' });
       const rows = tasksToRows(tasks);
-      const range = `${DATA_RANGE}!A1:R${rows.length}`;
+      const endCol = columnLetter(SHEET_COLUMNS.length);
+      const range = `${DATA_RANGE}!A1:${endCol}${rows.length}`;
       await updateSheet(currentSpreadsheetId!, range, rows);
       lastWriteHash = hashTasks(tasks);
       dispatch?.({ type: 'COMPLETE_SYNC' });

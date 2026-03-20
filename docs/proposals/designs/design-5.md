@@ -72,8 +72,10 @@ Lazy loading via dynamic `import()` for each template. The registry includes a
 - Clicking title → opens sheet in Google Sheets (new tab)
 - Share button → copies URL to clipboard, adds `?room=` if missing. Toast: "Link
   copied. Anyone with access to the Google Sheet can collaborate."
-- Dropdown: "Open in Google Sheets", "Switch sheet" (→ SheetSelector),
-  "Create new project" (→ TemplatePicker), "Disconnect" (→ clears URL, resets state)
+- Dropdown: "Open in Google Sheets", "Switch sheet" (→ teardown current sheet
+  first: `stopPolling()`, disconnect Yjs, clear auto-save; then open SheetSelector;
+  on select → full connection cycle with new sheet), "Create new project"
+  (→ TemplatePicker), "Disconnect" (→ clears URL, resets state)
 
 **Disconnect flow:**
 

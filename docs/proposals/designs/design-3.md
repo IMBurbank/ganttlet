@@ -21,7 +21,7 @@ REQ-WG-1–3, REQ-WG-5, REQ-ES-1–2, REQ-ES-3 (prop interface only; wiring by D
 | `src/components/onboarding/FirstVisitWelcome.tsx` | Create | Value props, [Try the demo], [Sign in with Google] |
 | `src/components/onboarding/ReturnVisitorWelcome.tsx` | Create | "Welcome back, {name}", recent projects list |
 | `src/components/onboarding/CollaboratorWelcome.tsx` | Create | "You've been invited...", [Sign in with Google] |
-| `src/components/onboarding/ChoosePath.tsx` | Create | [New Project], [Existing Sheet] |
+| `src/components/onboarding/ChoosePath.tsx` | Create | [New Project], [Existing Sheet], [Demo]; shows recent sheets if any |
 | `src/components/onboarding/EmptyState.tsx` | Create | Timeline scaffolding, "Add your first task" CTA |
 | `src/components/onboarding/WelcomeGate.tsx` | Modify | Replace placeholder with real screen components |
 | `src/App.tsx` | Modify | Render EmptyState in AppContent when `dataSource='empty'` |
@@ -32,6 +32,9 @@ REQ-WG-1–3, REQ-WG-5, REQ-ES-1–2, REQ-ES-3 (prop interface only; wiring by D
 
 ```
 if dataSource defined → render children
+  if dataSource === 'loading' → render loading skeleton: timeline grid scaffolding
+  with a centered spinner/shimmer (no tasks, no fake data). This is the same layout
+  as EmptyState but with a loading indicator instead of the CTA.
 if URL has ?sheet= or ?room=:
   if signed in → render children (loading skeleton, useEffect handles load)
   if not signed in → <CollaboratorWelcome onSignIn={signIn} />

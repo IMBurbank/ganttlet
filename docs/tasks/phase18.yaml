@@ -94,8 +94,10 @@ stages:
               Yjs guard: dataSource !== 'sheet' (additive to existing ?room= + token checks).
               collabDispatch guard after dispatch() before Yjs sync block.
               Sheets sync useEffect: runs when ?sheet= + signed in. Sets dataSource='loading',
-              calls loadFromSheet(). Success+data → 'sheet'. Success+[] → 'empty'. Throw →
-              syncError via classifySyncError (dataSource stays 'loading').
+              calls loadFromSheet(). If row 1 empty → skip validateHeaders, set 'empty'.
+              Success+data → 'sheet'. Success+[] → 'empty'. Throw → syncError via
+              classifySyncError (dataSource stays 'loading'). On success, call
+              addRecentSheet() to update the recent sheets list.
               Sign-in during sandbox: dataSource stays 'sandbox', no Yjs opens.
               beforeunload when sandbox + sandboxDirty=true. No beforeunload when sandboxDirty=false.
           - id: A8
@@ -175,8 +177,9 @@ stages:
               Modal shows Drive listing top, URL paste bottom. Invalid URL shows inline error:
               "Couldn't find a spreadsheet ID in this URL". [Connect] disabled when no valid selection.
               [Create New Sheet] button rendered (stub, no-op until Design 5 wires it).
-              onSelectSheet(sheetId) callback sets ?sheet=ID&room=ID, dispatches SET_DATA_SOURCE('loading'),
-              calls addRecentSheet(). Component test covers render, select, paste valid, paste invalid.
+              onSelectSheet(sheetId) callback sets ?sheet=ID&room=ID, dispatches SET_DATA_SOURCE('loading').
+              Note: addRecentSheet() is called after loadFromSheet() succeeds (in GanttContext),
+              not at click time. Component test covers render, select, paste valid, paste invalid.
 
       - id: C
         name: "Design 6 — Error Handling + Header Validation UI"
@@ -236,7 +239,8 @@ stages:
               not_found: "Can't access this sheet. It may have been deleted." + [Open another sheet].
               Calls stopPolling() + removeRecentSheet(sheetId).
               forbidden: same banner text + [Open another sheet] (no removeRecentSheet).
-              When dataSource='loading' + error: also show [Retry] button (re-calls loadFromSheet).
+              When dataSource='loading' + any error: also show [Retry] button alongside
+              [Open another sheet]. [Retry] re-calls loadFromSheet().
               network: "You're offline. Changes saved locally."
               rate_limit: NOT a banner — handled by SyncStatus (C6).
               Component test covers each error type rendering + action triggers.
@@ -330,11 +334,12 @@ stages:
               After sign-in: GanttContext useEffect re-fires → loadFromSheet auto.
               No intermediate screen. Component does NOT call loadFromSheet directly.
           - id: D5
-            summary: "Create ChoosePath.tsx — [New Project] + [Existing Sheet]"
+            summary: "Create ChoosePath.tsx — [New Project] + [Existing Sheet] + [Demo]"
             status: pending
             exit_criteria: >
-              [New Project] and [Existing Sheet] buttons. Recent sheets shown if any exist.
-              Component test verifies button rendering and recent sheets display.
+              [New Project], [Existing Sheet], and [Demo] buttons. [Demo] dispatches
+              ENTER_SANDBOX. If recent sheets exist, they are listed below the buttons.
+              Component test verifies all three buttons and recent sheets display.
           - id: D6
             summary: "Update WelcomeGate.tsx — replace placeholder with real screen routing"
             status: pending

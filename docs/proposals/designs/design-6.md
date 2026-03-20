@@ -41,8 +41,14 @@ REQ-EH-1–6, REQ-HV-2/5 (UI only; REQ-HV-1/3/4 are logic covered by Design 1)
     sheet] — call `stopPolling()` (exported from `sheetsSync.ts`, see Design 1).
     Sheet is removed from recent sheets list via `removeRecentSheet()` (Design 2).
   - `forbidden`: Same as not_found (but does not remove from recent list)
+  - When `dataSource='loading'` + any error (`forbidden`, `not_found`, `auth`): also show
+    [Retry] button alongside [Open another sheet]. [Retry] re-calls `loadFromSheet()`.
   - `network`: "You're offline. Changes saved locally." — detected via `navigator.onLine`
-  - `rate_limit`: NOT a banner — shows in sync status indicator: "Sync paused — retrying"
+  - `rate_limit`: NOT a banner — shows in sync status indicator: "Sync paused — retrying
+    automatically"
+  - `header_mismatch`: NOT handled by ErrorBanner — renders `HeaderMismatchError.tsx`
+    instead (a full-screen component, not a banner overlay). Triggered when
+    `syncError.type === 'header_mismatch'` and `dataSource === 'loading'`.
 
 **Polling backoff:**
 

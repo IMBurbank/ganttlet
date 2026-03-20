@@ -72,7 +72,9 @@ export function removeRecentSheet(sheetId: string): void  // on 403/404
   - [Connect] disabled when no valid selection
 - Buttons: [Connect] (enabled when valid selection), [Create New Sheet] (stub for Design 5)
 - On connect: calls `onSelectSheet(sheetId)` callback → parent sets `?sheet=ID&room=ID`
-  in URL + dispatches `SET_DATA_SOURCE('loading')` + calls `addRecentSheet()`
+  in URL + dispatches `SET_DATA_SOURCE('loading')`. Note: `addRecentSheet()` is called
+  after `loadFromSheet()` succeeds (in GanttContext), NOT at click time — a failed load
+  should not add to the recent list
 
 ## Tests
 

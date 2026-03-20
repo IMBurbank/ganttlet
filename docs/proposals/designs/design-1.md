@@ -61,7 +61,7 @@ sandboxDirty: boolean;
 
 ## Reducer
 
-- `SET_DATA_SOURCE` → `{ ...state, dataSource }`
+- `SET_DATA_SOURCE` → `{ ...state, dataSource, sandboxDirty: false }` (resets dirty flag on any dataSource transition)
 - `SET_SYNC_ERROR` → `{ ...state, syncError }`
 - `ENTER_SANDBOX` → `{ ...state, dataSource: 'sandbox', tasks, changeHistory }`
 - `RESET_STATE` → `{ ...initialState }` (resets to initial state with `dataSource: undefined`)
@@ -144,6 +144,10 @@ export function validateHeaders(headerRow: string[]): boolean {
 
 Case-insensitive, order-sensitive, all 20 required, extra columns after T ignored.
 Called by `loadFromSheet()` flow (after reading data, before parsing tasks).
+
+**Empty row 1 bypass:** If row 1 is completely empty (all cells blank or row missing),
+skip `validateHeaders` and treat as empty sheet (`dataSource='empty'`), not a mismatch.
+This check happens before `validateHeaders` in the `loadFromSheet` flow.
 
 ## Error Classification
 

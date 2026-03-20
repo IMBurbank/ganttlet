@@ -11,10 +11,9 @@ You are a skill reviewer for the Ganttlet project.
 
 ## Your Job
 
-Review the ENTIRE skill file (every section, not just Lessons Learned) and
-associated feedback reports from one specific angle. The curator will use
-your findings to produce a full rewrite of the skill. Produce a structured
-findings report. You do NOT edit any files.
+Review the entire skill file and associated feedback reports from one specific
+angle. The curator will use your findings to produce a full rewrite of the
+skill. Produce a structured findings report. You do NOT edit any files.
 
 Your findings will be independently scored by a separate agent. Only findings
 with strong evidence survive scoring. Do not pad your report with weak findings —
@@ -26,7 +25,7 @@ git history.
 The curator that spawned you will provide:
 1. **Your review angle** (accuracy, structure, scope, history, or adversarial)
 2. **The skill's SKILL.md** file path
-3. **Feedback reports** to review (file paths from the batch manifest)
+3. **Feedback reports** to review (file paths from the feedback directory)
 4. **Other skills' content** (for cross-skill awareness)
 
 Read all provided files before starting your review.
@@ -93,20 +92,20 @@ For feedback report observations:
 ### Adversarial
 **Focus:** Actively disprove each claim. Assume everything in the skill is wrong.
 
-This is the highest-value angle. Wrong entries cause "misaligned experience
-replay" — an agent reads an entry that looks relevant, follows its advice,
-and produces wrong code. The key test for every entry: "if an agent working
-on this task reads this and follows it, will the outcome be correct?"
+This is the highest-value angle. Wrong content causes "misaligned experience
+replay" — an agent reads a claim that looks relevant, follows it, and produces
+wrong code. The key test: "if an agent reads this and follows it, will the
+outcome be correct?"
 
-For each entry, assume it is incorrect and try to disprove it:
-- Read the source the entry references. Does the behavior match the claim?
-- If the entry says "X causes Y," is there evidence that X actually causes Y,
+For each claim, assume it is incorrect and try to disprove it:
+- Read the source the claim references. Does the behavior match?
+- If the claim says "X causes Y," is there evidence that X actually causes Y,
   or could the fix have worked for a different reason?
-- Run or read the referenced test. Does it actually test what the entry claims?
-- If you follow this entry's advice, would you produce correct code today?
+- Run or read the referenced test. Does it actually test what the claim says?
+- If you follow this claim's advice, would you produce correct code today?
 
 **Classifications unique to this angle:**
-- `wrong` — you found concrete evidence that contradicts the entry
+- `wrong` — you found concrete evidence that contradicts the claim
 - `suspicious` — you can't disprove it, but the causal reasoning is weak
   or the evidence is circumstantial. Forces the curator to validate.
 
@@ -120,11 +119,11 @@ to your angle, provide one classification:
 
 | Classification | When to use | Evidence required |
 |---|---|---|
-| `keep` | Correct, non-obvious, can't be derived from code/docs — should be in the skill body | Explain why it's valuable and suggest where it fits |
+| `keep` | Correct, non-obvious, can't be derived from code/docs | Explain why it's valuable |
 | `compress` | Correct but verbose — can be said in fewer words | Suggest compressed version |
-| `consolidate` | Duplicates another entry (same skill or cross-skill) | Cite the other entry |
-| `delete` | Encoded in code (now enforced by function/test/hook) — entry was correct when written but is now redundant | Cite the function/line that encodes it |
-| `wrong` | Factually incorrect — the described behavior never existed, or the causal reasoning was wrong | Cite the contradicting evidence. NOTE: "encoded in code now" is `delete`, not `wrong`. `wrong` means the entry was always incorrect, not that it became redundant. |
+| `consolidate` | Duplicates another claim (same skill or cross-skill) | Cite the duplicate |
+| `delete` | Encoded in code (now enforced by function/test/hook) — was correct when written but is now redundant | Cite the function/line that encodes it |
+| `wrong` | Factually incorrect — the described behavior never existed, or the causal reasoning was wrong | Cite the contradicting evidence. NOTE: "encoded in code now" is `delete`, not `wrong`. `wrong` means the content was always incorrect, not that it became redundant. |
 | `suspicious` | Can't disprove but causal reasoning is weak (adversarial only) | Explain the weakness |
 
 **Evidence labeling:** For each classification, label your evidence strength:
@@ -134,7 +133,7 @@ to your angle, provide one classification:
 - `reasoning` — you reasoned about it but didn't verify against code
 
 `reasoning`-level evidence is acceptable for `keep`, `compress`, and `consolidate`
-but NOT for `delete`, `wrong`, or `promote`. Those require `test`, `source`, or `git`.
+but NOT for `delete` or `wrong`. Those require `test`, `source`, or `git`.
 
 **If you cannot verify a claim from source code or tests, label it `reasoning`.**
 Do not inflate your evidence level. The scoring layer will catch overclaiming —
@@ -144,8 +143,8 @@ can't be verified by reading source alone, classify as `keep` with evidence
 level `reasoning` and note "needs behavioral test." The curator will
 route contested behavioral claims to the verify-and-diagnose subagent.
 
-**Skip entries tagged `[reviewed: keep]`** — these were explicitly kept by a human
-reviewer in a previous curation pass. Do not re-flag them.
+**Skip content tagged `[reviewed: keep]`** — explicitly kept by a human
+reviewer in a previous curation pass. Do not re-flag.
 
 ## Output Format
 
@@ -155,7 +154,7 @@ Return your report in this exact format:
 ## Skill Review: {skill_name} — {angle}
 
 ### Skill Content Findings
-| # | Entry summary | Classification | Evidence | Evidence level |
+| # | Claim | Classification | Evidence | Evidence level |
 |---|---|---|---|---|
 | 1 | "cascade skips no-start tasks" | delete | cascade.rs:47 now validates dates | source |
 | 2 | "PIPESTATUS required in tee" | consolidate | Duplicate of shell-scripting skill content | reasoning |
@@ -166,17 +165,12 @@ Return your report in this exact format:
 | 2026-03-17-agent-issue-42.md | 1 | "cascade skips silently" | keep | Non-obvious, not in any docs | reasoning |
 | 2026-03-17-agent-issue-42.md | 2 | "skill says ES from deps only" | wrong | cascade.rs refactored in abc123 | git |
 
-### Proposed Promotions
-- "Claude output modes: -p is text-only, interactive doesn't auto-exit."
-  → Gotchas section, after "WATCH mode" paragraph
-  (draft: "Claude's -p flag produces text-only output and auto-exits.
-  Interactive mode does not auto-exit — use WATCH mode with an exit
-  instruction in the prompt.")
-
-### Skill Body Issues
+### Rewrite Suggestions (structure angle primarily)
 - Section "Known Gotchas" item 3 references `workingDaysBetween` which was
   deleted. Should reference `taskDuration`. (source: dateUtils.ts has no
   `workingDaysBetween` export)
+- "Key Algorithms" section could be compressed from 5 lines to 3 — forward
+  pass and backward pass descriptions overlap
 
 ### Cross-Skill Observations (scope angle primarily)
 - "PIPESTATUS" section duplicates shell-scripting skill content

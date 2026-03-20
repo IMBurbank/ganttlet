@@ -18,8 +18,7 @@ steps sequentially without stopping for approval.
 
 **Turn budget awareness:** You have limited turns. Be efficient:
 - Steps 1 (context): ~3 turns. Do NOT paste entire skill files into reviewer
-  prompts — give file paths and let reviewers read them. Only paste LL sections
-  (compact) and the list of feedback report paths.
+  prompts — give file paths and let reviewers read them.
 - Step 2 (spawn reviewers): 1 turn (5 parallel calls)
 - Step 3 (spawn scorers): 1-2 turns (parallel calls)
 - Steps 4-5 (filter + edit): ~5-8 turns
@@ -51,7 +50,7 @@ without a wrapper), write an error debrief report noting "no target skill
 specified" and exit. Do NOT guess from the branch name.
 
 **Read your target skill file in full.** Understand its structure: which sections
-exist, where the LL section starts, what source files it covers.
+exist, what sections it has, what source files it covers.
 
 **Read the feedback reports directory** — list reports to process in this pass:
 ```bash
@@ -60,7 +59,7 @@ find docs/prompts/curation/feedback -maxdepth 1 -name "*.md" \
 ```
 This gives you the oldest 20 reports (date-prefixed filenames sort chronologically).
 Read ALL of them. If the directory is empty, you have no feedback reports —
-proceed with reviewing existing LL entries only.
+proceed with reviewing existing skill content only.
 
 **Read ALL listed feedback reports.** For each report, note which observations
 reference files relevant to your skill. **Only act on observations whose
@@ -70,7 +69,7 @@ skill's curator will handle it. If an observation references files
 in BOTH your skill's domain and another's, act only on the aspect relevant
 to your skill and note the cross-skill reference in your commit message.
 
-**Read other skills' LL sections** (needed by the scope reviewer for cross-skill
+**Read other skills' content** (needed by the scope reviewer for cross-skill
 dedup):
 ```bash
 for f in .claude/skills/*/SKILL.md; do
@@ -109,8 +108,8 @@ Target skill file: .claude/skills/{SKILL}/SKILL.md
 Feedback reports to review:
 [list each report path, or "none" if feedback directory was empty]
 
-Other skills' LL sections (for cross-skill awareness):
-[paste the LL sections output from Step 1]
+Other skills (for cross-skill awareness):
+[list other skill file paths — reviewers will read them]
 ```
 
 **Check results:** Each reviewer returns a structured report with findings
@@ -150,7 +149,7 @@ Evidence level: {test|source|git|reasoning}
 Reviewer angle: {which reviewer produced this}
 
 SKILL CONTEXT:
-{paste the specific LL entry or skill body section the finding references}
+{paste the specific skill section the finding references}
 
 RUBRIC (use this exactly):
 0:  False positive. Doesn't stand up to scrutiny, or pre-existing unchanged behavior.
@@ -196,7 +195,7 @@ Count and record:
 
 Frame each validation as a specific, answerable question:
 ```
-"Finding says LL entry 'cascade silently skips tasks with no start date'
+"Finding says 'cascade silently skips tasks with no start date'
 is wrong because cascade_dependents now validates dates.
 Check crates/scheduler/src/cascade.rs — does cascade_dependents validate
 dates before processing, or does it still skip silently?"
@@ -269,7 +268,7 @@ Observations processed (from {N} feedback reports):
   #1 {type} "{summary}"
      → {acted|rejected|preserved}: {action or reason}
 
-LL entries modified:
+Skill content modified:
   - Deleted: "{entry summary}" (reason: {evidence})
   - Promoted: "{entry summary}" → {target section}
   - Compressed: "{entry summary}"
@@ -282,7 +281,7 @@ EOF
 If you made no changes (all findings filtered out or all entries kept),
 commit a no-op with:
 ```bash
-git commit --allow-empty -m "docs: $SKILL skill — no changes (all entries validated)"
+git commit --allow-empty -m "docs: $SKILL skill — no changes (all content validated)"
 ```
 
 ## Step 7: Write Debrief Report

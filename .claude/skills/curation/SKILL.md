@@ -80,7 +80,7 @@ the code-review plugin's 5 parallel agents, each checking a different aspect.
 ### Accuracy
 **Is each entry still true? Is it now encoded in code?**
 
-Reads the source files the skill covers. Checks each LL entry and skill body
+Reads the source files the skill covers. Checks each claim and skill body
 claim against current implementation. The primary angle for catching redundant
 lessons — entries that were true when written but are now enforced by a
 function, test, hook, or lint.
@@ -89,13 +89,13 @@ function, test, hook, or lint.
 **Is the skill well-organized? Should entries be promoted?**
 
 Evaluates skill body quality: section organization, verbosity, staleness.
-Identifies LL entries important enough to live permanently in the skill body
+Identifies claims important enough to live permanently in the skill body
 (Gotchas, Architecture, Patterns sections). Drafts promoted text.
 
 ### Scope
 **Does this belong here or in a different skill?**
 
-Reads all skills' LL sections. Checks for cross-skill duplication and
+Reads all skills' content. Checks for cross-skill duplication and
 misplaced content. Determines the canonical location for each piece of
 knowledge. Flags entries that reference files owned by a different skill.
 
@@ -135,7 +135,7 @@ in the curator prompt (step 4) and given to scorers verbatim.
 ## Debrief Reports
 
 Implementing agents write structured debrief reports instead of appending
-directly to skill LL sections. Reports accumulate in
+directly to skill content. Reports accumulate in
 `docs/prompts/curation/feedback/` and are processed by the curation pipeline.
 
 **Template:** `docs/prompts/curation/debrief-template.md` — agents are
@@ -173,7 +173,7 @@ Your target skill is: scheduling-engine"
 Same 5 reviewers, same scoring. No launch-phase infrastructure needed.
 Useful for:
 - Testing/refining prompts before automated runs
-- Initial LL cleanup on a specific skill
+- Initial cleanup on a specific skill
 - Reviewing a skill outside the regular cadence
 
 ## Code Review Protocol for Curation PRs
@@ -230,5 +230,3 @@ scripts/
 └── generate-retry-config.sh # Partial failure recovery
 ```
 
-## Gotchas
-<!-- populated from curation pass experience -->

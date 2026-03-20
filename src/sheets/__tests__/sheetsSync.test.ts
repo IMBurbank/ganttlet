@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock dependencies before importing the module under test
 vi.mock('../sheetsClient', () => ({
@@ -81,6 +81,10 @@ describe('scheduleSave write range', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     initSync('spreadsheet-id-123', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('write range ends at column derived from SHEET_COLUMNS.length', async () => {

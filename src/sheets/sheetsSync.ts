@@ -33,6 +33,7 @@ function hashTasks(tasks: Task[]): string {
     id: t.id, name: t.name, startDate: t.startDate, endDate: t.endDate,
     duration: t.duration, owner: t.owner, done: t.done, dependencies: t.dependencies,
     parentId: t.parentId, childIds: t.childIds,
+    constraintType: t.constraintType, constraintDate: t.constraintDate,
   })));
 }
 

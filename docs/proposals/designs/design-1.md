@@ -21,11 +21,11 @@ REQ-SM-STATE-1–9, REQ-FD-1–7, REQ-WG-4, REQ-HV-1/3/4 (logic only)
 |---|---|---|
 | `src/types/index.ts` | Modify | Add `DataSource`, `SyncError` types; add `dataSource`, `syncError`, `sandboxDirty` to `GanttState` |
 | `src/state/actions.ts` | Modify | Add `SET_DATA_SOURCE`, `SET_SYNC_ERROR`, `ENTER_SANDBOX` actions |
-| `src/state/ganttReducer.ts` | Modify | Add 3 action cases + `sandboxDirty` auto-tracking |
+| `src/state/ganttReducer.ts` | Modify | Add 4 action cases + `sandboxDirty` auto-tracking. Move `TASK_MODIFYING_ACTIONS` from GanttContext to a shared constant (e.g. `actions.ts`) so reducer can import it. |
 | `src/data/fakeData.ts` | Move | → `src/data/templates/softwareRelease.ts` |
 | `src/data/defaultColumns.ts` | Create | Extract `defaultColumns` (needed at init regardless of mode) |
 | `src/sheets/syncErrors.ts` | Create | `classifySyncError(err) → SyncError` |
-| `src/sheets/sheetsSync.ts` | Modify | `loadFromSheet()` throws instead of returning `[]` |
+| `src/sheets/sheetsSync.ts` | Modify | `loadFromSheet()` throws on HTTP errors instead of returning `[]`; also remove early-return `[]` for unauthenticated state (let caller handle). Export `stopPolling()` for disconnect/error flows. |
 | `src/sheets/sheetsMapper.ts` | Modify | Add `validateHeaders(row: string[]): boolean` |
 | `src/state/GanttContext.tsx` | Modify | Empty initialState, dataSource-based gating on auto-save + Yjs + collabDispatch, error classification, beforeunload |
 | `src/components/onboarding/WelcomeGate.tsx` | Create | Routing shell: if `dataSource` defined → children; else → placeholder |
@@ -157,6 +157,7 @@ export function classifySyncError(err: unknown): SyncError {
       case 403: return { type: 'forbidden', message: 'Access denied', since: Date.now() };
       case 404: return { type: 'not_found', message: 'Sheet not found', since: Date.now() };
       case 429: return { type: 'rate_limit', message: 'Rate limited', since: Date.now() };
+      default:  return { type: 'network', message: `HTTP ${err.status}`, since: Date.now() };
     }
   }
   if (err instanceof TypeError) {

@@ -37,6 +37,15 @@ GET https://www.googleapis.com/drive/v3/files
 
 Uses raw `fetch()` with `Authorization: Bearer ${token}`. No Google SDK.
 
+```typescript
+export interface SheetInfo {
+  id: string;
+  name: string;
+  modifiedTime: string;  // ISO 8601
+  iconLink: string;
+}
+```
+
 **URL parsing** (`parseSheetUrl.ts`):
 
 - Regex: `/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/`
@@ -62,7 +71,7 @@ export function removeRecentSheet(sheetId: string): void  // on 403/404
   - Invalid URL → inline error: "Couldn't find a spreadsheet ID in this URL"
   - [Connect] disabled when no valid selection
 - Buttons: [Connect] (enabled when valid selection), [Create New Sheet] (stub for Design 5)
-- On connect: calls `onSelect(sheetId)` callback → parent sets `?sheet=ID&room=ID`
+- On connect: calls `onSelectSheet(sheetId)` callback → parent sets `?sheet=ID&room=ID`
   in URL + dispatches `SET_DATA_SOURCE('loading')` + calls `addRecentSheet()`
 
 ## Tests

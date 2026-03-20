@@ -20,12 +20,13 @@ REQ-EH-1–6, REQ-HV-2/5 (UI only; REQ-HV-1/3/4 are logic covered by Design 1)
 | File | Action | Change |
 |---|---|---|
 | `src/components/onboarding/ErrorBanner.tsx` | Create | Persistent banners for auth/not_found/forbidden/network |
-| `src/components/onboarding/SyncStatus.tsx` | Create | Status indicator for rate_limit (replaces/extends existing SyncStatusIndicator) |
+| `src/components/onboarding/SyncStatus.tsx` | Create | Status indicator for rate_limit (replaces existing SyncStatusIndicator) |
+| `src/components/panels/SyncStatusIndicator.tsx` | Delete | Replaced by `SyncStatus.tsx`; update all imports (currently used in Header.tsx) |
 | `src/components/onboarding/HeaderMismatchError.tsx` | Create | Column mismatch screen with expected vs found |
 | `src/sheets/sheetsSync.ts` | Modify | Replace `setInterval` with recursive `setTimeout` for dynamic backoff, error discrimination |
 | `src/sheets/sheetsClient.ts` | Modify | Discriminate HTTP status codes in retry exhaustion |
 | `src/state/GanttContext.tsx` | Modify | Add online/offline event listeners for network error detection |
-| `src/components/layout/Header.tsx` | Modify | Integrate ErrorBanner + SyncStatus |
+| `src/components/layout/Header.tsx` | Modify | Integrate ErrorBanner + SyncStatus. **Note:** Design 5 also modifies this file — Design 6 should rebase on Design 5's changes. |
 
 ## Implementation Details
 
@@ -37,8 +38,8 @@ REQ-EH-1–6, REQ-HV-2/5 (UI only; REQ-HV-1/3/4 are logic covered by Design 1)
     `signIn()`. On successful re-auth: clear `syncError`, call `scheduleSave()` to
     write any pending local changes
   - `not_found`: "Can't access this sheet. It may have been deleted." + [Open another
-    sheet] — polling STOPS (clear setTimeout handle, do not reschedule). Sheet is
-    removed from recent sheets list via `removeRecentSheet()` (Design 2).
+    sheet] — call `stopPolling()` (exported from `sheetsSync.ts`, see Design 1).
+    Sheet is removed from recent sheets list via `removeRecentSheet()` (Design 2).
   - `forbidden`: Same as not_found (but does not remove from recent list)
   - `network`: "You're offline. Changes saved locally." — detected via `navigator.onLine`
   - `rate_limit`: NOT a banner — shows in sync status indicator: "Sync paused — retrying"

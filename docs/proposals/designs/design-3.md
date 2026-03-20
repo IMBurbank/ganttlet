@@ -62,7 +62,8 @@ else:
 - "Start from template" accepts `onSelectTemplate` callback prop (wired by Design 5;
   until then, button is hidden)
 - First task creation: `startDate = ensureBusinessDay(today)`, `duration = 1`,
-  dispatches `ADD_TASK` → reducer auto-transitions `dataSource` to `'sheet'` (see Design 1)
+  `endDate = taskEndDate(startDate, 1)`. Dispatches `ADD_TASK` → reducer
+  auto-transitions `dataSource` to `'sheet'` (see Design 1)
 
 ## Tests
 

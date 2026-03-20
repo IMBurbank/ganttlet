@@ -14,6 +14,7 @@ REQ-TP-1–3, REQ-SM-1–4
 - Design 1 (state machine, `defaultColumns`)
 - Design 2 (SheetSelector for "Switch sheet")
 - Design 3 (EmptyState wires "Start from template")
+- Design 4 (`sheetCreation.ts` — `createSheet()` used by `createProjectFromTemplate`)
 
 ## Files
 
@@ -24,7 +25,7 @@ REQ-TP-1–3, REQ-SM-1–4
 | `src/data/templates/index.ts` | Create | Template registry + types |
 | `src/components/onboarding/TemplatePicker.tsx` | Create | Template selection UI |
 | `src/sheets/sheetCreation.ts` | Modify | Add `createProjectFromTemplate(name, templateId)` |
-| `src/components/layout/Header.tsx` | Modify | Sheet title, share button, dropdown menu |
+| `src/components/layout/Header.tsx` | Modify | Sheet title, share button, dropdown menu. **Note:** Design 6 also modifies this file (ErrorBanner + SyncStatus integration) — Design 5 should land first, Design 6 rebases on top. |
 | `src/components/onboarding/EmptyState.tsx` | Modify | Wire "Start from template" to TemplatePicker |
 
 ## Implementation Details
@@ -34,6 +35,7 @@ REQ-TP-1–3, REQ-SM-1–4
 - Every task: `id`, `name`, `startDate`, `endDate`, `duration`
 - No weekend dates (`ensureBusinessDay` / `prevBusinessDay`)
 - `duration === taskDuration(startDate, endDate)` inclusive
+- `endDate === taskEndDate(startDate, duration)` (canonical construction via `taskEndDate`)
 - `parentId ↔ childIds` bidirectionally consistent
 - Valid UUIDs for `id` values
 - No UI state fields (`isExpanded`, `isHidden`)
@@ -76,7 +78,7 @@ Lazy loading via dynamic `import()` for each template. The registry includes a
 **Disconnect flow:**
 
 - Clear `?sheet=` and `?room=` from URL
-- `stopPolling()`, disconnect Yjs
+- `stopPolling()` (exported from `sheetsSync.ts`, see Design 1), disconnect Yjs
 - Dispatch `RESET_STATE` (Design 1) → resets to `initialState` with `dataSource: undefined`
   → WelcomeGate takes over (return visitor variant, since auth persists in localStorage
   — `RESET_STATE` does NOT clear Google auth)

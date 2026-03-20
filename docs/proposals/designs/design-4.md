@@ -8,7 +8,8 @@ target sheet check, write + transition.
 
 ## Requirements
 
-REQ-PROMO-1–6
+REQ-PROMO-1–6, REQ-SM-STATE-2 (sandbox banner UI: "You're exploring a demo project.
+Nothing is saved. [Save to Google Sheet]")
 
 ## Dependencies
 
@@ -40,13 +41,15 @@ REQ-PROMO-1–6
    - Headers don't match → warn: "This sheet has data that isn't in Ganttlet format.
      Creating a new sheet is recommended." Primary: [Create New Sheet].
      Secondary: "Overwrite anyway"
-5. Write tasks via `updateSheet()`, update URL to `?sheet=ID&room=ID`, init sync
-   (auto-save polling activates, Yjs connects via useEffect watching dataSource),
-   set `dataSource='sheet'`
-6. Call `scheduleSave()` (from `sheetsSync.ts`) which writes and updates `lastWriteHash`
-   internally — this prevents double-write since the next auto-save cycle will see
-   matching hashes
-7. Reset `sandboxDirty` to `false` (all sandbox edits are now preserved in the sheet)
+5. Update URL to `?sheet=ID&room=ID`
+6. Call `initSync(spreadsheetId, syncCallback)` then `startPolling()` from
+   `sheetsSync.ts` — these are separate calls (`initSync` only stores the sheet ID
+   and callback; `startPolling` starts the poll loop)
+7. Call `scheduleSave(state.tasks)` — this writes the current tasks to the sheet AND
+   updates `lastWriteHash`, so the next auto-save cycle sees matching hashes and
+   skips the redundant write
+8. Set `dataSource='sheet'` — this activates auto-save and Yjs useEffects
+9. Reset `sandboxDirty` to `false` (all sandbox edits are now preserved in the sheet)
 
 **Sheet creation** (`sheetCreation.ts`):
 

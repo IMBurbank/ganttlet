@@ -46,8 +46,8 @@ Operator/supervisor agent (manually invoked after script completes)
 └── Write orchestrator debrief report
 ```
 
-Note: the curation skill itself is excluded from the automated pipeline and must be
-curated manually (see skill-curation.yaml line 35 comment).
+Note: the curation skill is not in the default `skill-curation.yaml` groups
+but can be curated manually or added to the config at any time.
 
 ### What Each Component Does
 

@@ -267,10 +267,10 @@ curate-skills.sh
     └── Post final summary → inform user
 ```
 
-The **orchestrating agent** is the agent session that invoked `/curate-skills`.
-It has no separate prompt or definition — it's the interactive session that
-ran the script, then handles PR creation and code review using its own
-judgment. The `/curate-skills` flow (below) details its responsibilities.
+The **operator** is the agent session (or human) that invoked `/curate-skills`.
+There is no separate orchestrator prompt — the operator ran the script and
+handles PR creation and code review manually after the script completes.
+The `/curate-skills` flow (below) details these post-script responsibilities.
 
 Each **curator** is a launch-phase group agent (one per skill) that internally
 spawns subagents — same pattern as the code-review plugin using 5 parallel reviewers.
@@ -1772,14 +1772,9 @@ reviewer angles. Differentiation is entirely in the prompt, not the definition:
   Curation checklist explicitly checks for dupes across skills. If code review
   misses them, the orchestrator's debrief captures this and the checklist gets
   refined. No additional post-merge pass needed.
-- **Metrics:** Orchestrator appends one line per pass to
-  `docs/prompts/curation/metrics.csv`:
-  ```
-  date,skills_curated,reports_processed,acted,rejected,preserved,threshold,review_iterations
-  2026-04-15,8,18,12,4,2,80,2
-  ```
-  Simple CSV, no infrastructure. Eyeball trends or chart it. PR description
-  has per-pass detail; CSV tracks trends across passes.
+- **Metrics:** PR description and debrief reports capture per-pass data
+  (threshold calibration, findings per skill, outcomes). No separate metrics
+  file needed — the data lives in git history.
 
 ## Instruction Surface Changes
 

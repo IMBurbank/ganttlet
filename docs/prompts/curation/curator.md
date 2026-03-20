@@ -195,9 +195,13 @@ Write a debrief to `docs/prompts/curation/feedback/` following
   files: ["docs/prompts/curation/threshold.txt"]
 ```
 
-Also report: reviewer angle quality, validation subagent issues, cross-skill
-patterns, and any issues found in CLAUDE.md files or other instruction context
-(as `wrong_documentation` observations — preserved for future scope).
+Also report (if relevant to YOUR skill's curation — skip generic observations
+that every curator would see):
+- Reviewer angle quality (which angles were useful vs noisy)
+- Validation subagent issues (couldn't answer the question posed)
+- Cross-skill patterns unique to your skill's domain
+- Issues in CLAUDE.md files or instruction context discovered during review
+  (as `wrong_documentation` observations — preserved for future scope)
 
 Filename: `{date}-curation-{SKILL}.md`
 

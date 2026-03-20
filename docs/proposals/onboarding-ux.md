@@ -95,17 +95,19 @@ define what users need; the recommendations (next section) describe how to deliv
 - Safety: nothing they do in exploration should write to any external system
 
 **Proposed experience:**
-1. Landing shows the Gantt chart with sample data (same interactive demo as today —
-   the product speaks for itself)
-2. Persistent banner: *"You're exploring a demo project. Nothing is saved."*
-3. Clear value prop visible without scrolling — the Sheets sync story, real-time collab,
-   browser-based scheduling
-4. Two clear CTAs: **"Sign in with Google"** to start for real, or just keep playing
-5. Sandbox mode: no Sheets writes, no Yjs connection, no side effects. Pure local state.
+1. Landing shows a welcome screen with value props and two clear CTAs:
+   **"Try the demo"** and **"Sign in with Google"**
+2. Clicking "Try the demo" enters sandbox mode — the full interactive Gantt chart with
+   sample data loads immediately
+3. Persistent banner in sandbox: *"You're exploring a demo project. Nothing is saved."*
+   with a [Save to Google Sheet] button
+4. Sandbox mode: no Sheets writes, no Yjs connection, no side effects. Pure local state.
 
-**Design choice — banner, not modal:** A modal risks feeling like an ad. The banner
-approach lets the product speak for itself — the user is already *in* a working Gantt
-chart, which is more compelling than any marketing page.
+**Design choice — welcome screen, then sandbox:** The welcome screen is lightweight (not
+a marketing page) — just the app name, value props, and two buttons. It ensures every
+user makes an intentional choice: explore the demo or sign in. This prevents the
+ambiguity of "is this my data or sample data?" that exists today. Once in sandbox, the
+product speaks for itself.
 
 **Serves:** R1 (sandbox mode), R8 (decouple fake data)
 
@@ -462,39 +464,46 @@ is a medium effort, not a small one. The tab name would need to be stored (in th
 All journeys converge on connected mode. The `dataSource` state machine is the mechanism:
 
 ```
-                    Journey 1          Journey 2         Journey 8
-                  (Curious Visitor)  (Return Visitor)  (Sheets-First)
-                        │                  │                │
-                        ▼                  │                │
-                    ┌────────┐             │                │
-                    │Sandbox │             │                │
-                    │(demo)  │             │                │
-                    └───┬────┘             │                │
-        Journey 6       │                  │                │
-       (Promotion)      │                  │                │
-                        ▼                  ▼                ▼
- Journey 3 ──► ┌──────────────┐   ┌──────────────┐   ┌──────────┐
-(New Project)  │Sheet Selector│   │Recent Sheets  │   │ ?sheet=  │
-               │+ Templates   │   │List           │   │ URL param│
-               └──────┬───────┘   └──────┬────────┘   └────┬─────┘
-                      │                  │                  │
-                      ▼                  ▼                  ▼
-               ┌─────────────────────────────────────────────────┐
-               │              Loading (dataSource='loading')     │
-               │  Timeline scaffolding, skeleton rows, spinner   │
-               └──────────┬──────────────────────┬───────────────┘
-                          │                      │
-               ┌──────────▼──────┐    ┌──────────▼──────────┐
-               │ Empty State     │    │ Connected Mode      │
-               │ (dataSource=    │    │ (dataSource='sheet') │
-               │  'empty')       │    │ Auto-save on, collab │
-               │ "Add first task"│    │ on, polling active   │
-               └────────┬────────┘    └──────────────────────┘
-                        │ first edit          ▲
-                        └─────────────────────┘
+  App loads with no ?sheet= param         App loads with ?sheet= param
+            │                                       │
+            ▼                                       │
+  ┌──────────────────┐                              │
+  │  WELCOME SCREEN  │ (WelcomeGate routing layer)  │
+  │                  │                              │
+  │  First visit:    │                              │
+  │   [Try demo]     │                              │
+  │   [Sign in]      │                              │
+  │                  │                              │
+  │  Return visit:   │                              │
+  │   Recent projects│                              │
+  │   [New] [Connect]│                              │
+  └──┬───────┬───────┘                              │
+     │       │                                      │
+     │  "Try │  Pick sheet /                        │
+     │  demo"│  New project                         │
+     ▼       ▼                                      ▼
+ ┌────────┐  ┌─────────────────────────────────────────────┐
+ │SANDBOX │  │            Loading (dataSource='loading')   │
+ │(demo)  │  │  Timeline scaffolding, skeleton, spinner    │
+ └───┬────┘  └──────────┬──────────────────────┬───────────┘
+     │                  │                      │
+     │ Promotion        │                      │
+     │ (Journey 6)      │                      │
+     │                  ▼                      ▼
+     │       ┌──────────────────┐   ┌──────────────────────┐
+     └──────►│ Empty State      │   │ Connected Mode       │
+             │ (dataSource=     │   │ (dataSource='sheet') │
+             │  'empty')        │   │ Auto-save, collab,   │
+             │ "Add first task" │   │ polling active       │
+             └────────┬─────────┘   └──────────────────────┘
+                      │ first edit          ▲
+                      └─────────────────────┘
 
-               Journey 5 (Collaborator) → same path as ?sheet= URL
-               Journey 7 (Errors) → overlays on connected mode
+  Disconnect from any connected state → back to Welcome Screen
+
+  Journey 5 (Collaborator) → ?sheet= path, with sign-in gate if needed
+  Journey 7 (Errors) → syncError overlays on loading/connected mode
+  Journey 8 (Sheets-first) → ?sheet= path via URL convention
 ```
 
 ---
@@ -524,52 +533,93 @@ deliver, not by priority — see "Priority & Phasing" for sequencing.
 3. **New project** — Create a new Google Sheet via Sheets API, optionally populate from a
    template (R5), redirect to connected mode.
 
-**State model**: Add two fields to `GanttState`:
+**State model**: Add three fields to `GanttState`:
 
 ```typescript
 dataSource: 'sandbox' | 'loading' | 'sheet' | 'empty'
 syncError: { type: 'auth' | 'not_found' | 'forbidden' | 'rate_limit' | 'network';
              message: string; since: number } | null
+sandboxDirty: boolean  // true after first edit in sandbox mode
 ```
 
-`dataSource` tracks the app mode. `syncError` tracks sync failures *within* connected
-mode — it overlays on `dataSource = 'sheet'`, it doesn't replace it. A rate-limited
-save doesn't change the mode; it sets `syncError` so the UI can show feedback while
-the user continues editing locally.
+**Two-layer architecture — routing then mode:**
+
+The app has a **routing layer** (`WelcomeGate` component) that runs *before* `dataSource`
+is determined. The routing layer decides whether to show a welcome/onboarding screen or
+proceed directly into the Gantt chart. Once the user makes a choice (or the URL already
+encodes one), `dataSource` is set and the Gantt chart renders.
+
+```
+App loads:
+  Has ?sheet= param ──────────► skip routing, set dataSource='loading'
+  No ?sheet= param:
+    Has auth + recent sheets? ──► show "Welcome back" screen (Journey 2)
+    Has auth, no recent sheets? ► show "Choose path" screen
+    No auth, first visit? ──────► show first-visit welcome (Journey 1)
+    No auth, return visit? ─────► show first-visit welcome
+
+  User action from welcome screen:
+    Clicks "Try the demo" ──────► set dataSource='sandbox', load fakeTasks
+    Clicks recent project ──────► set dataSource='loading', load sheet
+    Clicks "New Project" ───────► show template picker, then create sheet
+    Clicks "Connect Sheet" ─────► show sheet selector
+    Clicks "Sign in" ───────────► OAuth, then show "Choose path" screen
+```
+
+This resolves the ambiguity between welcome screens and sandbox mode. The welcome screen
+is NOT a `dataSource` value — it's a routing decision that happens before `dataSource`
+exists. A first-time visitor does NOT land directly in sandbox. They see a welcome screen
+and must click "Try the demo" to enter sandbox. This ensures every user makes an
+intentional choice about their entry path.
+
+**`dataSource` tracks the app mode (after routing):**
+
+```typescript
+dataSource: 'sandbox' | 'loading' | 'sheet' | 'empty'
+```
+
+`syncError` tracks sync failures *within* connected mode — it overlays on
+`dataSource = 'sheet'`, it doesn't replace it. A rate-limited save doesn't change the
+mode; it sets `syncError` so the UI can show feedback while the user continues editing.
 
 **`dataSource` transitions (complete state machine):**
 
 ```
                     ┌──────────────────────────────────────────┐
                     │                                          │
-  App loads:        │   Disconnect (R7) / "Explore Demo"       │
-  no ?sheet= ──► SANDBOX ◄────────────────────────────────────┤
+  Welcome screen    │   Disconnect (R7) / "Explore Demo"       │
+  "Try the demo" ► SANDBOX ◄──────────────────────────────────┤
                     │                                          │
                     │ Promotion (Journey 6)                    │
                     ▼                                          │
-  App loads:     LOADING ──── success + data ──► SHEET ────────┤
-  has ?sheet= ──►   │                              ▲           │
-                    │── success + empty ──► EMPTY ──┘           │
+  ?sheet= in URL LOADING ──── success + data ──► SHEET ────────┤
+  or welcome       │                              ▲            │
+  "recent project" │── success + empty ──► EMPTY ──┘            │
                     │                     (first edit)          │
                     │                                          │
                     └── failure (403/404/network) ──► LOADING   │
                         (syncError set, UI shows error,        │
                          retry or "Open another sheet")        │
                                                                │
-  Disconnect from SHEET or EMPTY ─────────────────────────────►┘
-    clears ?sheet= from URL, resets to SANDBOX
+  Disconnect from SHEET or EMPTY ──────────────────────────────┘
+    clears ?sheet= from URL, returns to welcome screen
+    (NOT directly to sandbox — user chooses their next action)
 ```
 
 Key transitions:
+- `welcome → sandbox`: user clicks "Try the demo" (explicit choice)
+- `welcome → loading`: user clicks a recent project or picks a sheet
 - `sandbox → sheet`: only via explicit promotion flow (Journey 6)
 - `loading → sheet`: `loadFromSheet()` returns tasks
 - `loading → empty`: `loadFromSheet()` returns `[]`
-- `loading → loading` (with `syncError`): `loadFromSheet()` fails — stays in loading,
+- `loading → loading` (with `syncError`): `loadFromSheet()` throws — stays in loading,
   sets `syncError`, UI shows error with [Retry] and [Open another sheet] actions
 - `empty → sheet`: user performs first task-modifying action (intent gate)
-- `sheet → sandbox`: user clicks "Disconnect" in R7 dropdown
-- `empty → sandbox`: user clicks "Disconnect"
-- Any state → `sandbox`: user navigates to `ganttlet.app` with no params
+- `sheet → welcome`: user clicks "Disconnect" in R7 dropdown
+- `empty → welcome`: user clicks "Disconnect"
+
+Note: "Disconnect" returns to the welcome screen, not directly to sandbox. The user
+can then choose "Try the demo", pick another sheet, or create a new project.
 
 **`syncError` is independent of `dataSource`:** A user in `dataSource = 'sheet'` who
 hits a 429 rate limit stays in `'sheet'` mode (local editing works). `syncError` is set
@@ -578,14 +628,27 @@ sync recovers, `syncError` is cleared. The error UI reads `syncError`, not `data
 
 Exception: if `dataSource = 'loading'` and the load itself fails (403/404), the error is
 shown in the loading UI (no chart to overlay on). `syncError` is still the mechanism —
-the loading screen checks it.
+the loading screen checks it. `loadFromSheet()` must be changed to **throw on HTTP
+errors** instead of swallowing them and returning `[]`. The error discrimination happens
+in the catch block in GanttContext, which reads the Response status and sets `syncError`
+accordingly:
+- 401 → `{ type: 'auth' }`
+- 403 → `{ type: 'forbidden' }`
+- 404 → `{ type: 'not_found' }`
+- 429 → `{ type: 'rate_limit' }` (already handled by retryWithBackoff, this is after
+  all retries exhausted)
+- Network error → `{ type: 'network' }`
 
 **Feasibility:** Confirmed by code review. Changes needed:
-- Add `dataSource` and `syncError` to `GanttState` type (2 fields)
-- Add `SET_DATA_SOURCE` and `SET_SYNC_ERROR` to reducer (2 cases)
-- Set initial `dataSource` based on URL params in GanttContext
-- One conditional render in App.tsx / main layout: if `dataSource === 'loading'`, show
+- Add `dataSource`, `syncError`, `sandboxDirty` to `GanttState` type (3 fields)
+- Add `SET_DATA_SOURCE`, `SET_SYNC_ERROR` to reducer (2 cases)
+- `sandboxDirty` is set automatically: reducer sets it to `true` on any
+  `TASK_MODIFYING_ACTION` when `dataSource === 'sandbox'`
+- New `WelcomeGate` component wraps the Gantt chart — renders welcome screen or
+  passes through based on URL params and auth state
+- One conditional render in the Gantt layout: if `dataSource === 'loading'`, show
   skeleton instead of chart
+- Change `loadFromSheet()` to throw on HTTP errors instead of returning `[]`
 - No conflicts with existing state — `isSyncing`, `syncComplete`, `isCollabConnected`
   remain orthogonal
 
@@ -595,82 +658,105 @@ Auto-save is gated on `dataSource === 'sheet'`. The transition from `'sandbox'` 
 **Sandbox isolates all external writes**:
 - **Sheets**: `scheduleSave()` is a no-op when `dataSource !== 'sheet'`
 - **Yjs/Collaboration**: Sandbox mode ignores `?room=` entirely. The existing
-  `connectCollab()` guard (`if (!roomId || !accessToken) return;`) already blocks
-  unsigned-in users. Add explicit `dataSource !== 'sandbox'` as defense-in-depth.
+  guard in `GanttContext.tsx:160-161` (`if (!roomId || !accessToken) return;`) already
+  blocks unsigned-in users. Add explicit `dataSource !== 'sandbox'` check as
+  defense-in-depth (a user could sign in while in sandbox to browse sheets).
 - **Dispatch**: Sandbox uses `localDispatch` only (React state, no Yjs). The existing
   split dispatch architecture makes this straightforward.
 
 **Requirements:**
 
 ```
-R1.1: GIVEN no ?sheet= param in the URL and user is not signed in
+R1.1: GIVEN no ?sheet= param in the URL
       WHEN the app loads
-      THEN dataSource is set to 'sandbox'
-      AND fakeTasks are loaded into local state
-      AND a persistent banner shows: "You're exploring a demo project. Nothing is saved."
-      AND the banner includes a [Save to Google Sheet] button
+      THEN the WelcomeGate component renders a welcome screen
+      AND dataSource is NOT yet set (no Gantt chart rendered)
       AND no Sheets API calls are made
       AND no WebSocket connection is opened
+      (see R6 for welcome screen variants by auth state)
 
-R1.2: GIVEN dataSource='sandbox' and user drags a task bar
+R1.2: GIVEN user clicks "Try the demo" on the welcome screen
+      WHEN sandbox mode is entered
+      THEN dataSource is set to 'sandbox'
+      AND fakeTasks are loaded into local state (lazy import)
+      AND a persistent banner shows: "You're exploring a demo project. Nothing is saved."
+      AND the banner includes a [Save to Google Sheet] button
+
+R1.3: GIVEN dataSource='sandbox' and user drags a task bar
       WHEN the task position changes
       THEN state updates via localDispatch (React only)
       AND scheduleSave() is NOT called
       AND no Yjs document is updated
+      AND sandboxDirty is set to true
 
-R1.3: GIVEN dataSource='sandbox' and user signs in (to browse sheets)
+R1.4: GIVEN dataSource='sandbox' and user signs in (via banner or header)
       WHEN sign-in completes
       THEN dataSource remains 'sandbox' (signing in alone doesn't change mode)
-      AND no Yjs connection is opened (defense-in-depth guard)
+      AND no Yjs connection is opened (guard: dataSource !== 'sandbox')
+      AND the [Save to Google Sheet] button remains available
 
-R1.4: GIVEN ?sheet=ABC123 in the URL
+R1.5: GIVEN ?sheet=ABC123 in the URL
       WHEN the app loads
-      THEN dataSource is set to 'loading'
+      THEN WelcomeGate is skipped (URL encodes the user's intent)
+      AND dataSource is set to 'loading'
       AND tasks is set to [] (empty array, NOT fakeTasks)
       AND the UI shows timeline scaffolding with a loading indicator
-      AND loadFromSheet() is called
+      AND if user is signed in, loadFromSheet() is called immediately
+      AND if user is NOT signed in, the collaborator welcome shows (R6.3)
 
-R1.5: GIVEN dataSource='loading' and loadFromSheet() returns 5 tasks
+R1.6: GIVEN dataSource='loading' and loadFromSheet() returns 5 tasks
       WHEN SET_TASKS is dispatched
       THEN dataSource transitions to 'sheet'
       AND the 5 tasks render in the Gantt chart
       AND auto-save is enabled
       AND polling starts (30s interval)
+      AND Yjs connects if ?room= is in the URL
 
-R1.6: GIVEN dataSource='loading' and loadFromSheet() returns []
+R1.7: GIVEN dataSource='loading' and loadFromSheet() returns []
       WHEN the load completes
       THEN dataSource transitions to 'empty'
       AND the empty state UI renders (R2)
 
-R1.7: GIVEN dataSource='loading' and loadFromSheet() fails with 403
-      WHEN the error is caught
+R1.8: GIVEN dataSource='loading' and loadFromSheet() throws with status 403
+      WHEN the error is caught in GanttContext
       THEN dataSource remains 'loading'
-      AND syncError is set to { type: 'forbidden', message: "Can't access this sheet..." }
+      AND syncError is set to { type: 'forbidden', message: "Can't access..." }
       AND the UI shows the error with [Open another sheet] and [Retry]
+      (loadFromSheet must throw on HTTP errors, not swallow them)
 ```
 
-**Promotion flow** (Journey 6):
+**Promotion flow** (Journey 6) — pseudocode, not final API:
 ```typescript
 async function promoteToSheet(sheetId: string, tasks: Task[]) {
-  // 1. Write current state to sheet
+  // 1. Write current state to sheet (before enabling auto-save to avoid double-write)
   const rows = tasksToRows(tasks);
   const endCol = columnLetter(SHEET_COLUMNS.length); // derived, not hardcoded
   await updateSheet(sheetId, `Sheet1!A1:${endCol}${rows.length}`, rows);
 
-  // 2. Initialize sync (enables polling + auto-save)
-  initSync(sheetId, dispatch);
-  startPolling();
-
-  // 3. Update URL
+  // 2. Update URL (before transitioning state, so effects see the new params)
   const url = new URL(window.location.href);
   url.searchParams.set('sheet', sheetId);
   url.searchParams.set('room', sheetId);
   window.history.replaceState({}, '', url.toString());
 
-  // 4. Transition state
+  // 3. Initialize sync (enables polling + auto-save)
+  initSync(sheetId, dispatch);
+  lastWriteHash = hashTasks(tasks); // prevent immediate re-write of what we just wrote
+  startPolling();
+
+  // 4. Transition state — this enables auto-save and triggers Yjs connection
   dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
+
+  // 5. Connect Yjs for real-time collaboration
+  //    The existing useEffect in GanttContext watches accessToken + roomId.
+  //    Now that roomId is in the URL and dataSource !== 'sandbox', the
+  //    effect will fire and call connectCollab(). No explicit call needed here
+  //    IF the useEffect dependency array includes the URL params. Otherwise,
+  //    call connectCollab(sheetId, accessToken) explicitly.
 }
 ```
+Note: `columnLetter()` does not exist in the current codebase — it would be added as
+part of issue #62 (write range fix) or introduced here.
 
 **URL convention**: Promotion always sets both `?sheet=` and `?room=` to the same
 spreadsheet ID (matches existing convention in `docs/local-testing.md`). The relay room
@@ -758,6 +844,11 @@ Sheets URLs (extracts spreadsheet ID automatically).
 - Max 10 entries, LRU eviction (oldest `lastOpened` dropped when full)
 - Entries removed when a sheet returns 403/404 (Journey 7 error handling)
 - Used by Journey 2 (return visitor welcome) and R7 (sheet management dropdown)
+- **Limitation**: localStorage is per-browser, not per-account. Incognito mode,
+  clearing browser data, or switching devices loses the list. This is acceptable
+  given the "no server-side state" architecture constraint, but the UX should not
+  invest heavily in the recent-sheets list as a reliable record — it's a convenience,
+  not a source of truth
 
 **Requirements:**
 
@@ -970,27 +1061,42 @@ R5.3: GIVEN template data files exist in src/data/templates/
 ```
 R6.1: GIVEN first visit (no auth in localStorage, no URL params)
       WHEN the app loads
-      THEN the welcome screen shows with [Try the demo] and [Sign in with Google]
+      THEN WelcomeGate renders the first-visit welcome screen
+      AND [Try the demo] and [Sign in with Google] buttons are shown
       AND value props are visible without scrolling
-      AND clicking [Try the demo] enters sandbox mode with fakeTasks
+      AND clicking [Try the demo] sets dataSource='sandbox' and loads fakeTasks
+      AND the Gantt chart is NOT rendered until the user makes a choice
 
-R6.2: GIVEN return visit (auth in localStorage, recent sheets list has entries)
-      WHEN the app loads (no URL params)
-      THEN the welcome screen shows "Welcome back, {name}"
-      AND recent projects are listed with titles and "last opened" times
-      AND clicking a recent project sets ?sheet=ID&room=ID and loads immediately
+R6.2: GIVEN return visit (auth in localStorage, recent sheets list has entries,
+      no URL params)
+      WHEN the app loads
+      THEN WelcomeGate renders the "Welcome back, {name}" screen
+      AND recent projects are listed with titles and relative "last opened" times
+      AND clicking a recent project sets ?sheet=ID&room=ID in the URL
+      AND dataSource is set to 'loading' and the sheet loads immediately
       AND [New Project], [Connect Existing Sheet], and [Demo] buttons are shown
 
 R6.3: GIVEN ?sheet= or ?room= in URL and user is NOT signed in
       WHEN the app loads
-      THEN the collaborator welcome screen shows
+      THEN the collaborator welcome screen shows (within the loading state UI)
       AND only [Sign in with Google] is offered (no demo, no template picker)
-      AND after sign-in, the sheet loads automatically (no intermediate screen)
+      AND after sign-in, loadFromSheet() is called automatically
+      AND no intermediate "Choose path" screen is shown
 
-R6.4: GIVEN user signs in from the first-visit welcome (no URL params)
+R6.4: GIVEN ?sheet= in URL and user IS already signed in (e.g., return visitor
+      with bookmarked URL, or collaborator with active session)
+      WHEN the app loads
+      THEN WelcomeGate is skipped entirely
+      AND dataSource is set to 'loading'
+      AND loadFromSheet() is called immediately
+      AND the user goes straight to the Gantt chart (no welcome screen)
+
+R6.5: GIVEN user signs in from the first-visit welcome (no URL params)
       WHEN sign-in completes
-      THEN the "Choose path" screen shows with [New Project] and [Existing Sheet]
-      AND if recent sheets exist, they are also shown
+      THEN the welcome screen updates to show "Choose path" with
+      [New Project] and [Existing Sheet]
+      AND if recent sheets exist in localStorage, they are also shown
+      AND the user is NOT dropped into sandbox (sign-in ≠ "Try the demo")
 ```
 
 ### R7: Sheet Management & Share Links
@@ -1032,10 +1138,10 @@ R7.2: GIVEN user clicks [Share]
 R7.3: GIVEN user clicks "Disconnect" in the sheet dropdown
       WHEN the action is confirmed
       THEN ?sheet= and ?room= are removed from the URL
-      AND dataSource transitions to 'sandbox'
+      AND dataSource is cleared (component unmounts, WelcomeGate takes over)
       AND polling and auto-save stop
       AND Yjs disconnects
-      AND the welcome screen shows (return visitor variant if auth persists)
+      AND the welcome screen shows (return visitor variant, since auth persists)
 
 R7.4: GIVEN user clicks "Switch sheet" in the dropdown
       WHEN the sheet selector opens (same as R3)
@@ -1059,11 +1165,13 @@ const initialState: GanttState = {
   // ...
 };
 
-// After
+// After — dataSource is set by WelcomeGate or URL detection, not in initialState
 const initialState: GanttState = {
   tasks: [],
   changeHistory: [],
-  dataSource: 'loading',  // or 'sandbox' based on URL
+  dataSource: 'loading',  // overridden immediately by WelcomeGate or URL detection
+  syncError: null,
+  sandboxDirty: false,
   // ...
 };
 ```
@@ -1079,12 +1187,12 @@ const initialState: GanttState = {
 R8.1: GIVEN the app loads with ?sheet=ABC123
       WHEN GanttContext initializes
       THEN initialState.tasks is [] (empty array)
-      AND initialState.dataSource is 'loading'
+      AND dataSource is set to 'loading' (by URL detection, before WelcomeGate)
       AND fakeData.ts / softwareRelease.ts is NOT imported
 
-R8.2: GIVEN the app loads with no URL params
-      WHEN GanttContext initializes
-      THEN initialState.dataSource is 'sandbox'
+R8.2: GIVEN the user clicks "Try the demo" on the welcome screen
+      WHEN sandbox mode is entered
+      THEN dataSource is set to 'sandbox'
       AND fakeTasks are loaded (lazy import from templates/softwareRelease.ts)
       AND scheduleSave() is never called regardless of state.tasks changes
 
@@ -1102,11 +1210,12 @@ R8.5: GIVEN dataSource='empty' and state.tasks changes (first edit)
       THEN dataSource transitions to 'sheet'
       AND scheduleSave() is called
 
-R8.6: GIVEN dataSource='sandbox' and user has modified tasks
+R8.6: GIVEN dataSource='sandbox' and sandboxDirty is true
       WHEN the user attempts to close/navigate away from the tab
-      THEN a beforeunload dialog warns: "You have unsaved changes"
+      THEN a beforeunload dialog is triggered (browser shows its own generic
+      message — custom text is ignored by modern browsers)
 
-R8.7: GIVEN dataSource='sandbox' and user has NOT modified tasks
+R8.7: GIVEN dataSource='sandbox' and sandboxDirty is false
       WHEN the user closes the tab
       THEN no beforeunload warning is shown
 ```
@@ -1169,9 +1278,11 @@ R9.3: GIVEN dataSource='sheet' and the OAuth token expires
       WHEN a Sheets API call fails with 401
       THEN syncError is set to { type: 'auth', ... }
       AND a banner shows: "Session expired. [Re-authorize] to keep syncing."
-      AND unsaved changes are queued locally (not discarded)
+      AND local editing continues normally (state.tasks is always current)
       AND clicking [Re-authorize] triggers token refresh
-      AND on success, syncError clears and queued changes are saved
+      AND on success, syncError clears and scheduleSave() runs with current
+      state.tasks (full-state write — no explicit queue needed, since the
+      debounced save always writes the complete task array)
 
 R9.4: GIVEN navigator.onLine transitions to false
       WHEN the offline event fires
@@ -1189,7 +1300,9 @@ R9.5: GIVEN dataSource='sheet' and polling errors occur 3 times consecutively
 R9.6: GIVEN syncError is set (any type) and user is editing tasks locally
       WHEN the user drags a task bar or edits a field
       THEN the edit succeeds locally (state updates, chart re-renders)
-      AND the edit is queued for sync when the error condition resolves
+      AND when the error condition resolves, scheduleSave() writes the
+      current full state.tasks (no explicit queue — the existing debounced
+      full-state write handles this naturally)
       (local editing must NEVER be blocked by sync errors)
 ```
 
@@ -1330,8 +1443,12 @@ tokenClient.requestAccessToken({
 });
 ```
 
-`drive.file` is "recommended" tier — no additional verification needed. It only grants
-access to files the user explicitly opens via Picker or that the app creates.
+`drive.file` is classified by Google as a **restricted** scope, which requires a more
+thorough verification process (security assessment). However, it only grants access to
+files the user explicitly opens via Picker or that the app creates — not their entire
+Drive. Since we already request the **sensitive** `spreadsheets` scope (which requires
+verification too), adding `drive.file` extends the existing verification requirement
+rather than introducing a new one. Factor this into timeline planning.
 
 ---
 
@@ -1378,22 +1495,28 @@ hydrateYjsFromTasks() → Yjs doc → relay → collaborators
 **Proposed:**
 ```
 User arrives:
-  No ?sheet= → dataSource='sandbox', load fakeTasks locally (no writes)
-  Has ?sheet= → dataSource='loading', tasks=[], show skeleton
+  Has ?sheet= → skip welcome, dataSource='loading', tasks=[], show skeleton
+  No ?sheet= → WelcomeGate shows welcome screen (variant by auth state)
+    "Try the demo" → dataSource='sandbox', load fakeTasks locally (no writes)
+    Pick sheet / new project → dataSource='loading'
 
   Loading resolves:
-    Data found → dataSource='sheet', SET_TASKS, auto-save on
+    Data found → dataSource='sheet', SET_TASKS, auto-save on, Yjs connects
     Empty sheet → dataSource='empty', show empty state, first edit enables save
-    Error → show error state, local editing still works
+    Error → syncError set, UI shows error with retry/alternatives
 
-  Sandbox promotion:
+  Sandbox promotion (Journey 6):
     User clicks "Save to Google Sheet"
     → sign in if needed → create/select sheet → write tasks → dataSource='sheet'
 
+  Disconnect:
+    User clicks "Disconnect" → back to WelcomeGate (return visitor variant)
+
 Connected mode:
-  User makes intentional edit → auto-save writes to sheet
+  User makes intentional edit → auto-save writes to sheet (full state, debounced)
   Polling reads external changes → merge into state
   Yjs syncs to collaborators
+  Errors → syncError overlay, local editing continues
 ```
 
 ### Key files to modify
@@ -1407,6 +1530,7 @@ Connected mode:
 | `src/sheets/sheetsSync.ts` | Intent-gated saves, error discrimination, polling backoff |
 | `src/sheets/sheetsMapper.ts` | Header validation, `HEADER_ROW` export |
 | `src/components/layout/Header.tsx` | Sheet name, share button, sandbox banner |
-| New: `src/components/onboarding/` | Welcome, template picker, empty state, error states |
+| New: `src/components/onboarding/WelcomeGate.tsx` | Routing layer — decides welcome screen vs Gantt chart |
+| New: `src/components/onboarding/` | Welcome variants, template picker, empty state, error states |
 | New: `src/sheets/sheetsBrowser.ts` | Drive file listing (lightweight picker) |
 | New: `src/data/templates/` | Template task arrays |

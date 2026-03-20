@@ -30,14 +30,14 @@ a better skill, not a bigger one.
 curate-skills.sh (script, mechanical)
 ├── Count pending feedback reports
 ├── launch-phase.sh stage 1
-│   └── 8 curators in parallel (one per skill)
+│   └── 8 curators in parallel (one per non-curation skill)
 │       ├── 5 Reviewer subagents (sonnet, read-only)
 │       ├── N Haiku scorers (one per finding)
 │       └── Validation subagents (on-demand)
 ├── launch-phase.sh merge 1
 └── launch-phase.sh validate
 
-Orchestrating agent (judgment)
+Operator/supervisor agent (manually invoked after script completes)
 ├── Read curator commit messages → extract outcomes
 ├── Write outcomes into processed reports
 ├── Create PR (skill-curation label, threshold calibration)
@@ -45,6 +45,9 @@ Orchestrating agent (judgment)
 ├── Post final summary
 └── Write orchestrator debrief report
 ```
+
+Note: the curation skill itself is excluded from the automated pipeline and must be
+curated manually (see skill-curation.yaml line 35 comment).
 
 ### What Each Component Does
 
@@ -210,7 +213,6 @@ docs/prompts/curation/
 ├── validate.md              # Post-merge validation prompt
 ├── skill-curation.yaml      # Launch config (8 groups, reusable)
 ├── threshold.txt            # Scoring threshold (initial: 70)
-├── metrics.csv              # Per-pass metrics (appended by orchestrator)
 └── feedback/                # Debrief reports accumulate here
     └── processed/           # Processed reports (outcomes in git history)
 

@@ -585,25 +585,27 @@ mode; it sets `syncError` so the UI can show feedback while the user continues e
 **`dataSource` transitions (complete state machine):**
 
 ```
-                    ┌──────────────────────────────────────────┐
-                    │                                          │
-  Welcome screen    │   Disconnect (R7) / "Explore Demo"       │
-  "Try the demo" ► SANDBOX ◄──────────────────────────────────┤
-                    │                                          │
-                    │ Promotion (Journey 6)                    │
-                    ▼                                          │
-  ?sheet= in URL LOADING ──── success + data ──► SHEET ────────┤
-  or welcome       │                              ▲            │
-  "recent project" │── success + empty ──► EMPTY ──┘            │
-                    │                     (first edit)          │
-                    │                                          │
-                    └── failure (403/404/network) ──► LOADING   │
-                        (syncError set, UI shows error,        │
-                         retry or "Open another sheet")        │
+  Welcome screen ─────────────────────────────────────────────┐
+  "Try the demo"                                              │
+       │                                                      │
+       ▼                                                      │
+   SANDBOX                                                    │
+       │                                                      │
+       │ Promotion (Journey 6)                                │
+       ▼                                                      │
+  LOADING ──── success + data ──► SHEET ──── disconnect ──────┤
+  (also via      │                  ▲                          │
+  ?sheet= URL    │                  │                          │
+  or welcome     │── success + empty ──► EMPTY ── disconnect ─┤
+  "recent        │                (first edit)                 │
+  project")      │                                            │
+                 └── failure (403/404/network) ──► LOADING     │
+                     (syncError set, UI shows error,           │
+                      retry or "Open another sheet")           │
                                                                │
   Disconnect from SHEET or EMPTY ──────────────────────────────┘
-    clears ?sheet= from URL, returns to welcome screen
-    (NOT directly to sandbox — user chooses their next action)
+    clears ?sheet= from URL, returns to Welcome screen
+    (user chooses: demo, recent project, new project, or connect sheet)
 ```
 
 Key transitions:
@@ -836,7 +838,12 @@ Sheets URLs (extracts spreadsheet ID automatically).
 - No new OAuth scopes needed — `drive.metadata.readonly` is already granted
 - Parse pasted URLs: extract ID from `docs.google.com/spreadsheets/d/{ID}/...`
 - Google Picker API (full Drive browsing, folder placement) is a future enhancement
-  requiring `drive.file` scope via incremental authorization
+  requiring `drive.file` scope via incremental authorization.
+  **Constraint note**: Google Picker normally requires the Google JS SDK (`gapi`), which
+  is prohibited by `src/sheets/CLAUDE.md` ("Never: Use Google JS SDK / gapi"). The Picker
+  implementation must use the newer standalone Picker API or a raw-fetch alternative
+  that does not depend on `gapi`. This constraint must be resolved before Picker work
+  begins.
 
 **Recent sheets list** stored in `localStorage` under key `ganttlet-recent-sheets`:
 - Schema: `Array<{ sheetId: string, title: string, lastOpened: number }>`
@@ -856,7 +863,8 @@ Sheets URLs (extracts spreadsheet ID automatically).
 R3.1: GIVEN user is signed in and clicks "Connect Existing Sheet"
       WHEN the sheet selector modal opens
       THEN it shows a list of the user's recent Google spreadsheets
-      (via GET drive/v3/files?q=mimeType='spreadsheet', max 20 results)
+      (via GET drive/v3/files?q=mimeType='application/vnd.google-apps.spreadsheet',
+      max 20 results)
       AND a text input for pasting a Google Sheets URL
 
 R3.2: GIVEN user pastes "https://docs.google.com/spreadsheets/d/ABC123/edit#gid=0"
@@ -1169,7 +1177,7 @@ const initialState: GanttState = {
 const initialState: GanttState = {
   tasks: [],
   changeHistory: [],
-  dataSource: 'loading',  // overridden immediately by WelcomeGate or URL detection
+  dataSource: undefined,  // set by WelcomeGate or URL detection, NOT in initialState
   syncError: null,
   sandboxDirty: false,
   // ...

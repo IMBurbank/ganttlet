@@ -61,8 +61,9 @@ The app has two layers:
 Three new fields on `GanttState`:
 
 ```typescript
-// App mode — set after WelcomeGate routing or URL detection
-dataSource: 'sandbox' | 'loading' | 'sheet' | 'empty'
+// App mode — undefined until WelcomeGate routing or URL detection sets it
+// When undefined, WelcomeGate renders. When defined, GanttApp renders.
+dataSource: 'sandbox' | 'loading' | 'sheet' | 'empty' | undefined
 
 // Sync error overlay — independent of dataSource
 // Set when a sync operation fails, cleared when it recovers
@@ -934,7 +935,7 @@ const initialState: GanttState = {
 const initialState: GanttState = {
   tasks: [],
   changeHistory: [],
-  dataSource: 'loading',  // overridden by WelcomeGate or URL detection
+  dataSource: undefined,  // set by WelcomeGate or URL detection, NOT in initialState
   syncError: null,
   sandboxDirty: false,
 };
@@ -1021,6 +1022,10 @@ When header validation fails (section 8), offer: "Add Ganttlet headers to this s
 |---|---|---|
 | `drive.file` | **Restricted** | Browse Drive via Picker, move sheets to folders |
 
+- **Constraint note**: Google Picker normally requires the Google JS SDK (`gapi`), which
+  is prohibited by `src/sheets/CLAUDE.md` ("Never: Use Google JS SDK / gapi"). The Picker
+  implementation must use the newer standalone Picker API or a raw-fetch alternative.
+  This constraint must be resolved before Picker work begins.
 - Requested via incremental authorization only when user clicks "Browse Drive"
 - `drive.file` is **restricted** tier — requires security assessment during verification
 - Since we already require verification for `spreadsheets` (sensitive), this extends the

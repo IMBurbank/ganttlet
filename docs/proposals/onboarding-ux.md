@@ -1,9 +1,8 @@
 # Proposal: User Onboarding & New Schedule Experience
 
 **Status**: Draft — open for discussion
-**Date**: 2026-03-15
+**Date**: 2026-03-20
 **Scope**: How users start, connect, and manage schedules in Ganttlet
-**Baseline**: Rebased on main after phases 16, 16b, 16c (commit 730473b)
 
 ---
 
@@ -20,6 +19,8 @@ is no way to:
 - Switch between sheets or disconnect from one
 - Choose a project template
 - Understand what the app does on first visit
+- Return to a previously-connected project
+- Start from Google Sheets and get to Ganttlet
 
 This was acceptable during development but blocks real usage.
 
@@ -67,13 +68,443 @@ the story to tell during onboarding.
 
 ---
 
+## User Journeys
+
+Every design decision in this proposal flows from these 8 user journeys. The journeys
+define what users need; the recommendations (next section) describe how to deliver it.
+
+### Journey 1: The Curious Visitor
+
+**Who:** Someone who heard about Ganttlet, clicked a link, wants to understand what it does.
+
+**Current experience:**
+- Lands on the app, sees a full Gantt chart with "Q2 Product Launch" — 30+ tasks, fake
+  owners, fake dates
+- No explanation of what they're looking at or what makes Ganttlet different
+- Can drag bars, edit fields, click around — but doesn't know if this is their data,
+  sample data, or someone else's project
+- The "Sign in" button exists but there's no reason given to click it
+- If they do sign in and happen to have `?sheet=ID` in the URL (they won't), their
+  sheet silently gets overwritten with this fake data
+
+**What they need:**
+- Immediate clarity: "This is a demo project. Play with it."
+- A reason to care: "Real-time Google Sheets sync — edit here or in your spreadsheet,
+  both update instantly"
+- A low-friction path forward: either keep exploring or sign in when ready
+- Safety: nothing they do in exploration should write to any external system
+
+**Proposed experience:**
+1. Landing shows the Gantt chart with sample data (same interactive demo as today —
+   the product speaks for itself)
+2. Persistent banner: *"You're exploring a demo project. Nothing is saved."*
+3. Clear value prop visible without scrolling — the Sheets sync story, real-time collab,
+   browser-based scheduling
+4. Two clear CTAs: **"Sign in with Google"** to start for real, or just keep playing
+5. Sandbox mode: no Sheets writes, no Yjs connection, no side effects. Pure local state.
+
+**Design choice — banner, not modal:** A modal risks feeling like an ad. The banner
+approach lets the product speak for itself — the user is already *in* a working Gantt
+chart, which is more compelling than any marketing page.
+
+**Serves:** R1 (sandbox mode), R8 (decouple fake data)
+
+---
+
+### Journey 2: The Return Visitor
+
+**Who:** Used Ganttlet yesterday, connected a sheet, closed the tab. Coming back today.
+
+**Current experience:**
+- Navigates to `ganttlet.app` — sees fake data again
+- Their Google session may still be valid (localStorage), but without `?sheet=ID` in the
+  URL, there's no connection to their project
+- Must remember the URL with their sheet ID, or dig through browser history
+- Complete dead end if they can't find the URL
+
+**What they need:**
+- Instant recognition: "Welcome back. Here are your projects."
+- One click to resume where they left off
+- No fake data, no confusion
+
+**Proposed experience:**
+1. App detects returning user (has auth in localStorage + recent sheets list)
+2. Instead of loading fake data, shows a lightweight welcome:
+   ```
+   Welcome back, Sarah.
+
+   Recent projects:
+     Q2 Product Launch         2 hours ago
+     Sprint Planning           3 days ago
+
+   [New Project]    [Connect Existing Sheet]    [Explore Demo]
+   ```
+3. Clicking a recent project loads it immediately — URL updates, sheet loads, collab
+   connects
+4. The recent sheets list is maintained in localStorage: `{ sheetId, title, lastOpened }`,
+   updated on every successful connection
+
+**This is the most important journey.** Every other journey happens once. This one happens
+every day. If returning to your project is annoying, people stop using the tool.
+
+**Serves:** R6 (onboarding flow), R7 (sheet management)
+
+---
+
+### Journey 3: The New Project Creator
+
+**Who:** Signed-in user who wants to start a new Gantt chart backed by a real Google Sheet.
+
+**Current experience:**
+- Not possible from within the app
+- User would need to: create a Google Sheet manually, set up the correct 20-column header
+  row, copy the sheet ID, paste it into the URL
+- Nobody will do this
+
+**What they need:**
+- "New Project" button that handles everything
+- Optional template selection (blank, software release, marketing campaign, etc.)
+- The sheet is created, headers written, URL updated — all in one click
+
+**Proposed experience:**
+1. User clicks "New Project" (from welcome screen or header)
+2. Template picker:
+   ```
+   Start a new project:
+
+     ○ Blank project (just headers, you fill in tasks)
+     ○ Software Release (12 tasks — plan → develop → test → launch)
+     ○ Marketing Campaign (10 tasks — strategy → content → launch)
+     ○ Event Planning (10 tasks — logistics → promotion → execution)
+
+   Project name: [My Project        ]
+
+   [Create]
+   ```
+3. App creates a Google Sheet via Sheets API (works with existing `spreadsheets` scope)
+4. Writes header row + template tasks (if any) to the sheet
+5. URL updates to `?sheet=ID&room=ID`, auto-save activates, collab enabled
+6. User is now in connected mode, editing a real project
+
+**Where the sheet goes:** New sheets land in Drive root (My Drive). The Sheets API
+`POST /v4/spreadsheets` endpoint has no `parents` parameter. This is fine — most users
+won't care about folder placement for a quick project, and they can move the sheet in
+Drive themselves. Folder placement via Google Picker is a future enhancement that requires
+`drive.file` scope via incremental authorization.
+
+**Serves:** R5 (templates), R3 (sheet selection)
+
+---
+
+### Journey 4: Bring Your Own Sheet
+
+**Who:** Has an existing Google Sheet with project data. Wants to visualize it as a Gantt
+chart.
+
+**Current experience:**
+- Must know to put `?sheet=ID` in the URL
+- Must already have their sheet in the exact 20-column format Ganttlet expects
+- If columns don't match, data loads as garbage with no error
+- If the sheet is empty, fake data stays on screen
+
+**What they need:**
+- A way to select their sheet from within the app (browsing or pasting a URL)
+- Clear feedback about whether their sheet is compatible
+- If columns don't match, tell them what's wrong and what to do about it
+- If the sheet is empty, show it as empty (not fake data)
+
+**Proposed experience:**
+1. User clicks "Connect Existing Sheet" (from welcome screen or header)
+2. Sheet selection modal:
+   ```
+   Select a Google Sheet:
+
+   Recent spreadsheets:
+     Q2 Budget                 Modified yesterday
+     Team Roster               Modified 3 days ago
+     Sprint Backlog            Modified last week
+
+   Or paste a Google Sheets URL:
+   [https://docs.google.com/spreadsheets/d/...    ]
+
+   [Connect]
+   ```
+   This list uses the existing `drive.metadata.readonly` scope — no new permissions needed.
+3. App loads the sheet and checks the header row against `SHEET_COLUMNS`:
+   - **Headers match** → load tasks, enter connected mode
+   - **Sheet is empty** → enter connected mode with empty state (timeline scaffolding,
+     "Add your first task" CTA)
+   - **Headers don't match** → show validation error:
+     ```
+     This sheet's columns don't match Ganttlet's format.
+
+     Expected: id, name, startDate, endDate, duration, ...
+     Found: Task, Start, End, Assignee, Priority, ...
+
+     [Create a new sheet instead]
+     [Download header template]
+
+     Full column mapping is coming in a future update.
+     ```
+
+**Short-term vs long-term:** The validation gate (check headers, show clear error) is the
+MVP. The full solution is column auto-detection and mapping (R4), where users see their
+column names and map them to Ganttlet fields via a UI. The mapping is stored in a
+`_ganttlet_meta` tab in the sheet so it persists across sessions. R4 is a large effort
+but is the real "bring your own sheet" story.
+
+**Serves:** R3 (sheet selection), R4 (column mapping)
+
+---
+
+### Journey 5: The Collaborator
+
+**Who:** Received a link from a teammate. Has never used Ganttlet before (or maybe has).
+Wants to see the project and possibly make edits.
+
+**Current experience:**
+- Opens a URL like `ganttlet.app/?sheet=ABC123&room=ABC123`
+- Sees fake data flash on screen (initial state is always fake tasks)
+- Must sign in to see real data
+- After sign-in, fake data gets replaced by sheet data — jarring transition
+- If they start editing before sign-in completes, their edits are to fake data and get
+  thrown away
+
+**What they need:**
+- A clear indication they're joining a specific project (not a generic landing page)
+- Sign-in as the *only* action available (they can't do anything useful without it)
+- No fake data, no exploration path — they have a specific intent
+- After sign-in, direct entry to the project with live collab indicators
+
+**Proposed experience:**
+1. App detects `?sheet=` or `?room=` in URL → this is a collaborator, not an explorer
+2. If not signed in, show a focused screen:
+   ```
+   You've been invited to collaborate on a project.
+
+   [Sign in with Google]
+
+   Ganttlet syncs with Google Sheets in real time.
+   Your changes appear instantly for all collaborators.
+   ```
+   No "try the demo" option. No template picker. Just sign in and go.
+3. After sign-in → load sheet data → connect to Yjs room → show the project with
+   presence indicators
+4. Loading state between sign-in and data-ready: show the timeline scaffolding (grid,
+   headers, today marker) with a centered spinner or skeleton rows. Never fake data.
+
+**This is a distinct persona from Journey 1.** The curious visitor needs persuasion and
+safety. The collaborator needs speed and directness. The current app treats them
+identically. The `dataSource` state model makes it possible to differentiate: if URL has
+`?sheet=`, set `dataSource = 'loading'` instead of `dataSource = 'sandbox'`.
+
+**Serves:** R1 (app modes), R6 (onboarding flow)
+
+---
+
+### Journey 6: Sandbox to Real Project (Promotion)
+
+**Who:** Started with Journey 1 (curious visitor), played around, decided this is useful.
+Wants to keep what they've built.
+
+**Current experience:**
+- Not possible. Everything in the demo is throwaway. There's no path from "I was playing
+  around" to "I want to keep this."
+
+**What they need:**
+- A clear, always-visible escape hatch: "Save this to a real Google Sheet"
+- Their edits carry forward — whatever they changed in the demo becomes their starting
+  point
+- Sign-in happens as part of the promotion flow if they haven't already
+- After promotion, they're in connected mode with auto-save, collab, the works
+
+**Proposed experience:**
+1. User clicks "Save to Google Sheet" (persistent in sandbox banner or header)
+2. If not signed in → Google sign-in first
+3. After sign-in, choose destination:
+   ```
+   Save your project:
+
+     ○ Create a new Google Sheet (recommended)
+     ○ Save to an existing sheet
+
+   Project name: [Q2 Product Launch    ]
+
+   [Save]
+   ```
+4. If "existing sheet" → open the sheet selector (same modal as Journey 4)
+   - **If selected sheet is empty** → write current tasks to it, no prompt needed
+   - **If selected sheet has Ganttlet-format data** → ask: *"This sheet has 12 existing
+     tasks. Replace them with your current project, or open the existing data instead?"*
+   - **If selected sheet has non-Ganttlet data** → warn: *"This sheet has data that isn't
+     in Ganttlet format. Creating a new sheet is recommended."* with [Create New Sheet]
+     as the primary CTA and a secondary "Overwrite anyway" for users who know what
+     they're doing
+5. If "new sheet" → create via Sheets API, write current tasks
+6. URL updates to `?sheet=ID&room=ID`, `dataSource` flips to `'sheet'`, auto-save
+   activates, banner disappears
+7. Everything the user built in sandbox — edits, new tasks, deleted tasks, rearranged
+   dependencies — carries forward
+
+**Sandbox is ephemeral by default.** Sandbox doesn't persist to localStorage. If you close
+the tab, it's gone. This keeps things simple and avoids a confusing middle state (looks
+like a project but isn't backed by anything durable). But if the user has made edits and
+tries to close the tab, show a `beforeunload` warning: *"You have unsaved changes. Save
+to Google Sheets to keep your work."*
+
+**Serves:** R1 (sandbox → connected promotion)
+
+---
+
+### Journey 7: Mid-Session Errors & Recovery
+
+**Who:** Any user, mid-session, when something goes wrong.
+
+**Current experience:**
+- Almost all errors are silent. Saves fail quietly (logged to console only). Token expiry
+  goes unnoticed. Sheet deletion results in repeated silent 404s from polling. The user
+  has no idea anything is wrong until they check their Google Sheet and find stale data.
+- The sync indicator shows "Syncing..." / "Synced" / "No Sheet" — but never "Error"
+- `retryWithBackoff` in sheetsClient.ts handles 429s with exponential backoff + jitter,
+  but the UI never reflects retry status
+- Polling errors are logged and silently continued — no backoff, no user feedback
+
+**What they need:**
+- Clear, non-blocking feedback about what went wrong
+- Graceful degradation — local editing should always work, even if sync is broken
+- A path to recovery without losing work
+
+**Proposed error states:**
+
+| Error | What user sees | Behavior |
+|---|---|---|
+| Sheet not found / no access (403/404) | Banner: *"Can't access this sheet. It may have been deleted or unshared."* + [Open another sheet] | Remove from recent sheets list. Stop polling. Local editing still works. |
+| Token expired | Banner: *"Session expired. [Re-authorize] to keep syncing."* | Queue unsaved changes locally. Resume sync after re-auth. No data loss. |
+| Sheets API rate limit (429) | Persistent status indicator: *"Sync paused — retrying automatically"* | Shown once per backoff sequence, not per retry attempt. Dismiss on success. No repeated toasts. |
+| Relay down (collab) | Subtle indicator: connection dot turns orange. Tooltip: *"Real-time sync unavailable. Sheet sync still active."* | Sheets polling continues. Presence indicators disappear. Auto-reconnect when relay returns. |
+| Network offline | Banner: *"You're offline. Changes saved locally."* | Detect via `navigator.onLine` + fetch failures. Resume sync on reconnect. |
+| Column mismatch | See Journey 4 | Block load, show validation, offer alternatives. |
+
+**Rate limit UX detail:** The current `retryWithBackoff` makes up to 5 attempts per
+failed operation. Showing a toast per attempt would look buggy. Instead, track a
+`syncError` state that transitions once (null → error type) when the first retry starts,
+and clears when sync succeeds. The status indicator updates its text but doesn't
+repeatedly appear/disappear. For 429 specifically, the indicator shows a calm
+"retrying..." state — not an alarming error.
+
+**The principle:** Ganttlet's browser-first architecture means local editing is always
+possible. The error UX should communicate that your work is safe locally, and tell you
+specifically what external connection is broken and what to do about it.
+
+**Serves:** R9 (data safety), new error infrastructure
+
+---
+
+### Journey 8: The Sheets-First User
+
+**Who:** Has a Google Sheet with project data. Discovers Ganttlet through a link, docs,
+or word of mouth. Their starting point is the sheet, not the app.
+
+**Current experience:**
+- No way to go from a Google Sheet to Ganttlet
+- The `?sheet=ID` URL convention exists but is undiscoverable
+- Even if they find it, their sheet probably doesn't match Ganttlet's 20-column format
+
+**What they need:**
+- A way to open Ganttlet directly from their sheet
+- A template or guide to structure their sheet correctly
+- Eventually: column mapping so their existing structure works as-is
+
+**Proposed experience — progressive levels:**
+
+**Level 1 — URL convention + template (no code):**
+- Document and advertise `ganttlet.app/?sheet=SHEET_ID` pattern
+- Publish a **public Google Sheet template** with the correct 20-column header row and a
+  few example rows. Users click "Use Template" in Google Sheets, get a copy in their
+  Drive, then connect it to Ganttlet. The template sheet's ID goes right into `?sheet=`
+- This is the highest-value, lowest-effort step: just a Google Sheet we publish + a link.
+  The template doubles as documentation — users can see exactly what format Ganttlet
+  expects
+
+**Level 2 — "Prepare my sheet" (small feature):**
+- When a user connects a non-compatible sheet (Journey 4 validation fails), offer:
+  *"Add Ganttlet headers to this sheet?"*
+- This inserts the 20-column header row into a **new tab** (e.g., `Ganttlet`) in their
+  existing sheet. Their original data stays untouched in `Sheet1`
+- They can then move/remap data at their own pace
+- Ganttlet connects to the `Ganttlet` tab instead of `Sheet1`
+
+**Level 3 — Google Sheets Add-on (future):**
+- A Workspace add-on: Extensions → Ganttlet → "Open as Gantt Chart"
+- Reads the current sheet ID, opens `ganttlet.app/?sheet=ID&room=ID` in a new tab
+- Could inject the correct header row into an empty sheet
+- Requires Workspace Marketplace publishing + Apps Script — a separate project
+
+**Template value:** The public template is valuable beyond Journey 8. It serves as:
+- The starting point for Journey 3 (new project — the "Blank" template option could link
+  to the same structure)
+- Documentation for Journey 4 (what format does Ganttlet expect?)
+- A reference for Journey 6 promotion (what will be written to your sheet?)
+- The basis for the "Download header template" link in the column validation error
+
+**Serves:** R4 (column mapping, long-term), R5 (templates)
+
+---
+
+## Journey Map
+
+All journeys converge on connected mode. The `dataSource` state machine is the mechanism:
+
+```
+                    Journey 1          Journey 2         Journey 8
+                  (Curious Visitor)  (Return Visitor)  (Sheets-First)
+                        │                  │                │
+                        ▼                  │                │
+                    ┌────────┐             │                │
+                    │Sandbox │             │                │
+                    │(demo)  │             │                │
+                    └───┬────┘             │                │
+        Journey 6       │                  │                │
+       (Promotion)      │                  │                │
+                        ▼                  ▼                ▼
+ Journey 3 ──► ┌──────────────┐   ┌──────────────┐   ┌──────────┐
+(New Project)  │Sheet Selector│   │Recent Sheets  │   │ ?sheet=  │
+               │+ Templates   │   │List           │   │ URL param│
+               └──────┬───────┘   └──────┬────────┘   └────┬─────┘
+                      │                  │                  │
+                      ▼                  ▼                  ▼
+               ┌─────────────────────────────────────────────────┐
+               │              Loading (dataSource='loading')     │
+               │  Timeline scaffolding, skeleton rows, spinner   │
+               └──────────┬──────────────────────┬───────────────┘
+                          │                      │
+               ┌──────────▼──────┐    ┌──────────▼──────────┐
+               │ Empty State     │    │ Connected Mode      │
+               │ (dataSource=    │    │ (dataSource='sheet') │
+               │  'empty')       │    │ Auto-save on, collab │
+               │ "Add first task"│    │ on, polling active   │
+               └────────┬────────┘    └──────────────────────┘
+                        │ first edit          ▲
+                        └─────────────────────┘
+
+               Journey 5 (Collaborator) → same path as ?sheet= URL
+               Journey 7 (Errors) → overlays on connected mode
+```
+
+---
+
 ## Recommendations
+
+The recommendations below implement the journeys above. They are grouped by what they
+deliver, not by priority — see "Priority & Phasing" for sequencing.
 
 ### R1: Separate App Modes — "Connected" vs "Sandbox"
 
 **Problem**: Demo mode and production mode are conflated.
 
-**Proposal**: Three distinct entry paths, chosen explicitly by the user:
+**Journeys served**: 1 (curious visitor), 5 (collaborator), 6 (promotion)
+
+**Proposal**: Distinct entry paths, chosen by URL state and user action:
 
 1. **Sandbox mode** (no URL params, not signed in) — Interactive demo with sample data.
    Fully interactive — users can drag tasks, edit fields, add dependencies, see the
@@ -87,187 +518,151 @@ the story to tell during onboarding.
 3. **New project** — Create a new Google Sheet via Sheets API, optionally populate from a
    template (R5), redirect to connected mode.
 
-**Sandbox → Connected promotion**: Users who explore in sandbox mode and want to keep
-their work (whether it's the original demo data or a modified version) can promote to a
-real sheet at any time:
-
-1. User clicks **"Save to Google Sheet"** in the sandbox banner (or header)
-2. If not signed in → triggers Google sign-in first
-3. After sign-in, user chooses:
-   - **"Create new sheet"** → creates a new Google Sheet, writes current tasks to it,
-     transitions to connected mode
-   - **"Save to existing sheet"** → opens Google Picker (R3), user selects a sheet,
-     app writes current tasks to it, transitions to connected mode
-4. URL updates to include `?sheet=ID`, `dataSource` flips from `'sandbox'` to `'sheet'`,
-   auto-save activates, and the banner disappears
-
-This is the key UX insight: sandbox isn't a dead end. Everything the user did in sandbox
-mode — edits, dependency changes, rearranged tasks — carries forward into their real
-project. The demo becomes the starting point, not a throwaway.
-
-**What this means for the demo data**: The sample "Q2 Product Launch" project is no longer
-injected silently. It's presented as an interactive playground that users can:
-- Explore and discard (close the tab)
-- Explore, modify, and save (promote to a sheet)
-- Skip entirely (sign in → new project or existing sheet)
-
-**State model change**: Add a `dataSource` field to `GanttState`:
+**State model**: Add a `dataSource` field to `GanttState`:
 ```typescript
-dataSource: 'sandbox' | 'sheet' | 'empty'
+dataSource: 'sandbox' | 'loading' | 'sheet' | 'empty'
 ```
+
+The `'loading'` state is the key addition — it prevents fake data from flashing when a
+collaborator opens a shared link or a return visitor reconnects. Today the initial state
+is always `tasks: fakeTasks`. With this model:
+
+- No `?sheet=` param → `dataSource = 'sandbox'`, load fakeTasks into local state
+- Has `?sheet=` param → `dataSource = 'loading'`, `tasks = []`, show skeleton UI
+  - `loadFromSheet()` succeeds with data → `dataSource = 'sheet'`, `SET_TASKS`
+  - `loadFromSheet()` succeeds empty → `dataSource = 'empty'`, show empty state
+  - `loadFromSheet()` fails (403/404) → `dataSource = 'error'`, show error
+
+**Feasibility of `'loading'` state:** Confirmed by code review. The change is small:
+- Add `dataSource` to `GanttState` type (1 field)
+- Add `SET_DATA_SOURCE` to reducer (1 case)
+- Set initial `dataSource` based on URL params in GanttContext
+- One conditional render in App.tsx / main layout: if `dataSource === 'loading'`, show
+  skeleton instead of chart
+- No conflicts with existing state — `isSyncing`, `syncComplete`, `isCollabConnected`
+  remain orthogonal
+
 Auto-save is gated on `dataSource === 'sheet'`. The transition from `'sandbox'` to
-`'sheet'` only happens through the explicit promotion flow above.
+`'sheet'` only happens through the explicit promotion flow (Journey 6).
 
 **Sandbox isolates all external writes**:
 - **Sheets**: `scheduleSave()` is a no-op when `dataSource !== 'sheet'`
-- **Yjs/Collaboration**: Sandbox mode **ignores the `?room=` URL param entirely** — no
-  WebSocket connection, no CRDT document, no relay. The existing `connectCollab()` call
-  in `GanttContext.tsx:161` is guarded by `if (!roomId || !accessToken) return;` — sandbox
-  users are not signed in, so this already blocks. But we should add an explicit
-  `dataSource !== 'sandbox'` guard as defense-in-depth, because a user could sign in
-  (to browse sheets) without leaving sandbox mode.
+- **Yjs/Collaboration**: Sandbox mode ignores `?room=` entirely. The existing
+  `connectCollab()` guard (`if (!roomId || !accessToken) return;`) already blocks
+  unsigned-in users. Add explicit `dataSource !== 'sandbox'` as defense-in-depth.
 - **Dispatch**: Sandbox uses `localDispatch` only (React state, no Yjs). The existing
-  split dispatch architecture (`localDispatch` vs `collabDispatch`) in GanttContext.tsx
-  makes this straightforward — sandbox mode wires `GanttDispatchContext` to `dispatch`
-  instead of `collabDispatch`.
+  split dispatch architecture makes this straightforward.
 
-**`dataSource` lifecycle**:
-```
-App loads:
-  No ?sheet= param → dataSource = 'sandbox', load fakeTasks into state
-  Has ?sheet= param → dataSource = 'empty' (until loadFromSheet completes)
-    ↓ loadFromSheet() resolves:
-      tasks.length > 0 → dataSource = 'sheet', dispatch SET_TASKS
-      tasks.length === 0 → dataSource stays 'empty', show empty state (R2)
-    ↓ user makes first edit (any TASK_MODIFYING_ACTION):
-      if dataSource === 'empty' → transition to dataSource = 'sheet'
-      (this is the "intent gate" — first edit enables auto-save)
-```
-
-**Promotion flow implementation**:
+**Promotion flow** (Journey 6):
 ```typescript
 async function promoteToSheet(sheetId: string, tasks: Task[]) {
-  // 1. Write current state to sheet (whatever the user has in sandbox)
+  // 1. Write current state to sheet
   const rows = tasksToRows(tasks);
-  // Note: column count must match SHEET_COLUMNS.length (currently 20 = column T)
   await updateSheet(sheetId, `Sheet1!A1:T${rows.length}`, rows);
 
   // 2. Initialize sync (enables polling + auto-save)
   initSync(sheetId, dispatch);
   startPolling();
 
-  // 3. Update URL: add ?sheet= and ?room= (same ID enables collaboration)
+  // 3. Update URL
   const url = new URL(window.location.href);
   url.searchParams.set('sheet', sheetId);
   url.searchParams.set('room', sheetId);
   window.history.replaceState({}, '', url.toString());
 
-  // 4. Transition state — this triggers the Yjs connection effect
-  //    (GanttContext watches accessToken + roomId, and dataSource !== 'sandbox'
-  //    allows the connection to proceed)
+  // 4. Transition state
   dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
-
-  // 5. Yjs connects automatically via the existing useEffect that watches
-  //    accessToken — the user is already signed in (required for step 1),
-  //    and roomId is now in the URL. hydrateYjsFromTasks() will find
-  //    loadedSheetTasksRef populated from step 1, so it hydrates from
-  //    real data, not fakeTasks.
 }
 ```
 
 **URL convention**: Promotion always sets both `?sheet=` and `?room=` to the same
-spreadsheet ID. This matches the existing convention documented in `docs/local-testing.md`
-and enables collaboration immediately after promotion. The relay room is created
-implicitly when the first client connects — no separate creation step is needed (the
-relay server is a stateless WebSocket forwarder that creates rooms on demand).
+spreadsheet ID (matches existing convention in `docs/local-testing.md`). The relay room
+is created implicitly when the first client connects.
 
-**Shareable URL**: After promotion, the URL looks like
-`https://ganttlet.app/?sheet=ABC123&room=ABC123` — sharing this URL gives collaborators
-both Sheets sync and real-time collaboration.
+**Shareable URL**: After promotion, the URL `ganttlet.app/?sheet=ABC&room=ABC` gives
+collaborators both Sheets sync and real-time collaboration.
 
 ### R2: Empty State with Structure
 
 **Problem**: Empty sheets show fake data instead of guidance.
 
+**Journeys served**: 3 (new project, blank template), 4 (empty existing sheet)
+
 **Proposal**: When connected to an empty sheet, render:
 
-- Timeline header, grid lines, today marker (the visual scaffolding of a Gantt chart)
+- Timeline header, grid lines, today marker (visual scaffolding)
 - A centered call-to-action area:
   - **Primary**: "Add your first task" — inline task-creation row at the top of the table
   - **Secondary**: "Or start from a template" — opens template picker (R5)
 - Brief value prop copy: *"Changes sync to your Google Sheet in real time"*
-- The table panel shows the column headers but no rows (except the add-task row)
-
-This follows NN/g's three guidelines for empty states: communicate system status, increase
-learnability, and provide direct pathways to key tasks.
+- The table panel shows column headers but no rows (except the add-task row)
 
 ### R3: Sheet Selection UI
 
 **Problem**: Users must manually copy spreadsheet IDs into URLs.
 
-**Proposal**: Two-phase approach:
+**Journeys served**: 2 (return visitor), 3 (new project), 4 (existing sheet), 6 (promotion)
 
-**Phase B (no new scopes)**: Lightweight in-app sheet browser using the existing
-`drive.metadata.readonly` scope. Lists the user's recent spreadsheets via
-`GET drive/v3/files?q=mimeType='spreadsheet'`. Also accepts pasted Google Sheets URLs
-(extracts the spreadsheet ID automatically). See "OAuth & Scope Strategy" section for
-the implementation sketch and wireframe.
+**Proposal**: Lightweight in-app sheet browser using existing `drive.metadata.readonly`
+scope. Lists the user's recent spreadsheets via Drive API. Also accepts pasted Google
+Sheets URLs (extracts spreadsheet ID automatically).
 
-**Phase C (adds `drive.file`)**: Full Google Picker API integration for browsing Drive
-folders, searching, and selecting sheets. Also enables folder placement for new sheets.
-Uses incremental authorization — only requested when the user clicks "Browse Drive."
+```
+┌─ Select a Google Sheet ────────────────────────┐
+│                                                │
+│  Recent spreadsheets:                          │
+│  ┌────────────────────────────────────────┐    │
+│  │ Q2 Product Launch    Modified 2h ago   │    │
+│  │ Sprint Planning      Modified 1d ago   │    │
+│  │ Budget 2026          Modified 3d ago   │    │
+│  └────────────────────────────────────────┘    │
+│                                                │
+│  Or paste a Google Sheets URL:                 │
+│  ┌────────────────────────────────────────┐    │
+│  │ https://docs.google.com/spreadsheets/  │    │
+│  └────────────────────────────────────────┘    │
+│                                                │
+│           [Connect]    [Create New Sheet]       │
+└────────────────────────────────────────────────┘
+```
 
-**Flow** (Phase B):
-1. User signs in with Google (existing OAuth flow)
-2. User clicks "Connect Google Sheet" in header
-3. In-app modal shows recent sheets + paste-URL input
-4. User selects a sheet or pastes a URL
-5. App updates URL param and loads data
-6. If sheet has data → render. If empty → show empty state (R2)
-
-**Implementation notes**:
-- Phase B requires **no new scopes** — `drive.metadata.readonly` is already granted
-- Store recently-connected sheets in `localStorage` for quick reconnection
+**Implementation notes:**
+- No new OAuth scopes needed — `drive.metadata.readonly` is already granted
+- Store recently-connected sheets in `localStorage` for quick reconnection (Journey 2)
 - Parse pasted URLs: extract ID from `docs.google.com/spreadsheets/d/{ID}/...`
-- Phase C's Google Picker returns the spreadsheet ID, title, and URL natively
+- Google Picker API (full Drive browsing, folder placement) is a future enhancement
+  requiring `drive.file` scope via incremental authorization
 
 ### R4: Column Auto-Detection & Mapping
 
 **Problem**: Connecting a sheet with non-standard columns fails silently or produces
 garbled data.
 
-**Proposal**: When connecting a sheet that has data:
+**Journeys served**: 4 (existing sheet), 8 (sheets-first user)
 
-1. **Read the header row** (first row of `Sheet1`)
-2. **Auto-map recognized columns** using fuzzy matching:
-   - Exact matches: `name`, `start_date`, `end_date`, `duration`, `owner`
+**Two-tier approach:**
+
+**Tier 1 — Header validation (ship early):** Read the header row, compare against
+`SHEET_COLUMNS`. If it doesn't match, show a clear error with the expected vs found
+columns, and offer to create a new sheet or download a header template. This is a small
+addition — string comparison on row 1 plus an error component.
+
+**Tier 2 — Column mapping UI (larger effort):** When connecting a sheet with data:
+
+1. Read the header row
+2. Auto-map recognized columns using fuzzy matching:
+   - Exact: `name`, `start_date`, `end_date`, `duration`, `owner`
    - Fuzzy: `task name` → `name`, `assignee` → `owner`, `begin` → `start_date`
    - Unmapped columns shown as "custom fields" (read-only initially)
-3. **Show a mapping preview modal**:
-   ```
-   ┌─ Column Mapping ────────────────────────┐
-   │                                         │
-   │  Your Column      →  Ganttlet Field     │
-   │  ─────────────────────────────────────  │
-   │  Task Name        →  Name         ✓    │
-   │  Start            →  Start Date   ✓    │
-   │  End              →  End Date     ✓    │
-   │  Assigned To      →  Owner        ▼    │
-   │  Priority         →  (unmapped)   ▼    │
-   │                                         │
-   │           [Confirm & Load]              │
-   └─────────────────────────────────────────┘
-   ```
-4. **Render the Gantt chart** with mapped data
-5. **Store the mapping** in a `_ganttlet_meta` sheet tab (hidden, auto-created) so it
-   persists across sessions
-
-**Effort**: This is the largest recommendation. Consider shipping R1-R3 first and adding
-column mapping as a fast-follow.
+3. Show a mapping preview modal where users confirm or adjust mappings
+4. Store the mapping in a `_ganttlet_meta` tab (hidden, auto-created) so it persists
+   across sessions
 
 ### R5: Project Templates
 
 **Problem**: No way to start a structured project without building from scratch.
+
+**Journeys served**: 3 (new project), 6 (promotion), 8 (sheets-first)
 
 **Proposal**: 3-5 built-in templates, each 8-15 tasks:
 
@@ -279,88 +674,104 @@ column mapping as a fast-follow.
 | **Event Planning** | Venue & Logistics → Promotion → Execution → Post-event | ~10 tasks |
 
 Templates are stored as static data (like `fakeData.ts` but intentionally structured).
-When a user selects a template for a new project:
+The existing `fakeTasks` data is refactored into the "Software Release" template.
 
-1. Create a new Google Sheet via Sheets API
-2. Write the template's header row + task rows
-3. Load the sheet in Ganttlet (connected mode)
+**Public Google Sheet template:** In addition to in-app templates, publish a public
+Google Sheet with the correct 20-column header and example rows. This serves Journey 8
+(sheets-first users) and doubles as documentation of the expected format. Users click
+"Use Template" in Google Sheets → get a copy in their Drive → connect to Ganttlet.
 
-The existing `fakeTasks` data could be refactored into the "Software Release" template
-rather than deleted, giving it a purposeful home.
-
-### R6: Onboarding Flow (3 Steps Max)
+### R6: Onboarding Flow
 
 **Problem**: No guided onboarding. Users must read docs to learn about URL params.
 
-**Proposal**: First-visit experience (detected via `localStorage` flag):
+**Journeys served**: 1 (curious visitor), 2 (return visitor), 5 (collaborator)
 
+**Proposal**: Context-aware welcome experience:
+
+**First visit (no auth, no URL params):**
 ```
-┌─ Step 1: Welcome ──────────────────────────────────────────────┐
-│                                                                │
-│  Ganttlet                                                      │
-│  Free Gantt charts with real-time Google Sheets sync           │
-│                                                                │
-│  [Try the demo]              [Sign in with Google]             │
-│                                                                │
-│  ✦ Two-way sync — edit in the chart or the sheet               │
-│  ✦ Real-time collaboration — see changes as they happen        │
-│  ✦ Runs in your browser — your data stays in your Google Drive │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
-
-  ↓ Try the demo                   ↓ Sign in
-
-┌─ Sandbox ──────────────────┐   ┌─ Step 2: Choose path ────────┐
-│                            │   │                              │
-│  Full interactive demo     │   │  ┌──────────┐ ┌──────────┐  │
-│  with sample project.      │   │  │ New      │ │ Existing │  │
-│  User can explore freely.  │   │  │ Project  │ │ Sheet    │  │
-│                            │   │  └──────────┘ └──────────┘  │
-│  Banner:                   │   │                              │
-│  [Save to Google Sheet]    │   └──────────────────────────────┘
-│                            │
-│  ↓ clicks Save             │     ↓ New Project       ↓ Existing
-│                            │
-│  Signs in (if needed)      │   ┌─ Template ─────┐  ┌─ Picker ─┐
-│  → New sheet or Picker     │   │ ○ Blank        │  │ Google   │
-│  → Current tasks written   │   │ ○ SW Release   │  │ Picker   │
-│  → Transitions to          │   │ ○ Marketing    │  │ or paste │
-│    connected mode          │   │ ○ Event        │  │ URL      │
-│                            │   │ [Create]       │  │[Connect] │
-└────────────────────────────┘   └────────────────┘  └──────────┘
-                                         │                │
-                                         └───────┬────────┘
-                                                 ↓
-                                    Connected mode (auto-save on)
+┌─ Welcome ──────────────────────────────────────────────┐
+│                                                        │
+│  Ganttlet                                              │
+│  Free Gantt charts with real-time Google Sheets sync   │
+│                                                        │
+│  [Try the demo]              [Sign in with Google]     │
+│                                                        │
+│  Two-way sync — edit in the chart or the sheet         │
+│  Real-time collaboration — see changes as they happen  │
+│  Runs in your browser — your data stays in Google Drive│
+│                                                        │
+└────────────────────────────────────────────────────────┘
 ```
 
-**Key flows**:
-- **Explore first** → Try demo → play around → Save to Sheet → connected mode
-- **Direct start** → Sign in → New project from template → connected mode
-- **Bring your data** → Sign in → Pick existing sheet → connected mode
+**Return visit (auth in localStorage + recent sheets):**
+```
+┌─ Welcome back ─────────────────────────────────────────┐
+│                                                        │
+│  Welcome back, Sarah.                                  │
+│                                                        │
+│  Recent projects:                                      │
+│    Q2 Product Launch         2 hours ago               │
+│    Sprint Planning           3 days ago                │
+│                                                        │
+│  [New Project]   [Connect Existing Sheet]  [Demo]      │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+```
 
-All paths converge on the same connected mode. Nothing is lost when transitioning.
+**Collaborator (has `?sheet=` or `?room=` in URL, not signed in):**
+```
+┌─ Collaborate ──────────────────────────────────────────┐
+│                                                        │
+│  You've been invited to collaborate on a project.      │
+│                                                        │
+│  [Sign in with Google]                                 │
+│                                                        │
+│  Your changes appear instantly for all collaborators.  │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+```
+
+**After sign-in (no sheet selected):**
+```
+┌─ Choose path ──────────────────────────────────────────┐
+│                                                        │
+│  ┌──────────────┐    ┌──────────────┐                  │
+│  │ New Project   │    │ Existing     │                  │
+│  │               │    │ Sheet        │                  │
+│  └──────────────┘    └──────────────┘                  │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+```
 
 **Total time target**: Under 60 seconds from landing to seeing your Gantt chart.
 
-### R7: Sheet Management UI
+### R7: Sheet Management & Share Links
 
-**Problem**: No way to switch sheets, disconnect, or see what's connected.
+**Problem**: No way to switch sheets, disconnect, see what's connected, or share.
+
+**Journeys served**: 2 (return visitor), 5 (collaborator — receiving links)
 
 **Proposal**: Add to the header bar (when signed in and connected):
 
-- **Sheet name** (fetched via Sheets API `spreadsheets.get`) displayed as a clickable link
-  that opens the sheet in Google Sheets in a new tab
+- **Sheet name** (fetched via Sheets API `spreadsheets.get`) displayed as a clickable
+  link that opens the sheet in Google Sheets in a new tab
+- **Share button** that copies the current URL (`?sheet=ID&room=ID`) to clipboard with
+  toast: *"Link copied. Anyone with access to the Google Sheet can collaborate."*
+  If `?room=` isn't in the URL yet, the share action adds it (using sheet ID as room ID)
 - **Dropdown menu** on the sheet name:
   - "Open in Google Sheets" → new tab
-  - "Switch sheet" → Google Picker (R3)
+  - "Switch sheet" → sheet selector (R3)
   - "Create new project" → template picker (R5)
-  - "Disconnect" → returns to welcome/sandbox
+  - "Disconnect" → returns to welcome
 - **Recent sheets** stored in `localStorage` for quick switching
 
 ### R8: Decouple Fake Data from Production Code
 
 **Problem**: `fakeData.ts` is imported unconditionally and used as initial state.
+
+**Journeys served**: All — prerequisite for every other recommendation
 
 **Proposal** (minimal, ship-first fix):
 
@@ -376,7 +787,7 @@ const initialState: GanttState = {
 const initialState: GanttState = {
   tasks: [],
   changeHistory: [],
-  dataSource: 'empty',
+  dataSource: 'loading',  // or 'sandbox' based on URL
   // ...
 };
 ```
@@ -384,111 +795,66 @@ const initialState: GanttState = {
 - `fakeTasks` is only imported and used in sandbox mode (lazy import)
 - Auto-save guard: `scheduleSave` only fires when `dataSource === 'sheet'`
 - Yjs hydration guard: only hydrate from loaded sheet tasks, never from fake data
-- The `fakeData.ts` file moves to `src/data/templates/softwareRelease.ts` and becomes one
-  of the template options (R5)
+- `fakeData.ts` moves to `src/data/templates/softwareRelease.ts` and becomes a template
 
-### R9: Preserve Existing Sheet Data
+### R9: Preserve Existing Sheet Data & Error Handling
 
-**Problem**: The auto-save + polling flow can overwrite sheet data in edge cases.
+**Problem**: Auto-save can overwrite sheet data, and all sync errors are silent.
 
-**Proposal**:
-- **Fix write range** (prerequisite, Phase A): `sheetsSync.ts:66` currently writes to
-  `A1:R` (18 columns) but `SHEET_COLUMNS` has 20 entries. Columns S (`constraintType`)
-  and T (`constraintDate`) are silently dropped on every save. Fix: derive the range
-  from `SHEET_COLUMNS.length` instead of hardcoding the column letter. This is a 1-line
-  fix that should ship before any other sync changes.
+**Journeys served**: 4 (existing sheet safety), 7 (error recovery)
+
+**Proposal:**
+
+**Data safety:**
 - **Read-before-write**: On first connect, always complete `loadFromSheet()` before
-  enabling auto-save. The `dataSource` lifecycle in R1 handles this — `dataSource` starts
-  as `'empty'` when `?sheet=` is present, and only transitions to `'sheet'` after the
-  load completes and the user makes an intentional edit.
+  enabling auto-save. The `dataSource` lifecycle handles this — `dataSource` starts as
+  `'loading'` and only transitions to `'sheet'` after successful load.
 - **Intent-gated writes**: Don't write to the sheet until the user has performed an
-  explicit action (add task, edit field, drag bar). Merely loading the app should never
-  trigger a write. The `dataSource` state machine in R1/R8 provides this gate.
-- **Source tracking**: Tag writes with a `_ganttlet_last_modified` cell (e.g., `U1`) so
-  the app can detect if the sheet was modified externally between polls. (Column U, not T,
-  since T is now `constraintDate`.)
+  explicit action. The `dataSource` state machine provides this gate.
+- **Source tracking**: Tag writes with a `_ganttlet_last_modified` cell (e.g., `U1`) to
+  detect external modifications between polls.
 - **Conflict warning**: If the sheet changed externally between polls and the user also
-  made local changes, show a merge confirmation dialog instead of silently overwriting.
+  made local changes, show a merge confirmation dialog.
 
----
-
-## Priority & Phasing
-
-### Phase A — Stop the bleeding (P0)
-
-| Rec | What | Effort | Effect |
-|---|---|---|---|
-| — | Fix write range `A1:R` → `A1:T` in sheetsSync.ts:66 | Tiny (1 line) | Constraint columns no longer silently dropped |
-| R8 | Decouple fake data, gate auto-save | Small (1-2 files) | Stops polluting production sheets |
-| R2 | Empty state UI | Small (new component) | Users see guidance, not fake data |
-
-The write range fix is a prerequisite — without it, even correctly-gated saves would
-still truncate constraint data. All three changes are safe to ship as a single PR.
-
-### Phase B — Onboarding v1 (P1)
-
-| Rec | What | Effort | Effect |
-|---|---|---|---|
-| R1 | App modes (sandbox/connected/empty) | Medium | Clear separation of concerns |
-| R6 | Welcome + onboarding flow | Medium | First impression; gates adoption |
-| R3 | Sheet browser (lightweight, no new scopes) | Medium | Eliminates URL-pasting friction |
-
-These form a cohesive "first experience" milestone. Depends on Phase A.
-No new OAuth scopes needed — uses existing `drive.metadata.readonly`.
-
-### Phase C — Templates & Management (P2)
-
-| Rec | What | Effort | Effect |
-|---|---|---|---|
-| R5 | Project templates | Medium | Accelerates time-to-value |
-| R7 | Sheet management UI | Medium | Quality-of-life for ongoing use |
-| R3+ | Google Picker upgrade (adds `drive.file`) | Small | Full Drive browsing + folder placement |
-
-### Phase D — Advanced Import (P3)
-
-| Rec | What | Effort | Effect |
-|---|---|---|---|
-| R4 | Column auto-detection & mapping | Large | "Bring your own sheet" story |
-| R9 | Data safety / conflict resolution | Medium | Edge-case protection |
+**Error infrastructure:**
+- Add `syncError` to `GanttState`: `{ type, message, since } | null`
+- Discriminate error codes in sheetsClient.ts — 404 (sheet deleted) should not retry the
+  same way as 429 (rate limit)
+- Build a minimal notification system: fixed-position bar for persistent errors (auth,
+  sheet access), transient status for recoverable issues (rate limit, network)
+- Track error state transitions, not individual retry attempts — show one notification
+  per error sequence, not per retry
+- Add `navigator.onLine` detection + `online`/`offline` event listeners
+- Add backoff to polling errors (currently polls every 30s regardless of failures)
 
 ---
 
 ## Open Questions
 
-1. ~~Google Picker scope~~ **Resolved** — see "OAuth & Scope Strategy" section below.
-
-2. ~~Sheet creation via API~~ **Resolved** — see "OAuth & Scope Strategy" section below.
-
-3. **Template ownership**: Should templates live as static JSON in the app bundle, or as
+1. **Template ownership**: Should templates live as static JSON in the app bundle, or as
    public Google Sheets that get copied? Static is simpler; Sheets copies let us update
-   templates without app deploys.
+   templates without app deploys. **Recommendation**: Both. Static JSON for in-app
+   template creation, published Google Sheet for Journey 8 (sheets-first users).
 
-4. **Column mapping complexity**: How far do we go with non-standard sheets? MVP could be
-   "your sheet must use our column names" with a downloadable header template. Full
-   mapping is a larger effort.
+2. **Column mapping complexity**: How far do we go with non-standard sheets? MVP is
+   header validation + error message + downloadable template. Full mapping is a larger
+   effort. **Open**: How many mapping variations do real users actually need?
 
-5. **Multi-sheet projects**: Should a user be able to have multiple sheets open as tabs
+3. **Multi-sheet projects**: Should a user be able to have multiple sheets open as tabs
    within one Ganttlet session? Or is it always one sheet = one project?
 
-6. **Sandbox persistence**: Should sandbox mode persist to `localStorage` so users don't
-   lose their exploration work? Or is it explicitly ephemeral?
+4. **Sandbox → Sheet promotion with existing data**: Resolved — see Journey 6 for the
+   three-way check (empty → write directly; Ganttlet-format data → offer replace/open;
+   non-Ganttlet data → recommend new sheet with overwrite as secondary option).
 
-7. **Sandbox → Sheet promotion with existing data**: When a user promotes sandbox data to
-   an existing sheet that already has tasks, what happens? Options:
-   - **Overwrite** — replace sheet contents with sandbox state (simple, but destructive)
-   - **Merge** — attempt to merge sandbox tasks with sheet tasks (complex, error-prone)
-   - **Block** — only allow promotion to empty sheets; show a warning if the selected
-     sheet has data ("This sheet already has data. Create a new sheet instead?")
-   - **User choice** — ask: "This sheet has 12 existing tasks. Replace them with your
-     demo project, or start fresh with the existing data?"
-   The safest default is probably to only allow promotion to new/empty sheets, with a
-   "this sheet has data — open it instead?" redirect for non-empty sheets.
+5. ~~Collaboration in sandbox mode~~ **Resolved** — Sandbox disables Yjs entirely.
 
-8. ~~Collaboration in sandbox mode~~ **Resolved** — Sandbox mode disables Yjs entirely
-   (see R1 sandbox isolation rules). Each visitor gets their own independent local copy.
-   Collaboration begins only after promotion to a sheet, at which point `?room=` is set
-   and Yjs connects. This avoids the thorny UX question of multi-user promotion and
-   keeps the sandbox simple and predictable.
+6. ~~Sandbox persistence~~ **Resolved** — Ephemeral by default with `beforeunload`
+   warning if user has made edits.
+
+7. ~~Google Picker scope~~ **Resolved** — see "OAuth & Scope Strategy" below.
+
+8. ~~Sheet creation via API~~ **Resolved** — see "OAuth & Scope Strategy" below.
 
 ---
 
@@ -507,10 +873,6 @@ The `spreadsheets` scope is already the heaviest scope we request — it's **sen
 tier, which requires Google app verification for production. All other current scopes are
 "recommended" (non-sensitive, no verification needed).
 
-This means adding `drive.file` (also recommended tier) in Phase C would **not** change
-the verification requirements or make the consent screen materially scarier — the
-sensitive `spreadsheets` scope already dominates the consent experience.
-
 ### What the current scopes can do
 
 | Operation | API Call | Scope Needed | Have It? |
@@ -526,15 +888,15 @@ sensitive `spreadsheets` scope already dominates the consent experience.
 
 `POST https://sheets.googleapis.com/v4/spreadsheets` with the `spreadsheets` scope
 creates a new spreadsheet in the user's **Drive root** (My Drive). There is no parameter
-on this endpoint to specify a parent folder. Moving a file to a folder requires the Drive
-API (`files.update` with `addParents`), which requires `drive.file` scope.
+on this endpoint to specify a parent folder. Moving to a folder requires the Drive API
+(`files.update` with `addParents`), which requires `drive.file` scope.
 
-### Recommended approach: progressive scope escalation
+### Approach: start simple, escalate later
 
-**Phase A/B — no new scopes needed:**
+**Initial implementation — no new scopes needed:**
 
-Sheet creation via `spreadsheets` scope works. New sheets land in Drive root. We can
-build a lightweight "sheet list" using the existing `drive.metadata.readonly` scope:
+Sheet creation via `spreadsheets` scope works. New sheets land in Drive root. Lightweight
+sheet listing uses existing `drive.metadata.readonly`:
 
 ```typescript
 // List user's spreadsheets (already permitted by current scopes)
@@ -549,10 +911,7 @@ const res = await fetch(
 );
 ```
 
-This gives us a "Recent Sheets" list without the Google Picker and without any new
-scopes. Users can select from their recent sheets or paste a URL — no ID copying needed.
-
-**Sheet creation implementation** (no new scope):
+Sheet creation (no new scope):
 ```typescript
 async function createSheet(title: string): Promise<string> {
   const token = getAccessToken();
@@ -564,139 +923,47 @@ async function createSheet(title: string): Promise<string> {
     },
     body: JSON.stringify({
       properties: { title },
-      sheets: [{
-        properties: { title: 'Sheet1' },
-      }],
+      sheets: [{ properties: { title: 'Sheet1' } }],
     }),
   });
   const data = await res.json();
-  return data.spreadsheetId;  // e.g., "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+  return data.spreadsheetId;
 }
 ```
 
-**Phase C — add `drive.file` when needed:**
+**Future enhancement — add `drive.file` when needed:**
 
-When we implement R3 (Google Picker) and folder placement, request `drive.file` via
-**incremental authorization**. Google's OAuth supports this: the app requests additional
-scopes at the moment they're needed, showing a targeted consent prompt:
+Google Picker + folder placement via incremental authorization:
 
 ```typescript
 // Only when user clicks "Browse Drive" or "Choose folder"
 tokenClient.requestAccessToken({
   scope: 'https://www.googleapis.com/auth/drive.file',
-  include_granted_scopes: true,  // keep existing scopes
+  include_granted_scopes: true,
 });
 ```
 
-The `drive.file` scope is classified as **"recommended"** by Google (not "sensitive" or
-"restricted"), so it doesn't require app verification review. It only grants access to
-files the user explicitly opens via Picker or that the app creates — not their entire
-Drive.
-
-**Benefits of this approach:**
-- Phase A/B ships with **zero consent screen changes**
-- Users who never need Picker/folders never see the extra scope request
-- Users who do need it get a clear, contextual prompt ("Ganttlet wants to browse your
-  Drive files") at the moment they click the browse button
-- The `drive.file` scope unlocks both Picker and folder placement in one step
-
-### Where new sheets land (by phase)
-
-| Phase | Behavior | Scope |
-|---|---|---|
-| A/B | Drive root (My Drive) | `spreadsheets` (existing) |
-| C | User picks folder via Picker, or Drive root as default | `drive.file` (new, incremental) |
-
-### Drive file listing as a lightweight Picker alternative
-
-Since `drive.metadata.readonly` is already granted, we can build an in-app sheet browser
-without the Google Picker API. This is simpler to implement (no Picker SDK to load) and
-avoids the `drive.file` scope:
-
-```
-┌─ Select a Google Sheet ────────────────────────┐
-│                                                │
-│  Recent spreadsheets:                          │
-│  ┌────────────────────────────────────────┐    │
-│  │ 📊 Q2 Product Launch    Modified 2h ago│    │
-│  │ 📊 Sprint Planning      Modified 1d ago│    │
-│  │ 📊 Budget 2026          Modified 3d ago│    │
-│  └────────────────────────────────────────┘    │
-│                                                │
-│  Or paste a Google Sheets URL:                 │
-│  ┌────────────────────────────────────────┐    │
-│  │ https://docs.google.com/spreadsheets/  │    │
-│  └────────────────────────────────────────┘    │
-│                                                │
-│           [Connect]    [Create New Sheet]       │
-└────────────────────────────────────────────────┘
-```
-
-This could ship in Phase B alongside R1/R6, giving users a proper sheet selection UI
-with zero scope changes.
+`drive.file` is "recommended" tier — no additional verification needed. It only grants
+access to files the user explicitly opens via Picker or that the app creates.
 
 ---
 
 ## Appendix: Architecture Context
-
-### Phase 16/16b/16c changes relevant to this proposal
-
-These phases landed between the initial draft and this revision. Key impacts:
-
-**Date convention hardening (Phase 16)**:
-- `end_date` is now explicitly **inclusive** (the last working day the task occupies)
-- `duration` = business days in `[startDate, endDate]` counting both endpoints
-- All callsites migrated from `workingDaysBetween()` → `taskDuration()` (14 sites)
-- `addBusinessDaysToDate()` deleted, replaced by `taskEndDate()`
-- Pre-commit hook rejects deprecated function names
-- **Impact on R5 (templates)**: Template data must use the inclusive convention.
-  The existing `fakeData.ts` already does, so refactoring it into a template is safe.
-
-**Constraint fields (Phase 15, stabilized in 16)**:
-- `Task` interface now includes `constraintType?` and `constraintDate?`
-- 8 constraint types: ASAP, SNET, ALAP, SNLT, FNET, FNLT, MSO, MFO
-- `sheetsMapper.ts` reads/writes constraint columns (positions 19-20)
-- **Impact on R4 (column mapping)**: The sheet schema is now 20 columns, not 18.
-  `SHEET_COLUMNS` and `HEADER_ROW` are exported from `sheetsMapper.ts` and can be
-  used directly for header detection and template generation.
-
-**Duration sync fix (Phase 16, Bug 14)**:
-- `UPDATE_TASK_FIELD` now recomputes `duration` via `taskDuration()` when dates change
-- **Impact on R9 (data safety)**: Reduces risk of stale data being written to sheets.
-
-**Weekend violation detection (Phase 16)**:
-- Rust scheduler now detects `WEEKEND_VIOLATION` conflicts
-- **Impact on R5 (templates)**: Templates must not have tasks starting/ending on weekends.
-
-**E2E attestation system (Phase 16c)**:
-- New `scripts/attest-e2e.sh` posts commit status to bypass CI re-run
-- `ATTEST_E2E=1 ./scripts/full-verify.sh` auto-attests on success
-- **Impact on implementation**: Use attestation flow when shipping proposal phases.
-
-**Drag reliability (Phase 14, stabilized in 16)**:
-- `COMPLETE_DRAG` is atomic (position + cascade in one reducer pass)
-- `guardedDispatch` protects dragged task from concurrent `SET_TASKS`
-- Split dispatch: `localDispatch` (React-only) vs `collabDispatch` (React + Yjs)
-- **Impact on R1 (sandbox mode)**: Sandbox must use `localDispatch` only (no Yjs
-  writes). The existing split dispatch architecture makes this straightforward.
 
 ### Pre-existing bugs discovered during review
 
 **Bug: Write range truncates constraint columns** (`sheetsSync.ts:66`)
 The `scheduleSave()` function writes to range `Sheet1!A1:R{N}` — column R is the 18th
 column. But `SHEET_COLUMNS` has 20 entries (columns A-T). Columns S (`constraintType`)
-and T (`constraintDate`) are silently dropped on every write. Reads use the full
-`Sheet1` range and work correctly. This bug predates this proposal — it was introduced
-when Phase 15 added constraint columns without updating the write range. Should be fixed
-as a prerequisite to Phase A (or alongside it).
+and T (`constraintDate`) are silently dropped on every write. This is a critical bug that
+should be fixed in a separate PR before the onboarding work begins.
 
 **Bug: Root task duration is 84, should be 85** (`fakeData.ts`)
 The root summary task "Q2 Product Launch" has `startDate: '2026-03-02'`,
-`endDate: '2026-06-26'`, `duration: 84`. Inclusive business-day count from 2026-03-02
-to 2026-06-26 is 85. This is a data bug in `fakeData.ts`, not a code bug — when this
-data is refactored into a template (R5/R8), the duration should be corrected. (Note:
-summary task durations are typically auto-calculated from children, so this field is
-overwritten at render time and doesn't affect behavior.)
+`endDate: '2026-06-26'`, `duration: 84`. Inclusive business-day count is 85. When this
+data is refactored into a template (R5/R8), the duration should be corrected. (Summary
+task durations are auto-calculated from children at render time, so this doesn't affect
+behavior.)
 
 ### Current data model (post-Phase 16)
 
@@ -707,43 +974,38 @@ functionalArea, done, description, isMilestone, isSummary, parentId,
 childIds, dependencies, notes, okrs, constraintType, constraintDate
 ```
 
-**GanttState** — the `dataSource` field proposed in R1/R8 would extend this interface
-(`src/types/index.ts:96-125`). No conflicts with Phase 16 additions. The state already
-has `isSyncing`, `syncComplete`, `isCollabConnected` which provide the infrastructure
-for mode-aware behavior.
+### Current vs proposed data flow
 
-### Current data flow
+**Current:**
 ```
 fakeTasks (hardcoded)
-  ↓ initialState
+  ↓ initialState (always)
 GanttContext reducer
   ↓ state.tasks changes
-scheduleSave() → sheetsSync → Google Sheets API → writes to sheet
+scheduleSave() → Sheets API → writes to sheet (always, if signed in)
   ↓ also
-hydrateYjsFromTasks() → Yjs doc → relay → other collaborators
+hydrateYjsFromTasks() → Yjs doc → relay → collaborators
 ```
 
-### Proposed data flow
+**Proposed:**
 ```
-User chooses path:
+User arrives:
+  No ?sheet= → dataSource='sandbox', load fakeTasks locally (no writes)
+  Has ?sheet= → dataSource='loading', tasks=[], show skeleton
 
-  Sandbox → load demo data → local state only (no writes)
-    ↓ user edits freely (drag, add, delete — all local)
-    ↓ clicks "Save to Google Sheet"
-    ↓ sign in if needed → create new sheet or pick empty sheet
-    ↓ write current tasks to sheet → transition to connected mode
+  Loading resolves:
+    Data found → dataSource='sheet', SET_TASKS, auto-save on
+    Empty sheet → dataSource='empty', show empty state, first edit enables save
+    Error → show error state, local editing still works
 
-  New project → sign in → pick template → create sheet → connected mode
+  Sandbox promotion:
+    User clicks "Save to Google Sheet"
+    → sign in if needed → create/select sheet → write tasks → dataSource='sheet'
 
-  Existing sheet → sign in → Picker/URL → loadFromSheet()
-    ↓
-    Sheet empty? → empty state UI (no fake data)
-    Sheet has data? → column mapping → render
-
-  Connected mode:
-    ↓ user makes intentional edit → auto-save writes to sheet
-    ↓ polling reads external changes → merge into state
-    ↓ Yjs syncs to collaborators
+Connected mode:
+  User makes intentional edit → auto-save writes to sheet
+  Polling reads external changes → merge into state
+  Yjs syncs to collaborators
 ```
 
 ### Key files to modify
@@ -752,11 +1014,11 @@ User chooses path:
 |---|---|
 | `src/types/index.ts` | Add `dataSource` to `GanttState` |
 | `src/state/GanttContext.tsx` | Empty initial state, data source tracking, save gating |
-| `src/state/ganttReducer.ts` | Handle `SET_DATA_SOURCE` action |
+| `src/state/ganttReducer.ts` | Handle `SET_DATA_SOURCE`, `SET_SYNC_ERROR` actions |
 | `src/data/fakeData.ts` | Move to `src/data/templates/softwareRelease.ts` |
-| `src/sheets/sheetsSync.ts` | Intent-gated saves, read-before-write |
-| `src/sheets/sheetsMapper.ts` | Use `HEADER_ROW` export for template sheet creation |
-| `src/components/layout/Header.tsx` | Sheet picker button, sheet name display, sandbox banner |
-| New: `src/components/onboarding/` | Welcome, template picker, empty state components |
-| New: `src/sheets/sheetsPicker.ts` | Drive file listing + Google Picker integration |
-| New: `src/data/templates/` | Template task arrays (software release, marketing, etc.) |
+| `src/sheets/sheetsSync.ts` | Intent-gated saves, error discrimination, polling backoff |
+| `src/sheets/sheetsMapper.ts` | Header validation, `HEADER_ROW` export |
+| `src/components/layout/Header.tsx` | Sheet name, share button, sandbox banner |
+| New: `src/components/onboarding/` | Welcome, template picker, empty state, error states |
+| New: `src/sheets/sheetsBrowser.ts` | Drive file listing (lightweight picker) |
+| New: `src/data/templates/` | Template task arrays |

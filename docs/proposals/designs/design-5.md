@@ -25,7 +25,7 @@ REQ-TP-1–3, REQ-SM-1–4
 | `src/data/templates/index.ts` | Create | Template registry + types |
 | `src/components/onboarding/TemplatePicker.tsx` | Create | Template selection UI |
 | `src/sheets/sheetCreation.ts` | Modify | Add `createProjectFromTemplate(name, templateId)` |
-| `src/components/layout/Header.tsx` | Modify | Sheet title, share button, dropdown menu. **Note:** Design 6 also modifies this file (ErrorBanner + SyncStatus integration) — Design 5 should land first, Design 6 rebases on top. |
+| `src/components/layout/Header.tsx` | Modify | Sheet title, share button, dropdown menu. **Note:** Design 6 lands first (Phase 18 Stage 2, additive: banner + status indicator). Design 5 adds sheet management on top in Stage 4. |
 | `src/components/onboarding/EmptyState.tsx` | Modify | Wire "Start from template" to TemplatePicker |
 
 ## Implementation Details

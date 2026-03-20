@@ -26,7 +26,7 @@ REQ-EH-1–6, REQ-HV-2/5 (UI only; REQ-HV-1/3/4 are logic covered by Design 1)
 | `src/sheets/sheetsSync.ts` | Modify | Replace `setInterval` with recursive `setTimeout` for dynamic backoff, error discrimination |
 | `src/sheets/sheetsClient.ts` | Modify | Discriminate HTTP status codes in retry exhaustion |
 | `src/state/GanttContext.tsx` | Modify | Add online/offline event listeners for network error detection |
-| `src/components/layout/Header.tsx` | Modify | Integrate ErrorBanner + SyncStatus. **Note:** Design 5 also modifies this file — Design 6 should rebase on Design 5's changes. |
+| `src/components/layout/Header.tsx` | Modify | Integrate ErrorBanner + SyncStatus. **Note:** Design 6 lands first (Phase 18 Stage 2); Design 5 (Stage 4) adds sheet management on top. Keep changes additive. |
 
 ## Implementation Details
 

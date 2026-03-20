@@ -121,10 +121,11 @@ stages:
 
   - name: "Stage 2: Sheet Selector + Error Handling (parallel — 2 agents)"
     description: >
-      Two agents work in parallel. Group B builds the sheet selector modal with
-      Drive API listing and URL parsing (all new files). Group C builds error UI,
-      polling backoff, and offline detection. No file overlap between B and C.
-      C depends on both A and B (needs recentSheets.ts from B for removeRecentSheet).
+      Two agents work in parallel. Group B builds the sheet selector modal (all
+      new files). Group C builds error UI, polling backoff, and offline detection.
+      No file overlap. Both depend only on A. C imports removeRecentSheet from
+      recentSheets.ts (created by B) — this works because both B and C merge
+      into the same stage branch, and C's import resolves at merge time.
     groups:
       - id: B
         name: "Design 2 — Sheet Selector + Recent Sheets List"
@@ -179,7 +180,7 @@ stages:
 
       - id: C
         name: "Design 6 — Error Handling + Header Validation UI"
-        depends_on: [A, B]
+        depends_on: [A]
         scope:
           modify:
             - src/sheets/sheetsSync.ts
@@ -197,6 +198,7 @@ stages:
             - src/components/onboarding/__tests__/SyncStatus.test.tsx
             - src/components/onboarding/__tests__/HeaderMismatchError.test.tsx
             - src/sheets/__tests__/pollingBackoff.test.ts
+            - src/sheets/__tests__/syncErrorRecovery.test.ts
           read_only:
             - src/types/index.ts
             - src/sheets/syncErrors.ts
@@ -231,9 +233,10 @@ stages:
             exit_criteria: >
               auth: "Session expired. [Re-authorize] to keep syncing." → signIn().
               On re-auth success: clear syncError + call scheduleSave(state.tasks).
-              not_found: "Can't access this sheet. It may have been deleted." + [Open another sheet]
-              button. Calls stopPolling() + removeRecentSheet(sheetId).
+              not_found: "Can't access this sheet. It may have been deleted." + [Open another sheet].
+              Calls stopPolling() + removeRecentSheet(sheetId).
               forbidden: same banner text + [Open another sheet] (no removeRecentSheet).
+              When dataSource='loading' + error: also show [Retry] button (re-calls loadFromSheet).
               network: "You're offline. Changes saved locally."
               rate_limit: NOT a banner — handled by SyncStatus (C6).
               Component test covers each error type rendering + action triggers.
@@ -260,13 +263,21 @@ stages:
               Note: Design 5 (Group F, Stage 4) will further modify Header.tsx to add
               sheet title, share button, and dropdown. C8's changes should be additive
               (banner + status indicator) to avoid conflicts with F6's later additions.
+          - id: C9
+            summary: "Integration test: error → local edit → recovery → save"
+            status: pending
+            exit_criteria: >
+              syncErrorRecovery.test.ts: simulate syncError being set, verify local edits
+              succeed (state.tasks updates), simulate error clearing, verify scheduleSave
+              writes full state.tasks on recovery.
 
   - name: "Stage 3: Onboarding Screens + Promotion + Sheet Creation (parallel — 2 agents)"
     description: >
-      Two agents in parallel. Group D builds welcome screens and empty state.
+      Two agents run in parallel. Group D builds welcome screens and empty state.
       Group E builds sheet creation and promotion. Both modify WelcomeGate.tsx —
-      D merges first (routing), E rebases on D (sandbox banner addition).
-      E depends on D for merge ordering of WelcomeGate.tsx.
+      D merges first (routing logic), E rebases on D before merging (sandbox
+      banner is a simple additive block). Agents START concurrently but E's
+      merge is sequenced after D's merge.
     groups:
       - id: D
         name: "Design 3 — Onboarding Screens + Empty State"
@@ -333,6 +344,9 @@ stages:
               No URL params + auth + recent sheets → ReturnVisitorWelcome.
               No URL params + auth + no recent → ChoosePath.
               No URL params + no auth → FirstVisitWelcome.
+              WelcomeGate owns the onSelectSheet(sheetId) callback (sets URL params +
+              dispatches SET_DATA_SOURCE) and passes it as a prop to ReturnVisitorWelcome,
+              ChoosePath, and SheetSelector.
           - id: D7
             summary: "Create EmptyState.tsx — timeline scaffolding + add-task CTA"
             status: pending
@@ -349,7 +363,8 @@ stages:
 
       - id: E
         name: "Design 4 — Sheet Creation + Sandbox Promotion Flow"
-        depends_on: [A, B, C, D]
+        depends_on: [A, B, C]
+        merge_after: [D]          # E starts with D in parallel but merges after D (WelcomeGate.tsx)
         scope:
           modify:
             - src/components/onboarding/WelcomeGate.tsx   # sandbox banner only — merge after D

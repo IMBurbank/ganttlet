@@ -22,8 +22,9 @@ REQ-EH-1–6, REQ-HV-1–5 (UI)
 | `src/components/onboarding/ErrorBanner.tsx` | Create | Persistent banners for auth/not_found/forbidden/network |
 | `src/components/onboarding/SyncStatus.tsx` | Create | Status indicator for rate_limit (replaces/extends existing SyncStatusIndicator) |
 | `src/components/onboarding/HeaderMismatchError.tsx` | Create | Column mismatch screen with expected vs found |
-| `src/sheets/sheetsSync.ts` | Modify | Polling backoff (3 consecutive errors → double, max 300s), error discrimination |
+| `src/sheets/sheetsSync.ts` | Modify | Replace `setInterval` with recursive `setTimeout` for dynamic backoff, error discrimination |
 | `src/sheets/sheetsClient.ts` | Modify | Discriminate HTTP status codes in retry exhaustion |
+| `src/state/GanttContext.tsx` | Modify | Add online/offline event listeners for network error detection |
 | `src/components/layout/Header.tsx` | Modify | Integrate ErrorBanner + SyncStatus |
 
 ## Implementation Details
@@ -47,19 +48,32 @@ on poll error: consecutiveErrors++
 on poll success: consecutiveErrors = 0, interval = 30000
 ```
 
-**Offline detection:**
+**Polling implementation note:** The current `startPolling()` uses `setInterval` with a
+fixed `POLL_INTERVAL_MS`. Dynamic backoff requires replacing this with a recursive
+`setTimeout` pattern where each cycle schedules the next with a potentially different
+interval.
+
+**Offline detection** (in `GanttContext.tsx`, not `sheetsSync.ts` — `dispatch` is only
+available in the React component, not at module scope in sheetsSync):
 
 ```typescript
-window.addEventListener('online', () => {
+// Inside a useEffect in GanttContext.tsx
+const handleOnline = () => {
   dispatch({ type: 'SET_SYNC_ERROR', error: null });
   // trigger immediate sync cycle
-});
-window.addEventListener('offline', () => {
+};
+const handleOffline = () => {
   dispatch({
     type: 'SET_SYNC_ERROR',
     error: { type: 'network', message: 'You are offline', since: Date.now() },
   });
-});
+};
+window.addEventListener('online', handleOnline);
+window.addEventListener('offline', handleOffline);
+return () => {
+  window.removeEventListener('online', handleOnline);
+  window.removeEventListener('offline', handleOffline);
+};
 ```
 
 **Header validation error screen** (`HeaderMismatchError.tsx`):

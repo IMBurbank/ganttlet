@@ -37,7 +37,8 @@ REQ-PROMO-1–6
    - Headers match SHEET_COLUMNS (`validateHeaders` from Design 1) → prompt replace/open
    - Headers don't match → warn, recommend new sheet
 5. Write tasks via `updateSheet()`, update URL, init sync, set `dataSource='sheet'`
-6. Set `lastWriteHash` before enabling auto-save (prevents double-write)
+6. Call `scheduleSave()` (from `sheetsSync.ts`) which writes and updates `lastWriteHash`
+   internally — this prevents double-write since the next auto-save cycle will see matching hashes
 
 **Sheet creation** (`sheetCreation.ts`):
 

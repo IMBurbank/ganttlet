@@ -54,6 +54,7 @@ sandboxDirty: boolean;
 | { type: 'SET_DATA_SOURCE'; dataSource: DataSource }
 | { type: 'SET_SYNC_ERROR'; error: SyncError | null }
 | { type: 'ENTER_SANDBOX'; tasks: Task[]; changeHistory: ChangeRecord[] }
+| { type: 'RESET_STATE' }
 ```
 
 `ENTER_SANDBOX` is atomic: sets `dataSource='sandbox'` + loads tasks in one dispatch.
@@ -63,6 +64,7 @@ sandboxDirty: boolean;
 - `SET_DATA_SOURCE` → `{ ...state, dataSource }`
 - `SET_SYNC_ERROR` → `{ ...state, syncError }`
 - `ENTER_SANDBOX` → `{ ...state, dataSource: 'sandbox', tasks, changeHistory }`
+- `RESET_STATE` → `{ ...initialState }` (resets to initial state with `dataSource: undefined`)
 - Post-processing: if `state.dataSource === 'sandbox'` and action is in
   `TASK_MODIFYING_ACTIONS` → set `sandboxDirty: true`
 - Post-processing: if `state.dataSource === 'empty'` and action is in
@@ -94,8 +96,12 @@ checks if `?sheet=` is present and skips rendering (the useEffect handles loadin
 `if (state.dataSource !== 'sheet') return;`
 Remove `fakeTasks` fallback in hydration. Add `state.dataSource` to dependency array.
 
-**collabDispatch (lines 118-128):** Add guard:
-`if (stateRef.current.dataSource !== 'sheet') return;` (after base dispatch)
+**collabDispatch (lines 118-128):** The existing `collabDispatch` calls
+`dispatch(action)` first (local state), then conditionally syncs to Yjs. Add the
+dataSource guard **after** `dispatch(action)` but **before** the Yjs sync block:
+`if (stateRef.current.dataSource !== 'sheet') return;`
+This ensures local state updates still work in sandbox/empty modes while suppressing
+Yjs sync.
 
 **New beforeunload useEffect:** Fires when `dataSource === 'sandbox'` and
 `sandboxDirty === true`.

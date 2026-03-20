@@ -65,7 +65,8 @@ Lazy loading via dynamic `import()` for each template.
 
 - Clear `?sheet=` and `?room=` from URL
 - `stopPolling()`, disconnect Yjs
-- Set `dataSource = undefined` → WelcomeGate takes over
+- Dispatch `RESET_STATE` (Design 1) → resets to `initialState` with `dataSource: undefined`
+  → WelcomeGate takes over
 
 ## Tests
 

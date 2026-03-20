@@ -270,31 +270,68 @@ If verification fails:
 
 ## Step 6: Commit
 
-Stage and commit your changes with a structured message:
+Stage and commit your changes with a detailed message. The commit message
+is the primary audit trail — the orchestrator and human reviewer rely on it
+to understand what changed and why. Use a HEREDOC for the body.
 
 ```bash
 git add .claude/skills/$SKILL/SKILL.md
 git commit -m "$(cat <<'EOF'
-docs: {SKILL} skill
+docs: curate {SKILL} skill
 
-Observations processed (from {N} feedback reports):
-  #1 {type} "{summary}"
-     → {acted|rejected|preserved}: {action or reason}
+## Reviewer Findings Summary
+- Accuracy: {N findings} — {brief: what it found, e.g., "3 claims now encoded in code"}
+- Structure: {N findings} — {brief: e.g., "2 sections verbose, 1 poorly organized"}
+- Scope: {N findings} — {brief: e.g., "1 duplicate with shell-scripting"}
+- History: {N findings} — {brief: e.g., "2 entries from rushed commits"}
+- Adversarial: {N findings} — {brief: e.g., "1 suspicious causal claim"}
 
-Skill content modified:
-  - Deleted: "{entry summary}" (reason: {evidence})
-  - Promoted: "{entry summary}" → {target section}
-  - Compressed: "{entry summary}"
+## Scoring
+Threshold: {value} | {N} findings above / {M} total | {K} filtered out
 
-Threshold: {value} | Findings: {N above threshold} / {M total}
+## Changes Made
+- Removed: "{claim}" — {reason with evidence, e.g., "now enforced by cascade.rs:47"}
+- Rewrote: "{section}" — {reason, e.g., "compressed from 15 to 6 lines, same content"}
+- Integrated: "{observation from feedback report}" — {where it went}
+- Kept despite reviewer flag: "{claim}" — {why you overrode the reviewer}
+
+## Reviewer Findings Not Acted On
+- "{finding}" (scored {N}) — {why rejected: false positive / overridden / insufficient evidence}
+
+## Cross-Skill Notes
+- {any duplication flagged, content moved, or potential conflicts with other skills}
+
+## Feedback Report Outcomes
+- {report filename}: obs #1 → acted (integrated into {section})
+- {report filename}: obs #2 → rejected ({reason})
+- {report filename}: obs #1 → preserved (future scope: {reason})
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
 
-If you made no changes (all findings filtered out or all entries kept),
-commit a no-op with:
+**Every section is required** even if empty (write "none" for empty sections).
+This ensures the orchestrator can parse the commit message reliably and the
+human reviewer has the full picture.
+
+If you made no changes, commit with:
 ```bash
-git commit --allow-empty -m "docs: $SKILL skill — no changes (all content validated)"
+git commit --allow-empty -m "$(cat <<'EOF'
+docs: curate $SKILL skill — no changes
+
+## Reviewer Findings Summary
+{same format — list what was found}
+
+## Scoring
+{threshold and counts}
+
+## Reason for No Changes
+{explain: all content validated, findings were false positives, etc.}
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+EOF
+)"
 ```
 
 ## Step 7: Write Debrief Report

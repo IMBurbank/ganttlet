@@ -1,0 +1,69 @@
+# Phase 18: Onboarding UX — State Machine, Welcome Flows & Sheet Management
+# PRD: docs/proposals/onboarding-prd.md
+# Designs: docs/proposals/designs/design-{1..6}.md
+# Task plan: docs/tasks/phase18.yaml
+# Prerequisite: Issue #62 (write range fix) must be merged to main first
+
+phase: phase18
+merge_target: feature/phase18
+
+stages:
+  - name: "State Machine + WelcomeGate + Fake Data Decoupling"
+    groups:
+      - id: groupA
+        branch: feature/phase18-state-machine
+        merge_message: "Merge feature/phase18-state-machine: DataSource state machine, WelcomeGate shell, fake data decoupling, header validation, error classification"
+
+  - name: "Sheet Selector + Error Handling"
+    groups:
+      - id: groupB
+        branch: feature/phase18-sheet-selector
+        merge_message: "Merge feature/phase18-sheet-selector: SheetSelector modal, Drive API listing, URL parser, recent sheets localStorage"
+      - id: groupC
+        branch: feature/phase18-error-handling
+        merge_message: "Merge feature/phase18-error-handling: ErrorBanner, SyncStatus, polling backoff, offline detection, HeaderMismatchError"
+
+  - name: "Onboarding Screens + Promotion Flow"
+    merge_order: [groupD, groupE]
+    groups:
+      - id: groupD
+        branch: feature/phase18-onboarding-screens
+        merge_message: "Merge feature/phase18-onboarding-screens: FirstVisit, ReturnVisitor, Collaborator, ChoosePath, EmptyState, WelcomeGate routing"
+      - id: groupE
+        branch: feature/phase18-promotion-flow
+        merge_message: "Merge feature/phase18-promotion-flow: sheetCreation, TargetSheetCheck, PromotionFlow, sandbox banner"
+
+  - name: "Templates + Sheet Management"
+    groups:
+      - id: groupF
+        branch: feature/phase18-templates-management
+        merge_message: "Merge feature/phase18-templates-management: template data, TemplatePicker, createProjectFromTemplate, Header sheet management"
+
+pr:
+  title: "Phase 18: Onboarding UX — state machine, welcome flows, sheet management"
+  summary: |
+    Complete onboarding experience covering all 53 PRD requirements.
+    - DataSource state machine (sandbox/loading/sheet/empty) with auto-save and Yjs gating
+    - WelcomeGate routing: first visit, return visitor, collaborator, choose path
+    - Sheet selector with Drive API listing, URL paste, recent sheets (localStorage LRU)
+    - Sandbox mode with dirty tracking, beforeunload, and promotion to real sheet
+    - Empty state with add-task CTA and template picker
+    - 3 project templates (Software Release, Marketing Campaign, Event Planning)
+    - Header sheet management: title, share with room URL, switch sheet, disconnect
+    - Error handling: per-type banners, polling backoff, offline detection, header mismatch UI
+  test_plan: |
+    - [ ] `npx tsc --noEmit` passes
+    - [ ] `npm run test` passes (all unit tests)
+    - [ ] `cd crates/scheduler && cargo test` passes
+    - [ ] First visit: no auth → FirstVisitWelcome with value props
+    - [ ] Try the demo → sandbox mode, no network requests
+    - [ ] Sandbox edit → sandboxDirty=true, beforeunload triggers
+    - [ ] ?sheet=ID + signed in → loading → tasks render
+    - [ ] ?sheet=ID + not signed in → CollaboratorWelcome → auto-load after sign-in
+    - [ ] Empty sheet → EmptyState → add task → dataSource='sheet' → auto-save
+    - [ ] Promotion: sandbox → save to new sheet → connected mode
+    - [ ] Sheet selector: Drive listing, URL paste, invalid URL error
+    - [ ] Header: share copies URL with ?room=, disconnect returns to WelcomeGate
+    - [ ] 403 error → banner + [Retry] + [Open another sheet]
+    - [ ] Offline → banner → reconnect → sync resumes
+    - [ ] All 3 templates pass date/structure validation

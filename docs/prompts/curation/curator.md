@@ -217,17 +217,30 @@ The result should be a better skill file — not the old file with patches.
 **Your job:**
 1. Read the current skill file and understand what it teaches, how it's
    organized, and what agents need from it.
-2. Integrate validated findings into the skill:
+2. Use your own judgment informed by the reviewer findings. Reviewers can
+   make mistakes — their reports inform your rewrite but do not dictate it.
+   If a finding seems wrong despite scoring above threshold, investigate
+   before acting on it.
+3. Integrate validated findings into the skill:
    - New observations go into the appropriate existing section (woven in,
      not appended). If no section fits, create one.
    - Stale/wrong content is removed or corrected in place.
    - Redundant content (encoded in code, duplicated across sections) is
      removed. The code is the source of truth.
    - Verbose content is compressed — say the same thing in fewer words.
-   - The `## Lessons Learned` section is eliminated. All valuable LL
-     content is promoted into the skill body. The section itself is removed.
+   - The `## Lessons Learned` section is eliminated. All valuable content
+     is integrated into the skill body. The section itself is removed.
    - `<!-- curator cleanup pending -->` comments are removed.
-3. The output is a coherent, well-organized skill file that is equal or
+4. **Check cross-skill coherence.** After drafting the rewrite, verify:
+   - Does the rewritten skill still cover everything an agent working in
+     this domain needs? Did you remove something that isn't documented
+     elsewhere?
+   - Did you add content that duplicates another skill? Check the other
+     skills' content you read in Step 1.
+   - If another curator is simultaneously editing a related skill, your
+     changes must not create contradictions. When in doubt, keep content
+     and note the potential conflict in your commit message.
+5. The output is a coherent, well-organized skill file that is equal or
    smaller than the original — not bigger.
 
 **Guidelines for the rewrite:**

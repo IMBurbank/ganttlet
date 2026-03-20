@@ -2,8 +2,8 @@
 # Skill curation — runs pipeline, moves processed reports.
 # The orchestrating agent handles PR creation and code review after this completes.
 #
-# No manifest needed — consolidators read the feedback directory directly.
-# The batch cap (20 reports) is enforced by the consolidator prompt.
+# No manifest needed — curators read the feedback directory directly.
+# The batch cap (20 reports) is enforced by the curator prompt.
 set -uo pipefail
 
 FEEDBACK_DIR="docs/prompts/curation/feedback"
@@ -75,7 +75,7 @@ if [ "$validate_exit" -ne 0 ]; then
     # Don't exit — move reports anyway, the edits are merged
 fi
 
-# Move processed reports (oldest 20, matching what consolidators saw)
+# Move processed reports (oldest 20, matching what curators saw)
 find "$FEEDBACK_DIR" -maxdepth 1 -name "*.md" \
     -not -name "debrief-template.md" | sort | head -n 20 | \
     while IFS= read -r report; do

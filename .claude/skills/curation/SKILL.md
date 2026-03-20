@@ -29,7 +29,7 @@ followed by a merge, validation, and code review loop.
 curate-skills.sh (script, mechanical)
 ├── Count pending feedback reports
 ├── launch-phase.sh stage 1
-│   └── 8 consolidators in parallel (one per skill)
+│   └── 8 curators in parallel (one per skill)
 │       ├── 5 Reviewer subagents (sonnet, read-only)
 │       ├── N Haiku scorers (one per finding)
 │       └── Validation subagents (on-demand)
@@ -37,7 +37,7 @@ curate-skills.sh (script, mechanical)
 └── launch-phase.sh validate
 
 Orchestrating agent (judgment)
-├── Read consolidator commit messages → extract outcomes
+├── Read curator commit messages → extract outcomes
 ├── Write outcomes into processed reports
 ├── Create PR (skill-curation label, threshold calibration)
 ├── Strict code review loop (max 3 iterations)
@@ -53,21 +53,21 @@ launch-phase pipeline steps. After the pipeline, moves processed reports
 to `feedback/processed/`. On partial
 failure, generates a retry config with only failed groups.
 
-**Consolidator** (one per skill, `docs/prompts/curation/consolidator.md`) —
+**Curator** (one per skill, `docs/prompts/curation/curator.md`) —
 the group agent that orchestrates review of one skill. Reads the skill file
 and feedback reports, spawns 5 reviewers, collects findings, spawns haiku
 scorers, filters at threshold, validates contested findings, edits the skill
 file, and commits with structured outcome data.
 
 **Skill reviewer** (`.claude/agents/skill-reviewer.md`) — read-only subagent
-spawned by the consolidator. Reviews from one of 5 angles. Produces a
+spawned by the curator. Reviews from one of 5 angles. Produces a
 structured findings report with per-entry classifications and evidence.
 
 **Haiku scorer** — lightweight agent spawned per finding. Independently scores
 the finding (0-100) using a rubric and false positive list. Separates advocacy
 (reviewers find issues) from validation (scorers verify evidence holds up).
 
-**Validation subagents** — spawned on-demand by the consolidator when findings
+**Validation subagents** — spawned on-demand by the curator when findings
 are classified as `wrong` or `suspicious`. Routes to codebase-explorer
 (structural questions), rust-scheduler (domain-specific), or verify-and-diagnose
 (behavioral questions that need command execution).
@@ -126,11 +126,11 @@ Three-layer validation, adapted from the code-review plugin:
 3. **Filter at threshold** — only findings scoring at or above survive
 
 **Threshold:** stored in `docs/prompts/curation/threshold.txt` (initial: 70, calibrated per pass).
-Calibrated after each pass using data from the consolidator's debrief report.
+Calibrated after each pass using data from the curator's debrief report.
 The user adjusts the threshold; it never changes automatically.
 
 **Rubric** (0/25/50/75/100 scale) and **false positive list** are embedded
-in the consolidator prompt (step 4) and given to scorers verbatim.
+in the curator prompt (step 4) and given to scorers verbatim.
 
 ## Debrief Reports
 
@@ -150,9 +150,9 @@ required for oldest-first batch selection.
 **Observation types:** `undocumented_behavior`, `wrong_documentation`,
 `unexpected_result`, `workflow_gap`, `nothing_to_report`.
 
-**Lifecycle:** feedback/ → consolidator reads directly (oldest 20) →
+**Lifecycle:** feedback/ → curator reads directly (oldest 20) →
 5 reviewers assess skill + reports → haiku scorers validate findings →
-consolidator synthesizes a rewritten skill file (not append — full rewrite) →
+curator synthesizes a rewritten skill file (not append — full rewrite) →
 script moves reports to feedback/processed/ → orchestrator writes outcomes.
 Reports in processed/ are preserved permanently.
 
@@ -165,9 +165,9 @@ Reports in processed/ are preserved permanently.
 ```
 
 **Manual (one skill at a time):**
-Tell an agent to read `docs/prompts/curation/consolidator.md` and follow its
+Tell an agent to read `docs/prompts/curation/curator.md` and follow its
 instructions, with the target skill specified in your prompt:
-"Read docs/prompts/curation/consolidator.md and follow its instructions.
+"Read docs/prompts/curation/curator.md and follow its instructions.
 Your target skill is: scheduling-engine"
 
 Same 5 reviewers, same scoring. No launch-phase infrastructure needed.
@@ -199,7 +199,7 @@ that affects all future agent behavior.
 
 ## Partial Failure Recovery
 
-If some consolidators fail during the stage:
+If some curators fail during the stage:
 1. `curate-skills.sh` generates `/tmp/skill-curation-retry.yaml` with
    only the failed groups
 2. Agent diagnoses with `launch-phase.sh ... logs`
@@ -211,8 +211,8 @@ If some consolidators fail during the stage:
 
 ```
 docs/prompts/curation/
-├── consolidator.md          # Main consolidator prompt (shared by all skills)
-├── {skill-name}.md          # Thin wrappers (one per skill, point to consolidator)
+├── curator.md          # Main curator prompt (shared by all skills)
+├── {skill-name}.md          # Thin wrappers (one per skill, point to curator)
 ├── debrief-template.md      # Template for agent debrief reports
 ├── validate.md              # Post-merge validation prompt
 ├── skill-curation.yaml      # Launch config (8 groups, reusable)

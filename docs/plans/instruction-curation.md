@@ -196,7 +196,7 @@ files for a step together before committing.
     curation outcomes.
 
     Note: the initial pass has no feedback reports (the debrief model isn't
-    active yet). The consolidator prompt handles this gracefully — when
+    active yet). The curator prompt handles this gracefully — when
     the feedback directory is empty, it proceeds with reviewing existing
     LL entries and skill body content only. This is the intended behavior
     for the initial cleanup.
@@ -238,29 +238,29 @@ that improve over time, unlike normal phase prompts which are task-specific and 
 ```
 curate-skills.sh
 │
-├── launch-phase.sh stage 1 (8 consolidators in parallel, one per skill)
+├── launch-phase.sh stage 1 (8 curators in parallel, one per skill)
 │   │
-│   ├── Consolidator: scheduling-engine (worktree: curation/scheduling-engine)
+│   ├── Curator: scheduling-engine (worktree: curation/scheduling-engine)
 │   │   ├── 5 Reviewer subagents (accuracy, structure, scope, history, adversarial)
 │   │   ├── N Haiku scorers (one per finding, parallel)
 │   │   └── Validation subagents (on-demand: codebase-explorer, rust-scheduler, etc.)
 │   │
-│   ├── Consolidator: hooks
+│   ├── Curator: hooks
 │   │   └── (same internal structure)
 │   │
-│   ├── Consolidator: multi-agent-orchestration
-│   ├── Consolidator: e2e-testing
-│   ├── Consolidator: shell-scripting
-│   ├── Consolidator: issue-workflow
-│   ├── Consolidator: cloud-deployment
-│   └── Consolidator: google-sheets-sync
+│   ├── Curator: multi-agent-orchestration
+│   ├── Curator: e2e-testing
+│   ├── Curator: shell-scripting
+│   ├── Curator: issue-workflow
+│   ├── Curator: cloud-deployment
+│   └── Curator: google-sheets-sync
 │
 ├── launch-phase.sh merge 1 (all branches → merge branch)
 │
 ├── launch-phase.sh validate
 │
 └── Orchestrating agent handles:
-    ├── Read consolidator commit messages from merge branch
+    ├── Read curator commit messages from merge branch
     ├── Summarize per-observation outcomes + threshold calibration into PR body
     ├── Create PR with skill-curation label
     ├── Strict code review loop (max 3 iterations)
@@ -272,9 +272,9 @@ It has no separate prompt or definition — it's the interactive session that
 ran the script, then handles PR creation and code review using its own
 judgment. The `/curate-skills` flow (below) details its responsibilities.
 
-Each **consolidator** is a launch-phase group agent (one per skill) that internally
+Each **curator** is a launch-phase group agent (one per skill) that internally
 spawns subagents — same pattern as the code-review plugin using 5 parallel reviewers.
-The launch-phase infrastructure handles the parallelism across skills; the consolidator
+The launch-phase infrastructure handles the parallelism across skills; the curator
 handles the parallelism within each skill's review.
 
 ### Launch Config
@@ -287,42 +287,42 @@ stages:
     groups:
       - id: scheduling-engine
         branch: curation/scheduling-engine
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: scheduling-engine skill"
       - id: hooks
         branch: curation/hooks
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: hooks skill"
       - id: multi-agent-orchestration
         branch: curation/multi-agent-orchestration
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: multi-agent-orchestration skill"
       - id: e2e-testing
         branch: curation/e2e-testing
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: e2e-testing skill"
       - id: shell-scripting
         branch: curation/shell-scripting
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: shell-scripting skill"
       - id: issue-workflow
         branch: curation/issue-workflow
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: issue-workflow skill"
       - id: cloud-deployment
         branch: curation/cloud-deployment
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: cloud-deployment skill"
       - id: google-sheets-sync
         branch: curation/google-sheets-sync
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: google-sheets-sync skill"
       # curation skill added here once it exists (self-curation)
       # rust-wasm absorbed into scheduling-engine (step 8) — no group needed
 # No pr: block — orchestrating agent creates the PR with its own judgment
 ```
 
-**Key detail:** Every group uses the **same core prompt** (`consolidator.md`).
+**Key detail:** Every group uses the **same core prompt** (`curator.md`).
 Each group has a thin wrapper file (`{group_id}.md`) that points to the
 shared prompt and specifies the target:
 
@@ -333,7 +333,7 @@ scope:
   modify: [".claude/skills/scheduling-engine/SKILL.md"]
 ---
 
-Read docs/prompts/curation/consolidator.md and follow its instructions.
+Read docs/prompts/curation/curator.md and follow its instructions.
 Your target skill is: scheduling-engine
 ```
 
@@ -358,19 +358,19 @@ If `prompt` is set in the YAML, use it. Otherwise fall back to the current
 `{config_dir}/{group_id}.md` behavior. Existing phase configs work unchanged.
 
 **What's static and reusable (never changes between runs):**
-- `consolidator.md` — one prompt template for all skills
+- `curator.md` — one prompt template for all skills
 - `skill-curation.yaml` — one launch config for all curation passes
-- 5 reviewer prompt files — one per angle, used by all consolidators
+- 5 reviewer prompt files — one per angle, used by all curators
 
 **What varies per run (managed by `curate-skills.sh`):**
 - `_USER_MERGE_TARGET` — date-stamped merge branch (`curation/YYYY-MM-DD-<hash>`)
-- Contents of `feedback/` directory — consolidators read the oldest 20 reports directly
+- Contents of `feedback/` directory — curators read the oldest 20 reports directly
 
-**How the consolidator discovers its context at runtime:**
+**How the curator discovers its context at runtime:**
 - Skill name: from branch name (`curation/scheduling-engine` → `scheduling-engine`)
 - Skill file: `.claude/skills/{skill-name}/SKILL.md`
 - Source files: listed in the skill's SKILL.md body
-- Feedback reports: consolidator reads `docs/prompts/curation/feedback/` directly (oldest 20)
+- Feedback reports: curator reads `docs/prompts/curation/feedback/` directly (oldest 20)
 
 No files rewritten per run. No symlinks. No per-skill prompt copies.
 
@@ -381,9 +381,9 @@ phase prompts, these are permanent infrastructure.
 
 ```
 docs/prompts/curation/
-├── consolidator.md          # Main consolidator prompt (shared by all skills)
+├── curator.md          # Main curator prompt (shared by all skills)
 ├── debrief-template.md      # Template for agent debrief reports (read by agents)
-├── {skill-name}.md          # Thin wrappers (one per skill, point to consolidator)
+├── {skill-name}.md          # Thin wrappers (one per skill, point to curator)
 ├── validate.md              # Post-merge validation prompt (required by launch-phase.sh)
 ├── skill-curation.yaml      # Launch config for curation passes
 ├── threshold.txt            # Scoring threshold (single integer, initial 70)
@@ -391,7 +391,7 @@ docs/prompts/curation/
     └── processed/           # Processed reports (outcomes written by orchestrator)
 ```
 
-The consolidator prompt instructs the agent to:
+The curator prompt instructs the agent to:
 1. Read `docs/prompts/curation/feedback/` directory for reports to process (oldest 20)
 2. Read all listed reports and its assigned skill's SKILL.md
 3. Spawn 5 reviewer subagents in parallel (one per angle), passing reports + skill
@@ -465,7 +465,7 @@ they're worse than no lesson at all. This reviewer's job is to find them.
 - If I follow this lesson's advice, would I produce correct code today?
 
 **Unique output: "suspicious" classification** — can't disprove it, but causal
-reasoning is weak. Forces the consolidator to validate before acting.
+reasoning is weak. Forces the curator to validate before acting.
 
 ### Reviewer Context
 
@@ -516,13 +516,13 @@ reasoning is weak. Forces the consolidator to validate before acting.
 - Max turns: 30 (read-heavy, needs to check source files)
 - Tools: Read, Grep, Glob, LSP, Bash (read-only — NO Edit, Write, Agent)
 
-### Consolidator Synthesis
+### Curator Synthesis
 
-The consolidator (group agent) receives only findings that scored ≥80 from the
-haiku scoring layer. Most noise is already filtered. The consolidator's job is
+The curator (group agent) receives only findings that scored ≥80 from the
+haiku scoring layer. Most noise is already filtered. The curator's job is
 to synthesize surviving findings into skill file edits.
 
-**What the consolidator does:**
+**What the curator does:**
 1. Reads the scored findings (only those ≥80)
 2. For entries with no surviving findings → keep, no action
 3. For entries with surviving findings → apply the classification
@@ -530,7 +530,7 @@ to synthesize surviving findings into skill file edits.
 5. Produces edits to the skill file
 6. Commits with evidence from the findings
 
-**Validation subagents (on-demand, spawned by consolidator):**
+**Validation subagents (on-demand, spawned by curator):**
 
 | Subagent | When to use | Question type |
 |----------|-------------|---------------|
@@ -540,7 +540,7 @@ to synthesize surviving findings into skill file edits.
 
 **Structural vs. behavioral distinction:** Many LL entries describe runtime
 behavior (tmux signal handling, pipe exit codes, process stall patterns) that
-can't be verified by reading source code alone. The consolidator should route
+can't be verified by reading source code alone. The curator should route
 these to verify-and-diagnose, which can execute commands and observe results.
 
 Examples:
@@ -629,7 +629,7 @@ They improve through the same mechanism they docs:
 1. **After each curation pass**, agents add Lessons Learned to a `curation` skill
    (e.g., "adversarial reviewer missed X because the prompt didn't instruct it
    to check test files")
-2. **Next curation pass** curates the curation skill itself — and the consolidator
+2. **Next curation pass** curates the curation skill itself — and the curator
    reads the updated prompts with improvements baked in
 3. **Code review findings** on curation PRs identify systematic prompt weaknesses
    (e.g., "3 of 6 skills had cross-skill dupes that reviewers missed — scope
@@ -652,14 +652,14 @@ memory of how to curate well.
 | Consolidated into one PR comment | Consolidated into skill edits via consensus matrix |
 | Review-fix loop (max 3 iterations) | Strict loop: all non-false-positive findings addressed, max 3 iterations, full findings posted every round |
 | `classify_pr()` routes light vs full | LL entry count routes skip vs review |
-| Plugin handles parallelization | Consolidator spawns subagents in parallel |
-| Read-only reviewers, one fix agent | Read-only reviewers, one consolidator writes |
+| Plugin handles parallelization | Curator spawns subagents in parallel |
+| Read-only reviewers, one fix agent | Read-only reviewers, one curator writes |
 | PR as audit trail | PR with reviewer reports in collapsible sections |
 | Fixed prompts per aspect | **Reusable, improving prompts per angle** |
 
 **Where curation differs:**
-- **Multiple orchestrators** — one consolidator per skill (each needs deep domain context)
-- **Validation subagents** — consolidator can escalate to specialists for disagreements
+- **Multiple orchestrators** — one curator per skill (each needs deep domain context)
+- **Validation subagents** — curator can escalate to specialists for disagreements
 - **Adversarial reviewer** — unique to curation; wrong lessons are uniquely damaging
 - **Prompt improvement loop** — curation prompts improve over time; code review prompts
   are fixed by the plugin
@@ -776,11 +776,11 @@ These are NOT real issues — score 0 or 25:
 ```
 
 **Layer 3: Filter at threshold.** Only findings scoring at or above the
-threshold reach the consolidator. This eliminates noise before the
-consolidator spends turns on synthesis.
+threshold reach the curator. This eliminates noise before the
+curator spends turns on synthesis.
 
 **Threshold is stored in `docs/prompts/curation/threshold.txt`** — a single
-integer (e.g., `80`). Read by the consolidator prompt at runtime. Changed
+integer (e.g., `80`). Read by the curator prompt at runtime. Changed
 by editing one file — no prompt rewrites needed.
 
 **Initial value: 70** for the first pass. Haiku scorers lack source file
@@ -791,19 +791,19 @@ first run. Calibrate upward based on threshold calibration data in the PR.
 
 Calibrated after each pass using this concrete process:
 
-**After each curation pass, the consolidator's debrief report must include:**
+**After each curation pass, the curator's debrief report must include:**
 ```yaml
 observations:
   - type: threshold_calibration
     summary: "Threshold evaluation for this pass"
     scored_below_threshold:
       count: N           # findings that scored 60-79
-      real_issues: N     # of those, how many were real issues (checked by consolidator)
+      real_issues: N     # of those, how many were real issues (checked by curator)
       examples: ["..."]  # 1-2 specific findings that were real but filtered out
     scored_above_threshold:
       count: N           # findings that scored 80+
       false_positives: N # of those, how many were false positives (found during synthesis)
-      examples: ["..."]  # 1-2 specific false positives that wasted consolidator time
+      examples: ["..."]  # 1-2 specific false positives that wasted curator time
     recommendation: "lower to 75" | "keep at 80" | "raise to 85"
 ```
 
@@ -818,7 +818,7 @@ observations:
 | Maximum threshold: 90 | Never go above — too many real issues filtered |
 
 **How the user sees this data:** The agent creating the PR reads all
-consolidator debrief reports (committed to their branches, visible after
+curator debrief reports (committed to their branches, visible after
 merge) and includes a threshold calibration summary in the PR description:
 
 ```
@@ -836,7 +836,7 @@ The user sees this in every curation PR. If adjustment is warranted, edit
 `threshold.txt` before the next run. The threshold never changes
 automatically — it's a human decision informed by data.
 
-**Consolidator receives only validated findings:**
+**Curator receives only validated findings:**
 
 | Filtered findings per entry | Action |
 |---|---|
@@ -860,8 +860,8 @@ automatically — it's a human decision informed by data.
 2. 5 parallel Sonnet reviewers: produce findings per angle
 3. Parallel Haiku scorers: score each finding (0-100)
 4. Filter: drop findings scoring below threshold (from threshold.txt)
-5. Consolidator: synthesize surviving findings, edit skill file
-6. Consolidator: write debrief with threshold calibration data
+5. Curator: synthesize surviving findings, edit skill file
+6. Curator: write debrief with threshold calibration data
 7. (After all skills) Code review loop on PR
 8. User reviews threshold recommendation, adjusts if warranted
 ```
@@ -869,7 +869,7 @@ automatically — it's a human decision informed by data.
 ### Guardrails
 
 - Reviewers are read-only subagents — cannot damage skill files
-- Consolidators edit only their own skill — scoped by launch-phase group
+- Curators edit only their own skill — scoped by launch-phase group
 - All edits go through PR with code review — human approves before merge
 - Every deletion must cite evidence (no "seems outdated" deletions)
 - Net token delta must be negative or neutral per PR
@@ -878,7 +878,7 @@ automatically — it's a human decision informed by data.
   Format: appended inline to the LL entry, e.g.:
   `- 2026-03-05: Cascade skips no-start tasks. [reviewed: keep]`
   Reviewer prompts must instruct: "Skip entries ending with `[reviewed: keep]`."
-  Consolidator prompt must instruct: "Do not modify or delete `[reviewed: keep]` entries."
+  Curator prompt must instruct: "Do not modify or delete `[reviewed: keep]` entries."
   Note: `[reviewed: keep]` tags have no automatic expiry. If code changes
   later invalidate a kept entry, a human must manually remove the tag before
   the curation pipeline can act on it. This is intentional — the tag
@@ -888,26 +888,26 @@ automatically — it's a human decision informed by data.
 ### Feedback Loop: How Curation Improves Itself
 
 Curation learning flows through the same feedback pipeline as everything else.
-No special-casing — consolidators write debrief reports to `feedback/`, and
+No special-casing — curators write debrief reports to `feedback/`, and
 the curation skill gets curated alongside domain skills.
 
 #### Sources of learning → debrief reports
 
-| Source | What the consolidator observes | Debrief `files` reference |
+| Source | What the curator observes | Debrief `files` reference |
 |---|---|---|
 | Reviewer blind spots | An angle consistently misses a type of issue | `.claude/agents/skill-reviewer.md` |
 | Scoring miscalibration | Real issues filtered out, false positives let through | `docs/prompts/curation/threshold.txt` |
 | Validation subagent gaps | Codebase explorer can't answer orchestration questions | `.claude/agents/codebase-explorer.md` |
-| Code review findings | Systematic issues the reviewers missed | `docs/prompts/curation/consolidator.md` |
+| Code review findings | Systematic issues the reviewers missed | `docs/prompts/curation/curator.md` |
 
-Consolidators write these as standard debrief reports with `files` referencing
+Curators write these as standard debrief reports with `files` referencing
 the curation prompts. They accumulate in `feedback/processed/` (since they're
 written during a curation pass, they're processed immediately for skill changes
 but preserved for future prompt curation).
 
 #### How prompt improvements happen (v1)
 
-For now, prompt improvements are manual. The consolidator debrief reports
+For now, prompt improvements are manual. The curator debrief reports
 surface prompt weaknesses (via threshold calibration data, reviewer blind
 spots, etc.). The user reads these in the PR description and edits prompts
 directly before the next pass.
@@ -1074,7 +1074,7 @@ observations:
 | `outcome` | No (written by orchestrator after curation) | Per-observation disposition: status, action/reason, pass date |
 **Why structured YAML over prose:**
 
-- **Parsable by consolidator.** Pre-process before spawning reviewers: count
+- **Parsable by curator.** Pre-process before spawning reviewers: count
   by type, summarize for reviewer context, assess volume.
 - **Richer hook stats.** "12 reports: 5 undocumented, 4 wrong docs, 3 gaps"
   instead of just "12 reports pending."
@@ -1093,7 +1093,7 @@ observations:
 
 **How feedback maps to skills:**
 
-Every consolidator sees all reports in the batch (max 20). The `files` field
+Every curator sees all reports in the batch (max 20). The `files` field
 helps reviewers determine relevance, but there is no automated pre-filtering —
 observations don't always map cleanly to one skill by file path (e.g., a
 `dateUtils.ts` observation might belong to scheduling-engine, not the frontend
@@ -1144,12 +1144,12 @@ thin prep script that runs the pipeline and moves processed reports.
 /curate-skills:
   1. Agent runs: ./scripts/curate-skills.sh
      - Runs: launch-phase.sh (stage → merge → validate)
-     - Consolidators read feedback/ directly (oldest 20 per prompt)
+     - Curators read feedback/ directly (oldest 20 per prompt)
      - Script moves processed reports to feedback/processed/ after pipeline
-  2. Agent reads consolidator commit messages from merge branch:
+  2. Agent reads curator commit messages from merge branch:
      - git log on merge branch for per-observation outcomes
      - Extracts: acted/rejected/preserved per observation
-     - Collects threshold calibration data from consolidator debriefs
+     - Collects threshold calibration data from curator debriefs
   3. Agent writes outcome fields into processed report files:
      - Reads each report in feedback/processed/
      - Adds `outcome` (status, action/reason, pass date) per observation
@@ -1165,19 +1165,19 @@ thin prep script that runs the pipeline and moves processed reports.
   6. Agent runs strict code review loop (max 3 iterations)
   7. Agent posts final summary (clean or max-iterations-reached)
   8. Agent writes its own debrief report to feedback/:
-     - Cross-skill observations (patterns across consolidators)
+     - Cross-skill observations (patterns across curators)
      - Threshold calibration recommendation (from aggregated data)
      - Code review findings and what they revealed about curation quality
        (what reviewers/scorers missed that code review caught)
      - Fixes made during the review loop (what was wrong and how it was fixed)
-     - Process observations (consolidator failures, parsing issues, timing)
+     - Process observations (curator failures, parsing issues, timing)
   9. If reports remain in feedback/, reminder hook prompts for next run
 ```
 
 **See `scripts/curate-skills.sh` for the implementation.** Key behaviors:
 - Sets `_USER_MERGE_TARGET` to a date-stamped branch
 - Runs `launch-phase.sh` stage → merge → validate
-- Consolidators read `feedback/` directory directly (no manifest needed —
+- Curators read `feedback/` directory directly (no manifest needed —
   feedback reports are committed files visible in all worktrees)
 - After pipeline, script moves oldest 20 processed reports to `processed/`
 - On partial failure, generates retry config with only failed groups
@@ -1209,7 +1209,7 @@ with zero changes.
 
 | Failure | State left behind | Agent action |
 |---|---|---|
-| Stage fails (one or more consolidators) | Reports still in `feedback/`. Per-group logs in `logs/`. | Run `launch-phase.sh ... status` to see which groups failed. Read failed group's log to understand why. Fix if possible and retry, or proceed with partial success. |
+| Stage fails (one or more curators) | Reports still in `feedback/`. Per-group logs in `logs/`. | Run `launch-phase.sh ... status` to see which groups failed. Read failed group's log to understand why. Fix if possible and retry, or proceed with partial success. |
 | Merge fails | Branches exist but not merged. Reports still in `feedback/`. | Agent can retry: `launch-phase.sh ... merge 1` |
 | Validate fails | Merged but validation caught issues. | Agent fixes issues in merge worktree, re-runs validate. |
 | Pipeline succeeds, move fails | Some reports still in `feedback/`, some in `processed/`. | Agent moves remaining reports from `feedback/` to `processed/` manually. |
@@ -1238,13 +1238,13 @@ extracts their config entries from the original YAML. Same `merge_target`,
 same `prompt` fields — just fewer groups.
 
 **Common failure causes:
-   - Consolidator ran out of turns (30 max) — too many validation
+   - Curator ran out of turns (30 max) — too many validation
      subagent escalations. Fix: raise turn limit or lower threshold.
-   - Reviewer subagent produced unparseable output — consolidator
+   - Reviewer subagent produced unparseable output — curator
      couldn't build findings. Fix: refine reviewer prompt.
-   - Skill file had unexpected structure — consolidator couldn't
+   - Skill file had unexpected structure — curator couldn't
      locate LL section. Fix: check skill file format.
-   - No feedback reports relevant to this skill — consolidator
+   - No feedback reports relevant to this skill — curator
      exited early. Not a failure; expected for skills with no
      relevant observations in this batch.
 
@@ -1253,7 +1253,7 @@ them to `processed/` after a successful pipeline. On failure, nothing is
 lost — reports are still where they were. Partial work is always valuable —
 proceed with whatever succeeded, note failures in the PR.
 
-**No pre-filtering.** Every consolidator sees all reports in the batch
+**No pre-filtering.** Every curator sees all reports in the batch
 (max 20 × ~75 tokens = ~1500 tokens). Scope reviewer determines relevance.
 
 **The launch config and all prompts are fully static and reusable.** The
@@ -1287,7 +1287,7 @@ optional-sounding steps under pressure. Three reinforcement mechanisms:
    format, questions, and examples), writes the report. Non-blocking —
    some sessions have nothing to report.
 
-2. **Phase group prompts.** The consolidator prompt template includes the
+2. **Phase group prompts.** The curator prompt template includes the
    debrief step explicitly as the final task, not a postscript. Phrased as
    a required step with a skip condition rather than an optional step:
    "Write a debrief report. If you have no observations, write a report
@@ -1305,13 +1305,13 @@ and skill additions are belt-and-suspenders.
 1. Implementing agent writes report to `feedback/`
 2. Report accumulates (out of all agents' context — no token cost)
 3. `curate-skills.sh` runs launch-phase pipeline
-4. Consolidator reads feedback/ directory, spawns 5 reviewers on oldest 20 reports
-5. Reviewers classify observations; consolidator synthesizes + edits skill
+4. Curator reads feedback/ directory, spawns 5 reviewers on oldest 20 reports
+5. Reviewers classify observations; curator synthesizes + edits skill
 6. `curate-skills.sh` moves processed reports to `feedback/processed/`
 7. PR created; strict code review loop validates edits
 
-**Per-observation outcomes are in the consolidator's commit message.**
-The consolidator lists what it did with each observation it reviewed:
+**Per-observation outcomes are in the curator's commit message.**
+The curator lists what it did with each observation it reviewed:
 
 ```
 docs: scheduling-engine skill
@@ -1327,7 +1327,7 @@ Observations processed (from 2026-03-16-agent-issue-41.md):
      → preserved: references curation prompts (future scope)
 ```
 
-The agent creating the PR summarizes all consolidator commit messages into
+The agent creating the PR summarizes all curator commit messages into
 the PR description. The human reviewer sees per-observation dispositions
 in the PR body. If a rejection was wrong, flag it during PR review.
 
@@ -1337,7 +1337,7 @@ in the PR body. If a rejection was wrong, flag it during PR review.
 - `preserved` — relevant to future curation scope (reason required)
 
 The orchestrating agent writes `outcome` fields back into processed report
-files after reading consolidator commit messages. Each processed report is
+files after reading curator commit messages. Each processed report is
 a self-contained audit trail — the original observation plus what happened
 to it. The PR description summarizes these, but the reports in `processed/`
 are the authoritative record.
@@ -1350,12 +1350,12 @@ unvalidated content enters skill files.
 
 ### Prompt Observations via Feedback Reports
 
-Curation consolidators write debrief reports after each pass, same as any
+Curation curators write debrief reports after each pass, same as any
 implementing agent. These go to `feedback/` with `files` referencing
 `docs/prompts/curation/*.md` when the observation is about prompt quality.
 
 There is no recursion or separate "prompt curation" level. All debrief
-reports — from implementing agents, from consolidators, from anyone — go
+reports — from implementing agents, from curators, from anyone — go
 through the same flat pipeline:
 
 ```
@@ -1365,7 +1365,7 @@ All agents (implementing + curation) → feedback/ → curate-skills.sh → skil
 
 Reports about prompt quality (`files` referencing `docs/prompts/curation/*`)
 are preserved in `processed/` but not acted on in v1. The user reads
-consolidator debriefs in the PR description (including threshold calibration
+curator debriefs in the PR description (including threshold calibration
 data) and manually refines prompts before the next pass.
 
 When prompt curation is added (future direction), those accumulated reports
@@ -1563,7 +1563,7 @@ flow. The orchestration skill owns the infrastructure debugging.
 | What do the 5 reviewer angles check? | curation skill |
 | How do I write a debrief report? | debrief-template.md (via hook pointer) |
 | Why did launch-phase.sh hang during curation? | multi-agent-orchestration skill |
-| How do I debug a stalled consolidator agent? | multi-agent-orchestration skill |
+| How do I debug a stalled curator agent? | multi-agent-orchestration skill |
 | How does the merge step work? | multi-agent-orchestration skill |
 
 **Dependency graph after reorganization:**
@@ -1745,7 +1745,7 @@ reviewer angles. Differentiation is entirely in the prompt, not the definition:
 ### Open Questions
 
 1. **Cost calibration.** Full pass: 5 reviewers × 8 skills = 40 subagents +
-   8 consolidators + N haiku scorers (one per finding). Monitor cost after
+   8 curators + N haiku scorers (one per finding). Monitor cost after
    first manual pass and first automated pass. Skills with no relevant
    observations in a batch exit early (minimal cost). If cost is too high,
    consider 3 reviewers (accuracy, scope, adversarial) for low-volume skills.
@@ -1765,7 +1765,7 @@ reviewer angles. Differentiation is entirely in the prompt, not the definition:
 
 ### Resolved Questions
 
-- **Consolidator scope beyond LL:** Resolved — consolidator reviews full skill
+- **Curator scope beyond LL:** Resolved — curator reviews full skill
   file (body + LL). Migration steps move content faithfully; curators handle
   quality in step 12.
 - **Cross-skill dedup:** Code review on the batched PR is the cross-skill layer.
@@ -1845,7 +1845,7 @@ via hooks or loaded on demand.
 
 **New files** (step 11):
 - `.claude/skills/curation/SKILL.md`
-- `docs/prompts/curation/consolidator.md`
+- `docs/prompts/curation/curator.md`
 - `.claude/agents/skill-reviewer.md` (shared by all 5 reviewer angles)
 - `docs/prompts/curation/validate.md`
 - `docs/prompts/curation/debrief-template.md`
@@ -1877,7 +1877,7 @@ The 5 reviewer angles and scoring layer are not skill-specific — they work on
 any document that instructs agents. If skill curation proves effective, the
 same system could review CLAUDE.md files, scoped CLAUDE.md files, worktree
 instructions, subagent definitions, and curation prompts themselves. Same
-consolidator prompt, same reviewer angles, different targets. Not planned
+curator prompt, same reviewer angles, different targets. Not planned
 for v1 — validate on skills first.
 
 ## Expected Result
@@ -1899,7 +1899,7 @@ documented here with full detail in case implementation needs to revisit.
 
 **Found by:** Agent #5 (completeness) — verified by reading `scripts/lib/agent.sh`
 
-**Problem:** The curation launch config specifies `prompt: docs/prompts/curation/consolidator.md`
+**Problem:** The curation launch config specifies `prompt: docs/prompts/curation/curator.md`
 per group, but `agent.sh` hardcodes prompt resolution as `${PROMPTS_DIR}/${group}.md`.
 There is no `prompt` field in the config schema. The curation pipeline would fail at
 preflight with "Missing prompt file: docs/prompts/curation/scheduling-engine.md".
@@ -1933,7 +1933,7 @@ here breaks all phase launches, not just curation. Required safeguards:
 can proceed in parallel before the `agent.sh` change.
 
 **Phase A — No infrastructure dependency (can start immediately):**
-1. Design reviewer prompts (5 angle prompts + consolidator)
+1. Design reviewer prompts (5 angle prompts + curator)
 2. Test on multi-agent-orchestration (manual invocation, refine)
 3. Run initial LL cleanup on all 6 skills (manual invocation)
 4. Create `docs/project-structure.md` (extract from codebase-explorer)
@@ -2070,7 +2070,7 @@ stages:
     groups:
       - id: scheduling-engine
         branch: curation/scheduling-engine
-        prompt: docs/prompts/curation/consolidator.md
+        prompt: docs/prompts/curation/curator.md
         merge_message: "docs: scheduling-engine skill"
 ```
 Proper indentation, `name` and `merge_message` included. `labels` removed

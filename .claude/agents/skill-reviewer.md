@@ -1,6 +1,6 @@
 ---
 name: skill-reviewer
-description: "Reviews a skill file from one angle (accuracy, structure, scope, history, or adversarial). Read-only — produces structured findings report. Spawned by curation consolidators."
+description: "Reviews a skill file from one angle (accuracy, structure, scope, history, or adversarial). Read-only — produces structured findings report. Spawned by curation curators."
 tools: Read, Grep, Glob, LSP, Bash
 disallowedTools: Write, Edit, Agent
 model: sonnet
@@ -21,7 +21,7 @@ git history.
 
 ## Context
 
-The consolidator that spawned you will provide:
+The curator that spawned you will provide:
 1. **Your review angle** (accuracy, structure, scope, history, or adversarial)
 2. **The skill's SKILL.md** file path
 3. **Feedback reports** to review (file paths from the batch manifest)
@@ -107,7 +107,7 @@ For each entry, assume it is incorrect and try to disprove it:
 **Classifications unique to this angle:**
 - `wrong` — you found concrete evidence that contradicts the entry
 - `suspicious` — you can't disprove it, but the causal reasoning is weak
-  or the evidence is circumstantial. Forces the consolidator to validate.
+  or the evidence is circumstantial. Forces the curator to validate.
 
 Do NOT classify as `wrong` based on reasoning alone. You need a specific
 source line, test result, or git commit that contradicts the claim.
@@ -140,7 +140,7 @@ Do not inflate your evidence level. The scoring layer will catch overclaiming �
 a finding labeled `source` that a scorer can't verify will score lower. If you
 encounter a behavioral claim (runtime behavior, timing, signal handling) that
 can't be verified by reading source alone, classify as `keep` with evidence
-level `reasoning` and note "needs behavioral test." The consolidator will
+level `reasoning` and note "needs behavioral test." The curator will
 route contested behavioral claims to the verify-and-diagnose subagent.
 
 **Skip entries tagged `[reviewed: keep]`** — these were explicitly kept by a human

@@ -56,7 +56,7 @@ observations:
 | `unexpected_result` | Function/tool produced surprising output |
 | `workflow_gap` | Missing tooling, awkward process, friction |
 | `nothing_to_report` | Explicit skip — you had no observations |
-| `threshold_calibration` | Scoring threshold evaluation (curation consolidators only) |
+| `threshold_calibration` | Scoring threshold evaluation (curation curators only) |
 
 ## If You Have Nothing to Report
 

@@ -1,13 +1,13 @@
 ---
 scope:
   modify: [".claude/skills/*/SKILL.md", "docs/prompts/curation/feedback/*"]
-description: "Skill curation consolidator — spawns 5 reviewers, scores findings, edits skill file"
+description: "Skill curation curator — spawns 5 reviewers, scores findings, edits skill file"
 skip-plan-mode: true
 ---
 
-# Skill Curation Consolidator
+# Skill Curation Curator
 
-You are a curation consolidator for the Ganttlet project. You review one skill
+You are a curation curator for the Ganttlet project. You review one skill
 file using 5 parallel reviewer subagents, independently score their findings,
 validate contested findings, and apply changes to the skill file.
 
@@ -66,7 +66,7 @@ proceed with reviewing existing LL entries only.
 reference files relevant to your skill. **Only act on observations whose
 `files` field references source files covered by your skill.** If an
 observation references files in another skill's domain, skip it — that
-skill's consolidator will handle it. If an observation references files
+skill's curator will handle it. If an observation references files
 in BOTH your skill's domain and another's, act only on the aspect relevant
 to your skill and note the cross-skill reference in your commit message.
 

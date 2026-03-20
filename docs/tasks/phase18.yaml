@@ -1,0 +1,477 @@
+# Phase 18: Onboarding UX — State Machine, Welcome Flows & Sheet Management
+# Source: docs/proposals/designs/design-{1..6}.md
+# PRD: docs/proposals/onboarding-prd.md
+# Prerequisite: Issue #62 (write range fix)
+
+phase: 18
+status: pending
+context: >
+  Implement the complete onboarding experience: dataSource state machine,
+  WelcomeGate routing, sandbox mode, sheet selector, welcome screens, empty state,
+  sandbox promotion, templates, sheet management, error handling, and header
+  validation UI. Covers all 53 PRD requirements across 6 designs.
+
+stages:
+  - name: "Stage 1: State Machine + WelcomeGate + Fake Data Decoupling (single agent)"
+    description: >
+      Foundation layer. Adds dataSource/syncError/sandboxDirty to GanttState,
+      gates auto-save and Yjs, moves fakeData to templates, creates WelcomeGate
+      routing shell, adds header validation and error classification.
+    groups:
+      - id: A
+        name: "Design 1 — State Machine + WelcomeGate + Fake Data Decoupling"
+        depends_on: []
+        scope:
+          modify:
+            - src/types/index.ts
+            - src/state/actions.ts
+            - src/state/ganttReducer.ts
+            - src/state/GanttContext.tsx
+            - src/data/fakeData.ts              # Move → src/data/templates/softwareRelease.ts
+            - src/sheets/sheetsSync.ts
+            - src/sheets/sheetsMapper.ts
+            - src/App.tsx
+          create:
+            - src/data/defaultColumns.ts
+            - src/data/templates/softwareRelease.ts
+            - src/sheets/syncErrors.ts
+            - src/components/onboarding/WelcomeGate.tsx
+          test:
+            - src/state/__tests__/dataSource.test.ts
+            - src/sheets/__tests__/syncErrors.test.ts
+            - src/sheets/__tests__/headerValidation.test.ts
+            - src/components/__tests__/WelcomeGate.test.tsx
+          read_only:
+            - src/sheets/sheetsClient.ts
+            - src/sheets/oauth.ts
+        tasks:
+          - id: A1
+            summary: "Read types.ts, actions.ts, ganttReducer.ts, GanttContext.tsx, fakeData.ts — understand current state model"
+            status: pending
+          - id: A2
+            summary: "Add DataSource, SyncError types to types/index.ts; add dataSource, syncError, sandboxDirty to GanttState"
+            status: pending
+            exit_criteria: >
+              DataSource = 'sandbox' | 'loading' | 'sheet' | 'empty'.
+              SyncError.type includes auth, not_found, forbidden, rate_limit, network, header_mismatch.
+              GanttState has dataSource (DataSource|undefined), syncError (SyncError|null), sandboxDirty (boolean).
+          - id: A3
+            summary: "Add SET_DATA_SOURCE, SET_SYNC_ERROR, ENTER_SANDBOX, RESET_STATE actions; move TASK_MODIFYING_ACTIONS to actions.ts"
+            status: pending
+            exit_criteria: >
+              4 new action types in actions.ts. TASK_MODIFYING_ACTIONS exported from actions.ts
+              (moved from GanttContext.tsx) so reducer can import it.
+          - id: A4
+            summary: "Add 4 reducer cases + sandboxDirty auto-tracking + empty→sheet auto-transition"
+            status: pending
+            exit_criteria: >
+              SET_DATA_SOURCE, SET_SYNC_ERROR, ENTER_SANDBOX, RESET_STATE all handled.
+              Post-processing: sandbox + TASK_MODIFYING → sandboxDirty=true.
+              Post-processing: empty + TASK_MODIFYING → dataSource='sheet'.
+              Unit tests pass in dataSource.test.ts.
+          - id: A5
+            summary: "Move fakeData.ts → src/data/templates/softwareRelease.ts; create src/data/defaultColumns.ts"
+            status: pending
+            exit_criteria: >
+              fakeData.ts deleted. softwareRelease.ts exports fakeTasks and fakeChangeHistory.
+              defaultColumns.ts exports defaultColumns. All existing imports updated.
+          - id: A6
+            summary: "Create syncErrors.ts with classifySyncError; add validateHeaders to sheetsMapper.ts"
+            status: pending
+            exit_criteria: >
+              classifySyncError maps Response status codes (401→auth, 403→forbidden, etc.)
+              with default case for 5xx. validateHeaders checks 20 SHEET_COLUMNS, case-insensitive,
+              order-sensitive. Both have passing unit tests.
+          - id: A7
+            summary: "Update GanttContext: empty initialState, dataSource gating on auto-save + Yjs + collabDispatch, beforeunload"
+            status: pending
+            exit_criteria: >
+              initialState.tasks=[]. Auto-save guard: dataSource !== 'sheet'. Yjs guard: dataSource !== 'sheet'.
+              collabDispatch guard after dispatch() before Yjs. beforeunload when sandbox + dirty.
+          - id: A8
+            summary: "Change loadFromSheet to throw on HTTP errors; export stopPolling()"
+            status: pending
+            exit_criteria: >
+              loadFromSheet throws Response on HTTP errors instead of returning [].
+              Early-return for unauthenticated state removed. stopPolling() exported.
+          - id: A9
+            summary: "Create WelcomeGate.tsx routing shell; wrap AppContent in App.tsx"
+            status: pending
+            exit_criteria: >
+              WelcomeGate: dataSource defined → children. undefined + ?sheet= → loading skeleton.
+              undefined + no ?sheet= → placeholder with "Try the demo" → ENTER_SANDBOX.
+              App.tsx wraps AppContent with WelcomeGate inside GanttProvider.
+          - id: A10
+            summary: "Update makeState() in existing reducer tests for new GanttState fields"
+            status: pending
+            exit_criteria: "All existing tests in ganttReducer.test.ts pass with updated makeState helper."
+
+  - name: "Stage 2: Sheet Selector + Error Handling (parallel — 2 agents)"
+    description: >
+      Two agents work in parallel. Group B builds the sheet selector modal with
+      Drive API listing and URL parsing (all new files). Group C builds error UI,
+      polling backoff, and offline detection. No file overlap between B and C.
+    groups:
+      - id: B
+        name: "Design 2 — Sheet Selector + Recent Sheets List"
+        depends_on: [A]
+        scope:
+          create:
+            - src/components/onboarding/SheetSelector.tsx
+            - src/sheets/sheetsBrowser.ts
+            - src/utils/recentSheets.ts
+            - src/utils/parseSheetUrl.ts
+          test:
+            - src/utils/__tests__/parseSheetUrl.test.ts
+            - src/utils/__tests__/recentSheets.test.ts
+            - src/components/onboarding/__tests__/SheetSelector.test.tsx
+          read_only:
+            - src/sheets/oauth.ts
+            - src/types/index.ts
+            - src/state/actions.ts
+        tasks:
+          - id: B1
+            summary: "Read oauth.ts to understand token access pattern; read types/index.ts for DataSource"
+            status: pending
+          - id: B2
+            summary: "Create parseSheetUrl.ts — extract spreadsheet ID from Google Sheets URLs"
+            status: pending
+            exit_criteria: >
+              Regex extracts ID from valid URLs. Returns null for invalid URLs.
+              Unit tests cover: standard URL, URL with gid, URL with /edit, non-Sheets URL, bare ID.
+          - id: B3
+            summary: "Create recentSheets.ts — localStorage CRUD with LRU eviction (max 10)"
+            status: pending
+            exit_criteria: >
+              getRecentSheets, addRecentSheet, removeRecentSheet exported.
+              LRU eviction when >10 entries. Unit tests cover add, evict, remove, empty state.
+          - id: B4
+            summary: "Create sheetsBrowser.ts — listUserSheets(token) using Drive API v3"
+            status: pending
+            exit_criteria: >
+              SheetInfo interface exported (id, name, modifiedTime, iconLink).
+              Fetches up to 20 spreadsheets sorted by modifiedTime desc.
+              Uses fetch + Bearer token, no Google SDK.
+          - id: B5
+            summary: "Create SheetSelector.tsx modal — Drive listing + URL paste + connect flow"
+            status: pending
+            exit_criteria: >
+              Modal shows Drive listing top, URL paste bottom. Invalid URL shows inline error:
+              "Couldn't find a spreadsheet ID in this URL". onSelectSheet(sheetId) callback.
+              [Connect] sets ?sheet=ID&room=ID. Component test covers render, select, paste.
+
+      - id: C
+        name: "Design 6 — Error Handling + Header Validation UI"
+        depends_on: [A]
+        scope:
+          modify:
+            - src/sheets/sheetsSync.ts
+            - src/sheets/sheetsClient.ts
+            - src/state/GanttContext.tsx
+            - src/components/layout/Header.tsx
+          create:
+            - src/components/onboarding/ErrorBanner.tsx
+            - src/components/onboarding/SyncStatus.tsx
+            - src/components/onboarding/HeaderMismatchError.tsx
+          delete:
+            - src/components/panels/SyncStatusIndicator.tsx
+          test:
+            - src/components/onboarding/__tests__/ErrorBanner.test.tsx
+            - src/components/onboarding/__tests__/HeaderMismatchError.test.tsx
+            - src/sheets/__tests__/pollingBackoff.test.ts
+          read_only:
+            - src/types/index.ts
+            - src/sheets/syncErrors.ts
+            - src/sheets/sheetsMapper.ts
+        tasks:
+          - id: C1
+            summary: "Read sheetsSync.ts, sheetsClient.ts, GanttContext.tsx, Header.tsx after Stage 1 merge"
+            status: pending
+          - id: C2
+            summary: "Replace setInterval polling with recursive setTimeout; add backoff logic"
+            status: pending
+            exit_criteria: >
+              startPolling uses setTimeout loop. consecutiveErrors tracked.
+              After 3 errors: interval doubles (max 300s). On success: reset to 30s.
+              Unit tests cover backoff progression and reset.
+          - id: C3
+            summary: "Add HTTP status discrimination to sheetsClient.ts retry exhaustion"
+            status: pending
+            exit_criteria: "On retry exhaustion, throw the Response object so classifySyncError can discriminate."
+          - id: C4
+            summary: "Add online/offline event listeners to GanttContext.tsx"
+            status: pending
+            exit_criteria: >
+              useEffect registers online/offline handlers. Offline → SET_SYNC_ERROR network.
+              Online → clear syncError + trigger immediate sync. Cleanup on unmount.
+          - id: C5
+            summary: "Create ErrorBanner.tsx — persistent banners per syncError.type"
+            status: pending
+            exit_criteria: >
+              auth: "Session expired. [Re-authorize]" → signIn(), on success clear + scheduleSave.
+              not_found: "Can't access this sheet." + stopPolling() + removeRecentSheet().
+              forbidden: same (no removeRecentSheet). network: "You're offline."
+          - id: C6
+            summary: "Create SyncStatus.tsx — replace SyncStatusIndicator; add rate_limit display"
+            status: pending
+            exit_criteria: >
+              Replaces SyncStatusIndicator. Shows "Synced", "Syncing...", or
+              "Sync paused — retrying" for rate_limit. SyncStatusIndicator.tsx deleted.
+              All existing imports updated.
+          - id: C7
+            summary: "Create HeaderMismatchError.tsx — expected vs found columns + CSV download"
+            status: pending
+            exit_criteria: >
+              Shows expected vs found columns side by side. [Create a new sheet instead].
+              [Download header template] generates CSV with 20 SHEET_COLUMNS as row 1.
+          - id: C8
+            summary: "Integrate ErrorBanner + SyncStatus into Header.tsx"
+            status: pending
+            exit_criteria: "ErrorBanner renders when syncError set. SyncStatus replaces old indicator."
+
+  - name: "Stage 3: Onboarding Screens + Promotion + Sheet Creation (parallel — 2 agents)"
+    description: >
+      Two agents in parallel. Group D builds welcome screens and empty state.
+      Group E builds sheet creation and promotion. Both modify WelcomeGate.tsx —
+      D merges first (routing), E rebases on D (sandbox banner addition).
+    groups:
+      - id: D
+        name: "Design 3 — Onboarding Screens + Empty State"
+        depends_on: [A, B]
+        scope:
+          modify:
+            - src/components/onboarding/WelcomeGate.tsx
+            - src/App.tsx
+          create:
+            - src/components/onboarding/FirstVisitWelcome.tsx
+            - src/components/onboarding/ReturnVisitorWelcome.tsx
+            - src/components/onboarding/CollaboratorWelcome.tsx
+            - src/components/onboarding/ChoosePath.tsx
+            - src/components/onboarding/EmptyState.tsx
+          test:
+            - src/components/onboarding/__tests__/FirstVisitWelcome.test.tsx
+            - src/components/onboarding/__tests__/ReturnVisitorWelcome.test.tsx
+            - src/components/onboarding/__tests__/CollaboratorWelcome.test.tsx
+            - src/components/onboarding/__tests__/EmptyState.test.tsx
+          read_only:
+            - src/types/index.ts
+            - src/state/actions.ts
+            - src/sheets/oauth.ts
+            - src/utils/recentSheets.ts
+            - src/components/onboarding/SheetSelector.tsx
+        tasks:
+          - id: D1
+            summary: "Read WelcomeGate.tsx, App.tsx, recentSheets.ts, SheetSelector.tsx after Stage 2 merge"
+            status: pending
+          - id: D2
+            summary: "Create FirstVisitWelcome.tsx — value props, [Try the demo], [Sign in with Google]"
+            status: pending
+            exit_criteria: >
+              Value props visible without scrolling. [Try the demo] dispatches ENTER_SANDBOX.
+              [Sign in with Google] triggers OAuth. Component test verifies both actions.
+          - id: D3
+            summary: "Create ReturnVisitorWelcome.tsx — welcome back + recent projects with relative times"
+            status: pending
+            exit_criteria: >
+              "Welcome back, {name}". Recent projects with relative time from lastOpened.
+              Click → onSelectSheet → ?sheet=ID&room=ID. [New Project], [Connect Existing], [Demo].
+          - id: D4
+            summary: "Create CollaboratorWelcome.tsx — invited view with sign-in"
+            status: pending
+            exit_criteria: >
+              "You've been invited to collaborate". Only [Sign in with Google].
+              After sign-in: useEffect re-fires → loadFromSheet. No intermediate screen.
+          - id: D5
+            summary: "Create ChoosePath.tsx — [New Project] + [Existing Sheet]"
+            status: pending
+            exit_criteria: "[New Project] and [Existing Sheet] buttons. Recent sheets shown if any exist."
+          - id: D6
+            summary: "Update WelcomeGate.tsx — replace placeholder with real screen routing"
+            status: pending
+            exit_criteria: >
+              ?sheet= or ?room= + signed in → children. Not signed in → CollaboratorWelcome.
+              auth + recent → ReturnVisitor. auth + no recent → ChoosePath. No auth → FirstVisit.
+          - id: D7
+            summary: "Create EmptyState.tsx — timeline scaffolding + add-task CTA"
+            status: pending
+            exit_criteria: >
+              Renders in Gantt layout when dataSource='empty'. Timeline scaffolding.
+              First task: startDate=ensureBusinessDay(today), endDate=taskEndDate(startDate,1),
+              duration=1. onSelectTemplate prop accepted but hidden until Design 5.
+          - id: D8
+            summary: "Update App.tsx — render EmptyState in AppContent when dataSource='empty'"
+            status: pending
+            exit_criteria: "AppContent conditionally renders EmptyState when state.dataSource === 'empty'."
+
+      - id: E
+        name: "Design 4 — Sheet Creation + Sandbox Promotion Flow"
+        depends_on: [A, B]
+        merge_order: "after D"
+        scope:
+          modify:
+            - src/components/onboarding/WelcomeGate.tsx   # sandbox banner only — merge after D
+          create:
+            - src/sheets/sheetCreation.ts
+            - src/components/onboarding/PromotionFlow.tsx
+            - src/components/onboarding/TargetSheetCheck.tsx
+          test:
+            - src/components/onboarding/__tests__/PromotionFlow.test.tsx
+            - src/components/onboarding/__tests__/TargetSheetCheck.test.tsx
+            - src/sheets/__tests__/sheetCreation.test.ts
+          read_only:
+            - src/types/index.ts
+            - src/state/actions.ts
+            - src/sheets/sheetsSync.ts
+            - src/sheets/sheetsMapper.ts
+            - src/sheets/oauth.ts
+            - src/components/onboarding/SheetSelector.tsx
+        tasks:
+          - id: E1
+            summary: "Read sheetsSync.ts (scheduleSave, initSync, startPolling), sheetsMapper.ts (validateHeaders), oauth.ts after Stage 2 merge"
+            status: pending
+          - id: E2
+            summary: "Create sheetCreation.ts — createSheet(title) via Sheets API POST"
+            status: pending
+            exit_criteria: >
+              Creates spreadsheet with title. Checks res.ok, throws on error.
+              Returns spreadsheetId. Uses getAccessToken(). Unit test with fetch mock.
+          - id: E3
+            summary: "Create TargetSheetCheck.tsx — three-way check (empty/Ganttlet/non-Ganttlet)"
+            status: pending
+            exit_criteria: >
+              Empty → proceed. Headers match → prompt replace/open with task count.
+              Headers don't match → warn, [Create New Sheet], "Overwrite anyway".
+          - id: E4
+            summary: "Create PromotionFlow.tsx — destination picker + write + transition"
+            status: pending
+            exit_criteria: >
+              signIn if needed. Destination picker. initSync + startPolling + scheduleSave(tasks).
+              SET_DATA_SOURCE('sheet'). URL = ?sheet=ID&room=ID. sandboxDirty reset to false.
+          - id: E5
+            summary: "Wire sandbox banner in WelcomeGate.tsx to PromotionFlow"
+            status: pending
+            exit_criteria: >
+              dataSource='sandbox': banner "You're exploring a demo project. Nothing is saved.
+              [Save to Google Sheet]". Click opens PromotionFlow.
+
+  - name: "Stage 4: Templates + Sheet Management (single agent)"
+    description: >
+      Template data, template picker, project creation, and header sheet management.
+      Final stage — depends on all prior work.
+    groups:
+      - id: F
+        name: "Design 5 — Templates + Project Creation + Sheet Management"
+        depends_on: [A, B, C, D, E]
+        scope:
+          modify:
+            - src/sheets/sheetCreation.ts
+            - src/components/layout/Header.tsx
+            - src/components/onboarding/EmptyState.tsx
+          create:
+            - src/data/templates/marketingCampaign.ts
+            - src/data/templates/eventPlanning.ts
+            - src/data/templates/index.ts
+            - src/components/onboarding/TemplatePicker.tsx
+          test:
+            - src/data/templates/__tests__/templateValidation.test.ts
+            - src/components/onboarding/__tests__/TemplatePicker.test.tsx
+            - src/components/layout/__tests__/Header.test.tsx
+          read_only:
+            - src/types/index.ts
+            - src/state/actions.ts
+            - src/sheets/sheetsSync.ts
+            - src/sheets/sheetsMapper.ts
+            - src/sheets/oauth.ts
+            - src/data/templates/softwareRelease.ts
+            - src/utils/recentSheets.ts
+            - src/components/onboarding/SheetSelector.tsx
+            - src/components/onboarding/WelcomeGate.tsx
+        tasks:
+          - id: F1
+            summary: "Read sheetCreation.ts, Header.tsx, EmptyState.tsx, softwareRelease.ts after Stage 3 merge"
+            status: pending
+          - id: F2
+            summary: "Create marketingCampaign.ts and eventPlanning.ts (~10 tasks each)"
+            status: pending
+            exit_criteria: >
+              ~10 tasks each. No weekend dates. duration === taskDuration(startDate, endDate).
+              endDate === taskEndDate(startDate, duration). parentId ↔ childIds consistent.
+              Valid UUIDs. No UI state fields.
+          - id: F3
+            summary: "Create templates/index.ts — registry with Blank + 3 templates, lazy loading"
+            status: pending
+            exit_criteria: >
+              Template interface (id, name, description, taskCount, load).
+              Blank entry (taskCount:0). 3 named templates with lazy import().
+              templateValidation.test.ts validates all constraints.
+          - id: F4
+            summary: "Create TemplatePicker.tsx — template selection UI"
+            status: pending
+            exit_criteria: "Template cards with name, description, count. onSelect(templateId) callback."
+          - id: F5
+            summary: "Add createProjectFromTemplate to sheetCreation.ts"
+            status: pending
+            exit_criteria: >
+              Creates sheet. Writes row 1 = 20 SHEET_COLUMNS. Rows 2+ = template tasks.
+              Write range from SHEET_COLUMNS.length. Non-blank → 'sheet'. Blank → 'empty'.
+          - id: F6
+            summary: "Add sheet management to Header.tsx — title, share, dropdown, disconnect"
+            status: pending
+            exit_criteria: >
+              Title from Sheets API, clickable. Share copies URL + adds ?room=.
+              Toast: "Link copied...". Dropdown: Open in Sheets, Switch, Create new, Disconnect.
+              Disconnect: RESET_STATE + stopPolling + clear URL. Auth persists.
+          - id: F7
+            summary: "Wire EmptyState 'Start from template' to TemplatePicker"
+            status: pending
+            exit_criteria: "'Or start from a template' visible. Opens TemplatePicker on click."
+
+validation_agent:
+  name: "Integration Tests + Full Verification"
+  scope:
+    modify:
+      - src/state/__tests__/ganttReducer.test.ts
+    read_only:
+      - src/types/index.ts
+      - src/state/GanttContext.tsx
+      - src/components/onboarding/WelcomeGate.tsx
+      - src/sheets/sheetsSync.ts
+  tasks:
+    - id: V-E1
+      summary: "Run full-verify.sh — tsc, vitest, cargo test"
+      status: pending
+      exit_criteria: "All TypeScript compiles. All unit tests pass. All Rust tests pass."
+    - id: V-E2
+      summary: "Verify state machine transitions end-to-end"
+      status: pending
+      exit_criteria: "undefined→sandbox, undefined→loading→sheet, undefined→loading→empty→sheet all work."
+    - id: V-E3
+      summary: "Verify sandbox isolation: no API calls, no WebSocket, dirty tracking"
+      status: pending
+      exit_criteria: "Zero network requests in sandbox. sandboxDirty tracking. beforeunload when dirty."
+    - id: V-E4
+      summary: "Verify error UI: each syncError type renders correctly, editing unblocked"
+      status: pending
+      exit_criteria: "auth/not_found/forbidden/network/rate_limit each show correct banner/indicator."
+    - id: V-E5
+      summary: "Verify all 3 templates pass constraint checks"
+      status: pending
+      exit_criteria: "templateValidation.test.ts passes. Dates correct. No weekend dates."
+
+validation:
+  - {id: V1, summary: "Build verification (tsc + vitest + cargo test)", status: pending}
+  - {id: V2, summary: "State machine transitions work end-to-end", status: pending}
+  - {id: V3, summary: "Sandbox mode isolated (no network, dirty tracking)", status: pending}
+  - {id: V4, summary: "Error UI per syncError type, editing unblocked", status: pending}
+  - {id: V5, summary: "All templates pass date/structure constraints", status: pending}
+  - {id: V6, summary: "WelcomeGate routes correctly for all 4 variants", status: pending}
+  - {id: V7, summary: "Sheet selector: Drive listing + URL parsing", status: pending}
+  - {id: V8, summary: "Promotion: sandbox → sheet with data preserved", status: pending}
+  - {id: V9, summary: "Header: title, share, disconnect all work", status: pending}
+  - {id: V10, summary: "Empty state → first task → auto-save fires", status: pending}
+
+follow_up:
+  - {summary: "E2E tests for onboarding flows (requires dev server + relay)", status: pending}
+  - {summary: "Column mapping UI (REQ-HV Tier 2, separate effort)", status: pending}
+  - {summary: "Public Google Sheet template + docs (Journey 8 Level 1)", status: pending}
+  - {summary: "Conflict detection during promotion (known limitation)", status: pending}

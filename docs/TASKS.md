@@ -9,6 +9,13 @@ Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phas
 
 - **Phase 16**: Date Calculation Bug Fixes — Inclusive Convention — [`docs/tasks/phase16.yaml`](tasks/phase16.yaml)
 
+## Planned
+
+- **Phase 18**: Onboarding UX — State Machine, Welcome Flows & Sheet Management — [`docs/tasks/phase18.yaml`](tasks/phase18.yaml)
+  - Prerequisite: Issue #62 (write range fix)
+  - PRD: [`docs/proposals/onboarding-prd.md`](proposals/onboarding-prd.md)
+  - Designs: [`docs/proposals/designs/design-{1..6}.md`](proposals/designs/)
+
 ## Completed
 
 - **Phase 15**: Scheduling Engine — Constraints, Dependencies & Conflict Detection — [`docs/tasks/phase15.yaml`](tasks/phase15.yaml) — DONE

@@ -207,7 +207,8 @@ config to merge all branches (original successes + retry successes).
 
 ```
 docs/prompts/curation/
-├── curator.md               # Main curator prompt (shared by all skills)
+├── curator.md               # Curator prompt (one per skill, shared template)
+├── orchestrator.md          # Orchestrator prompt (pipeline, PR, code review)
 ├── {skill-name}.md          # Thin wrappers (one per skill, point to curator)
 ├── debrief-template.md      # Template for agent debrief reports
 ├── validate.md              # Post-merge validation prompt

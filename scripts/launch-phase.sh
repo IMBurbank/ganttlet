@@ -25,7 +25,7 @@
 #   MERGE_FIX_RETRIES=3 — retries for merge conflict resolution
 #   MAX_STAGE_DURATION=1800 — max seconds per stage before killing agents
 #   MERGE_TARGET        — override implementation branch (default: from config)
-#   WORKTREE_BASE       — worktree root (default: /workspace/.claude/worktrees)
+#   WORKTREE_BASE       — worktree root (default: <main-repo-root>/.claude/worktrees)
 
 set -euo pipefail
 
@@ -41,8 +41,10 @@ MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
 DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
 DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 STALL_TIMEOUT="${STALL_TIMEOUT:-30}"
-WORKTREE_BASE="${WORKTREE_BASE:-/workspace/.claude/worktrees}"
-WORKSPACE="/workspace"
+# WORKSPACE must be the main repo root (not current worktree) because
+# worktree.sh, config.sh, and merge.sh all cd to it for git operations.
+WORKSPACE="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
+WORKTREE_BASE="${WORKTREE_BASE:-${WORKSPACE}/.claude/worktrees}"
 WATCH="${WATCH:-0}"
 VALIDATE_MAX_ATTEMPTS="${VALIDATE_MAX_ATTEMPTS:-3}"
 MAX_STAGE_DURATION="${MAX_STAGE_DURATION:-1800}"  # 30 minutes default

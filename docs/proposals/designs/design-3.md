@@ -1,0 +1,73 @@
+# Design 3: Onboarding Screens + Empty State
+
+## Summary
+
+Build the 4 WelcomeGate screen variants with full content (replacing Design 1's
+placeholders) and the empty state UI for blank/empty sheets.
+
+## Requirements
+
+REQ-WG-1–3, REQ-WG-5, REQ-ES-1–3
+
+## Dependencies
+
+- Design 1 (WelcomeGate routing shell)
+- Design 2 (SheetSelector, recentSheets)
+
+## Files
+
+| File | Action | Change |
+|---|---|---|
+| `src/components/onboarding/FirstVisitWelcome.tsx` | Create | Value props, [Try the demo], [Sign in with Google] |
+| `src/components/onboarding/ReturnVisitorWelcome.tsx` | Create | "Welcome back, {name}", recent projects list |
+| `src/components/onboarding/CollaboratorWelcome.tsx` | Create | "You've been invited...", [Sign in with Google] |
+| `src/components/onboarding/ChoosePath.tsx` | Create | [New Project], [Existing Sheet] |
+| `src/components/onboarding/EmptyState.tsx` | Create | Timeline scaffolding, "Add your first task" CTA |
+| `src/components/WelcomeGate.tsx` | Modify | Replace placeholder with real screen components |
+| `src/state/GanttContext.tsx` | Modify | Render EmptyState when `dataSource='empty'` |
+
+## Implementation Details
+
+**WelcomeGate routing (updated from Design 1):**
+
+```
+if dataSource defined → render children
+if URL has ?sheet=:
+  if signed in → render children (loading skeleton, useEffect handles load)
+  if not signed in → <CollaboratorWelcome onSignIn={signIn} />
+else:
+  if has auth + recent sheets → <ReturnVisitorWelcome />
+  if has auth, no recent → <ChoosePath />
+  if no auth → <FirstVisitWelcome />
+```
+
+**ReturnVisitorWelcome:**
+
+- Uses `getRecentSheets()` from Design 2
+- Clicking a project → `onSelectSheet(sheetId)` → sets URL params, `dataSource='loading'`
+- Shows [New Project], [Connect Existing Sheet], [Demo] buttons
+- [Connect Existing Sheet] opens `SheetSelector` from Design 2
+
+**EmptyState:**
+
+- Renders inside the Gantt layout (not WelcomeGate) when `dataSource='empty'`
+- Timeline panel: grid lines, headers, today marker
+- Table panel: column headers + add-task input row
+- CTA: "Add your first task" + "Or start from a template"
+- "Start from template" accepts `onSelectTemplate` callback prop (wired by Design 5;
+  until then, button is hidden)
+- First task creation: `startDate = ensureBusinessDay(today)`, `duration = 1`,
+  dispatches `ADD_TASK` → `dataSource` transitions to `'sheet'`
+
+## Tests
+
+1. `src/components/onboarding/__tests__/FirstVisitWelcome.test.tsx`
+2. `src/components/onboarding/__tests__/ReturnVisitorWelcome.test.tsx`
+3. `src/components/onboarding/__tests__/CollaboratorWelcome.test.tsx`
+4. `src/components/onboarding/__tests__/EmptyState.test.tsx`
+
+## Commits
+
+1. `feat: add welcome screen variants (first visit, return, collaborator, choose path)`
+2. `feat: wire WelcomeGate to real screen components`
+3. `feat: add EmptyState component with add-task CTA`

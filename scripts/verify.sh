@@ -137,4 +137,8 @@ esac
 # Update rate limit timestamp
 echo "$NOW" > "$LAST_VERIFY_FILE"
 
+# Check curation feedback accumulation (non-blocking reminder)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ -x "${SCRIPT_DIR}/check-curation.sh" ] && "${SCRIPT_DIR}/check-curation.sh" 2>/dev/null || true
+
 exit ${FINAL_EXIT:-0}

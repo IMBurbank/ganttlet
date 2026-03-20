@@ -29,6 +29,21 @@ echo "=== E2E tests (with relay) ==="
 E2E_RELAY=1 npx playwright test
 
 echo ""
+echo "=== Curation status ==="
+SCRIPT_DIR="$(dirname "$0")"
+[ -x "${SCRIPT_DIR}/check-curation.sh" ] && "${SCRIPT_DIR}/check-curation.sh" || true
+
+# Check for debrief report
+if [ -d "docs/prompts/curation/feedback" ]; then
+  has_debrief=$(find docs/prompts/curation/feedback -maxdepth 1 -name "*.md" \
+    -not -name "debrief-template.md" -newer .git/HEAD 2>/dev/null | head -1)
+  if [ -z "$has_debrief" ]; then
+    echo "[curation] No debrief report found for this session."
+    echo "Read docs/prompts/curation/debrief-template.md and write your report."
+  fi
+fi
+
+echo ""
 echo "=== All checks passed ==="
 
 # Post E2E attestation if requested (skips redundant CI E2E run on PR)

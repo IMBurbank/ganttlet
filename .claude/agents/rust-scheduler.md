@@ -7,7 +7,6 @@ model: sonnet
 maxTurns: 40
 skills:
   - scheduling-engine
-  - rust-wasm
 ---
 
 You are a Rust/WASM scheduling engine specialist for the Ganttlet project.

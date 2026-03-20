@@ -37,6 +37,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - Keep dependencies minimal — every added dependency is attack surface.
 - NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).
 - NEVER compute arithmetic or dates mentally — use tools (see scheduling-engine skill for full conventions and shell functions). NEVER use `addBusinessDays` directly for end dates — use `taskEndDate`.
+- **Guard binary** required by hooks. Built automatically in Docker; outside Docker: `cargo build --release -p guard`
 - When you discover a non-obvious gotcha or debugging insight, write a debrief report (the verify hook will remind you and point to the template at `docs/prompts/curation/debrief-template.md`).
 
 ## Architecture Constraints (do not violate)

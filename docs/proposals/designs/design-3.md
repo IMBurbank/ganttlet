@@ -23,8 +23,8 @@ REQ-WG-1–3, REQ-WG-5, REQ-ES-1–3
 | `src/components/onboarding/CollaboratorWelcome.tsx` | Create | "You've been invited...", [Sign in with Google] |
 | `src/components/onboarding/ChoosePath.tsx` | Create | [New Project], [Existing Sheet] |
 | `src/components/onboarding/EmptyState.tsx` | Create | Timeline scaffolding, "Add your first task" CTA |
-| `src/components/WelcomeGate.tsx` | Modify | Replace placeholder with real screen components |
-| `src/state/GanttContext.tsx` | Modify | Render EmptyState when `dataSource='empty'` |
+| `src/components/onboarding/WelcomeGate.tsx` | Modify | Replace placeholder with real screen components |
+| `src/App.tsx` | Modify | Render EmptyState in AppContent when `dataSource='empty'` |
 
 ## Implementation Details
 
@@ -57,7 +57,7 @@ else:
 - "Start from template" accepts `onSelectTemplate` callback prop (wired by Design 5;
   until then, button is hidden)
 - First task creation: `startDate = ensureBusinessDay(today)`, `duration = 1`,
-  dispatches `ADD_TASK` → `dataSource` transitions to `'sheet'`
+  dispatches `ADD_TASK` → reducer auto-transitions `dataSource` to `'sheet'` (see Design 1)
 
 ## Tests
 

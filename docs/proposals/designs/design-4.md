@@ -23,7 +23,7 @@ REQ-PROMO-1–6
 | `src/components/onboarding/PromotionFlow.tsx` | Create | Destination picker modal |
 | `src/components/onboarding/TargetSheetCheck.tsx` | Create | Three-way check UI (empty/Ganttlet/non-Ganttlet) |
 | `src/sheets/sheetCreation.ts` | Create | `createSheet(title): Promise<string>` via Sheets API |
-| `src/components/WelcomeGate.tsx` | Modify | Sandbox banner wires to PromotionFlow |
+| `src/components/onboarding/WelcomeGate.tsx` | Modify | Sandbox banner wires to PromotionFlow |
 
 ## Implementation Details
 
@@ -54,6 +54,7 @@ export async function createSheet(title: string): Promise<string> {
       sheets: [{ properties: { title: 'Sheet1' } }],
     }),
   });
+  if (!res.ok) throw res;
   const data = await res.json();
   return data.spreadsheetId;
 }

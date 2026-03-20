@@ -28,7 +28,7 @@ REQ-SM-STATE-1–9, REQ-FD-1–7, REQ-WG-4, REQ-HV-1/3/4 (logic only)
 | `src/sheets/sheetsSync.ts` | Modify | `loadFromSheet()` throws instead of returning `[]` |
 | `src/sheets/sheetsMapper.ts` | Modify | Add `validateHeaders(row: string[]): boolean` |
 | `src/state/GanttContext.tsx` | Modify | Empty initialState, dataSource-based gating on auto-save + Yjs + collabDispatch, error classification, beforeunload |
-| `src/components/WelcomeGate.tsx` | Create | Routing shell: if `dataSource` defined → children; else → placeholder |
+| `src/components/onboarding/WelcomeGate.tsx` | Create | Routing shell: if `dataSource` defined → children; else → placeholder |
 | `src/App.tsx` | Modify | Wrap `AppContent` with `WelcomeGate` inside `GanttProvider` |
 
 ## Types
@@ -37,7 +37,7 @@ REQ-SM-STATE-1–9, REQ-FD-1–7, REQ-WG-4, REQ-HV-1/3/4 (logic only)
 export type DataSource = 'sandbox' | 'loading' | 'sheet' | 'empty';
 
 export interface SyncError {
-  type: 'auth' | 'not_found' | 'forbidden' | 'rate_limit' | 'network';
+  type: 'auth' | 'not_found' | 'forbidden' | 'rate_limit' | 'network' | 'header_mismatch';
   message: string;
   since: number;
 }
@@ -65,6 +65,8 @@ sandboxDirty: boolean;
 - `ENTER_SANDBOX` → `{ ...state, dataSource: 'sandbox', tasks, changeHistory }`
 - Post-processing: if `state.dataSource === 'sandbox'` and action is in
   `TASK_MODIFYING_ACTIONS` → set `sandboxDirty: true`
+- Post-processing: if `state.dataSource === 'empty'` and action is in
+  `TASK_MODIFYING_ACTIONS` → set `dataSource: 'sheet'` (auto-transition on first edit)
 
 ## GanttContext Changes
 

@@ -215,7 +215,7 @@ in the URL:
 
 | dataSource | Yjs behavior |
 |---|---|
-| `sandbox` | No connection. Guard: `dataSource !== 'sandbox'` in GanttContext. |
+| `sandbox` | No connection. Guard: `dataSource !== 'sheet'` in GanttContext (only connects for `sheet`). |
 | `loading` | No connection (waiting for data). |
 | `empty` | No connection (no data to sync yet). Connects after → `sheet`. |
 | `sheet` | Connects if `?room=` is in URL. Uses `collabDispatch`. |

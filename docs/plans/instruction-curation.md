@@ -267,10 +267,10 @@ curate-skills.sh
     └── Post final summary → inform user
 ```
 
-The **operator** is the agent session (or human) that invoked `/curate-skills`.
-There is no separate orchestrator prompt — the operator ran the script and
-handles PR creation and code review manually after the script completes.
-The `/curate-skills` flow (below) details these post-script responsibilities.
+The **orchestrator** is the agent session (or human) that runs the curation
+pipeline. Its prompt is `docs/prompts/curation/orchestrator.md`. It runs the
+script, reads curator outputs, writes outcomes into processed reports, creates
+the PR, handles the strict code review loop, and writes its own debrief.
 
 Each **curator** is a launch-phase group agent (one per skill) that internally
 spawns subagents — same pattern as the code-review plugin using 5 parallel reviewers.
@@ -381,7 +381,8 @@ phase prompts, these are permanent infrastructure.
 
 ```
 docs/prompts/curation/
-├── curator.md          # Main curator prompt (shared by all skills)
+├── curator.md               # Curator prompt (one per skill, shared template)
+├── orchestrator.md          # Orchestrator prompt (runs pipeline, creates PR, code review)
 ├── debrief-template.md      # Template for agent debrief reports (read by agents)
 ├── {skill-name}.md          # Thin wrappers (one per skill, point to curator)
 ├── validate.md              # Post-merge validation prompt (required by launch-phase.sh)

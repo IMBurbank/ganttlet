@@ -78,6 +78,11 @@ classified as `wrong` or `suspicious`. Routes to codebase-explorer (structural
 questions), rust-scheduler (domain-specific), or verify-and-diagnose (behavioral
 questions that need command execution).
 
+**Orchestrator** (`docs/prompts/curation/orchestrator.md`) — the agent (or human)
+that runs the pipeline, reads curator outputs, writes outcomes into processed
+reports, creates the PR, handles the strict code review loop, and writes its
+own debrief with cross-skill observations and threshold calibration data.
+
 ## The 5 Reviewer Angles
 
 Each reviewer reads the entire skill file but applies a different lens.
@@ -207,7 +212,8 @@ config to merge all branches (original successes + retry successes).
 
 ```
 docs/prompts/curation/
-├── curator.md               # Main curator prompt (shared by all skills)
+├── curator.md               # Curator prompt (one per skill, shared template)
+├── orchestrator.md          # Orchestrator prompt (pipeline, PR, code review)
 ├── {skill-name}.md          # Thin wrappers (one per skill, point to curator)
 ├── debrief-template.md      # Template for agent debrief reports
 ├── validate.md              # Post-merge validation prompt

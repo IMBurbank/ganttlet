@@ -82,18 +82,23 @@ syncError: null,
 sandboxDirty: false,
 ```
 
-**Sheets sync useEffect (lines 131-147):** Only runs when `?sheet=` in URL.
-Sets `dataSource='loading'`, calls `loadFromSheet()`. On success with data →
-`dataSource='sheet'`. On success empty → `dataSource='empty'`. On throw →
-`syncError` set via `classifySyncError(err)`. This is the ONLY place that calls
-`loadFromSheet` — WelcomeGate does NOT duplicate this call. WelcomeGate just
-checks if `?sheet=` is present and skips rendering (the useEffect handles loading).
+**Sheets sync useEffect (lines 131-147):** Only runs when `?sheet=` in URL
+AND user is signed in (has access token). Sets `dataSource='loading'`, calls
+`loadFromSheet()`. On success with data → `dataSource='sheet'`. On success empty
+→ `dataSource='empty'`. On throw → `syncError` set via `classifySyncError(err)`.
+This is the ONLY place that calls `loadFromSheet` — WelcomeGate does NOT duplicate
+this call. If `?sheet=` is present but user is NOT signed in, WelcomeGate renders
+CollaboratorWelcome (see Design 3 REQ-WG-3). After sign-in completes, this
+useEffect re-fires (token now available) and loads automatically — no intermediate
+screen.
 
 **Auto-save useEffect (lines 150-155):** Add guard:
 `if (state.dataSource !== 'sheet') return;`
 
 **Yjs useEffect (lines 158-209):** Add guard:
 `if (state.dataSource !== 'sheet') return;`
+The existing useEffect already checks for `?room=` in the URL and a valid token
+before connecting — keep those checks. The `dataSource` guard is additive.
 Remove `fakeTasks` fallback in hydration. Add `state.dataSource` to dependency array.
 
 **collabDispatch (lines 118-128):** The existing `collabDispatch` calls

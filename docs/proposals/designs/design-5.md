@@ -51,13 +51,25 @@ export interface Template {
 export const templates: Template[];
 ```
 
-Lazy loading via dynamic `import()` for each template.
+Lazy loading via dynamic `import()` for each template. The registry includes a
+**Blank** entry with `taskCount: 0` whose `load()` returns `{ tasks: [], changeHistory: [] }`.
+
+**Project creation flow** (`createProjectFromTemplate`):
+
+1. Create sheet via `createSheet(name)` (Design 4)
+2. Write row 1 = all 20 `SHEET_COLUMNS` as headers
+3. Write rows 2+ = template task rows (for non-blank templates)
+4. Write range derived from `SHEET_COLUMNS.length` (not hardcoded column letter)
+5. Update URL to `?sheet=ID&room=ID`
+6. For non-blank templates: `dataSource='sheet'`, auto-save enabled
+7. For Blank template: `dataSource='empty'`, empty state UI renders (Design 3)
 
 **Header sheet management:**
 
 - Sheet title fetched via `GET /v4/spreadsheets/{id}?fields=properties.title`
 - Clicking title → opens sheet in Google Sheets (new tab)
-- Share button → copies URL to clipboard, adds `?room=` if missing
+- Share button → copies URL to clipboard, adds `?room=` if missing. Toast: "Link
+  copied. Anyone with access to the Google Sheet can collaborate."
 - Dropdown: "Open in Google Sheets", "Switch sheet" (→ SheetSelector),
   "Create new project" (→ TemplatePicker), "Disconnect" (→ clears URL, resets state)
 
@@ -66,7 +78,8 @@ Lazy loading via dynamic `import()` for each template.
 - Clear `?sheet=` and `?room=` from URL
 - `stopPolling()`, disconnect Yjs
 - Dispatch `RESET_STATE` (Design 1) → resets to `initialState` with `dataSource: undefined`
-  → WelcomeGate takes over
+  → WelcomeGate takes over (return visitor variant, since auth persists in localStorage
+  — `RESET_STATE` does NOT clear Google auth)
 
 ## Tests
 

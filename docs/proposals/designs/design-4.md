@@ -33,12 +33,20 @@ REQ-PROMO-1–6
 2. Show destination picker: "Create new sheet" (recommended) or "Save to existing"
 3. If existing → open SheetSelector (Design 2)
 4. Check target sheet:
-   - Empty → write directly
-   - Headers match SHEET_COLUMNS (`validateHeaders` from Design 1) → prompt replace/open
-   - Headers don't match → warn, recommend new sheet
-5. Write tasks via `updateSheet()`, update URL, init sync, set `dataSource='sheet'`
+   - Empty → write directly (no confirmation prompt)
+   - Headers match SHEET_COLUMNS (`validateHeaders` from Design 1) → prompt: "This
+     sheet has N existing tasks. Replace them with your current project, or open the
+     existing data instead?" Actions: [Replace] / [Open existing]
+   - Headers don't match → warn: "This sheet has data that isn't in Ganttlet format.
+     Creating a new sheet is recommended." Primary: [Create New Sheet].
+     Secondary: "Overwrite anyway"
+5. Write tasks via `updateSheet()`, update URL to `?sheet=ID&room=ID`, init sync
+   (auto-save polling activates, Yjs connects via useEffect watching dataSource),
+   set `dataSource='sheet'`
 6. Call `scheduleSave()` (from `sheetsSync.ts`) which writes and updates `lastWriteHash`
-   internally — this prevents double-write since the next auto-save cycle will see matching hashes
+   internally — this prevents double-write since the next auto-save cycle will see
+   matching hashes
+7. Reset `sandboxDirty` to `false` (all sandbox edits are now preserved in the sheet)
 
 **Sheet creation** (`sheetCreation.ts`):
 

@@ -7,7 +7,7 @@ placeholders) and the empty state UI for blank/empty sheets.
 
 ## Requirements
 
-REQ-WG-1–3, REQ-WG-5, REQ-ES-1–3
+REQ-WG-1–3, REQ-WG-5, REQ-ES-1–2, REQ-ES-3 (prop interface only; wiring by Design 5)
 
 ## Dependencies
 
@@ -32,9 +32,11 @@ REQ-WG-1–3, REQ-WG-5, REQ-ES-1–3
 
 ```
 if dataSource defined → render children
-if URL has ?sheet=:
+if URL has ?sheet= or ?room=:
   if signed in → render children (loading skeleton, useEffect handles load)
   if not signed in → <CollaboratorWelcome onSignIn={signIn} />
+    After sign-in completes: token becomes available → GanttContext useEffect
+    re-fires → loadFromSheet() runs automatically. No intermediate screen.
 else:
   if has auth + recent sheets → <ReturnVisitorWelcome />
   if has auth, no recent → <ChoosePath />
@@ -44,7 +46,10 @@ else:
 **ReturnVisitorWelcome:**
 
 - Uses `getRecentSheets()` from Design 2
-- Clicking a project → `onSelectSheet(sheetId)` → sets URL params, `dataSource='loading'`
+- Displays each project with title and relative time (e.g. "2 hours ago") formatted
+  from `lastOpened` timestamp
+- Clicking a project → `onSelectSheet(sheetId)` → sets `?sheet=ID&room=ID`,
+  `dataSource='loading'`
 - Shows [New Project], [Connect Existing Sheet], [Demo] buttons
 - [Connect Existing Sheet] opens `SheetSelector` from Design 2
 

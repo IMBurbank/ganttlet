@@ -59,8 +59,11 @@ export function removeRecentSheet(sheetId: string): void  // on 403/404
 
 - Top section: Drive API listing (up to 20 sheets)
 - Bottom section: URL paste input with inline validation
+  - Invalid URL → inline error: "Couldn't find a spreadsheet ID in this URL"
+  - [Connect] disabled when no valid selection
 - Buttons: [Connect] (enabled when valid selection), [Create New Sheet] (stub for Design 5)
-- On connect: calls `onSelect(sheetId)` callback → parent sets URL params + dataSource
+- On connect: calls `onSelect(sheetId)` callback → parent sets `?sheet=ID&room=ID`
+  in URL + dispatches `SET_DATA_SOURCE('loading')` + calls `addRecentSheet()`
 
 ## Tests
 

@@ -8,7 +8,7 @@ screen, and CSV template download.
 
 ## Requirements
 
-REQ-EH-1–6, REQ-HV-1–5 (UI)
+REQ-EH-1–6, REQ-HV-2/5 (UI only; REQ-HV-1/3/4 are logic covered by Design 1)
 
 ## Dependencies
 
@@ -33,9 +33,13 @@ REQ-EH-1–6, REQ-HV-1–5 (UI)
 
 - One notification per error sequence (set on first failure, clear on success)
 - `syncError.type` determines banner content:
-  - `auth`: "Session expired. [Re-authorize]" — clicking triggers `signIn()`
-  - `not_found`: "Can't access this sheet." + [Open another sheet] — stops polling
-  - `forbidden`: Same as not_found
+  - `auth`: "Session expired. [Re-authorize] to keep syncing." — clicking triggers
+    `signIn()`. On successful re-auth: clear `syncError`, call `scheduleSave()` to
+    write any pending local changes
+  - `not_found`: "Can't access this sheet. It may have been deleted." + [Open another
+    sheet] — polling STOPS (clear setTimeout handle, do not reschedule). Sheet is
+    removed from recent sheets list via `removeRecentSheet()` (Design 2).
+  - `forbidden`: Same as not_found (but does not remove from recent list)
   - `network`: "You're offline. Changes saved locally." — detected via `navigator.onLine`
   - `rate_limit`: NOT a banner — shows in sync status indicator: "Sync paused — retrying"
 

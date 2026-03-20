@@ -3,15 +3,16 @@
 Write your debrief report. Generate the filename with this command:
 
 ```bash
-echo "docs/prompts/curation/feedback/$(date +%Y-%m-%d)-$(git branch --show-current | tr '/' '-').md"
+echo "docs/prompts/curation/feedback/$(date +%Y-%m-%d)-$(git branch --show-current | tr '/' '-')-$(head -c4 /dev/urandom | xxd -p).md"
 ```
 
-This produces filenames like:
-- `2026-03-17-agent-issue-42.md` (from branch `agent/issue-42`)
-- `2026-03-18-curation-scheduling-engine.md` (from branch `curation/scheduling-engine`)
+This produces unique filenames like:
+- `2026-03-17-agent-issue-42-a1f2.md`
+- `2026-03-18-curation-scheduling-engine-b3c4.md`
 
 The date prefix is required — reports are processed oldest-first by filename sort.
-Slashes are replaced with dashes automatically by `tr '/' '-'`.
+The random suffix prevents collisions when multiple debriefs are written from
+the same branch on the same day.
 
 ## Format
 

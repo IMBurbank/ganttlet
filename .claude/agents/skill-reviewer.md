@@ -1,6 +1,6 @@
 ---
 name: skill-reviewer
-description: "Reviews a skill file from one angle (accuracy, structure, scope, history, or adversarial). Read-only — produces structured findings report. Spawned by curation curators."
+description: "Reviews a skill file from one angle (accuracy, structure, scope, history, or adversarial). Read-only — produces structured findings report."
 tools: Read, Grep, Glob, LSP, Bash
 disallowedTools: Write, Edit, Agent
 model: sonnet

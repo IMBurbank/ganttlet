@@ -1,12 +1,40 @@
-import React, { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type Dispatch } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type Dispatch,
+} from 'react';
 import type { GanttState, CriticalPathScope } from '../types';
 import { ganttReducer } from './ganttReducer';
-import type { GanttAction } from './actions';
-import { fakeTasks, fakeChangeHistory, defaultColumns } from '../data/fakeData';
-import { initSync, loadFromSheet, scheduleSave, startPolling, stopPolling, getSpreadsheetId } from '../sheets/sheetsSync';
-import { isSignedIn, getAccessToken, getAuthState, setAuthChangeCallback, removeAuthChangeCallback, type AuthState } from '../sheets/oauth';
+import { TASK_MODIFYING_ACTIONS, type GanttAction } from './actions';
+import { defaultColumns } from '../data/fakeData';
+import {
+  initSync,
+  loadFromSheet,
+  scheduleSave,
+  startPolling,
+  stopPolling,
+  getSpreadsheetId,
+} from '../sheets/sheetsSync';
+import {
+  isSignedIn,
+  getAccessToken,
+  getAuthState,
+  setAuthChangeCallback,
+  removeAuthChangeCallback,
+  type AuthState,
+} from '../sheets/oauth';
 import { connectCollab, disconnectCollab } from '../collab/yjsProvider';
-import { bindYjsToDispatch, applyTasksToYjs, applyActionToYjs, hydrateYjsFromTasks } from '../collab/yjsBinding';
+import {
+  bindYjsToDispatch,
+  applyTasksToYjs,
+  applyActionToYjs,
+  hydrateYjsFromTasks,
+} from '../collab/yjsBinding';
 import { setLocalAwareness, updateViewingTask, getCollabUsers } from '../collab/awareness';
 import type { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
@@ -19,13 +47,13 @@ function getInitialTheme(): 'light' | 'dark' {
   return 'dark';
 }
 
-const initialState: GanttState = {
-  tasks: fakeTasks,
+export const initialState: GanttState = {
+  tasks: [],
   columns: defaultColumns,
   colorBy: 'owner',
   zoomLevel: 'day',
   searchQuery: '',
-  changeHistory: fakeChangeHistory,
+  changeHistory: [],
   users: [],
   isHistoryPanelOpen: false,
   isSyncing: false,
@@ -48,6 +76,9 @@ const initialState: GanttState = {
   focusNewTaskId: null,
   isLeftPaneCollapsed: false,
   reparentPicker: null,
+  dataSource: undefined,
+  syncError: null,
+  sandboxDirty: false,
 };
 
 const GanttStateContext = createContext<GanttState>(initialState);
@@ -56,22 +87,6 @@ const LocalDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
 const activeDragDefault: React.RefObject<string | null> = { current: null };
 const ActiveDragContext = createContext<React.RefObject<string | null>>(activeDragDefault);
 const AwarenessContext = createContext<Awareness | null>(null);
-
-/** Action types that modify task data and should be synced to Yjs */
-const TASK_MODIFYING_ACTIONS = new Set([
-  'MOVE_TASK',
-  'RESIZE_TASK',
-  'UPDATE_TASK_FIELD',
-  'TOGGLE_EXPAND',
-  'HIDE_TASK',
-  'SHOW_ALL_TASKS',
-  'CASCADE_DEPENDENTS',
-  'COMPLETE_DRAG',
-  'ADD_DEPENDENCY',
-  'UPDATE_DEPENDENCY',
-  'REMOVE_DEPENDENCY',
-  'SET_CONSTRAINT',
-]);
 
 export function GanttProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(ganttReducer, initialState);
@@ -98,28 +113,43 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Guarded dispatch: preserves dragged task's dates when SET_TASKS arrives during drag (R3)
-  const guardedDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
-    if (action.type === 'SET_TASKS' && activeDragRef.current) {
-      const dragId = activeDragRef.current;
-      const currentTask = stateRef.current.tasks.find(t => t.id === dragId);
-      if (currentTask) {
-        const preserved = action.tasks.map(t =>
-          t.id === dragId ? { ...t, startDate: currentTask.startDate, endDate: currentTask.endDate, duration: currentTask.duration } : t
-        );
-        dispatch({ type: 'SET_TASKS', tasks: preserved });
-        return;
+  const guardedDispatch = useCallback<Dispatch<GanttAction>>(
+    (action: GanttAction) => {
+      if (action.type === 'SET_TASKS' && activeDragRef.current) {
+        const dragId = activeDragRef.current;
+        const currentTask = stateRef.current.tasks.find((t) => t.id === dragId);
+        if (currentTask) {
+          const preserved = action.tasks.map((t) =>
+            t.id === dragId
+              ? {
+                  ...t,
+                  startDate: currentTask.startDate,
+                  endDate: currentTask.endDate,
+                  duration: currentTask.duration,
+                }
+              : t
+          );
+          dispatch({ type: 'SET_TASKS', tasks: preserved });
+          return;
+        }
       }
-    }
-    dispatch(action);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
+      dispatch(action);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [dispatch]
+  );
 
   // Wrap dispatch to also apply task-modifying actions to Yjs
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
     dispatch(action);
 
-    if (action.type === 'UNDO' || action.type === 'REDO' || action.type === 'REPARENT_TASK'
-        || action.type === 'ADD_TASK' || action.type === 'DELETE_TASK') {
+    if (
+      action.type === 'UNDO' ||
+      action.type === 'REDO' ||
+      action.type === 'REPARENT_TASK' ||
+      action.type === 'ADD_TASK' ||
+      action.type === 'DELETE_TASK'
+    ) {
       // These actions change the task array structure — flag for full sync in useEffect
       pendingFullSyncRef.current = true;
     } else if (yjsDocRef.current && TASK_MODIFYING_ACTIONS.has(action.type)) {
@@ -134,7 +164,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
 
     initSync(spreadsheetId, dispatch);
 
-    loadFromSheet().then(tasks => {
+    loadFromSheet().then((tasks) => {
       if (tasks.length > 0) {
         dispatch({ type: 'SET_TASKS', tasks });
         loadedSheetTasksRef.current = tasks;
@@ -181,11 +211,10 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_COLLAB_CONNECTED', connected });
 
         if (connected) {
-          // If Yjs is empty, hydrate from Sheets data (or fall back to fake tasks)
-          const tasksToHydrate = loadedSheetTasksRef.current.length > 0
-            ? loadedSheetTasksRef.current
-            : fakeTasks;
-          hydrateYjsFromTasks(doc, tasksToHydrate);
+          // If Yjs is empty, hydrate from Sheets data
+          if (loadedSheetTasksRef.current.length > 0) {
+            hydrateYjsFromTasks(doc, loadedSheetTasksRef.current);
+          }
         }
       });
 
@@ -241,9 +270,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       <GanttDispatchContext.Provider value={collabDispatch}>
         <LocalDispatchContext.Provider value={dispatch}>
           <ActiveDragContext.Provider value={activeDragRef}>
-            <AwarenessContext.Provider value={awareness}>
-              {children}
-            </AwarenessContext.Provider>
+            <AwarenessContext.Provider value={awareness}>{children}</AwarenessContext.Provider>
           </ActiveDragContext.Provider>
         </LocalDispatchContext.Provider>
       </GanttDispatchContext.Provider>
@@ -280,9 +307,12 @@ export function useAwareness() {
  */
 export function useSetViewingTask() {
   const aw = useContext(AwarenessContext);
-  return useCallback((taskId: string | null, cellColumn: string | null) => {
-    if (aw) {
-      updateViewingTask(aw, taskId, cellColumn);
-    }
-  }, [aw]);
+  return useCallback(
+    (taskId: string | null, cellColumn: string | null) => {
+      if (aw) {
+        updateViewingTask(aw, taskId, cellColumn);
+      }
+    },
+    [aw]
+  );
 }

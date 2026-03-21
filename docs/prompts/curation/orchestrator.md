@@ -29,7 +29,9 @@ HEAD — they inherit your changes (settings, prompts, configs, guard binary).
 
 ## Setup
 
-1. Enter a worktree. All orchestrator work happens in an isolated worktree.
+1. Enter a worktree (use the `EnterWorktree` tool). All orchestrator work
+   happens in an isolated worktree. See `.claude/worktrees/CLAUDE.md` for
+   lifecycle procedures.
 
 2. Select or create the YAML config:
    - **Full pipeline**: use `docs/prompts/curation/skill-curation.yaml`
@@ -61,7 +63,7 @@ stay responsive to the user and monitor progress.
 
 **Subset or manual run:**
 ```bash
-export _USER_MERGE_TARGET="curation/$(date +%Y-%m-%d)-$(python3 -c 'import os; print(os.urandom(4).hex())')"
+export _USER_MERGE_TARGET="curation/$(date +%Y-%m-%d)-$(openssl rand -hex 2)"
 WATCH=1 ./scripts/launch-phase.sh <config> stage 1
 ```
 
@@ -239,7 +241,7 @@ Write your own debrief to `docs/prompts/curation/feedback/`:
 - Fixes made during the review loop
 - Process observations (curator failures, timing, issues)
 
-Use filename: `{date}-orchestrator-{hash}.md`
+Generate the filename per `docs/prompts/curation/debrief-template.md`.
 
 ```bash
 git add docs/prompts/curation/feedback/

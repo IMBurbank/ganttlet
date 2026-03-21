@@ -148,12 +148,12 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
 pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     let cmd = input["tool_input"]["command"].as_str().unwrap_or("");
 
-    // Check 3: Block git push to main
+    // Check 4: Block git push to main
     if has_git_subcmd(cmd, "push") && has_token(cmd, "main") {
         return Some("Cannot push directly to main. Use a feature branch and PR.".to_string());
     }
 
-    // Check 4: Block git checkout/switch (unless -- file separator or worktree command)
+    // Check 5: Block git checkout/switch (unless -- file separator or worktree command)
     if (has_git_subcmd(cmd, "checkout") || has_git_subcmd(cmd, "switch"))
         && !cmd.contains("-- ")
         && !cmd.contains("worktree")
@@ -165,7 +165,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 5: Block destructive git commands (reset --hard, clean -f, branch -D)
+    // Check 6: Block destructive git commands (reset --hard, clean -f, branch -D)
     // Allow reset --hard to a remote ref (origin/main, origin/branch) — needed after squash merges.
     // Block reset --hard to relative refs (HEAD~N) or bare (no target) — those discard work.
     if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
@@ -195,7 +195,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 6: Block git worktree remove (but allow prune — it only cleans stale references)
+    // Check 7: Block git worktree remove (but allow prune — it only cleans stale references)
     let ts = tokens(cmd);
     for i in 0..ts.len().saturating_sub(2) {
         if ts[i] == "git" && ts[i + 1] == "worktree" && ts[i + 2] == "remove" {
@@ -208,7 +208,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // Check 7: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
+    // Check 8: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
 
     // sed -i ... /workspace/...
     if has_token(cmd, "sed") && cmd.contains("-i") && workspace_but_not_worktree(cmd) {

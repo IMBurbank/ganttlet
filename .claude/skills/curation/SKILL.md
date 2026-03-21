@@ -67,7 +67,10 @@ reasoning, and outcomes.
 **Skill reviewer** (`.claude/agents/skill-reviewer.md`) — read-only subagent
 spawned by the curator. Reviews the entire skill file from one of 5 angles.
 Produces a structured findings report with per-claim classifications and
-evidence. Assesses every section equally — no section is special.
+evidence. Assesses every section equally — no section is special. If a
+reviewer exhausts its turns without writing the report, the curator runs
+a haiku synthesis pass to format the raw investigation into the required
+table structure (see curator.md Step 2b).
 
 **Haiku scorer** — lightweight agent spawned per finding. Independently scores
 the finding (0-100) using a rubric and false positive list. Separates advocacy

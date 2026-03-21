@@ -41,8 +41,8 @@ MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
 DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
 DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 STALL_TIMEOUT="${STALL_TIMEOUT:-30}"
-# WORKSPACE must be the main repo root (not current worktree) because
-# worktree.sh, config.sh, and merge.sh all cd to it for git operations.
+# WORKSPACE is the main repo root — used only for WORKTREE_BASE derivation
+# and config file path resolution. No scripts cd to it.
 WORKSPACE="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
 WORKTREE_BASE="${WORKTREE_BASE:-${WORKSPACE}/.claude/worktrees}"
 WATCH="${WATCH:-0}"

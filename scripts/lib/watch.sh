@@ -13,7 +13,7 @@
 # 5. tmux send-keys (not command string) keeps shell alive for scrollback
 # 6. Pre-trust workspace via quick -p dry run (interactive shows trust dialog)
 # 7. Explicit -t TMUX_TARGET for pipe-pane (avoids wrong-pane bug)
-# 8. YAML frontmatter --- in prompts is parsed as CLI flags — use pipe mode to avoid
+# 8. YAML frontmatter --- in prompts is parsed as CLI flags — strip with sed before passing
 
 AGENT_IDLE_THRESHOLD="${IDLE_THRESHOLD:-30}"  # seconds of stable log before killing agent
 VALIDATE_IDLE_THRESHOLD="${IDLE_THRESHOLD:-120}"  # validation needs longer (runs tsc/vitest/cargo)

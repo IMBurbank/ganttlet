@@ -103,15 +103,15 @@ export async function createCollabPair(
       pageB.locator('.task-bar').first().waitFor({ timeout: 60_000 }),
     ]);
 
-    // Wait for collab connections
+    // Wait for collab connections — generous timeout for large sheets
     await Promise.all([
       pageA
         .locator('[data-collab-status="connected"]')
-        .waitFor({ timeout: 15_000 })
+        .waitFor({ timeout: 45_000 })
         .catch(() => {}),
       pageB
         .locator('[data-collab-status="connected"]')
-        .waitFor({ timeout: 15_000 })
+        .waitFor({ timeout: 45_000 })
         .catch(() => {}),
     ]);
 

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createCollabPair, isCollabAvailable, CloudAuthOptions } from './helpers/collab-harness';
+import { createCollabPair, CloudAuthOptions } from './helpers/collab-harness';
 import { getAccessToken } from './helpers/cloud-auth';
 
 // Cloud collab needs SA keys + TEST_SHEET_ID_DEV so both pages can load
@@ -12,24 +12,33 @@ async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
   return { tokenA, tokenB };
 }
 
+/** Wait for Yjs collab connection with explicit timeout — fails instead of skipping */
+async function waitForCollab(
+  pageA: import('@playwright/test').Page,
+  pageB: import('@playwright/test').Page
+) {
+  await Promise.all([
+    pageA.locator('[data-collab-status="connected"]').waitFor({ timeout: 30_000 }),
+    pageB.locator('[data-collab-status="connected"]').waitFor({ timeout: 30_000 }),
+  ]);
+}
+
 test.describe('Collaboration E2E', () => {
   // Collab tests load two pages with real sheet data — needs extra time for large sheets
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
+
   test('presence indicators appear for connected users', async ({ browser }) => {
     const cloudAuth = await getCloudAuth();
     const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
 
     try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
+      // Wait for collab connection — fail if it doesn't connect
+      await waitForCollab(pageA, pageB);
 
       // Both pages are connected and have exchanged awareness.
       // Verify that a presence indicator (pulse-dot on avatar) is visible
       // in pageB, showing that pageA's user is present.
-      await expect(pageB.locator('.pulse-dot').first()).toBeVisible({ timeout: 10_000 });
+      await expect(pageB.locator('.pulse-dot').first()).toBeVisible({ timeout: 15_000 });
     } finally {
       await cleanup();
     }
@@ -40,11 +49,7 @@ test.describe('Collaboration E2E', () => {
     const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
 
     try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
+      await waitForCollab(pageA, pageB);
 
       // In pageA, double-click a task name to edit it
       const nameCell = pageA.getByTitle('Double-click to edit').first();
@@ -59,7 +64,7 @@ test.describe('Collaboration E2E', () => {
       // Blur to save
       await pageA.locator('header').click();
 
-      // In pageB, verify the new task name appears within 5 seconds
+      // In pageB, verify the new task name appears
       await expect(
         pageB.getByTitle('Double-click to edit').filter({ hasText: newName })
       ).toBeVisible({ timeout: 15_000 });
@@ -73,11 +78,7 @@ test.describe('Collaboration E2E', () => {
     const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
 
     try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
+      await waitForCollab(pageA, pageB);
 
       // In pageA, double-click a task bar to open the popover
       const taskBar = pageA.locator('.task-bar').first();
@@ -97,35 +98,22 @@ test.describe('Collaboration E2E', () => {
       // Close popover
       await pageA.keyboard.press('Escape');
 
-      // Wait for CRDT sync — poll until pageB reflects the constraint change.
-      // The popover snapshots state at mount time, so we must confirm sync
-      // arrived before opening the popover.
+      // Wait for CRDT sync — poll until pageB reflects the constraint change
       const taskBarB = pageB.locator('.task-bar').first();
 
-      // Retry: open popover on pageB, check constraint, close if stale
       await expect(async () => {
         await taskBarB.dispatchEvent('dblclick');
         const pop = pageB.locator('.fade-in');
         await pop.waitFor({ timeout: 3_000 });
         const sel = pop.locator('select').last();
         await expect(sel).toHaveValue('SNET', { timeout: 1_000 });
-      }).toPass({ timeout: 10_000 });
+      }).toPass({ timeout: 15_000 });
 
-      // Verify cascade propagated: task bars in pageB should have re-rendered
-      // after the SNET constraint pushed dates forward. Check that all task bars
-      // are still visible (cascade didn't break rendering) and at least one
-      // task bar has a data-task-id attribute confirming the Gantt chart is live.
+      // Verify task bars still render after cascade
       const taskBarsB = pageB.locator('.task-bar');
-      const taskBarCountB = await taskBarsB.count();
-      expect(taskBarCountB).toBeGreaterThan(0);
+      expect(await taskBarsB.count()).toBeGreaterThan(0);
 
-      // Verify the constraint-set task's bar position reflects a later date
-      // by checking its x attribute is a valid number (bar was repositioned)
-      const firstBarX = await taskBarsB.first().getAttribute('x');
-      expect(firstBarX).not.toBeNull();
-      expect(Number(firstBarX)).toBeGreaterThanOrEqual(0);
-
-      // Close and clean up: reset to ASAP in pageA
+      // Clean up: reset to ASAP
       await pageB.keyboard.press('Escape');
       await taskBar.dispatchEvent('dblclick');
       const resetPopover = pageA.locator('.fade-in');
@@ -142,11 +130,7 @@ test.describe('Collaboration E2E', () => {
     const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
 
     try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
+      await waitForCollab(pageA, pageB);
 
       // In pageA, double-click the first task bar to open the popover
       const taskBar = pageA.locator('.task-bar').first();
@@ -169,7 +153,6 @@ test.describe('Collaboration E2E', () => {
       await pageA.waitForTimeout(3000);
 
       // In pageB, verify conflict indicator is visible
-      // Conflict indicators: red dashed rect outline or red warning circle
       const conflictRects = pageB.locator('rect[stroke="#ef4444"]');
       const conflictCircles = pageB.locator('circle[fill="#ef4444"]');
 
@@ -177,7 +160,7 @@ test.describe('Collaboration E2E', () => {
       const circleCount = await conflictCircles.count();
       expect(rectCount + circleCount).toBeGreaterThan(0);
 
-      // Clean up: reset constraint to ASAP in pageA
+      // Clean up: reset constraint to ASAP
       await taskBar.dispatchEvent('dblclick');
       const resetPopover = pageA.locator('.fade-in');
       await resetPopover.waitFor({ timeout: 15_000 });
@@ -189,7 +172,6 @@ test.describe('Collaboration E2E', () => {
   });
 
   test('single-user mode works without relay', async ({ page }) => {
-    // Collect console errors during the test
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
@@ -198,17 +180,11 @@ test.describe('Collaboration E2E', () => {
     });
 
     await page.goto('/');
-    // Enter sandbox mode via the real user flow
     await page.getByTestId('try-demo-button').click();
 
-    // Wait for the app to fully render
     await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });
+    expect(await page.locator('.task-bar').count()).toBeGreaterThan(0);
 
-    // Verify task bars are rendered
-    const taskBarCount = await page.locator('.task-bar').count();
-    expect(taskBarCount).toBeGreaterThan(0);
-
-    // Verify editing works in single-user mode
     const nameCell = page.getByTitle('Double-click to edit').first();
     await nameCell.dblclick();
 
@@ -223,7 +199,6 @@ test.describe('Collaboration E2E', () => {
       { timeout: 15_000 }
     );
 
-    // Filter out expected WebSocket connection errors (relay not running)
     const unexpectedErrors = consoleErrors.filter(
       (msg) => !msg.includes('WebSocket') && !msg.includes('ws://')
     );

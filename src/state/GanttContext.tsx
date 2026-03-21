@@ -195,12 +195,15 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     if (state.dataSource !== 'sheet') return;
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
-    if (!roomId || !accessToken) return;
+    // Use React state first, fall back to module state (handles timing where
+    // initOAuth/restoreSession runs after this effect fires on initial mount)
+    const token = accessToken || getAccessToken();
+    if (!roomId || !token) return;
 
     let cleanup: (() => void) | null = null;
 
     try {
-      const { doc, provider, awareness: aw } = connectCollab(roomId, accessToken);
+      const { doc, provider, awareness: aw } = connectCollab(roomId, token);
       yjsDocRef.current = doc;
       awarenessRef.current = aw;
       setAwareness(aw);

@@ -8,6 +8,7 @@ import {
   getSpreadsheetId,
 } from '../../sheets/sheetsSync';
 import { classifySyncError } from '../../sheets/syncErrors';
+import { removeRecentSheet } from '../../utils/recentSheets';
 import type { SyncError } from '../../types';
 
 export default function ErrorBanner() {
@@ -65,7 +66,7 @@ export default function ErrorBanner() {
             onClick={() => {
               stopPolling();
               if (syncError.type === 'not_found' && sheetId) {
-                // TODO: removeRecentSheet(sheetId) — wired after Group B merge
+                removeRecentSheet(sheetId);
               }
               handleOpenAnother();
             }}

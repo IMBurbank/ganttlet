@@ -62,7 +62,7 @@ export type GanttAction =
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
   | { type: 'SET_TASKS'; tasks: Task[] }
   | { type: 'MERGE_EXTERNAL_TASKS'; externalTasks: Task[] }
-  | { type: 'ADD_TASK'; parentId: string | null; afterTaskId: string | null }
+  | { type: 'ADD_TASK'; parentId: string | null; afterTaskId: string | null; name?: string }
   | { type: 'DELETE_TASK'; taskId: string }
   | { type: 'SET_COLLAB_USERS'; users: CollabUser[] }
   | { type: 'SET_COLLAB_CONNECTED'; connected: boolean }

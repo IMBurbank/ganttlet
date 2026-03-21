@@ -21,6 +21,7 @@ import {
   getSpreadsheetId,
 } from '../sheets/sheetsSync';
 import { classifySyncError } from '../sheets/syncErrors';
+import { addRecentSheet } from '../utils/recentSheets';
 import {
   isSignedIn,
   getAccessToken,
@@ -136,16 +137,22 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
         } else {
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
         }
-        // TODO: addRecentSheet(spreadsheetId) — wired by Group B (Stage 2)
+        addRecentSheet({ sheetId: spreadsheetId, title: spreadsheetId, lastOpened: Date.now() });
       })
       .catch((err) => {
-        dispatch({ type: 'SET_SYNC_ERROR', error: classifySyncError(err) });
+        dispatch({ type: 'RESET_SYNC' });
+        const classified = classifySyncError(err);
+        dispatch({ type: 'SET_SYNC_ERROR', error: classified });
+        // Hard-stop polling for unrecoverable errors
+        if (classified.type === 'not_found' || classified.type === 'forbidden') {
+          stopPolling();
+        }
       });
 
     startPolling();
 
     return () => stopPolling();
-  }, [dispatch]);
+  }, [dispatch, accessToken]);
 
   // Auto-save on task changes
   useEffect(() => {
@@ -160,9 +167,9 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleOnline = () => {
       dispatch({ type: 'SET_SYNC_ERROR', error: null });
-      // Trigger immediate sync on reconnect
+      // Trigger immediate sync on reconnect — use stateRef for current tasks
       if (getSpreadsheetId() && isSignedIn()) {
-        scheduleSave(state.tasks);
+        scheduleSave(stateRef.current.tasks);
       }
     };
     const handleOffline = () => {
@@ -177,7 +184,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [dispatch, state.tasks]);
+  }, [dispatch]);
 
   // Yjs collaboration connection — reconnects when access token changes (e.g. after sign-in)
   useEffect(() => {

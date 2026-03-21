@@ -20,7 +20,7 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
     (name: string) => {
       if (!name.trim()) return;
       // Dispatch ADD_TASK — the reducer handles startDate/endDate with ensureBusinessDay + taskEndDate
-      dispatch({ type: 'ADD_TASK', parentId: null, afterTaskId: null });
+      dispatch({ type: 'ADD_TASK', parentId: null, afterTaskId: null, name: name.trim() });
     },
     [dispatch]
   );
@@ -29,6 +29,7 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
         handleAddTask(e.currentTarget.value);
+        e.currentTarget.value = '';
       }
     },
     [handleAddTask]

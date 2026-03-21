@@ -285,7 +285,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
       const newTask: Task = {
         id: newId,
-        name: 'New Task',
+        name: action.name || 'New Task',
         startDate: startDate,
         endDate: endDateStr,
         duration: duration,

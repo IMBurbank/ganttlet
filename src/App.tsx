@@ -10,6 +10,7 @@ import ChangeHistoryPanel from './components/panels/ChangeHistoryPanel';
 import ContextMenu from './components/shared/ContextMenu';
 import DependencyEditorModal from './components/shared/DependencyEditorModal';
 import ReparentPickerModal from './components/shared/ReparentPickerModal';
+import EmptyState from './components/onboarding/EmptyState';
 
 function AppContent() {
   const state = useGanttState();
@@ -140,6 +141,15 @@ function AppContent() {
       },
     ];
   }, [state.contextMenu, taskMap, dispatch]);
+
+  if (state.dataSource === 'empty') {
+    return (
+      <div className="flex flex-col h-screen bg-surface-base text-text-primary">
+        <Header />
+        <EmptyState />
+      </div>
+    );
+  }
 
   return (
     <div

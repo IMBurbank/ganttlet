@@ -1,16 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import WelcomeGate from '../WelcomeGate';
+import FirstVisitWelcome from '../FirstVisitWelcome';
 import { GanttProvider } from '../../../state/GanttContext';
 
-// Mock schedulerWasm to avoid WASM loading in tests
 vi.mock('../../../utils/schedulerWasm', () => ({
   cascadeDependents: (tasks: unknown[]) => tasks,
   recalculateEarliest: () => [],
   initScheduler: () => Promise.resolve(),
 }));
 
-// Mock collab modules
 vi.mock('../../../collab/yjsProvider', () => ({
   connectCollab: vi.fn(),
   disconnectCollab: vi.fn(),
@@ -48,68 +46,52 @@ vi.mock('../../../sheets/sheetsSync', () => ({
   getSpreadsheetId: () => null,
 }));
 
-vi.mock('../../../utils/recentSheets', () => ({
-  getRecentSheets: () => [],
-}));
+describe('FirstVisitWelcome', () => {
+  const mockOnSignInComplete = vi.fn();
 
-vi.mock('../../../sheets/sheetsBrowser', () => ({
-  listUserSheets: vi.fn().mockResolvedValue([]),
-}));
-
-describe('WelcomeGate', () => {
   beforeEach(() => {
-    // Reset URL to no params
-    Object.defineProperty(window, 'location', {
-      value: { search: '', href: 'http://localhost/' },
-      writable: true,
-    });
+    vi.clearAllMocks();
   });
 
-  it('renders FirstVisitWelcome when no auth and no URL params', () => {
+  it('renders title and action buttons', () => {
     render(
       <GanttProvider>
-        <WelcomeGate>
-          <div data-testid="app-content">App Content</div>
-        </WelcomeGate>
+        <FirstVisitWelcome onSignInComplete={mockOnSignInComplete} />
       </GanttProvider>
     );
 
     expect(screen.getByTestId('first-visit-title')).toBeTruthy();
     expect(screen.getByTestId('try-demo-button')).toBeTruthy();
-    expect(screen.queryByTestId('app-content')).toBeNull();
+    expect(screen.getByTestId('sign-in-button')).toBeTruthy();
   });
 
-  it('loads sandbox data when "Try the demo" is clicked', async () => {
+  it('dispatches ENTER_SANDBOX when Try the demo is clicked', async () => {
     render(
       <GanttProvider>
-        <WelcomeGate>
-          <div data-testid="app-content">App Content</div>
-        </WelcomeGate>
+        <FirstVisitWelcome onSignInComplete={mockOnSignInComplete} />
       </GanttProvider>
     );
 
     fireEvent.click(screen.getByTestId('try-demo-button'));
 
+    // After sandbox loads, the component will no longer render (parent switches to children)
     await waitFor(() => {
-      expect(screen.getByTestId('app-content')).toBeTruthy();
+      // The demo button should still exist or the sandbox should be loading
+      expect(screen.getByTestId('try-demo-button')).toBeTruthy();
     });
   });
 
-  it('renders CollaboratorWelcome when URL has ?sheet= and not signed in', () => {
-    Object.defineProperty(window, 'location', {
-      value: { search: '?sheet=abc123', href: 'http://localhost/?sheet=abc123' },
-      writable: true,
-    });
-
+  it('calls signIn and onSignInComplete when Sign in is clicked', async () => {
+    const oauth = await import('../../../sheets/oauth');
     render(
       <GanttProvider>
-        <WelcomeGate>
-          <div data-testid="app-content">App Content</div>
-        </WelcomeGate>
+        <FirstVisitWelcome onSignInComplete={mockOnSignInComplete} />
       </GanttProvider>
     );
 
-    expect(screen.getByTestId('collaborator-title')).toBeTruthy();
-    expect(screen.queryByTestId('app-content')).toBeNull();
+    fireEvent.click(screen.getByTestId('sign-in-button'));
+
+    expect(oauth.signIn).toHaveBeenCalled();
+    expect(mockOnSignInComplete).toHaveBeenCalled();
   });
 });

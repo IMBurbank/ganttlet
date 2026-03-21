@@ -100,6 +100,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         }
         if (fixResult.sessionId) lastSessionId = fixResult.sessionId;
         resultType = fixResult.resultType;
+        crashCount = 0; // Reset crash count on successful fix call
       } catch {
         crashCount++;
       }

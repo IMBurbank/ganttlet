@@ -122,6 +122,11 @@ describe('nextAction — crash handling', () => {
     const result = nextAction(triple, 0, 'success', 3, 2, true, false);
     expect(result).toEqual({ kind: 'done', failed: true, failureMode: 'crash' });
   });
+
+  it('maxCrashRetries=0 with crashCount>0 → done (crash)', () => {
+    const result = nextAction(triple, 0, 'success', 1, 0, true, false);
+    expect(result).toEqual({ kind: 'done', failed: true, failureMode: 'crash' });
+  });
 });
 
 describe('nextAction — error_during_execution + outputFixAttempted', () => {

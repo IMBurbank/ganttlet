@@ -16,7 +16,7 @@ export function nextAction(
   outputFixAttempted: boolean
 ): NextAction {
   // Crash handling — checked first
-  if (crashCount >= maxCrashRetries && maxCrashRetries > 0) {
+  if (crashCount > 0 && crashCount >= maxCrashRetries) {
     return { kind: 'done', failed: true, failureMode: 'crash' };
   }
   // Crash under limit — retry same attempt with session resume

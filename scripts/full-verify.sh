@@ -13,6 +13,10 @@ echo "=== TypeScript type check ==="
 npx tsc --noEmit
 
 echo ""
+echo "=== SDK type check ==="
+npx tsc -p tsconfig.sdk.json --noEmit
+
+echo ""
 echo "=== Vitest unit tests ==="
 npx vitest run --reporter=dot
 

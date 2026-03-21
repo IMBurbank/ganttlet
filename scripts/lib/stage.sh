@@ -26,14 +26,17 @@ preflight_check() {
     return 1
   fi
 
-  local prompts_exist=true
-  for group in "$@"; do
-    if [[ ! -f "${PROMPTS_DIR}/${group}.md" ]]; then
-      err "Missing prompt file: ${PROMPTS_DIR}/${group}.md"
-      prompts_exist=false
-    fi
-  done
-  $prompts_exist || return 1
+  # Skip per-group prompt check when SDK_RUNNER handles prompt resolution
+  if [[ "${SDK_RUNNER:-}" != "1" ]]; then
+    local prompts_exist=true
+    for group in "$@"; do
+      if [[ ! -f "${PROMPTS_DIR}/${group}.md" ]]; then
+        err "Missing prompt file: ${PROMPTS_DIR}/${group}.md"
+        prompts_exist=false
+      fi
+    done
+    $prompts_exist || return 1
+  fi
 
   # Verify merge target branch can be created or already exists
   if ! git rev-parse --verify "$MERGE_TARGET" >/dev/null 2>&1; then

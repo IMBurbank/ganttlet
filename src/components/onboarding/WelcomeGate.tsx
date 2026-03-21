@@ -6,6 +6,7 @@ import FirstVisitWelcome from './FirstVisitWelcome';
 import ReturnVisitorWelcome from './ReturnVisitorWelcome';
 import CollaboratorWelcome from './CollaboratorWelcome';
 import ChoosePath from './ChoosePath';
+import HeaderMismatchError from './HeaderMismatchError';
 
 const PromotionFlow = lazy(() => import('./PromotionFlow'));
 
@@ -31,6 +32,10 @@ export default function WelcomeGate({ children }: { children: React.ReactNode })
 
   // If dataSource is defined, the app is initialized — render children
   if (state.dataSource !== undefined) {
+    // Header mismatch error takes priority over loading skeleton
+    if (state.dataSource === 'loading' && state.syncError?.type === 'header_mismatch') {
+      return <HeaderMismatchError />;
+    }
     // Loading skeleton for loading state
     if (state.dataSource === 'loading') {
       return (

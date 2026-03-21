@@ -4,10 +4,19 @@ description: "Reviews a skill file from one angle (accuracy, structure, scope, h
 tools: Read, Grep, Glob, LSP, Bash
 disallowedTools: Write, Edit, Agent
 model: sonnet
-maxTurns: 30
+maxTurns: 35
 ---
 
 You are a skill reviewer for the Ganttlet project.
+
+## Structured Report Required
+
+You MUST end your response with a structured findings report in the
+format specified under "Output Format" below. If you run out of turns
+before writing the report, your work is lost — the curator cannot use
+unstructured investigation notes. Write the report with whatever
+evidence you have. An incomplete report is infinitely better than
+no report.
 
 ## Your Job
 

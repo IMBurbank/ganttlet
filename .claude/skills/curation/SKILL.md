@@ -31,14 +31,16 @@ Orchestrator (orchestrator.md)
 ├── Enter worktree
 ├── Run curate-skills.sh or launch-phase.sh with subset config
 │   ├── curate-skills.sh early-exit if no pending reports
-│   ├── launch-phase.sh stage 1
-│   │   └── N curators in parallel (one per skill in config)
-│   │       ├── 5 skill-review subagents (sonnet, read-only)
+│   ├── launch-phase.sh stage 1 — Review (40 reviewers in parallel)
+│   │   └── 8 skills × 5 angles via SDK runner (--policy reviewer, --agent skill-reviewer)
+│   │       └── 3-attempt fallback: sonnet 30 turns → resume wrap-up 5 turns → haiku synthesize
+│   ├── launch-phase.sh stage 2 — Curate (8 curators in parallel)
+│   │   └── 1 curator per skill (reads from {LOG_DIR}/reviews/{SKILL}/)
 │   │       ├── N Haiku scorers (one per finding)
 │   │       └── Validation subagents (on-demand)
-│   ├── launch-phase.sh merge 1
+│   ├── launch-phase.sh merge 2
 │   └── launch-phase.sh validate
-├── Monitor curators in tmux, fix failures, retry as needed
+├── Monitor agents in tmux, fix failures, retry as needed
 ├── Read curator commit messages → extract outcomes
 ├── Write outcomes into processed reports
 ├── Create PR, code review loop
@@ -55,22 +57,22 @@ runs the pipeline, monitors curators in tmux, handles failures and retries,
 then manages all post-curation tasks (PR, code review, debriefs). See the
 orchestrator prompt for its full workflow.
 
-**Curator** (one per skill, `docs/prompts/curation/curator.md`) — the group
-agent that runs skill-review subagents for one skill. Reads the entire skill
-file and feedback reports, spawns 5 reviewers, collects findings, spawns
-haiku scorers, filters at threshold, validates contested findings, then
-produces a full rewrite of the skill file. Uses reviewer findings as input
-but applies its own judgment — reviewers inform the rewrite, they don't
+**Curator** (one per skill, `docs/prompts/curation/curator.md`) — stage 2
+agent. Reads reviewer reports from `{LOG_DIR}/reviews/{SKILL}/`, spawns
+haiku scorers per finding, filters at threshold, validates contested findings,
+then produces a full rewrite of the skill file. Uses reviewer findings as
+input but applies its own judgment — reviewers inform the rewrite, they don't
 dictate it. Commits with a detailed message documenting all findings,
-reasoning, and outcomes.
+reasoning, and outcomes. Does NOT spawn reviewers (that's stage 1).
 
-**Skill reviewer** (`.claude/agents/skill-reviewer.md`) — read-only subagent
-spawned by the curator. Reviews the entire skill file from one of 5 angles.
-Produces a structured findings report with per-claim classifications and
-evidence. Assesses every section equally — no section is special. If a
-reviewer exhausts its turns without writing the report, the curator runs
-a haiku synthesis pass to format the raw investigation into the required
-table structure (see curator.md Step 2b).
+**Skill reviewer** (`.claude/agents/skill-reviewer.md`) — first-class agent
+launched by `launch-phase.sh` stage 1 via the SDK runner with
+`--policy reviewer` and `--agent skill-reviewer`. Reviews the entire skill
+file from one of 5 angles. Produces a structured findings report with
+per-claim classifications and evidence. Assesses every section equally — no
+section is special. The 3-attempt fallback policy handles reviewers that
+exhaust turns: sonnet 30 turns → resume with wrap-up instruction 5 turns →
+haiku synthesize from partial output.
 
 **Haiku scorer** — lightweight agent spawned per finding. Independently scores
 the finding (0-100) using a rubric and false positive list. Separates advocacy
@@ -155,11 +157,12 @@ random hex suffix to prevent collisions).
 **Observation types:** `undocumented_behavior`, `wrong_documentation`,
 `unexpected_result`, `workflow_gap`, `nothing_to_report`, `threshold_calibration`.
 
-**Lifecycle:** feedback/ → curator reads oldest 20 → 5 reviewers assess
-entire skill + reports → haiku scorers validate findings → curator synthesizes
-rewritten skill file → on success (stage + merge pass), script moves reports
-to feedback/processed/ → orchestrator writes outcomes. Reports in processed/
-preserved permanently.
+**Lifecycle:** feedback/ → stage 1: 40 reviewers (5 per skill) assess
+entire skill + reports → output to `{LOG_DIR}/reviews/{SKILL}/` → stage 2:
+curators read reviewer reports from disk → haiku scorers validate findings →
+curator synthesizes rewritten skill file → on success (merge pass), script
+moves reports to feedback/processed/ → orchestrator writes outcomes. Reports
+in processed/ preserved permanently.
 
 Curators also report issues they find in CLAUDE.md files, subagent definitions,
 or other instruction context as `wrong_documentation` observations. These are
@@ -170,7 +173,8 @@ preserved in `processed/` for future instruction curation scope.
 ```
 docs/prompts/curation/
 ├── orchestrator.md          # Orchestrator prompt (pipeline, monitoring, PR, code review)
-├── curator.md               # Curator prompt (shared template, one instance per skill)
+├── curator.md               # Curator prompt (stage 2, one instance per skill)
+├── reviewer-template.md     # Reviewer prompt template (stage 1, {SKILL} and {ANGLE} placeholders)
 ├── {skill-name}.md          # Thin wrappers (one per skill, point to curator)
 ├── debrief-template.md      # Template for agent debrief reports
 ├── validate.md              # Post-merge validation prompt

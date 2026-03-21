@@ -1,38 +1,16 @@
 {
-  "issue": 56,
-  "branch": "agent/issue-56",
-  "status": "done",
+  "group": "A",
+  "phase": 19,
   "tasks": {
-    "read-and-understand": {
-      "status": "done"
-    },
-    "create-workspace-cargo-toml": {
-      "status": "done"
-    },
-    "create-guard-crate": {
-      "status": "done"
-    },
-    "write-unit-tests": {
-      "status": "done"
-    },
-    "update-settings-json": {
-      "status": "done"
-    },
-    "rewrite-test-hooks": {
-      "status": "done"
-    },
-    "update-full-verify": {
-      "status": "done"
-    },
-    "build-and-test": {
-      "status": "done"
-    },
-    "full-verify": {
-      "status": "done"
-    },
-    "create-pr": {
-      "status": "done"
-    }
+    "A1": { "status": "done" },
+    "A2": { "status": "done" },
+    "A3": { "status": "done" },
+    "A4": { "status": "done" },
+    "A5": { "status": "done" },
+    "A6": { "status": "done" },
+    "A7": { "status": "done" },
+    "A8": { "status": "done" },
+    "A9": { "status": "done" }
   },
-  "last_updated": "2026-03-16T03:43:39.871Z"
+  "last_updated": "2026-03-21T10:30:00Z"
 }

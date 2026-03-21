@@ -81,7 +81,7 @@ jobs:
       - name: Build relay server
         run: cd server && cargo build --release
 
-      - name: Run E2E tests (with relay + cloud auth keys)
+      - name: Run E2E tests (with relay + cloud auth)
         run: npm run test:e2e
         env:
           E2E_RELAY: '1'

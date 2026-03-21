@@ -2,17 +2,10 @@ import { test, expect } from '@playwright/test';
 import { createCollabPair, isCollabAvailable, CloudAuthOptions } from './helpers/collab-harness';
 import { getAccessToken } from './helpers/cloud-auth';
 
-const isCloud = !!process.env.E2E_CLOUD;
-
 async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
-  if (!isCloud) return undefined;
   const keyA = process.env.GCP_SA_KEY_WRITER1_DEV;
   const keyB = process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV;
-  if (!keyA || !keyB) {
-    throw new Error(
-      'E2E_CLOUD requires GCP_SA_KEY_WRITER1_DEV and GCP_SA_KEY_WRITER2_DEV or GCP_SA_KEY_READER1_DEV'
-    );
-  }
+  if (!keyA || !keyB) return undefined;
   const [tokenA, tokenB] = await Promise.all([getAccessToken(keyA), getAccessToken(keyB)]);
   return { tokenA, tokenB };
 }

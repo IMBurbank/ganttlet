@@ -1,12 +1,14 @@
 import { defineConfig } from '@playwright/test';
 
 const withRelay = !!process.env.E2E_RELAY;
-const isCloud = !!process.env.E2E_CLOUD;
+const hasCloudAuth = !!process.env.GCP_SA_KEY_WRITER1_DEV;
+// Skip local servers only when a remote BASE_URL is provided (cloud deploy pipeline)
+const isRemote = !!process.env.BASE_URL && !process.env.BASE_URL.includes('localhost');
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: isCloud ? 60_000 : 30_000,
-  expect: { timeout: isCloud ? 20_000 : 10_000 },
+  timeout: hasCloudAuth ? 60_000 : 30_000,
+  expect: { timeout: hasCloudAuth ? 20_000 : 10_000 },
   retries: 1,
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:5173',
@@ -20,8 +22,8 @@ export default defineConfig({
       use: { browserName: 'chromium' },
     },
   ],
-  // In cloud mode, don't start local servers — frontend and relay are on Cloud Run
-  webServer: isCloud
+  // Skip local servers only when running against a remote deployment (BASE_URL set to non-localhost)
+  webServer: isRemote
     ? []
     : [
         {
@@ -32,8 +34,7 @@ export default defineConfig({
         ...(withRelay
           ? [
               {
-                command:
-                  'cd server && cargo build --release && ./target/release/ganttlet-relay',
+                command: 'cd server && cargo build --release && ./target/release/ganttlet-relay',
                 port: 4000,
                 reuseExistingServer: !process.env.CI,
                 env: {

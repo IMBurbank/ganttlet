@@ -1,13 +1,13 @@
 /**
  * Cloud-auth onboarding E2E tests.
- * These require E2E_CLOUD=1 and GCP service account keys.
- * They run in the deploy pipeline (e2e-dev job), not in the standalone e2e.yml.
+ * These require GCP_SA_KEY_WRITER1_DEV (service account key) in the environment.
+ * They skip locally (no SA keys) and run in CI where secrets are available.
  */
 import { test, expect } from '@playwright/test';
 import { getAccessToken } from './helpers/cloud-auth';
 import { gisInitScript } from './helpers/collab-harness';
 
-const isCloud = !!process.env.E2E_CLOUD;
+const hasCloudAuth = !!process.env.GCP_SA_KEY_WRITER1_DEV;
 const testSheetId = process.env.TEST_SHEET_ID_DEV;
 
 async function getToken(): Promise<string> {
@@ -17,7 +17,7 @@ async function getToken(): Promise<string> {
 }
 
 test.describe('Onboarding Cloud E2E', () => {
-  test.skip(!isCloud, 'Requires E2E_CLOUD=1 with GCP service account keys');
+  test.skip(!hasCloudAuth, 'Requires E2E_CLOUD=1 with GCP service account keys');
 
   test('signed-in user with no URL params sees ChoosePath', async ({ browser }) => {
     const token = await getToken();

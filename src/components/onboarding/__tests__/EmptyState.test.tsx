@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import EmptyState from '../EmptyState';
 import { GanttProvider } from '../../../state/GanttContext';
 
@@ -43,6 +43,25 @@ vi.mock('../../../sheets/sheetsSync', () => ({
   startPolling: vi.fn(),
   stopPolling: vi.fn(),
   getSpreadsheetId: () => null,
+}));
+
+vi.mock('../../../sheets/sheetCreation', () => ({
+  createSheet: vi.fn().mockResolvedValue('mock-sheet-id'),
+  createProjectFromTemplate: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../sheets/sheetsClient', () => ({
+  readSheet: vi.fn().mockResolvedValue([]),
+  updateSheet: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../sheets/sheetsMapper', () => ({
+  SHEET_COLUMNS: ['id', 'name'],
+  HEADER_ROW: ['id', 'name'],
+  taskToRow: vi.fn(),
+  tasksToRows: vi.fn(),
+  rowsToTasks: vi.fn(),
+  validateHeaders: vi.fn(),
 }));
 
 describe('EmptyState', () => {
@@ -94,5 +113,31 @@ describe('EmptyState', () => {
     );
 
     expect(screen.getByTestId('empty-state')).toBeTruthy();
+  });
+
+  it('renders start from template button', () => {
+    render(
+      <GanttProvider>
+        <EmptyState />
+      </GanttProvider>
+    );
+
+    const templateBtn = screen.getByTestId('start-from-template');
+    expect(templateBtn).toBeTruthy();
+    expect(templateBtn.textContent).toBe('Or start from a template');
+  });
+
+  it('opens template picker on template button click', async () => {
+    render(
+      <GanttProvider>
+        <EmptyState />
+      </GanttProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('start-from-template'));
+    // TemplatePicker is lazy loaded
+    await waitFor(() => {
+      expect(screen.getByTestId('template-picker')).toBeTruthy();
+    });
   });
 });

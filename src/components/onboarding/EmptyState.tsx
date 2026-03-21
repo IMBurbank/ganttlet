@@ -1,12 +1,15 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useState, lazy, Suspense } from 'react';
 import { useGanttDispatch } from '../../state/GanttContext';
+
+const TemplatePicker = lazy(() => import('./TemplatePicker'));
 
 interface EmptyStateProps {
   onSelectTemplate?: () => void;
 }
 
-export default function EmptyState({ onSelectTemplate: _onSelectTemplate }: EmptyStateProps) {
+export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
   const dispatch = useGanttDispatch();
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -102,10 +105,33 @@ export default function EmptyState({ onSelectTemplate: _onSelectTemplate }: Empt
               <p className="text-sm text-text-muted mt-2">
                 Type a task name in the input and press Enter
               </p>
+              <button
+                onClick={() => setShowTemplatePicker(true)}
+                className="mt-4 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                data-testid="start-from-template"
+              >
+                Or start from a template
+              </button>
             </div>
           </div>
         </div>
       </div>
+      {showTemplatePicker && (
+        <Suspense fallback={null}>
+          <TemplatePicker
+            onSelect={(templateId) => {
+              setShowTemplatePicker(false);
+              if (onSelectTemplate) {
+                onSelectTemplate();
+              }
+              import('../../sheets/sheetCreation').then(({ createProjectFromTemplate }) => {
+                createProjectFromTemplate('Ganttlet Project', templateId, dispatch);
+              });
+            }}
+            onClose={() => setShowTemplatePicker(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

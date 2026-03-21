@@ -82,9 +82,9 @@ export async function createCollabPair(
   const pageA = await contextA.newPage();
   const pageB = await contextB.newPage();
 
-  // Use a shared room ID for both pages
+  // Use a shared room ID for both pages; demo=1 auto-enters sandbox mode
   const roomId = `e2e-test-${Date.now()}`;
-  const url = `/?room=${roomId}`;
+  const url = `/?room=${roomId}&demo=1`;
 
   // Navigate both pages to the app with the room param
   await Promise.all([pageA.goto(url), pageB.goto(url)]);
@@ -109,8 +109,14 @@ export async function createCollabPair(
 
   // Wait for collab connections using DOM polling instead of fixed timeout
   await Promise.all([
-    pageA.locator('[data-collab-status="connected"]').waitFor({ timeout: 10_000 }).catch(() => {}),
-    pageB.locator('[data-collab-status="connected"]').waitFor({ timeout: 10_000 }).catch(() => {}),
+    pageA
+      .locator('[data-collab-status="connected"]')
+      .waitFor({ timeout: 10_000 })
+      .catch(() => {}),
+    pageB
+      .locator('[data-collab-status="connected"]')
+      .waitFor({ timeout: 10_000 })
+      .catch(() => {}),
   ]);
 
   const cleanup = async () => {

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Ganttlet E2E', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?demo=1');
     // Wait for the app to fully render (task bars appear in the SVG)
     await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });
   });

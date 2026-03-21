@@ -16,8 +16,8 @@ OUTPUT_PATH="${2:?Usage: $0 <original-config> <output-path>}"
 
 # Read failed/succeeded groups from stage log files (written by stage.sh)
 PHASE=$(yq -r '.phase' "$ORIGINAL_CONFIG")
-WORKSPACE="${WORKSPACE:-$(git rev-parse --show-toplevel)}"
-LOG_DIR="${WORKSPACE}/logs/${PHASE}"
+run_suffix=$(echo "${_LAUNCH_BASE_REF:-$(date +%s)}" | cut -c1-8)
+LOG_DIR="/tmp/ganttlet-logs/${PHASE}-${run_suffix}"
 
 if [ ! -f "${LOG_DIR}/stage-failed.txt" ]; then
     echo "[retry] No stage-failed.txt found in ${LOG_DIR}/."

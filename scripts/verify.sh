@@ -97,8 +97,7 @@ run_cargo() {
 
 run_guard() {
   echo "[guard: test + rebuild]"
-  cargo test -p guard 2>&1 | tail -5
-  GUARD_EXIT=${PIPESTATUS[0]:-$?}
+  cargo test -p guard 2>&1 | tail -5; GUARD_EXIT=${PIPESTATUS[0]:-$?}
   if [[ $GUARD_EXIT -eq 0 ]]; then
     cargo build --release -p guard 2>&1 | tail -3
     echo "[guard: binary rebuilt]"

@@ -106,10 +106,11 @@ describe('nextAction — single-attempt policy', () => {
 });
 
 describe('nextAction — crash handling', () => {
-  it('below maxCrashRetries does not force done', () => {
+  it('below maxCrashRetries retries same attempt', () => {
     const result = nextAction(triple, 0, 'success', 1, 2, true, false);
-    expect(result.kind).toBe('done');
-    expect((result as { failureMode: string }).failureMode).toBe('success');
+    expect(result.kind).toBe('call');
+    expect((result as { attemptIndex: number }).attemptIndex).toBe(0);
+    expect((result as { resume: boolean }).resume).toBe(true);
   });
 
   it('at maxCrashRetries → done (crash)', () => {

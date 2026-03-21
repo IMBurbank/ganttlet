@@ -82,6 +82,7 @@ run_agent() {
     local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
     local prompt_file=""
     local exit_code=0
+    local start_seconds=$SECONDS
 
     # ── Prompt vars as array (safe for values with spaces) ───────────
     local -a prompt_vars=("SKILL=${group}")
@@ -131,6 +132,11 @@ run_agent() {
       2>>"$logfile")
     exit_code=$?
     set -e
+
+    # SDK runner handles its own detailed metrics via TypeScript (scripts/sdk/metrics.ts).
+    # Also log to bash-level agent-metrics.jsonl for uniform orchestrator-level tracking.
+    local duration=$(( SECONDS - start_seconds ))
+    log_agent_metrics "$group" "$duration" "0" "$exit_code"
 
     if [[ $exit_code -eq 0 ]]; then
       ok "${group}: completed successfully"

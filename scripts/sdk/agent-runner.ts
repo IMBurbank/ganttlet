@@ -56,10 +56,8 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
   let totalAttempts = 0;
   const startTime = Date.now();
 
-  // Initial call
-  let action = nextAction(policy.attempts, -1, 'error_max_turns', 0, maxCrashRetries, true, false);
-  // Force initial call
-  action = {
+  // Start with the first attempt — the state machine drives all subsequent decisions
+  let action: ReturnType<typeof nextAction> = {
     kind: 'call',
     attemptIndex: 0,
     resume: false,
@@ -173,6 +171,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
       }
       if (callResult.sessionId) lastSessionId = callResult.sessionId;
       resultType = callResult.resultType;
+      crashCount = 0; // Reset crash count on successful call
 
       // Fire onAttemptComplete hook
       if (policy.onAttemptComplete) {
@@ -202,26 +201,20 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
       );
     } catch {
       crashCount++;
+      // Delay before retry (state machine decides whether to retry or give up)
       if (crashCount < maxCrashRetries) {
         const delay = crashRetryDelayMs * Math.pow(2, crashCount - 1);
         await new Promise((r) => setTimeout(r, delay));
-        // Retry same attempt
-        action = {
-          kind: 'call',
-          attemptIndex,
-          resume: lastSessionId !== null,
-        };
-      } else {
-        action = nextAction(
-          policy.attempts,
-          attemptIndex,
-          resultType,
-          crashCount,
-          maxCrashRetries,
-          outputValid,
-          outputFixAttempted
-        );
       }
+      action = nextAction(
+        policy.attempts,
+        attemptIndex,
+        resultType,
+        crashCount,
+        maxCrashRetries,
+        outputValid,
+        outputFixAttempted
+      );
     }
   }
 

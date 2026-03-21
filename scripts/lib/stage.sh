@@ -26,17 +26,21 @@ preflight_check() {
     return 1
   fi
 
-  # Skip per-group prompt check when SDK_RUNNER handles prompt resolution
-  if [[ "${SDK_RUNNER:-}" != "1" ]]; then
-    local prompts_exist=true
-    for group in "$@"; do
-      if [[ ! -f "${PROMPTS_DIR}/${group}.md" ]]; then
-        err "Missing prompt file: ${PROMPTS_DIR}/${group}.md"
-        prompts_exist=false
-      fi
-    done
-    $prompts_exist || return 1
-  fi
+  # Check prompt files exist. When SDK_RUNNER=1, reviewer-pattern groups
+  # (e.g., hooks-adversarial) use a shared template resolved by the naming
+  # convention in run_agent(), so per-group prompt files don't exist for them.
+  local _review_angles="accuracy|structure|scope|history|adversarial"
+  local prompts_exist=true
+  for group in "$@"; do
+    if [[ "${SDK_RUNNER:-}" == "1" && "$group" =~ -(${_review_angles})$ ]]; then
+      continue  # reviewer groups use shared template
+    fi
+    if [[ ! -f "${PROMPTS_DIR}/${group}.md" ]]; then
+      err "Missing prompt file: ${PROMPTS_DIR}/${group}.md"
+      prompts_exist=false
+    fi
+  done
+  $prompts_exist || return 1
 
   # Verify merge target branch can be created or already exists
   if ! git rev-parse --verify "$MERGE_TARGET" >/dev/null 2>&1; then

@@ -91,7 +91,6 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
           maxTurns: 5,
           model: policy.attempts[action.attemptIndex].model,
           agent: options.agent,
-          logFile: options.logFile,
         });
         cumulativeCostUsd += fixResult.costUsd;
         if (fixResult.output !== null) {
@@ -162,7 +161,6 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         effort: attemptConfig.effort,
         maxBudgetUsd: remainingBudget,
         agent: options.agent,
-        logFile: options.logFile,
       });
 
       cumulativeCostUsd += callResult.costUsd;
@@ -279,7 +277,6 @@ interface CallQueryOpts {
   effort?: 'low' | 'medium' | 'high' | 'max';
   maxBudgetUsd?: number;
   agent?: string;
-  logFile: string;
 }
 
 interface CallQueryResult {

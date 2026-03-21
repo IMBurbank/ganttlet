@@ -119,7 +119,8 @@ Full promotion flow:
    (3) `startPolling()`
    (4) `scheduleSave(state.tasks)` — writes data + sets lastWriteHash
    (5) Dispatch `SET_DATA_SOURCE('sheet')` — activates auto-save/Yjs useEffects
-   (6) Dispatch `SET_SYNC_ERROR(null)`, set `sandboxDirty = false`
+       AND resets `sandboxDirty` to `false` (handled by reducer, see A4)
+   (6) Dispatch `SET_SYNC_ERROR(null)`
 5. All sandbox edits (new/deleted/moved tasks, changed deps) are preserved because
    `state.tasks` already holds them
 

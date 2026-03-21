@@ -249,7 +249,7 @@ stages:
             status: pending
             exit_criteria: >
               Replaces SyncStatusIndicator. Shows "Synced", "Syncing...", or
-              "Sync paused — retrying" for rate_limit. SyncStatusIndicator.tsx deleted.
+              "Sync paused — retrying automatically" for rate_limit. SyncStatusIndicator.tsx deleted.
               All existing imports updated (Header.tsx is the primary consumer).
               Component test covers all three display states.
           - id: C7
@@ -562,6 +562,7 @@ validation:
   - {id: V9, summary: "Header: title, share with toast, switch sheet, disconnect with Yjs teardown", status: pending}
   - {id: V10, summary: "Empty state → first task → dataSource='sheet' → auto-save fires", status: pending}
   - {id: V11, summary: "Loading + 403 forbidden → stays loading + error UI with [Open another sheet]", status: pending}
+  - {id: V12, summary: "Header mismatch renders HeaderMismatchError (not ErrorBanner)", status: pending}
 
 follow_up:
   - {summary: "E2E tests for onboarding flows (requires dev server + relay)", status: pending}

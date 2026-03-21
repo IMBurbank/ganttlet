@@ -136,9 +136,11 @@ export async function createProjectFromTemplate(
 4. Write rows 2+ = template task rows (for non-blank)
 5. Write range derived from `SHEET_COLUMNS.length` (NOT hardcoded column letter)
 6. Update URL to `?sheet=ID&room=ID`
-7. Call `initSync(spreadsheetId, callback)` + `startPolling()`
+7. Call `initSync(spreadsheetId, callback)` + `startPolling()` (for ALL templates including Blank —
+   auto-save needs a target when the user later adds their first task)
 8. For non-blank: call `scheduleSave(tasks)`, dispatch `SET_DATA_SOURCE('sheet')`
-9. For Blank: dispatch `SET_DATA_SOURCE('empty')`, empty state UI renders
+9. For Blank: dispatch `SET_DATA_SOURCE('empty')`, empty state UI renders (initSync/startPolling
+   already called in step 7, so when empty→sheet transition fires on first task, auto-save works)
 
 ### F6: Add sheet management to Header.tsx
 When `dataSource='sheet'` and user is signed in:

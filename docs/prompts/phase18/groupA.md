@@ -176,7 +176,8 @@ This is the biggest task. Changes to `src/state/GanttContext.tsx`:
   On throw → dispatch `SET_SYNC_ERROR(classifySyncError(err))`, dataSource stays 'loading'.
 - If row 1 is empty → skip validateHeaders, treat as `dataSource='empty'`
 - On success, call `addRecentSheet()` (import from `src/utils/recentSheets.ts` — this file
-  won't exist until Group B creates it; use a conditional import or guard for now)
+  won't exist until Group B creates it in Stage 2. Add a TODO comment with the import and
+  call site; Group B or the merge-fix agent will wire it. Do NOT add a broken import.)
 
 **Auto-save useEffect (lines 150-155):** Add guard: `if (state.dataSource !== 'sheet') return;`
 
@@ -194,6 +195,10 @@ and `sandboxDirty === true`. Clean up when conditions change.
 In `src/sheets/sheetsSync.ts`:
 - `loadFromSheet()`: Remove the try/catch that returns `[]`. Let errors propagate (throw).
   Also remove the early-return `[]` for unauthenticated state — caller checks auth.
+  Add `validateHeaders(headerRow)` call after reading sheet data but before parsing tasks
+  (import from `sheetsMapper.ts`). If row 1 is empty, skip validation and return `[]`.
+  If validation fails, throw with a recognizable error so GanttContext can set
+  `syncError.type = 'header_mismatch'`.
 - Export `stopPolling()` as a named export (currently module-private). This clears the
   poll timer for disconnect and error flows.
 

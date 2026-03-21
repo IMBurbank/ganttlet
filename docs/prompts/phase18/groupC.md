@@ -81,8 +81,9 @@ Read-only:
 - `src/types/index.ts` — SyncError type (from Group A)
 - `src/sheets/syncErrors.ts` — classifySyncError (from Group A)
 - `src/sheets/sheetsMapper.ts` — SHEET_COLUMNS for CSV download
-- `src/utils/recentSheets.ts` — removeRecentSheet (from Group B — may not exist when you
-  start if B hasn't merged yet; use conditional import or guard)
+- `src/utils/recentSheets.ts` — removeRecentSheet (created by Group B in the same stage;
+  both branches merge into the stage branch, so the import resolves at merge time — use
+  a normal import, not a conditional guard)
 
 ## Tasks — execute in order
 
@@ -162,8 +163,8 @@ In `src/sheets/__tests__/syncErrorRecovery.test.ts`:
 2. not_found/forbidden cause hard polling stop (no reschedule)
 3. sheetsClient throws Response on retry exhaustion
 4. Online/offline listeners dispatch SET_SYNC_ERROR correctly
-5. ErrorBanner renders correct banner per error type with correct CTAs including [Retry] for loading state
-6. SyncStatus replaces SyncStatusIndicator with 3 display states
+5. ErrorBanner renders correct banner per error type with correct CTAs including [Retry] for loading state. ErrorBanner does NOT handle header_mismatch (that's HeaderMismatchError).
+6. SyncStatus replaces SyncStatusIndicator with 3 states: "Synced", "Syncing...", "Sync paused — retrying automatically"
 7. HeaderMismatchError shows expected vs found + CSV download
 8. Header.tsx integrates both components
 9. syncErrorRecovery integration test passes

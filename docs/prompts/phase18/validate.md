@@ -26,6 +26,8 @@ checks:
     summary: "Empty state → first task"
   - id: V11
     summary: "Loading + 403 error UI"
+  - id: V12
+    summary: "Header mismatch renders HeaderMismatchError"
 ---
 
 # Phase 18 Validation — Onboarding UX
@@ -166,6 +168,13 @@ Run each check below. Record PASS or FAIL. Do not attempt any fixes until all ch
 - Verify: [Retry] re-calls loadFromSheet
 - PASS/FAIL: ___
 
+### V12: Header Mismatch Rendering
+- Verify: When syncError.type === 'header_mismatch' and dataSource === 'loading',
+  HeaderMismatchError.tsx renders (NOT ErrorBanner)
+- Verify: Expected vs found columns displayed
+- Verify: [Create a new sheet instead] and [Download header template] buttons work
+- PASS/FAIL: ___
+
 ## Phase 2: Fix and Verify
 
 For each FAILED check from Phase 1:
@@ -202,6 +211,7 @@ Run `./scripts/full-verify.sh` and re-run all 11 checks. Print summary:
 ║ V9  Header management            ║       ║          ║
 ║ V10 Empty state → first task     ║       ║          ║
 ║ V11 Loading + 403 error          ║       ║          ║
+║ V12 Header mismatch rendering   ║       ║          ║
 ╠══════════════════════════════════╬═══════╬══════════╣
 ║ OVERALL                          ║       ║          ║
 ╚══════════════════════════════════╩═══════╩══════════╝

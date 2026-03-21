@@ -53,9 +53,10 @@ MAX_STAGE_DURATION="${MAX_STAGE_DURATION:-1800}"  # 30 minutes default
 _USER_MERGE_TARGET="${MERGE_TARGET:-}"
 
 # Capture the invoker's context so downstream operations use the
-# orchestrator's worktree, not /workspace.
-_LAUNCH_BASE_REF="$(git rev-parse HEAD)"
-_LAUNCH_DIR="$(pwd)"
+# orchestrator's worktree, not /workspace. Respect pre-set values
+# from parent scripts (e.g., curate-skills.sh) for cross-invocation stability.
+_LAUNCH_BASE_REF="${_LAUNCH_BASE_REF:-$(git rev-parse HEAD)}"
+_LAUNCH_DIR="${_LAUNCH_DIR:-$(pwd)}"
 export _LAUNCH_BASE_REF _LAUNCH_DIR
 
 # ── Resolve script directory and source libraries ────────────────────────────

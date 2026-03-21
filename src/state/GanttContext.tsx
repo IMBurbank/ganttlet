@@ -156,6 +156,29 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.tasks, state.dataSource]);
 
+  // Online/offline detection
+  useEffect(() => {
+    const handleOnline = () => {
+      dispatch({ type: 'SET_SYNC_ERROR', error: null });
+      // Trigger immediate sync on reconnect
+      if (getSpreadsheetId() && isSignedIn()) {
+        scheduleSave(state.tasks);
+      }
+    };
+    const handleOffline = () => {
+      dispatch({
+        type: 'SET_SYNC_ERROR',
+        error: { type: 'network', message: 'You are offline', since: Date.now() },
+      });
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [dispatch, state.tasks]);
+
   // Yjs collaboration connection — reconnects when access token changes (e.g. after sign-in)
   useEffect(() => {
     if (state.dataSource !== 'sheet') return;

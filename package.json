@@ -22,6 +22,7 @@
     "yjs": "^13.6.29"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/jest-dom": "^6.9.1",

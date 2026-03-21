@@ -53,8 +53,8 @@ preflight_check() {
     fi
   fi
 
-  # Only check WASM build if Rust source files differ from the base
-  if git diff "${_LAUNCH_BASE_REF:-main}" --name-only 2>/dev/null | grep -q '^crates/'; then
+  # Only check WASM build if Rust source files differ from main
+  if git diff main --name-only 2>/dev/null | grep -q '^crates/'; then
     log "Rust files changed — checking WASM build..."
     if ! (npm run build:wasm > /dev/null 2>&1); then
       err "WASM build broken — fix before launching agents"

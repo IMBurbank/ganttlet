@@ -169,14 +169,7 @@ Once the code review finds no issues:
    ```bash
    ./scripts/launch-phase.sh <config> cleanup
    ```
-   This removes all worktrees matching the phase, prunes stale references, and deletes phase branches. If cleanup fails for specific worktrees, clean up manually (**each command must be a separate Bash call** — never chain `cd` with `&&`):
-   ```bash
-   rm -rf /workspace/.claude/worktrees/<name>
-   git worktree prune
-   ```
-
-6. Update main (only the admin does this from `/workspace`).
-   Agents should NOT run these commands.
+   This removes all worktrees matching the phase, prunes stale references, and deletes phase branches. If cleanup fails, use `ExitWorktree` with `action: "remove"` for your own worktree, or `launch-phase.sh cleanup` to retry.
 
 **CRITICAL**: Never chain `cd` with `&&` or `;` in a single Bash call. If the second command fails, the `cd` does not persist and all subsequent commands run in the wrong directory. Always `cd` in a standalone Bash call first.
 

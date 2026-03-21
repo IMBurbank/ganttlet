@@ -44,10 +44,7 @@ For full worktree procedures (cleanup, PR merge, lifecycle): see `.claude/worktr
 - NEVER `git checkout` or `git switch` in `/workspace` — this breaks every other agent sharing the filesystem
 - All git operations (commit, push, diff) must happen inside the worktree directory
 - Common failure: agent does `git checkout feature-branch` in `/workspace`, another agent commits to the wrong branch
-- **Cleanup is mandatory**: when work is complete (PR created, or task done), remove the worktree. Stale worktrees prevent branch deletion and waste disk. The merge worktree is cleaned up automatically by `create-pr`; agent worktrees are cleaned up by `do_merge()`. For manual cleanup (each a separate Bash call):
-  1. `rm -rf <worktree-path>`
-  2. `git worktree prune`
-  3. `git branch -d <branch>`
+- **Cleanup is mandatory**: when work is complete (PR merged, or task done), remove the worktree. Stale worktrees prevent branch deletion and waste disk. The merge worktree is cleaned up automatically by `create-pr`; agent worktrees are cleaned up by `do_merge()`. For manual cleanup: use `ExitWorktree` with `action: "remove"` (deletes directory + branch + restores CWD). See `.claude/worktrees/CLAUDE.md` for full procedure.
 
 ## WATCH Mode
 `WATCH=1` runs agents in tmux windows with visible output.

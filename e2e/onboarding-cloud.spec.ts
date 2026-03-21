@@ -62,7 +62,7 @@ test.describe('Onboarding Cloud E2E', () => {
 
     // If CollaboratorWelcome, click sign in and wait for data
     if (await page.getByTestId('collaborator-title').isVisible()) {
-      await page.getByTestId('collab-sign-in-button').click();
+      await page.getByTestId('collaborator-sign-in-button').click();
       await expect(
         page
           .locator('.task-bar')

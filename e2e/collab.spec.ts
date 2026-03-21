@@ -13,6 +13,8 @@ async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
 }
 
 test.describe('Collaboration E2E', () => {
+  // Collab tests load two pages with real sheet data — needs extra time for large sheets
+  test.setTimeout(120_000);
   test('presence indicators appear for connected users', async ({ browser }) => {
     const cloudAuth = await getCloudAuth();
     const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);

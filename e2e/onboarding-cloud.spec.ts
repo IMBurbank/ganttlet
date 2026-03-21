@@ -32,7 +32,7 @@ test.describe('Onboarding Cloud E2E', () => {
 
     // After GIS mock fires, should transition — wait for either ChoosePath or recent sheets
     await expect(
-      page.getByTestId('choose-path').or(page.getByTestId('return-visitor'))
+      page.getByTestId('choose-path-title').or(page.getByTestId('return-visitor'))
     ).toBeVisible({ timeout: 10_000 });
 
     await context.close();

@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect, lazy, Suspense } from 'react';
+import React, { useCallback, useState, lazy, Suspense } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import { isSignedIn } from '../../sheets/oauth';
 import { getRecentSheets } from '../../utils/recentSheets';
@@ -13,16 +13,6 @@ const PromotionFlow = lazy(() => import('./PromotionFlow'));
 export default function WelcomeGate({ children }: { children: React.ReactNode }) {
   const state = useGanttState();
   const dispatch = useGanttDispatch();
-
-  // Auto-enter sandbox mode when ?demo=1 is in the URL (used by E2E tests)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('demo') && state.dataSource === undefined) {
-      import('../../data/templates/softwareRelease').then(({ fakeTasks, fakeChangeHistory }) => {
-        dispatch({ type: 'ENTER_SANDBOX', tasks: fakeTasks, changeHistory: fakeChangeHistory });
-      });
-    }
-  }, [dispatch, state.dataSource]);
   // Track if user just signed in from FirstVisit (show ChoosePath instead of FirstVisit)
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [showPromotion, setShowPromotion] = useState(false);

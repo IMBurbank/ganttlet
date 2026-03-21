@@ -26,14 +26,19 @@ export function gisInitScript(token: string): string {
   return `
     window.__ganttlet_cloud_token = ${JSON.stringify(token)};
 
-    // Intercept google.accounts.oauth2.initTokenClient
-    let gisIntercepted = false;
-    const interceptGIS = () => {
-      if (gisIntercepted) return;
-      if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) return;
-      gisIntercepted = true;
+    // Provide a fake client ID so initOAuth() doesn't bail out
+    window.__ganttlet_config = window.__ganttlet_config || {};
+    window.__ganttlet_config.googleClientId = 'fake-e2e-client-id';
 
-      google.accounts.oauth2.initTokenClient = (config) => {
+    // Provide a synthetic google.accounts.oauth2 object immediately.
+    // This must exist BEFORE the app calls initOAuth(), which checks
+    // typeof google !== 'undefined' && google.accounts.
+    // The real GIS script loads async and may arrive late; our synthetic
+    // version ensures the app can initialize OAuth synchronously.
+    window.google = window.google || {};
+    window.google.accounts = window.google.accounts || {};
+    window.google.accounts.oauth2 = {
+      initTokenClient: (config) => {
         const storedCallback = config.callback;
         return {
           requestAccessToken: () => {
@@ -45,16 +50,9 @@ export function gisInitScript(token: string): string {
             });
           },
         };
-      };
+      },
+      revoke: (token, callback) => { if (callback) callback(); },
     };
-
-    // Try immediately and also poll (GIS script may load after our init script)
-    interceptGIS();
-    const interval = setInterval(() => {
-      interceptGIS();
-      if (gisIntercepted) clearInterval(interval);
-    }, 50);
-    setTimeout(() => clearInterval(interval), 10000);
   `;
 }
 
@@ -65,6 +63,9 @@ export function gisInitScript(token: string): string {
  *
  * In cloud mode (cloudAuth provided), uses addInitScript to inject real
  * service account tokens via a GIS mock instead of __ganttlet_setTestAuth.
+ *
+ * In local mode, injects a fake GIS token so isSignedIn() returns true,
+ * then enters sandbox mode via the "Try the demo" button.
  */
 export async function createCollabPair(
   browser: Browser,
@@ -73,8 +74,8 @@ export async function createCollabPair(
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
 
-  // In cloud mode, inject auth before any page loads
   if (cloudAuth) {
+    // Cloud mode: inject real SA tokens
     await contextA.addInitScript(gisInitScript(cloudAuth.tokenA));
     await contextB.addInitScript(gisInitScript(cloudAuth.tokenB));
   }
@@ -82,12 +83,23 @@ export async function createCollabPair(
   const pageA = await contextA.newPage();
   const pageB = await contextB.newPage();
 
-  // Use a shared room ID for both pages; demo=1 auto-enters sandbox mode
+  // Use a shared room ID for both pages
   const roomId = `e2e-test-${Date.now()}`;
-  const url = `/?room=${roomId}&demo=1`;
 
-  // Navigate both pages to the app with the room param
-  await Promise.all([pageA.goto(url), pageB.goto(url)]);
+  if (cloudAuth) {
+    // Cloud mode: navigate with room param — auth is already injected
+    const url = `/?room=${roomId}`;
+    await Promise.all([pageA.goto(url), pageB.goto(url)]);
+  } else {
+    // Local mode: enter sandbox via the real user flow, then set room param
+    await Promise.all([pageA.goto('/'), pageB.goto('/')]);
+
+    // Click "Try the demo" on both pages
+    await Promise.all([
+      pageA.getByTestId('try-demo-button').click(),
+      pageB.getByTestId('try-demo-button').click(),
+    ]);
+  }
 
   // Wait for the app to fully render in both pages
   await Promise.all([

@@ -200,7 +200,9 @@ test.describe('Collaboration E2E', () => {
       }
     });
 
-    await page.goto('/?demo=1');
+    await page.goto('/');
+    // Enter sandbox mode via the real user flow
+    await page.getByTestId('try-demo-button').click();
 
     // Wait for the app to fully render
     await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });

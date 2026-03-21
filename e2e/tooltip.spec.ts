@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Tooltip E2E', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/?demo=1');
+    await page.goto('/');
+    await page.getByTestId('try-demo-button').click();
     await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });
   });
 

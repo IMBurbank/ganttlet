@@ -39,3 +39,25 @@ export async function ensureClientId(page: Page): Promise<void> {
     (window as any).__ganttlet_config.googleClientId = 'fake-e2e-client-id';
   });
 }
+
+/**
+ * Sign in on a page that's showing a WelcomeGate screen.
+ * Handles both FirstVisitWelcome and CollaboratorWelcome sign-in buttons.
+ * Call after page.goto() + ensureClientId().
+ */
+export async function signInOnPage(page: Page): Promise<void> {
+  await ensureClientId(page);
+
+  // Try collaborator sign-in button first, then first-visit sign-in
+  const collabBtn = page.getByTestId('collaborator-sign-in-button');
+  const firstVisitBtn = page.getByTestId('sign-in-button');
+
+  if (await collabBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await collabBtn.click();
+  } else if (await firstVisitBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await firstVisitBtn.click();
+  }
+
+  // Wait for sign-in to complete — app should leave welcome screens
+  await page.waitForTimeout(1000);
+}

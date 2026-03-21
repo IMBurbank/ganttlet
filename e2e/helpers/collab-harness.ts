@@ -15,12 +15,8 @@ export interface CloudAuthOptions {
 
 /**
  * Inject a service account token into the page by mocking the Google Identity
- * Services (GIS) library. This works with production builds where
- * __ganttlet_setTestAuth is not available.
- *
- * The init script intercepts google.accounts.oauth2.initTokenClient and
- * immediately fires the callback with the provided token when
- * requestAccessToken() is called.
+ * Services (GIS) library. Provides a synthetic google.accounts.oauth2 object
+ * that fires the callback synchronously when requestAccessToken() is called.
  */
 export function gisInitScript(token: string): string {
   return `
@@ -31,10 +27,6 @@ export function gisInitScript(token: string): string {
     window.__ganttlet_config.googleClientId = 'fake-e2e-client-id';
 
     // Provide a synthetic google.accounts.oauth2 object immediately.
-    // This must exist BEFORE the app calls initOAuth(), which checks
-    // typeof google !== 'undefined' && google.accounts.
-    // The real GIS script loads async and may arrive late; our synthetic
-    // version ensures the app can initialize OAuth synchronously.
     window.google = window.google || {};
     window.google.accounts = window.google.accounts || {};
     window.google.accounts.oauth2 = {
@@ -57,15 +49,14 @@ export function gisInitScript(token: string): string {
 }
 
 /**
- * Creates two independent browser contexts pointing at the same app URL
- * with a shared room for collaboration testing.
- * Both wait for `.task-bar` to appear and collab to connect before returning.
+ * Creates two independent browser contexts for collaboration testing.
  *
- * In cloud mode (cloudAuth provided), uses addInitScript to inject real
- * service account tokens via a GIS mock instead of __ganttlet_setTestAuth.
+ * Cloud mode (cloudAuth provided): navigates to ?sheet=TEST_SHEET_ID&room=
+ * and signs in via GIS mock with real SA tokens. Both pages load real sheet
+ * data so dataSource='sheet' and Yjs connects.
  *
- * In local mode, injects a fake GIS token so isSignedIn() returns true,
- * then enters sandbox mode via the "Try the demo" button.
+ * Local mode (no cloudAuth): enters sandbox via "Try the demo" button.
+ * Yjs doesn't connect in sandbox mode — collab tests skip gracefully.
  */
 export async function createCollabPair(
   browser: Browser,
@@ -74,52 +65,92 @@ export async function createCollabPair(
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
 
-  if (cloudAuth) {
-    // Cloud mode: inject real SA tokens via GIS mock
-    await contextA.addInitScript(gisInitScript(cloudAuth.tokenA));
-    await contextB.addInitScript(gisInitScript(cloudAuth.tokenB));
+  const testSheetId = process.env.TEST_SHEET_ID_DEV;
+  const roomId = `e2e-test-${Date.now()}`;
+
+  if (cloudAuth && testSheetId) {
+    // Cloud mode: block real GIS + inject SA tokens
+    for (const [ctx, token] of [
+      [contextA, cloudAuth.tokenA],
+      [contextB, cloudAuth.tokenB],
+    ] as [BrowserContext, string][]) {
+      await ctx.addInitScript(gisInitScript(token));
+      await ctx.route('**/accounts.google.com/**', (route) => route.abort());
+    }
+
+    const pageA = await contextA.newPage();
+    const pageB = await contextB.newPage();
+
+    // Navigate both to ?sheet=TEST_SHEET_ID&room=ROOM_ID
+    const url = `/?sheet=${testSheetId}&room=${roomId}`;
+    await Promise.all([pageA.goto(url), pageB.goto(url)]);
+
+    // Sign in on both pages (CollaboratorWelcome → click sign in → load sheet)
+    for (const page of [pageA, pageB]) {
+      // Ensure client ID persists after navigation
+      await page.evaluate(() => {
+        (window as any).__ganttlet_config = (window as any).__ganttlet_config || {};
+        (window as any).__ganttlet_config.googleClientId = 'fake-e2e-client-id';
+      });
+      const collabBtn = page.getByTestId('collaborator-sign-in-button');
+      await collabBtn.waitFor({ timeout: 10_000 });
+      await collabBtn.click();
+    }
+
+    // Wait for both pages to load sheet data (task bars appear)
+    await Promise.all([
+      pageA.locator('.task-bar').first().waitFor({ timeout: 30_000 }),
+      pageB.locator('.task-bar').first().waitFor({ timeout: 30_000 }),
+    ]);
+
+    // Wait for collab connections
+    await Promise.all([
+      pageA
+        .locator('[data-collab-status="connected"]')
+        .waitFor({ timeout: 15_000 })
+        .catch(() => {}),
+      pageB
+        .locator('[data-collab-status="connected"]')
+        .waitFor({ timeout: 15_000 })
+        .catch(() => {}),
+    ]);
+
+    const cleanup = async () => {
+      await contextA.close();
+      await contextB.close();
+    };
+
+    return { pageA, pageB, contextA, contextB, cleanup };
   }
 
+  // Local mode: enter sandbox via "Try the demo" button
   const pageA = await contextA.newPage();
   const pageB = await contextB.newPage();
 
-  // Use a shared room ID for both pages
-  const roomId = `e2e-test-${Date.now()}`;
+  await Promise.all([pageA.goto('/'), pageB.goto('/')]);
 
-  if (cloudAuth) {
-    // Cloud mode: navigate with room param — auth is already injected
-    const url = `/?room=${roomId}`;
-    await Promise.all([pageA.goto(url), pageB.goto(url)]);
-  } else {
-    // Local mode: enter sandbox via the real user flow, then set room param
-    await Promise.all([pageA.goto('/'), pageB.goto('/')]);
+  await Promise.all([
+    pageA.getByTestId('try-demo-button').click(),
+    pageB.getByTestId('try-demo-button').click(),
+  ]);
 
-    // Click "Try the demo" on both pages
-    await Promise.all([
-      pageA.getByTestId('try-demo-button').click(),
-      pageB.getByTestId('try-demo-button').click(),
-    ]);
-  }
-
-  // Wait for the app to fully render in both pages
+  // Wait for task bars
   await Promise.all([
     pageA.locator('.task-bar').first().waitFor({ timeout: 15_000 }),
     pageB.locator('.task-bar').first().waitFor({ timeout: 15_000 }),
   ]);
 
-  // In local mode, inject test auth tokens via dev-mode hook
-  if (!cloudAuth) {
-    await pageA.evaluate(() => {
-      const setter = (window as unknown as Record<string, unknown>).__ganttlet_setTestAuth;
-      if (typeof setter === 'function') setter('userA');
-    });
-    await pageB.evaluate(() => {
-      const setter = (window as unknown as Record<string, unknown>).__ganttlet_setTestAuth;
-      if (typeof setter === 'function') setter('userB');
-    });
-  }
+  // Inject test auth tokens via dev-mode hook
+  await pageA.evaluate(() => {
+    const setter = (window as unknown as Record<string, unknown>).__ganttlet_setTestAuth;
+    if (typeof setter === 'function') setter('userA');
+  });
+  await pageB.evaluate(() => {
+    const setter = (window as unknown as Record<string, unknown>).__ganttlet_setTestAuth;
+    if (typeof setter === 'function') setter('userB');
+  });
 
-  // Wait for collab connections using DOM polling instead of fixed timeout
+  // Wait for collab connections
   await Promise.all([
     pageA
       .locator('[data-collab-status="connected"]')
@@ -140,12 +171,9 @@ export async function createCollabPair(
 }
 
 /**
- * Checks whether the collab relay WebSocket is available by looking for
- * a connected status in the app. Returns false if the relay is not running.
+ * Checks whether the collab relay WebSocket is available.
  */
 export async function isCollabAvailable(page: Page): Promise<boolean> {
-  // Check the data-collab-status attribute set by the app (no extra wait needed,
-  // createCollabPair already waited for connection)
   return page.evaluate(() => {
     const el = document.querySelector('[data-collab-status="connected"]');
     return el !== null;

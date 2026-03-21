@@ -2,16 +2,12 @@ import { test, expect } from '@playwright/test';
 import { createCollabPair, isCollabAvailable, CloudAuthOptions } from './helpers/collab-harness';
 import { getAccessToken } from './helpers/cloud-auth';
 
-// Cloud collab requires E2E_CLOUD (set in deploy pipeline with BASE_URL pointing
-// to Cloud Run). In the PR e2e.yml workflow, collab tests run locally in sandbox
-// mode where Yjs doesn't connect — they skip via isCollabAvailable check.
-const isCloud = !!process.env.E2E_CLOUD;
-
+// Cloud collab needs SA keys + TEST_SHEET_ID_DEV so both pages can load
+// a real sheet (dataSource='sheet') and connect via Yjs.
 async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
-  if (!isCloud) return undefined;
   const keyA = process.env.GCP_SA_KEY_WRITER1_DEV;
   const keyB = process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV;
-  if (!keyA || !keyB) return undefined;
+  if (!keyA || !keyB || !process.env.TEST_SHEET_ID_DEV) return undefined;
   const [tokenA, tokenB] = await Promise.all([getAccessToken(keyA), getAccessToken(keyB)]);
   return { tokenA, tokenB };
 }

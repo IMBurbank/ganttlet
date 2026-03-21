@@ -83,8 +83,9 @@ load_config() {
   PR_SUMMARY=$(yq -r '.pr.summary // ""' "$config_file")
   PR_TEST_PLAN=$(yq -r '.pr.test_plan // ""' "$config_file")
 
-  # Derived values — run_suffix is stable across stage/merge/validate invocations
-  LOG_DIR="/tmp/ganttlet-logs/${PHASE}-${run_suffix}"
+  # Derived values — run_suffix is stable across stage/merge/validate invocations.
+  # LOG_DIR respects env override for cross-run output sharing (see Step 9b).
+  LOG_DIR="${LOG_DIR:-/tmp/ganttlet-logs/${PHASE}-${run_suffix}}"
   TMUX_SESSION="${PHASE}-agents-${run_suffix}"
   MERGE_WORKTREE="${WORKTREE_BASE}/${PHASE}-merge-${run_suffix}"
 

@@ -1,0 +1,9 @@
+phase: skill-curation
+merge_target: curation/run
+
+stages:
+  - name: "Skill curation"
+    groups:
+      - id: curation
+        branch: curation/curation
+        merge_message: "docs: curation skill"

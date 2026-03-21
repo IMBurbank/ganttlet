@@ -72,7 +72,7 @@ EOF
 run_agent() {
   local group="$1"
   local workdir="$2"
-  local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/${group}.md"
+  local prompt_file="${workdir}/${PROMPTS_DIR}/${group}.md"
   local logfile="${LOG_DIR}/${group}.log"
   local start_seconds=$SECONDS
   local retry_count=0

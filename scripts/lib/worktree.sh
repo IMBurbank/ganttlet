@@ -8,11 +8,11 @@
 setup_worktree() {
   local group="$1"
   local branch="$2"
-  local worktree="${WORKTREE_BASE}/${PHASE}-${group}"
+  # Derive worktree path from branch name (includes run suffix for uniqueness)
+  local worktree="${WORKTREE_BASE}/${branch//\//-}"
 
   if [[ ! -d "$worktree" ]]; then
     log "Creating worktree: ${worktree} (branch: ${branch}) from ${MERGE_TARGET}" >&2
-    cd "$WORKSPACE"
     # Branch from MERGE_TARGET so each stage sees prior stage merges
     git worktree add "$worktree" -b "$branch" "$MERGE_TARGET" >/dev/null 2>&1 || \
       git worktree add "$worktree" "$branch" >/dev/null 2>&1 || \
@@ -23,13 +23,15 @@ setup_worktree() {
 
   (cd "$worktree" && npm install --silent >/dev/null 2>&1) || true
 
-  (
-    cd "$worktree"
-    if [[ ! -d "src/wasm/scheduler" && ! -L "src/wasm/scheduler" ]]; then
-      log "Symlinking WASM artifacts for ${group}" >&2
-      ln -s /workspace/src/wasm/scheduler src/wasm/scheduler >/dev/null 2>&1 || true
-    fi
-  )
+  # Copy WASM build artifacts from the invoker's worktree
+  local launch_dir="${_LAUNCH_DIR:-.}"
+  if [[ -d "${launch_dir}/src/wasm/scheduler" && ! -d "${worktree}/src/wasm/scheduler" ]]; then
+    log "Copying WASM artifacts for ${group}" >&2
+    mkdir -p "${worktree}/src/wasm" >/dev/null 2>&1
+    cp -r "${launch_dir}/src/wasm/scheduler" "${worktree}/src/wasm/scheduler" >/dev/null 2>&1 || true
+  elif [[ ! -d "${worktree}/src/wasm/scheduler" ]]; then
+    warn "WASM artifacts missing in ${launch_dir} — tsc may fail" >&2
+  fi
 
   # Seed .agent-status.json if it doesn't exist yet
   if [[ ! -f "${worktree}/.agent-status.json" ]]; then
@@ -61,21 +63,25 @@ setup_merge_worktree() {
   setup_merge_target  # ensure the implementation branch exists
 
   log "Creating merge worktree: ${MERGE_WORKTREE} (branch: ${MERGE_TARGET})"
-  cd "$WORKSPACE"
   git worktree add "$MERGE_WORKTREE" "$MERGE_TARGET" >/dev/null 2>&1 || \
     { err "Failed to create merge worktree"; return 1; }
 
   # Install dependencies so tsc/vitest can run in the worktree
   (cd "$MERGE_WORKTREE" && npm install --silent >/dev/null 2>&1) || true
+
+  # WASM artifacts come from the invoker's worktree (orchestrator responsibility)
+  local launch_dir="${_LAUNCH_DIR:-.}"
+  if [[ -d "${launch_dir}/src/wasm/scheduler" && ! -d "${MERGE_WORKTREE}/src/wasm/scheduler" ]]; then
+    mkdir -p "${MERGE_WORKTREE}/src/wasm" >/dev/null 2>&1
+    cp -r "${launch_dir}/src/wasm/scheduler" "${MERGE_WORKTREE}/src/wasm/scheduler" >/dev/null 2>&1 || true
+  fi
 }
 
 # Remove the merge worktree. Called after PR creation or on pipeline cleanup.
 cleanup_merge_worktree() {
   if [[ -d "$MERGE_WORKTREE" ]]; then
     log "Removing merge worktree: ${MERGE_WORKTREE}"
-    cd "$WORKSPACE"
-    git worktree remove "$MERGE_WORKTREE" --force 2>/dev/null || \
-      warn "Could not remove merge worktree: ${MERGE_WORKTREE}"
+    rm -rf "$MERGE_WORKTREE"
     git worktree prune 2>/dev/null || true
   fi
 }
@@ -90,12 +96,13 @@ cleanup_worktrees() {
   for i in "${!_groups[@]}"; do
     local group="${_groups[$i]}"
     local branch="${_branches[$i]}"
-    local worktree="${WORKTREE_BASE}/${PHASE}-${group}"
+    local worktree="${WORKTREE_BASE}/${branch//\//-}"
     if [[ -d "$worktree" ]]; then
-      git worktree remove "$worktree" --force 2>/dev/null || \
-        warn "Could not remove worktree: ${worktree}"
+      rm -rf "$worktree"
+      log "Removed worktree: ${worktree}"
     fi
     git branch -d "$branch" 2>/dev/null || \
       warn "Could not delete branch: ${branch}"
   done
+  git worktree prune 2>/dev/null || true
 }

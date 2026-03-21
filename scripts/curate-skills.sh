@@ -12,7 +12,7 @@ CONFIG="docs/prompts/curation/skill-curation.yaml"
 
 # Date-stamped merge branch (config.sh reads _USER_MERGE_TARGET)
 # Short hash suffix handles same-day reruns
-export _USER_MERGE_TARGET="curation/$(date +%Y-%m-%d)-$(head -c4 /dev/urandom | xxd -p)"
+export _USER_MERGE_TARGET="curation/$(date +%Y-%m-%d)-$(openssl rand -hex 2)"
 
 mkdir -p "$PROCESSED_DIR"
 

@@ -10,7 +10,7 @@ validate() {
     return $?
   fi
 
-  local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/validate.md"
+  local prompt_file="${MERGE_WORKTREE}/${PROMPTS_DIR}/validate.md"
   local max_attempts="${VALIDATE_MAX_ATTEMPTS:-3}"
 
   if [[ ! -f "$prompt_file" ]]; then

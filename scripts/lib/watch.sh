@@ -23,7 +23,7 @@ VALIDATE_IDLE_THRESHOLD="${IDLE_THRESHOLD:-120}"  # validation needs longer (run
 build_claude_cmd() {
   local group="$1"
   local workdir="$2"
-  local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/${group}.md"
+  local prompt_file="${workdir}/${PROMPTS_DIR}/${group}.md"
   local exitcode_file="${LOG_DIR}/${group}.exit"
   local logfile="${LOG_DIR}/${group}.log"
 
@@ -67,7 +67,11 @@ get_all_descendants() {
   done
 }
 
-PROMPT="$(cat "$PROMPT_FILE")"
+# Strip YAML frontmatter (---...---) before passing as CLI argument.
+# The --- lines are parsed as unknown CLI options, crashing attempt 1.
+# Frontmatter is metadata for Claude Code's prompt system and is not
+# processed from CLI positional arguments (tested in test-hooks.sh).
+PROMPT="$(sed '/^---$/,/^---$/d' "$PROMPT_FILE")"
 
 for attempt in $(seq 1 "$MAX_RETRIES"); do
   echo "=== ${GROUP}: attempt ${attempt}/${MAX_RETRIES} ==="
@@ -108,6 +112,7 @@ ${PROMPT}"
   echo "$FULL_PROMPT" > "$PROMPT_TMPFILE"
 
   # Idle monitor — kills claude process tree when output stabilizes
+  # Also auto-approves .claude/ permission dialogs (interactive mode only)
   (
     trap '' TERM
     sleep 15
@@ -115,6 +120,21 @@ ${PROMPT}"
     IDLE_SECONDS=0
     while true; do
       sleep 5
+
+      # Auto-approve .claude/ file permission dialogs
+      # Interactive mode shows "Do you want to ... edit its own settings"
+      # for .claude/ files even with --dangerously-skip-permissions.
+      # Send "2" (Yes + allow for session) so it doesn't ask again.
+      PANE_OUTPUT=$(tmux capture-pane -t "$TMUX_TARGET" -p 2>/dev/null || echo "")
+      if echo "$PANE_OUTPUT" | grep -q "edit its own settings"; then
+        echo "[monitor] ${GROUP}: auto-approving .claude/ permission dialog (session-wide)"
+        tmux send-keys -t "$TMUX_TARGET" "2"
+        sleep 0.5
+        tmux send-keys -t "$TMUX_TARGET" Enter
+        sleep 2
+        continue
+      fi
+
       CURRENT_SIZE=$(stat -c %s "$LOGFILE" 2>/dev/null || echo 0)
       if [[ "$CURRENT_SIZE" -gt 0 ]] && [[ "$CURRENT_SIZE" == "$LAST_SIZE" ]]; then
         IDLE_SECONDS=$((IDLE_SECONDS + 5))
@@ -304,7 +324,7 @@ watch_parallel_stage() {
 
 # Run the validation agent in WATCH/tmux mode.
 watch_validate() {
-  local prompt_file="${WORKSPACE}/${PROMPTS_DIR}/validate.md"
+  local prompt_file="${MERGE_WORKTREE}/${PROMPTS_DIR}/validate.md"
   local max_attempts="${VALIDATE_MAX_ATTEMPTS:-3}"
   local exitcode_file="${LOG_DIR}/validate.exit"
   local validate_timeout="${VALIDATE_TIMEOUT:-600}"

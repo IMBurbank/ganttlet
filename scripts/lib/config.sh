@@ -35,14 +35,17 @@ load_config() {
   fi
 
   # MERGE_TARGET: user env var > YAML > derived from phase
+  # All targets get a run-unique suffix to prevent clashes
   local merge_target_yaml
   merge_target_yaml=$(yq -r '.merge_target // ""' "$config_file")
+  local merge_suffix
+  merge_suffix=$(date +%Y%m%d-%H%M%S)
   if [[ -n "${_USER_MERGE_TARGET:-}" ]]; then
     MERGE_TARGET="$_USER_MERGE_TARGET"
   elif [[ -n "$merge_target_yaml" ]]; then
-    MERGE_TARGET="$merge_target_yaml"
+    MERGE_TARGET="${merge_target_yaml}-${merge_suffix}"
   else
-    MERGE_TARGET="feature/${PHASE}"
+    MERGE_TARGET="feature/${PHASE}-${merge_suffix}"
   fi
 
   # Load stages dynamically
@@ -58,6 +61,10 @@ load_config() {
   declare -g -A STAGE_MERGE_MSGS=()
   declare -g -a STAGE_GROUP_COUNTS=()
 
+  # Run-unique suffix prevents branch name clashes across runs
+  local run_suffix
+  run_suffix=$(echo "${_LAUNCH_BASE_REF:-$(date +%s)}" | cut -c1-8)
+
   for ((s=0; s<NUM_STAGES; s++)); do
     STAGE_NAMES+=("$(yq -r ".stages[$s].name // \"Stage $((s+1))\"" "$config_file")")
 
@@ -67,7 +74,7 @@ load_config() {
 
     for ((g=0; g<num_groups; g++)); do
       STAGE_GROUP_IDS["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].id" "$config_file")
-      STAGE_BRANCHES["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].branch" "$config_file")
+      STAGE_BRANCHES["${s}:${g}"]="$(yq -r ".stages[$s].groups[$g].branch" "$config_file")-${run_suffix}"
       STAGE_MERGE_MSGS["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].merge_message" "$config_file")
     done
   done
@@ -77,10 +84,10 @@ load_config() {
   PR_SUMMARY=$(yq -r '.pr.summary // ""' "$config_file")
   PR_TEST_PLAN=$(yq -r '.pr.test_plan // ""' "$config_file")
 
-  # Derived values
-  LOG_DIR="${WORKSPACE}/logs/${PHASE}"
-  TMUX_SESSION="${PHASE}-agents"
-  MERGE_WORKTREE="${WORKTREE_BASE}/${PHASE}-merge"
+  # Derived values — include merge_suffix for run isolation
+  LOG_DIR="/tmp/ganttlet-logs/${PHASE}-${merge_suffix}"
+  TMUX_SESSION="${PHASE}-agents-${merge_suffix}"
+  MERGE_WORKTREE="${WORKTREE_BASE}/${PHASE}-merge-${merge_suffix}"
 
   mkdir -p "$LOG_DIR"
 

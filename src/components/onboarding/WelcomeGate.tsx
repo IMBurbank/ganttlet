@@ -1,9 +1,12 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, lazy, Suspense } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+
+const PromotionFlow = lazy(() => import('./PromotionFlow'));
 
 export default function WelcomeGate({ children }: { children: React.ReactNode }) {
   const state = useGanttState();
   const dispatch = useGanttDispatch();
+  const [showPromotion, setShowPromotion] = useState(false);
 
   const handleTryDemo = useCallback(async () => {
     const { fakeTasks, fakeChangeHistory } = await import('../../data/templates/softwareRelease');
@@ -12,7 +15,31 @@ export default function WelcomeGate({ children }: { children: React.ReactNode })
 
   // If dataSource is defined, the app is initialized — render children
   if (state.dataSource !== undefined) {
-    return <>{children}</>;
+    return (
+      <>
+        {state.dataSource === 'sandbox' && (
+          <div
+            className="bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-4 py-2 text-sm flex items-center justify-center gap-2"
+            data-testid="sandbox-banner"
+          >
+            <span>You&apos;re exploring a demo project. Nothing is saved.</span>
+            <button
+              onClick={() => setShowPromotion(true)}
+              className="underline font-medium hover:text-amber-700 dark:hover:text-amber-100 transition-colors"
+              data-testid="save-to-sheet-button"
+            >
+              Save to Google Sheet
+            </button>
+          </div>
+        )}
+        {showPromotion && (
+          <Suspense fallback={null}>
+            <PromotionFlow onClose={() => setShowPromotion(false)} />
+          </Suspense>
+        )}
+        {children}
+      </>
+    );
   }
 
   // If URL has ?sheet= or ?room=, GanttContext useEffect handles loading — render nothing

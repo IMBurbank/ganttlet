@@ -302,6 +302,40 @@ The `claude` binary in the dev container has specific constraints. When writing 
 - **Key flags**: `--dangerously-skip-permissions`, `-p` (print/pipe mode), `-c` (continue),
   `-r` (resume session), `--system-prompt`, `--model`, `--max-turns`, `--max-budget-usd`
 
+## SDK Agent Runner
+
+When `SDK_RUNNER=1` is set, `run_agent()` uses the TypeScript SDK runner
+(`scripts/sdk/agent-runner.ts`) instead of `claude -p`. The runner provides:
+
+- **Policy-based attempt fallback**: Configurable via `--policy`. The
+  `reviewer` policy has 3 attempts (sonnet 30 turns → resume 5 turns →
+  haiku fresh 5 turns). The `default` policy is single-attempt.
+- **Output validation**: Policies can define `isValid()` checks. Invalid
+  output triggers a fix attempt (resume with correction prompt) before
+  advancing to the next attempt.
+- **Cumulative budget tracking**: `--max-budget` is shared across all
+  attempts. The runner tracks spend and passes remaining budget to each call.
+- **Structured metrics**: JSONL with attempt count, failure mode, cost,
+  session ID, policy name.
+
+### CLI flags
+
+`--group`, `--workdir`, `--prompt`, `--log`, `--phase` (required).
+`--policy`, `--max-turns`, `--max-budget`, `--model`, `--agent`,
+`--output-file`, `--prompt-var KEY=VALUE` (optional).
+
+### Naming convention
+
+Group IDs ending in a reviewer angle (`-accuracy`, `-structure`, `-scope`,
+`-history`, `-adversarial`) automatically set `--policy reviewer`,
+`--agent skill-reviewer`, and `--output-file` to the correct path. No
+YAML changes needed — detection is in `run_agent()`.
+
+### Existing `claude -p` path
+
+Unchanged. When `SDK_RUNNER` is unset, `run_agent()` uses the existing
+bash retry loop with `claude -p`. Both code paths coexist.
+
 ## SIGPIPE Warning
 
 **Never pipe `launch-phase.sh` output through `head`, `less`, or any command that closes stdin early.**

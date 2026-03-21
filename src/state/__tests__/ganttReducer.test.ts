@@ -238,6 +238,23 @@ describe('ganttReducer', () => {
       expect(result.tasks[1].parentId).toBeNull();
     });
 
+    it('uses custom name when provided', () => {
+      const state = makeState({ tasks: [makeTask({ id: 'a' })] });
+      const result = ganttReducer(state, {
+        type: 'ADD_TASK',
+        parentId: null,
+        afterTaskId: null,
+        name: 'My Custom Task',
+      });
+      expect(result.tasks[1].name).toBe('My Custom Task');
+    });
+
+    it('falls back to default name when name is not provided', () => {
+      const state = makeState({ tasks: [makeTask({ id: 'a' })] });
+      const result = ganttReducer(state, { type: 'ADD_TASK', parentId: null, afterTaskId: null });
+      expect(result.tasks[1].name).toBe('New Task');
+    });
+
     it('adds a subtask to a parent', () => {
       const state = makeState({
         tasks: [makeTask({ id: 'parent', isSummary: true, childIds: [] })],

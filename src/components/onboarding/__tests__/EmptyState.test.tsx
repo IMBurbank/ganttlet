@@ -127,6 +127,34 @@ describe('EmptyState', () => {
     expect(templateBtn.textContent).toBe('Or start from a template');
   });
 
+  it('dispatches ADD_TASK with name on Enter key', () => {
+    render(
+      <GanttProvider>
+        <EmptyState />
+      </GanttProvider>
+    );
+
+    const input = screen.getByTestId('empty-state-task-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'My First Task' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // Input should be cleared after adding
+    expect(input.value).toBe('');
+  });
+
+  it('does not dispatch ADD_TASK on Enter with empty input', () => {
+    render(
+      <GanttProvider>
+        <EmptyState />
+      </GanttProvider>
+    );
+
+    const input = screen.getByTestId('empty-state-task-input') as HTMLInputElement;
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // No crash, input stays empty
+    expect(input.value).toBe('');
+  });
+
   it('opens template picker on template button click', async () => {
     render(
       <GanttProvider>

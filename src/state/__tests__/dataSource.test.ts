@@ -143,6 +143,30 @@ describe('dataSource reducer actions', () => {
     });
   });
 
+  describe('RESET_SYNC clears isSyncing', () => {
+    it('clears isSyncing after START_SYNC was dispatched', () => {
+      const state = makeState({ dataSource: 'loading' });
+      const syncing = ganttReducer(state, { type: 'START_SYNC' });
+      expect(syncing.isSyncing).toBe(true);
+      const reset = ganttReducer(syncing, { type: 'RESET_SYNC' });
+      expect(reset.isSyncing).toBe(false);
+      expect(reset.syncComplete).toBe(false);
+    });
+
+    it('error path: START_SYNC → RESET_SYNC → SET_SYNC_ERROR leaves isSyncing false', () => {
+      let state = makeState({ dataSource: 'loading' });
+      state = ganttReducer(state, { type: 'START_SYNC' });
+      expect(state.isSyncing).toBe(true);
+      state = ganttReducer(state, { type: 'RESET_SYNC' });
+      state = ganttReducer(state, {
+        type: 'SET_SYNC_ERROR',
+        error: { type: 'auth', message: 'Session expired', since: 1000 },
+      });
+      expect(state.isSyncing).toBe(false);
+      expect(state.syncError).not.toBeNull();
+    });
+  });
+
   describe('empty→sheet auto-transition', () => {
     it('transitions from empty to sheet on task-modifying action', () => {
       const state = makeState({

@@ -16,7 +16,9 @@ them. Return a structured report.
 ## Verification steps (run in order)
 1. `npx tsc --noEmit` — TypeScript type checking
 2. `npx vitest run --reporter=dot` — Unit tests
-3. `cd crates/scheduler && cargo test` — Rust scheduler tests
+3. Rust scheduler tests:
+   - `cd crates/scheduler`
+   - `cargo test`
 4. `./scripts/lint-agent-paths.sh` — Agent structure map freshness
 5. Skip E2E tests (require deployment infrastructure)
 

@@ -41,8 +41,8 @@ MERGE_FIX_RETRIES="${MERGE_FIX_RETRIES:-3}"
 DEFAULT_MAX_TURNS="${DEFAULT_MAX_TURNS:-80}"
 DEFAULT_MAX_BUDGET="${DEFAULT_MAX_BUDGET:-10.00}"
 STALL_TIMEOUT="${STALL_TIMEOUT:-30}"
-# WORKSPACE must be the main repo root (not current worktree) because
-# worktree.sh, config.sh, and merge.sh all cd to it for git operations.
+# WORKSPACE is the main repo root — used only for WORKTREE_BASE derivation
+# and config file path resolution. No scripts cd to it.
 WORKSPACE="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
 WORKTREE_BASE="${WORKTREE_BASE:-${WORKSPACE}/.claude/worktrees}"
 WATCH="${WATCH:-0}"
@@ -51,6 +51,13 @@ MAX_STAGE_DURATION="${MAX_STAGE_DURATION:-1800}"  # 30 minutes default
 
 # Preserve user's explicit MERGE_TARGET (empty if unset)
 _USER_MERGE_TARGET="${MERGE_TARGET:-}"
+
+# Capture the invoker's context so downstream operations use the
+# orchestrator's worktree, not /workspace. Respect pre-set values
+# from parent scripts (e.g., curate-skills.sh) for cross-invocation stability.
+_LAUNCH_BASE_REF="${_LAUNCH_BASE_REF:-$(git rev-parse HEAD)}"
+_LAUNCH_DIR="${_LAUNCH_DIR:-$(pwd)}"
+export _LAUNCH_BASE_REF _LAUNCH_DIR
 
 # ── Resolve script directory and source libraries ────────────────────────────
 
@@ -261,10 +268,10 @@ show_status() {
   done
   echo ""
   echo "Git worktrees:"
-  cd "$WORKSPACE" && git worktree list
+  git worktree list
   echo ""
   echo "Branches:"
-  cd "$WORKSPACE" && git branch -v
+  git branch -v
   echo ""
   echo "Log files:"
   ls -lh "$LOG_DIR" 2>/dev/null || echo "  (no logs yet)"
@@ -273,21 +280,23 @@ show_status() {
 # Remove all worktrees and branches for this phase.
 cleanup_phase() {
   log "=== Cleaning up phase: ${PHASE} ==="
-  cd "$WORKSPACE"
 
   # Remove merge worktree
   cleanup_merge_worktree
 
-  # Find and remove all phase worktrees
-  local worktree_pattern="${WORKTREE_BASE}/${PHASE}-"
+  # Find and remove all phase worktrees (names derived from branch names)
   local removed=0
-  for wt in "${worktree_pattern}"*; do
-    if [[ -d "$wt" ]]; then
-      log "Removing worktree: ${wt}"
-      git worktree remove "$wt" --force 2>/dev/null || \
-        warn "Could not remove worktree: ${wt}"
-      removed=$((removed + 1))
-    fi
+  for ((s=0; s<NUM_STAGES; s++)); do
+    local count="${STAGE_GROUP_COUNTS[$s]}"
+    for ((g=0; g<count; g++)); do
+      local branch="${STAGE_BRANCHES["${s}:${g}"]}"
+      local wt="${WORKTREE_BASE}/${branch//\//-}"
+      if [[ -d "$wt" ]]; then
+        log "Removing worktree: ${wt}"
+        rm -rf "$wt"
+        removed=$((removed + 1))
+      fi
+    done
   done
 
   # Prune any stale worktree references

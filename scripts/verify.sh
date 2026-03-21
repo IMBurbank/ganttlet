@@ -95,6 +95,18 @@ run_cargo() {
   return $?
 }
 
+run_guard() {
+  echo "[guard: test + rebuild]"
+  cargo test -p guard 2>&1 | tail -5; GUARD_EXIT=${PIPESTATUS[0]:-$?}
+  if [[ $GUARD_EXIT -eq 0 ]]; then
+    cargo build --release -p guard 2>&1 | tail -3
+    echo "[guard: binary rebuilt]"
+  else
+    echo "[guard: tests failed — binary NOT rebuilt]"
+  fi
+  return $GUARD_EXIT
+}
+
 # --- Scope-based routing ---
 case "$AGENT_SCOPE" in
   rust)
@@ -117,7 +129,10 @@ case "$AGENT_SCOPE" in
     fi
     ;;
   full|*)
-    if [[ "$FILE" =~ \.(rs)$ ]]; then
+    if [[ "$FILE" =~ crates/guard/ ]]; then
+      run_guard
+      FINAL_EXIT=$?
+    elif [[ "$FILE" =~ \.(rs)$ ]]; then
       run_cargo
       FINAL_EXIT=$?
     elif [[ "$FILE" =~ \.(ts|tsx)$ ]]; then

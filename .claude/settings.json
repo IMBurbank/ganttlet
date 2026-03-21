@@ -3,6 +3,12 @@
     "type": "command",
     "command": "bash ~/.claude/statusline.sh 2>/dev/null"
   },
+  "permissions": {
+    "allow": [
+      "Edit(.claude/skills/**)",
+      "Write(.claude/skills/**)"
+    ]
+  },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
@@ -13,11 +19,11 @@
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard edit || true" }]
+        "hooks": [{ "type": "command", "command": "{ test -x ./target/release/guard && ./target/release/guard edit; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard edit; } || true" }]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard bash || true" }]
+        "hooks": [{ "type": "command", "command": "{ test -x ./target/release/guard && ./target/release/guard bash; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard bash; } || true" }]
       }
     ],
     "PostToolUse": [

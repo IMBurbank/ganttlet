@@ -18,14 +18,17 @@ preflight_check() {
     return 1
   fi
 
-  if [[ -n "$(cd "$WORKSPACE" && git status --porcelain)" ]]; then
+  # Check the invoking directory for dirty state (worktree or workspace).
+  # Curators branch from the invoker's HEAD, so uncommitted changes won't
+  # be visible to them.
+  if [[ -n "$(git status --porcelain)" ]]; then
     err "Dirty git state — commit or stash changes before launching agents"
     return 1
   fi
 
   local prompts_exist=true
   for group in "$@"; do
-    if [[ ! -f "${WORKSPACE}/${PROMPTS_DIR}/${group}.md" ]]; then
+    if [[ ! -f "${PROMPTS_DIR}/${group}.md" ]]; then
       err "Missing prompt file: ${PROMPTS_DIR}/${group}.md"
       prompts_exist=false
     fi
@@ -33,30 +36,32 @@ preflight_check() {
   $prompts_exist || return 1
 
   # Verify merge target branch can be created or already exists
-  cd "$WORKSPACE"
   if ! git rev-parse --verify "$MERGE_TARGET" >/dev/null 2>&1; then
-    if ! git rev-parse --verify main >/dev/null 2>&1; then
-      err "Neither ${MERGE_TARGET} nor main branch exists"
-      return 1
-    fi
-    log "Merge target ${MERGE_TARGET} will be created from main"
+    local base_ref="${_LAUNCH_BASE_REF:-main}"
+    log "Merge target ${MERGE_TARGET} will be created from ${base_ref}"
   else
     log "Merge target ${MERGE_TARGET} already exists"
   fi
 
   # Verify worktree isolation hooks (fast, safety-critical — run before slow WASM build)
-  if [[ -f "${WORKSPACE}/scripts/test-hooks.sh" ]]; then
+  local hooks_script="scripts/test-hooks.sh"
+  if [[ -f "$hooks_script" ]]; then
     log "Running hook integration tests..."
-    if ! bash "${WORKSPACE}/scripts/test-hooks.sh"; then
+    if ! bash "$hooks_script"; then
       err "Hook integration tests failed. Fix .claude/settings.json before launching agents."
       return 1
     fi
   fi
 
-  log "Checking WASM build..."
-  if ! (cd "$WORKSPACE" && npm run build:wasm > /dev/null 2>&1); then
-    err "WASM build broken — fix before launching agents"
-    return 1
+  # Only check WASM build if Rust source files differ from main
+  if git diff main --name-only 2>/dev/null | grep -q '^crates/'; then
+    log "Rust files changed — checking WASM build..."
+    if ! (npm run build:wasm > /dev/null 2>&1); then
+      err "WASM build broken — fix before launching agents"
+      return 1
+    fi
+  else
+    log "No Rust changes — skipping WASM build check"
   fi
 
   # Suggest plan review before launch

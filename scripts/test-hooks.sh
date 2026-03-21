@@ -59,6 +59,10 @@ test_block  "Fail-closed on empty input" edit ''
 # --- Edit/Write: workspace isolation guard ---
 echo "--- Workspace isolation guard (edit mode) ---"
 test_block  "Block edit to /workspace/src/foo.ts"           edit '{"tool_input":{"file_path":"/workspace/src/foo.ts"}}'
+# Check 3 (CWD enforcement) only blocks when CWD is /workspace.
+# This test runs from wherever test-hooks.sh is invoked — from a worktree
+# the edit is allowed (agent editing its own worktree), from /workspace
+# it would be blocked (agent should have entered worktree first).
 test_allow  "Allow edit to worktree file"                   edit '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/foo.ts"}}'
 test_allow  "Allow edit to file outside /workspace/"        edit '{"tool_input":{"file_path":"/home/user/project/src/App.tsx"}}'
 
@@ -161,6 +165,62 @@ if [ -z "$out" ]; then
 else
   printf '  FAIL: missing binary produced output: %s\n' "$out"
   FAIL=$((FAIL + 1))
+fi
+
+echo "--- CLI frontmatter behavior (informational — changes are warnings, not failures) ---"
+# These tests detect if Claude Code starts processing YAML frontmatter from
+# CLI arguments. Today it doesn't — frontmatter is ignored in positional args.
+# If behavior changes, we want to know so we can reconsider the strip approach.
+INFO_CHANGES=0
+
+# Test 0: sed frontmatter strip produces correct output
+frontmatter_input="$(printf '%s\n%s\n%s\n%s\n%s' '---' 'scope:' '  modify: ["foo.md"]' '---' 'Actual prompt content')"
+stripped=$(echo "$frontmatter_input" | sed '/^---$/,/^---$/d')
+if [ "$stripped" = "Actual prompt content" ]; then
+  echo '  PASS: frontmatter strip produces correct output'
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: frontmatter strip produced: $stripped"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 0b: no frontmatter passes through unchanged
+no_fm_input="Just a prompt with no frontmatter"
+no_fm_stripped=$(echo "$no_fm_input" | sed '/^---$/,/^---$/d')
+if [ "$no_fm_stripped" = "$no_fm_input" ]; then
+  echo '  PASS: no-frontmatter prompt passes through unchanged'
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: no-frontmatter was modified: $no_fm_stripped"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 1: --- as positional argument should not crash claude
+# Note: pipe mode (-p -) doesn't have this bug — only positional args do.
+# We test positional to detect if Claude Code fixes the --- parsing.
+frontmatter_prompt="$(printf '%s\n%s\n%s\n%s' '---' 'name: test' '---' 'Say ok')"
+frontmatter_crash_out=$(claude --dangerously-skip-permissions -p "$frontmatter_prompt" 2>&1 || true)
+if echo "$frontmatter_crash_out" | grep -qi "error\|unknown option"; then
+  echo '  INFO: YAML --- in positional prompt causes CLI error (expected — stripped in watch.sh)'
+else
+  echo '  WARNING: YAML --- in positional prompt no longer causes CLI error (behavior changed — stripping may be unnecessary)'
+  INFO_CHANGES=$((INFO_CHANGES + 1))
+fi
+PASS=$((PASS + 1))
+
+# Test 2: scope.modify in piped prompt should NOT restrict edits
+scope_test_file="/tmp/ganttlet-scope-test-$$"
+scope_out=$(printf '%s\n%s\n%s\n%s\n%s' '---' 'scope:' '  modify: ["nonexistent-only.txt"]' '---' "Write the text test to ${scope_test_file} then delete it" | claude --dangerously-skip-permissions -p - 2>&1 || true)
+if echo "$scope_out" | grep -qi "permission\|denied\|blocked\|scope"; then
+  echo '  WARNING: scope.modify IS being enforced from CLI args (behavior changed — reconsider frontmatter stripping)'
+  INFO_CHANGES=$((INFO_CHANGES + 1))
+else
+  echo '  INFO: scope.modify NOT enforced from CLI args (expected — frontmatter stripping is safe)'
+fi
+PASS=$((PASS + 1))
+
+if [ "$INFO_CHANGES" -gt 0 ]; then
+  printf '  *** WARNING: %d frontmatter behavior change(s) detected — review watch.sh frontmatter handling ***\n' "$INFO_CHANGES"
 fi
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"

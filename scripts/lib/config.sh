@@ -35,14 +35,20 @@ load_config() {
   fi
 
   # MERGE_TARGET: user env var > YAML > derived from phase
+  # Run-unique suffix derived from stable ref (SHA) — same across
+  # stage/merge/validate invocations within the same run
+  local run_suffix
+  run_suffix=$(echo "${_LAUNCH_BASE_REF:-$(date +%s)}" | cut -c1-8)
+
+  # MERGE_TARGET: user env var > YAML+suffix > phase+suffix
   local merge_target_yaml
   merge_target_yaml=$(yq -r '.merge_target // ""' "$config_file")
   if [[ -n "${_USER_MERGE_TARGET:-}" ]]; then
     MERGE_TARGET="$_USER_MERGE_TARGET"
   elif [[ -n "$merge_target_yaml" ]]; then
-    MERGE_TARGET="$merge_target_yaml"
+    MERGE_TARGET="${merge_target_yaml}-${run_suffix}"
   else
-    MERGE_TARGET="feature/${PHASE}"
+    MERGE_TARGET="feature/${PHASE}-${run_suffix}"
   fi
 
   # Load stages dynamically
@@ -67,7 +73,7 @@ load_config() {
 
     for ((g=0; g<num_groups; g++)); do
       STAGE_GROUP_IDS["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].id" "$config_file")
-      STAGE_BRANCHES["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].branch" "$config_file")
+      STAGE_BRANCHES["${s}:${g}"]="$(yq -r ".stages[$s].groups[$g].branch" "$config_file")-${run_suffix}"
       STAGE_MERGE_MSGS["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].merge_message" "$config_file")
     done
   done
@@ -77,10 +83,10 @@ load_config() {
   PR_SUMMARY=$(yq -r '.pr.summary // ""' "$config_file")
   PR_TEST_PLAN=$(yq -r '.pr.test_plan // ""' "$config_file")
 
-  # Derived values
-  LOG_DIR="${WORKSPACE}/logs/${PHASE}"
-  TMUX_SESSION="${PHASE}-agents"
-  MERGE_WORKTREE="${WORKTREE_BASE}/${PHASE}-merge"
+  # Derived values — run_suffix is stable across stage/merge/validate invocations
+  LOG_DIR="/tmp/ganttlet-logs/${PHASE}-${run_suffix}"
+  TMUX_SESSION="${PHASE}-agents-${run_suffix}"
+  MERGE_WORKTREE="${WORKTREE_BASE}/${PHASE}-merge-${run_suffix}"
 
   mkdir -p "$LOG_DIR"
 

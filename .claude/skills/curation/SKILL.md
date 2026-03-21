@@ -1,6 +1,6 @@
 ---
 name: curation
-description: "Skill curation process — 5-angle review, scoring, full skill synthesis, debrief reports"
+description: "Skill curation process — 5-angle review, scoring, full skill synthesis, debrief reports. Used by curator agents."
 ---
 
 # Skill Curation — Review, Score, and Synthesize Better Skills
@@ -16,7 +16,7 @@ Research on LLM agent memory shows that indiscriminate storage performs worse
 than no memory at all — wrong or stale content actively biases agent behavior
 toward incorrect outcomes. Quality gates are essential, not optional.
 
-The curation system reviews entire skill files using 5 parallel reviewer
+The curation system reviews entire skill files using 5 parallel skill-review
 subagents, independently scores each finding, then the curator produces a
 **full synthesis** — a rewritten skill that integrates validated new
 observations and removes stale, wrong, or redundant content. The result is
@@ -27,47 +27,50 @@ a better skill, not a bigger one.
 ### The Full Flow
 
 ```
-curate-skills.sh (script, mechanical)
-├── Count pending feedback reports
-├── launch-phase.sh stage 1
-│   └── 8 curators in parallel (one per non-curation skill)
-│       ├── 5 Reviewer subagents (sonnet, read-only)
-│       ├── N Haiku scorers (one per finding)
-│       └── Validation subagents (on-demand)
-├── launch-phase.sh merge 1
-└── launch-phase.sh validate
-
-Operator/supervisor agent (manually invoked after script completes)
+Orchestrator (orchestrator.md)
+├── Enter worktree
+├── Run curate-skills.sh or launch-phase.sh with subset config
+│   ├── curate-skills.sh early-exit if no pending reports
+│   ├── launch-phase.sh stage 1
+│   │   └── N curators in parallel (one per skill in config)
+│   │       ├── 5 skill-review subagents (sonnet, read-only)
+│   │       ├── N Haiku scorers (one per finding)
+│   │       └── Validation subagents (on-demand)
+│   ├── launch-phase.sh merge 1
+│   └── launch-phase.sh validate
+├── Monitor curators in tmux, fix failures, retry as needed
 ├── Read curator commit messages → extract outcomes
 ├── Write outcomes into processed reports
-├── Create PR (skill-curation label, threshold calibration)
-├── Strict code review loop (max 3 iterations)
-├── Post final summary
+├── Create PR, code review loop
 └── Write orchestrator debrief report
 ```
 
-Note: the curation skill is not in the default `skill-curation.yaml` groups
-but can be curated manually or added to the config at any time.
+The curation skill is not in the default `skill-curation.yaml` groups
+but can be added to any subset config and run via `launch-phase.sh`.
 
 ### What Each Component Does
 
-**`curate-skills.sh`** — pipeline runner. Sets a date-stamped merge branch
-via `_USER_MERGE_TARGET`, runs launch-phase (stage → merge → validate),
-then moves processed feedback reports to `feedback/processed/`. On partial
-failure, generates a retry config with only failed groups.
+**Orchestrator** (`docs/prompts/curation/orchestrator.md`) — sets up and
+runs the pipeline, monitors curators in tmux, handles failures and retries,
+then manages all post-curation tasks (PR, code review, debriefs). See the
+orchestrator prompt for its full workflow.
 
 **Curator** (one per skill, `docs/prompts/curation/curator.md`) — the group
-agent that orchestrates review of one skill. Reads the entire skill file and
-feedback reports, spawns 5 reviewers, collects findings, spawns haiku scorers,
-filters at threshold, validates contested findings, then produces a full
-rewrite of the skill file. Uses reviewer findings as input but applies its
-own judgment — reviewers inform the rewrite, they don't dictate it. Commits
-with a detailed message documenting all findings, reasoning, and outcomes.
+agent that runs skill-review subagents for one skill. Reads the entire skill
+file and feedback reports, spawns 5 reviewers, collects findings, spawns
+haiku scorers, filters at threshold, validates contested findings, then
+produces a full rewrite of the skill file. Uses reviewer findings as input
+but applies its own judgment — reviewers inform the rewrite, they don't
+dictate it. Commits with a detailed message documenting all findings,
+reasoning, and outcomes.
 
 **Skill reviewer** (`.claude/agents/skill-reviewer.md`) — read-only subagent
 spawned by the curator. Reviews the entire skill file from one of 5 angles.
 Produces a structured findings report with per-claim classifications and
-evidence. Assesses every section equally — no section is special.
+evidence. Assesses every section equally — no section is special. If a
+reviewer exhausts its turns without writing the report, the curator runs
+a haiku synthesis pass to format the raw investigation into the required
+table structure (see curator.md Step 2b).
 
 **Haiku scorer** — lightweight agent spawned per finding. Independently scores
 the finding (0-100) using a rubric and false positive list. Separates advocacy
@@ -146,82 +149,42 @@ directed here by the `full-verify.sh` hook when no debrief is found.
 **Schema:** YAML frontmatter (date, agent, task, commits) + observations
 list. Each observation has: type, summary, evidence, files.
 
-**Filename:** generated via `$(date +%Y-%m-%d)-$(git branch --show-current | tr '/' '-').md`
+**Filename:** see `debrief-template.md` for the generation command (includes
+random hex suffix to prevent collisions).
 
 **Observation types:** `undocumented_behavior`, `wrong_documentation`,
 `unexpected_result`, `workflow_gap`, `nothing_to_report`, `threshold_calibration`.
 
-**Lifecycle:** feedback/ → curator reads directly (oldest 20) → 5 reviewers
-assess entire skill + reports → haiku scorers validate findings → curator
-synthesizes rewritten skill file → script moves reports to feedback/processed/
-→ orchestrator writes outcomes. Reports in processed/ preserved permanently.
+**Lifecycle:** feedback/ → curator reads oldest 20 → 5 reviewers assess
+entire skill + reports → haiku scorers validate findings → curator synthesizes
+rewritten skill file → on success (stage + merge pass), script moves reports
+to feedback/processed/ → orchestrator writes outcomes. Reports in processed/
+preserved permanently.
 
 Curators also report issues they find in CLAUDE.md files, subagent definitions,
 or other instruction context as `wrong_documentation` observations. These are
 preserved in `processed/` for future instruction curation scope.
 
-## How to Run Curation
-
-**Automated (full pipeline):**
-```bash
-./scripts/curate-skills.sh
-# Then agent creates PR and handles code review
-```
-
-**Manual (one skill at a time):**
-Tell an agent: "Read docs/prompts/curation/curator.md and follow its
-instructions. Your target skill is: scheduling-engine"
-
-Same 5 reviewers, same scoring. No launch-phase infrastructure needed.
-Useful for testing prompts, initial cleanup, or ad-hoc review.
-
-## Code Review Protocol
-
-Stricter than normal code PRs — curation changes instruction content that
-affects all future agent behavior.
-
-- All findings scoring ≥threshold must be addressed
-- Max 3 review iterations
-- Full findings posted every round (no summarization)
-- Final summary always posted (clean or max iterations)
-- If max iterations reached: `needs-human-review` label
-- Human takes over for supervised continuation if needed
-
-**Curation review checklist:**
-1. Cross-skill consistency (removed from A, duplicate still in B?)
-2. Evidence quality (every change cites source/test/commit)
-3. Rewritten content accuracy (matches the domain, readable, complete)
-4. Net token impact (negative or neutral)
-5. No information loss (non-obvious knowledge preserved, not just deleted)
-6. Wrong classifications verified correct
-
-## Partial Failure Recovery
-
-If some curators fail during the stage, `curate-skills.sh` generates a
-retry config (`/tmp/skill-curation-retry-*.yaml`) with only the failed
-groups. Agent diagnoses via `launch-phase.sh ... status`, reads log files,
-fixes the issue, retries with the retry config. Merge uses the original
-config to merge all branches (original successes + retry successes).
-
 ## File Layout
 
 ```
 docs/prompts/curation/
-├── curator.md               # Curator prompt (one per skill, shared template)
-├── orchestrator.md          # Orchestrator prompt (pipeline, PR, code review)
+├── orchestrator.md          # Orchestrator prompt (pipeline, monitoring, PR, code review)
+├── curator.md               # Curator prompt (shared template, one instance per skill)
 ├── {skill-name}.md          # Thin wrappers (one per skill, point to curator)
 ├── debrief-template.md      # Template for agent debrief reports
 ├── validate.md              # Post-merge validation prompt
-├── skill-curation.yaml      # Launch config (8 groups, reusable)
+├── skill-curation.yaml      # Launch config (groups, reusable)
 ├── threshold.txt            # Scoring threshold (initial: 70)
 └── feedback/                # Debrief reports accumulate here
     └── processed/           # Processed reports (outcomes in git history)
 
 .claude/agents/
-└── skill-reviewer.md        # Reviewer subagent definition (shared by all 5 angles)
+└── skill-reviewer.md        # Skill-review subagent definition (shared by all 5 angles)
 
 scripts/
 ├── curate-skills.sh         # Pipeline runner
 ├── check-curation.sh        # Reminder hook (count + age thresholds)
-└── generate-retry-config.sh # Partial failure recovery
+├── generate-retry-config.sh # Partial failure recovery
+└── lint-agent-paths.sh      # Cross-reference check (used by validate.md)
 ```

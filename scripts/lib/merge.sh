@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # scripts/lib/merge.sh — Branch merging with conflict resolution and post-merge verification
 #
-# All merge operations happen inside the merge worktree (MERGE_WORKTREE),
-# never in /workspace. This keeps /workspace on main at all times.
+# All merge operations happen inside the merge worktree (MERGE_WORKTREE).
+# Git commands work from any worktree — no need to cd to /workspace.
 
 # Ensure the implementation branch exists (created from main).
 setup_merge_target() {
-  cd "$WORKSPACE"
   if ! git rev-parse --verify "$MERGE_TARGET" >/dev/null 2>&1; then
-    log "Creating implementation branch: ${MERGE_TARGET} (from main)"
-    git branch "$MERGE_TARGET" main
+    # Branch from HEAD of wherever launch-phase.sh was invoked.
+    # When run from an orchestrator worktree, curators inherit its changes.
+    # When run from main, curators get main. No manual branch management needed.
+    local base_ref="${_LAUNCH_BASE_REF:-main}"
+    log "Creating implementation branch: ${MERGE_TARGET} (from ${base_ref})"
+    git branch "$MERGE_TARGET" "$base_ref"
   fi
 }
 
@@ -202,7 +205,9 @@ IMPORTANT: Do NOT enter plan mode. Do NOT ask for confirmation. Fix issues and k
 Steps:
 1. Run \`npx tsc --noEmit\` — fix any TypeScript errors
 2. Run \`npm run test\` — fix any test failures
-3. Run \`cd crates/scheduler && cargo test\` — fix any Rust test failures
+3. Rust tests (two separate commands):
+   - \`cd crates/scheduler\`
+   - \`cargo test\`
 4. Repeat until ALL pass
 5. Commit all fixes with: \`fix: resolve merge verification failures for ${merge_label}\`
 
@@ -315,9 +320,6 @@ do_merge() {
 
   # Cleanup agent worktrees (not the merge worktree — it persists for validate/PR)
   cleanup_worktrees "$2" "$3"
-
-  # Return to /workspace (stays on main)
-  cd "$WORKSPACE"
 
   ok "=== ${merge_label} complete ==="
 }

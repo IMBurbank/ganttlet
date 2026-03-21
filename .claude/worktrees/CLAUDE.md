@@ -23,13 +23,13 @@ It does NOT apply to CI/workflow agents.
 - You are working in a worktree. All git operations (commit, push, rebase) happen here.
 - **Clean up your own worktree only after its PR is merged** — the worktree is your only working copy. If you delete it before the merge completes and the merge fails, you have no way to fix and retry.
 - **`git worktree prune` is always safe** — it only removes stale references to already-deleted directories. It never deletes files. Run it after removing a worktree directory.
-- **Cleanup order (each step is a separate Bash call — never chain with `&&`):**
+- **Cleanup order (each step is a separate Bash call — NEVER chain with `&&`):**
   1. Verify merge: `gh pr view <number> --json state --jq '.state'` — must be `"MERGED"`
-  2. `cd /workspace`
-  3. `rm -rf /workspace/.claude/worktrees/<name>` (delete the directory)
-  4. `git worktree prune` (clean up stale git reference)
-  5. `git branch -d <branch>` (delete local branch)
-  6. `git push origin --delete <branch>` (delete remote branch)
+  2. `rm -rf /workspace/.claude/worktrees/<name>` (delete the directory)
+  3. `git worktree prune` (clean up stale git reference)
+  4. `git branch -d <branch>` (delete local branch)
+  5. `git push origin --delete <branch>` (delete remote branch)
   - **Why `rm -rf` + `prune` instead of `git worktree remove`**: The guard binary blocks `git worktree remove` to prevent agents from deleting each other's worktrees. `rm -rf` your own directory + `prune` achieves the same result safely.
-  - **Why separate calls**: If `cd` is chained with `&&` and a later command fails, the Bash tool does not persist the directory change. The CWD remains pointed at the deleted worktree and all subsequent Bash calls fail — this is unrecoverable in the current session.
+  - **Why separate calls**: If any command is chained with `&&` and a later command fails, the Bash tool may not persist state changes. Each cleanup step should be a separate Bash call to ensure failures are visible and recoverable.
   - **Why no `--delete-branch` on merge**: `gh pr merge --squash --delete-branch` tries to delete the local branch while the worktree still holds it, causing an error. Always merge without `--delete-branch` and clean up branches manually after removing the worktree.
+  - **NEVER `cd /workspace`**: Only the admin works from `/workspace`. Agents must stay in their worktree. Git operations (worktree prune, branch -d) work from any worktree.

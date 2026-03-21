@@ -3,7 +3,7 @@
 Write your debrief report. Generate the filename with this command:
 
 ```bash
-echo "docs/prompts/curation/feedback/$(date +%Y-%m-%d)-$(git branch --show-current | tr '/' '-')-$(head -c4 /dev/urandom | xxd -p).md"
+echo "docs/prompts/curation/feedback/$(date +%Y-%m-%d)-$(git branch --show-current | tr '/' '-')-$(openssl rand -hex 2).md"
 ```
 
 This produces unique filenames like:

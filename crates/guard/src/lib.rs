@@ -125,6 +125,22 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
         );
     }
 
+    // Check 3: Agents must not edit worktree files from /workspace.
+    // Only the admin works from /workspace. Agents must enter their worktree first.
+    if file_path.starts_with("/workspace/.claude/worktrees/") {
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_str = cwd.to_string_lossy();
+            if cwd_str == "/workspace" || cwd_str == "/workspace/" {
+                return Some(
+                    "You are editing a worktree file but your CWD is /workspace. \
+                     Enter the worktree first (use the EnterWorktree tool or cd into it). \
+                     Only the admin works from /workspace."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
     None
 }
 
@@ -132,12 +148,12 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
 pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     let cmd = input["tool_input"]["command"].as_str().unwrap_or("");
 
-    // Check 3: Block git push to main
+    // Check 4: Block git push to main
     if has_git_subcmd(cmd, "push") && has_token(cmd, "main") {
         return Some("Cannot push directly to main. Use a feature branch and PR.".to_string());
     }
 
-    // Check 4: Block git checkout/switch (unless -- file separator or worktree command)
+    // Check 5: Block git checkout/switch (unless -- file separator or worktree command)
     if (has_git_subcmd(cmd, "checkout") || has_git_subcmd(cmd, "switch"))
         && !cmd.contains("-- ")
         && !cmd.contains("worktree")
@@ -149,7 +165,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 5: Block destructive git commands (reset --hard, clean -f, branch -D)
+    // Check 6: Block destructive git commands (reset --hard, clean -f, branch -D)
     // Allow reset --hard to a remote ref (origin/main, origin/branch) — needed after squash merges.
     // Block reset --hard to relative refs (HEAD~N) or bare (no target) — those discard work.
     if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
@@ -179,7 +195,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 6: Block git worktree remove (but allow prune — it only cleans stale references)
+    // Check 7: Block git worktree remove (but allow prune — it only cleans stale references)
     let ts = tokens(cmd);
     for i in 0..ts.len().saturating_sub(2) {
         if ts[i] == "git" && ts[i + 1] == "worktree" && ts[i + 2] == "remove" {
@@ -192,7 +208,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // Check 7: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
+    // Check 8: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
 
     // sed -i ... /workspace/...
     if has_token(cmd, "sed") && cmd.contains("-i") && workspace_but_not_worktree(cmd) {
@@ -318,6 +334,22 @@ mod tests {
     fn edit_fail_closed_bad_json_no_file_path() {
         // Missing file_path → empty string → no checks triggered → allow
         let v = json!({"tool_input": {}});
+        assert!(check_edit(&v).is_none());
+    }
+
+    // --- check_edit: CWD enforcement for worktree files ---
+    // Note: check 3 (CWD-based) can't be fully tested in unit tests because
+    // std::env::current_dir() returns the test runner's CWD. The block path
+    // (CWD == /workspace) is verified by manual testing only. The unit tests
+    // below verify the path-matching conditions only.
+
+    #[test]
+    fn edit_allows_worktree_file_from_worktree_cwd() {
+        // When CWD is a worktree (not /workspace), editing worktree files is allowed.
+        // This test runs from the test runner's CWD which is not /workspace,
+        // so it verifies the allow path.
+        let v =
+            json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
         assert!(check_edit(&v).is_none());
     }
 

@@ -117,7 +117,7 @@ ${PR_TEST_PLAN}"
     pr_body+="
 - [ ] \`npx tsc --noEmit\` passes
 - [ ] \`npm run test\` passes
-- [ ] \`cd crates/scheduler && cargo test\` passes"
+- [ ] \`cargo test\` passes (from crates/scheduler/)"
   fi
 
   pr_body+="
@@ -163,7 +163,6 @@ ${PR_TEST_PLAN}"
   fi
 
   # Clean up the merge worktree — no longer needed after push + PR creation
-  cd "$WORKSPACE"
   cleanup_merge_worktree
 
   ok "=== PR created and code review triggered ==="

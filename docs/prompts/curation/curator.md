@@ -11,6 +11,11 @@ skip-plan-mode: true
 
 # Skill Curator
 
+> **This prompt is for curator agents spawned by `launch-phase.sh`.** If you
+> are the orchestrator, STOP — your job is to launch curators via
+> `launch-phase.sh`, monitor them in tmux, and handle post-curation tasks.
+> Do not execute these steps yourself.
+
 **FIRST: Read `.claude/skills/curation/SKILL.md`** — it defines the curation
 system, the 5 reviewer angles, scoring, and what you're producing. Then read
 `CLAUDE.md` for project rules.
@@ -59,8 +64,40 @@ Other skills:
 
 Reviewers read files themselves — do NOT paste file contents.
 
-If a reviewer fails, retry ONCE. If retry fails, proceed with remaining
-reviewers. Only stop if ALL 5 fail both attempts.
+## Step 2b: Verify Reports
+
+For each reviewer output, check if it contains the structured report
+header `## Skill Review:`. If the header is missing, the reviewer
+investigated but didn't synthesize its findings into a report.
+
+For any reviewer with missing report, run a synthesis pass:
+
+```
+You are a report synthesizer. The skill reviewer below investigated
+a skill file but ran out of turns before writing its structured report.
+
+REVIEWER RAW OUTPUT:
+{paste the reviewer's full output}
+
+REQUIRED OUTPUT FORMAT:
+## Skill Review: {skill_name} — {angle}
+
+### Skill Content Findings
+| # | Claim | Classification | Evidence | Evidence level |
+|---|---|---|---|---|
+
+Write the structured report now using ONLY the evidence from the
+reviewer's output above. Do not investigate further. Do not read files.
+Just organize what the reviewer already found into the table format.
+```
+
+Launch this with `model: "haiku"` and `--max-turns 5`. No `subagent_type` —
+this is a formatting task, not a review. The synthesizer has no tools and
+no file access. It just organizes existing evidence.
+
+This is NOT optional. Every reviewer MUST produce a structured report.
+If the reviewer didn't write one, the synthesizer writes it from the
+reviewer's raw investigation output.
 
 ## Step 3: Score Findings
 
@@ -108,6 +145,10 @@ For `wrong` or `suspicious` findings above threshold, validate before acting:
 - Structural questions → `codebase-explorer` subagent
 - Scheduling-specific → `rust-scheduler` subagent
 - Behavioral questions → `verify-and-diagnose` subagent
+
+When spawning validation subagents, tell them to use relative paths from
+their CWD — never `cd /workspace` or use absolute `/workspace/` paths.
+They inherit your worktree CWD and must read files from it, not main.
 
 If validation is inconclusive after 2 attempts, downgrade to `keep`.
 
@@ -203,7 +244,7 @@ that every curator would see):
 - Issues in CLAUDE.md files or instruction context discovered during review
   (as `wrong_documentation` observations — preserved for future scope)
 
-Filename: `{date}-curation-{SKILL}.md`
+Generate the filename per `docs/prompts/curation/debrief-template.md`.
 
 ```bash
 git add docs/prompts/curation/feedback/

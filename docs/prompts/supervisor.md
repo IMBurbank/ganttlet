@@ -33,7 +33,7 @@ All commands require the config file as the first argument:
 2. Run `./scripts/launch-phase.sh <config> status` to see current state
 3. Check if this is a fresh start or a resume:
    - Look for existing branches: `git branch -a | grep <merge_target>`
-   - Check for log files in the log directory (from config: `logs/<phase>/`)
+   - Check for log files in the log directory (from config: `/tmp/ganttlet-logs/<phase>/`)
    - Check `stage-succeeded.txt` / `stage-failed.txt` in the log dir
 4. If resuming, identify which step to start from and skip completed steps
 
@@ -52,8 +52,8 @@ This blocks until all parallel agents in the stage finish. The command handles w
 - Exit code 0 with no warnings = all groups succeeded
 - Exit code 0 with warnings = partial success (some groups failed)
 - Exit code 1 = all groups failed
-- Read `logs/<phase>/stage-succeeded.txt` and `stage-failed.txt` for details
-- If a group failed, read the last 50 lines of its log: `tail -50 logs/<phase>/<group>.log`
+- Read `/tmp/ganttlet-logs/<phase>/stage-succeeded.txt` and `stage-failed.txt` for details
+- If a group failed, read the last 50 lines of its log: `tail -50 /tmp/ganttlet-logs/<phase>/<group>.log`
 
 **Decision on failure:**
 - Partial success → proceed to merge (failed groups are auto-skipped)
@@ -65,12 +65,12 @@ This blocks until all parallel agents in the stage finish. The command handles w
 ./scripts/launch-phase.sh <config> merge <N>
 ```
 
-This merges succeeded branches to the implementation branch in a dedicated merge worktree (`/workspace/.claude/worktrees/<phase>-merge`). After each branch merge, it runs build verification (WASM + tsc + vitest + cargo test in parallel) and auto-launches fix agents if verification fails. This catches breakage early — before merging more branches on top. The merge worktree persists across stages and is cleaned up after PR creation. `/workspace` stays on `main` at all times.
+This merges succeeded branches to the implementation branch in a dedicated merge worktree. After each branch merge, it runs build verification (WASM + tsc + vitest + cargo test in parallel) and auto-launches fix agents if verification fails. This catches breakage early — before merging more branches on top. The merge worktree persists across stages and is cleaned up after PR creation.
 
 **Check merge results:**
 - Exit code 0 = clean merge + verification passed
 - Non-zero = merge or verification failed after retries
-- Read merge-fix logs: `ls logs/<phase>/merge-fix*.log`
+- Read merge-fix logs: `ls /tmp/ganttlet-logs/<phase>/merge-fix*.log`
 - If merge failed: do NOT proceed to the next stage. Report the situation and stop.
 
 ### Step 2: Validate
@@ -83,7 +83,7 @@ After all stages are merged:
 The validation step has its own retry loop (default 3 attempts). It runs the validation prompt which executes all test suites and attempts fixes.
 
 **Check validation results:**
-- Read the latest validation log: `ls -t logs/<phase>/validate-attempt*.log | head -1`
+- Read the latest validation log: `ls -t /tmp/ganttlet-logs/<phase>/validate-attempt*.log | head -1`
 - Look for the validation report table (grep for `OVERALL`)
 - If OVERALL PASS → proceed to create-pr
 - If OVERALL FAIL after all attempts → read the specific failures and report them
@@ -171,27 +171,18 @@ Once the code review finds no issues:
    ```
    This removes all worktrees matching the phase, prunes stale references, and deletes phase branches. If cleanup fails for specific worktrees, clean up manually (**each command must be a separate Bash call** — never chain `cd` with `&&`):
    ```bash
-   # Bash call 1:
-   cd /workspace
-   # Bash call 2:
    rm -rf /workspace/.claude/worktrees/<name>
-   # Bash call 3:
    git worktree prune
    ```
 
-6. Update main (separate Bash call after cd):
-   ```bash
-   # Bash call 1:
-   cd /workspace
-   # Bash call 2:
-   git pull origin main
-   ```
+6. Update main (only the admin does this from `/workspace`).
+   Agents should NOT run these commands.
 
 **CRITICAL**: Never chain `cd` with `&&` or `;` in a single Bash call. If the second command fails, the `cd` does not persist and all subsequent commands run in the wrong directory. Always `cd` in a standalone Bash call first.
 
 ## Log Inspection
 
-All logs are in the log directory (default: `logs/<phase>/`):
+All logs are in the log directory (default: `/tmp/ganttlet-logs/<phase>/`):
 - `<group>.log` — individual agent output
 - `merge-fix*.log` — merge conflict resolution attempts
 - `validate-attempt*.log` — validation runs
@@ -235,7 +226,7 @@ SESSION=$(tmux display-message -p '#S')
 # (Use setup_worktree from worktree.sh, or create manually)
 git worktree add /workspace/.claude/worktrees/<phase>-<group> -b <branch> main
 tmux_launch_agent "$SESSION" "groupA" "/workspace/.claude/worktrees/<phase>-groupA" \
-  "/workspace/docs/prompts/<phase>/groupA.md" "/workspace/logs/<phase>/groupA.log" 80 10.00
+  "/workspace/.claude/worktrees/<phase>-groupA/docs/prompts/<phase>/groupA.md" "/tmp/ganttlet-logs/<phase>/groupA.log" 80 10.00
 ```
 
 **Critical**: Always pass the worktree path as the agent's CWD, not `/workspace`.
@@ -247,10 +238,10 @@ source scripts/lib/tmux-supervisor.sh
 SESSION=$(tmux display-message -p '#S')
 
 # Quick overview of all agents
-tmux_stage_status "$SESSION" "logs/<phase>" groupA groupB groupC
+tmux_stage_status "$SESSION" "/tmp/ganttlet-logs/<phase>" groupA groupB groupC
 
 # Detailed check on one agent
-tmux_poll_log "logs/<phase>/groupA.log" 50
+tmux_poll_log "/tmp/ganttlet-logs/<phase>/groupA.log" 50
 
 # Pane capture (useful if log hasn't flushed yet)
 tmux_poll_agent "$SESSION" "groupA"
@@ -259,11 +250,11 @@ tmux_poll_agent "$SESSION" "groupA"
 ### Intervention
 ```bash
 # Kill a stuck agent
-tmux_kill_agent "$SESSION" "groupA" "logs/<phase>/groupA.log"
+tmux_kill_agent "$SESSION" "groupA" "/tmp/ganttlet-logs/<phase>/groupA.log"
 
 # Restart with fresh prompt (or modified prompt for retry)
 tmux_launch_agent "$SESSION" "groupA" "/workspace/.claude/worktrees/<phase>-groupA" \
-  "/workspace/docs/prompts/<phase>/groupA.md" "logs/<phase>/groupA.log" 80 10.00
+  "/workspace/.claude/worktrees/<phase>-groupA/docs/prompts/<phase>/groupA.md" "/tmp/ganttlet-logs/<phase>/groupA.log" 80 10.00
 ```
 
 ### Merge/validate/PR

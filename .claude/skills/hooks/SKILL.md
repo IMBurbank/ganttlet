@@ -35,11 +35,11 @@ All hooks are declared in `.claude/settings.json` under the `"hooks"` key:
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard edit || true" }]
+        "hooks": [{ "type": "command", "command": "{ test -x ./target/release/guard && ./target/release/guard edit; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard edit; } || true" }]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "test -x ./target/release/guard && ./target/release/guard bash || true" }]
+        "hooks": [{ "type": "command", "command": "{ test -x ./target/release/guard && ./target/release/guard bash; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard bash; } || true" }]
       }
     ],
     "PostToolUse": [
@@ -197,7 +197,8 @@ false positives.
 ### Step 3: Run tests
 
 ```bash
-cd crates/guard && cargo test
+cd crates/guard
+cargo test
 ```
 
 ### Step 4: Rebuild the binary
@@ -299,7 +300,8 @@ echo '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/App.tsx"
 Run the full test suite:
 
 ```bash
-cd crates/guard && cargo test
+cd crates/guard
+cargo test
 ```
 
 ## Lessons Learned

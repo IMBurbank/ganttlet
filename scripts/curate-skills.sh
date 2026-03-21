@@ -10,9 +10,13 @@ FEEDBACK_DIR="docs/prompts/curation/feedback"
 PROCESSED_DIR="$FEEDBACK_DIR/processed"
 CONFIG="docs/prompts/curation/skill-curation.yaml"
 
+# Capture HEAD before any launches — shared by launch-phase.sh and
+# generate-retry-config.sh for consistent run_suffix derivation
+export _LAUNCH_BASE_REF="$(git rev-parse HEAD)"
+
 # Date-stamped merge branch (config.sh reads _USER_MERGE_TARGET)
 # Short hash suffix handles same-day reruns
-export _USER_MERGE_TARGET="curation/$(date +%Y-%m-%d)-$(head -c4 /dev/urandom | xxd -p)"
+export _USER_MERGE_TARGET="curation/$(date +%Y-%m-%d)-$(openssl rand -hex 2)"
 
 mkdir -p "$PROCESSED_DIR"
 

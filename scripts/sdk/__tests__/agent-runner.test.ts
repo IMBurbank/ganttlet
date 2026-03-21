@@ -7,7 +7,8 @@ import { runAgent, type QueryFn } from '../agent-runner.js';
 // Side-effect imports to register policies on the default registry
 import '../policies/reviewer.js';
 import '../policies/default.js';
-import type { RunnerOptions } from '../types.js';
+import { registerPolicy } from '../policy-registry.js';
+import type { RunnerOptions, PolicyDefinition } from '../types.js';
 
 interface FakeResponse {
   subtype: string;
@@ -418,5 +419,91 @@ describe('agent-runner — hook tests', () => {
     const { queryFn } = fakeQuery([{ subtype: 'success', result: 'ok' }]);
     const result = await runAgent(baseOptions(workdir), queryFn);
     expect(result.failed).toBe(false);
+  });
+});
+
+// Register a test policy with outputValidation for fix_output tests
+registerPolicy('test-validating', {
+  attempts: [{ maxTurns: 10, model: 'sonnet', resumePrevious: false }],
+  outputValidation: {
+    isValid: (output: string | null) => output !== null && output.includes('VALID'),
+    fixPrompt: 'Please include the word VALID in your response.',
+  },
+});
+
+describe('agent-runner — output validation + fix_output', () => {
+  let workdir: string;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    const setup = setupWorkdir();
+    workdir = setup.workdir;
+    cleanup = setup.cleanup;
+    process.env.LOG_METRICS_DIR = path.join(workdir, 'metrics');
+  });
+
+  afterEach(() => {
+    cleanup();
+    delete process.env.LOG_METRICS_DIR;
+  });
+
+  it('valid output on first try → success without fix', async () => {
+    const { queryFn, calls } = fakeQuery([{ subtype: 'success', result: 'output is VALID' }]);
+    const result = await runAgent({ ...baseOptions(workdir), policy: 'test-validating' }, queryFn);
+    expect(result.failed).toBe(false);
+    expect(result.output).toBe('output is VALID');
+    expect(calls).toHaveLength(1); // no fix call needed
+  });
+
+  it('invalid output → fix_output → valid output → success', async () => {
+    const { queryFn, calls } = fakeQuery([
+      { subtype: 'success', result: 'bad output' }, // invalid
+      { subtype: 'success', result: 'now VALID output' }, // fix succeeds
+    ]);
+    const result = await runAgent({ ...baseOptions(workdir), policy: 'test-validating' }, queryFn);
+    expect(result.failed).toBe(false);
+    expect(result.output).toBe('now VALID output');
+    expect(calls).toHaveLength(2); // original + fix
+    // Fix call should use the fixPrompt
+    expect(calls[1].prompt).toContain('VALID');
+  });
+
+  it('invalid output → fix_output → still invalid → accept (done)', async () => {
+    const { queryFn, calls } = fakeQuery([
+      { subtype: 'success', result: 'bad output' }, // invalid
+      { subtype: 'success', result: 'still bad' }, // fix also invalid
+    ]);
+    const result = await runAgent({ ...baseOptions(workdir), policy: 'test-validating' }, queryFn);
+    // Accepts the output after one fix attempt (design: no infinite loop)
+    expect(result.failed).toBe(false);
+    expect(result.output).toBe('still bad');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('invalid output → fix crashes → outputFixAttempted NOT set → retries fix', async () => {
+    const { queryFn, calls } = fakeQuery([
+      { subtype: 'success', result: 'bad output' }, // invalid
+      { subtype: 'success', throw: new Error('fix crash') }, // fix crashes
+      { subtype: 'success', result: 'bad output' }, // crash retry (main call)
+      { subtype: 'success', result: 'now VALID output' }, // second fix attempt
+    ]);
+    const result = await runAgent(
+      { ...baseOptions(workdir), policy: 'test-validating', crashRetryDelayMs: 1 },
+      queryFn
+    );
+    // Fix crash should NOT poison outputFixAttempted, allowing another fix attempt
+    expect(result.failed).toBe(false);
+    expect(result.output).toBe('now VALID output');
+  });
+
+  it('null output → validation fails', async () => {
+    const { queryFn, calls } = fakeQuery([
+      { subtype: 'success' }, // null output → invalid
+      { subtype: 'success', result: 'fix is VALID' }, // fix provides output
+    ]);
+    const result = await runAgent({ ...baseOptions(workdir), policy: 'test-validating' }, queryFn);
+    expect(result.failed).toBe(false);
+    expect(result.output).toBe('fix is VALID');
+    expect(calls).toHaveLength(2);
   });
 });

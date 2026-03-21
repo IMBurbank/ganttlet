@@ -80,7 +80,6 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
     }
 
     if (action.kind === 'fix_output') {
-      outputFixAttempted = true;
       const fixPrompt = policy.outputValidation!.fixPrompt;
       try {
         const fixResult = await callQuery(queryFn, {
@@ -92,6 +91,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
           model: policy.attempts[action.attemptIndex].model,
           agent: options.agent,
         });
+        outputFixAttempted = true; // Only mark after fix call completes
         cumulativeCostUsd += fixResult.costUsd;
         if (fixResult.output !== null) {
           lastOutput = fixResult.output;

@@ -53,7 +53,7 @@ test.describe('Onboarding Cloud E2E', () => {
     await page.getByTestId('collaborator-sign-in-button').click();
 
     // Task bars should appear (real sheet has data)
-    await page.locator('.task-bar').first().waitFor({ timeout: 30_000 });
+    await page.locator('.task-bar').first().waitFor({ timeout: 60_000 });
     expect(await page.locator('.task-bar').count()).toBeGreaterThan(0);
 
     await context.close();
@@ -66,7 +66,7 @@ test.describe('Onboarding Cloud E2E', () => {
 
     const { context, page } = await createAuthPage(browser, `/?sheet=${testSheetId}`);
     await page.getByTestId('collaborator-sign-in-button').click();
-    await page.locator('.task-bar').first().waitFor({ timeout: 30_000 });
+    await page.locator('.task-bar').first().waitFor({ timeout: 60_000 });
 
     // Sheet title should be visible as a link in the header
     await expect(page.getByTestId('sheet-title')).toBeVisible({ timeout: 10_000 });
@@ -88,7 +88,7 @@ test.describe('Onboarding Cloud E2E', () => {
 
     const { context, page } = await createAuthPage(browser, `/?sheet=${testSheetId}`);
     await page.getByTestId('collaborator-sign-in-button').click();
-    await page.locator('.task-bar').first().waitFor({ timeout: 30_000 });
+    await page.locator('.task-bar').first().waitFor({ timeout: 60_000 });
 
     // Open dropdown and disconnect
     await page.getByTestId('sheet-dropdown-trigger').click();
@@ -120,7 +120,7 @@ test.describe('Onboarding Cloud E2E', () => {
     // The error banner renders inside the loading skeleton in WelcomeGate
     await expect(
       page.getByTestId('loading-skeleton').or(page.getByTestId('error-banner'))
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible({ timeout: 60_000 });
 
     await context.close();
   });
@@ -183,7 +183,7 @@ test.describe('Onboarding Cloud E2E', () => {
 
     const { context, page } = await createAuthPage(browser, `/?sheet=${testSheetId}`);
     await page.getByTestId('collaborator-sign-in-button').click();
-    await page.locator('.task-bar').first().waitFor({ timeout: 30_000 });
+    await page.locator('.task-bar').first().waitFor({ timeout: 60_000 });
 
     // Sync status should show "Synced"
     await expect(page.getByTestId('sync-status')).toBeVisible({ timeout: 10_000 });

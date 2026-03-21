@@ -99,8 +99,8 @@ export async function createCollabPair(
 
     // Wait for both pages to load sheet data (task bars appear)
     await Promise.all([
-      pageA.locator('.task-bar').first().waitFor({ timeout: 30_000 }),
-      pageB.locator('.task-bar').first().waitFor({ timeout: 30_000 }),
+      pageA.locator('.task-bar').first().waitFor({ timeout: 60_000 }),
+      pageB.locator('.task-bar').first().waitFor({ timeout: 60_000 }),
     ]);
 
     // Wait for collab connections

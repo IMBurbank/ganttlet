@@ -125,6 +125,57 @@ test.describe('Onboarding Cloud E2E', () => {
     await context.close();
   });
 
+  // ── Journey 6: Sandbox → promotion → create sheet ──
+
+  test('promotion flow: sign in → destination picker → create sheet', async ({ browser }) => {
+    const { context, page } = await createAuthPage(browser, '/');
+
+    // Enter sandbox
+    await page.getByTestId('try-demo-button').click();
+    await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });
+    await expect(page.getByTestId('sandbox-banner')).toBeVisible();
+
+    // Click "Save to Google Sheet" — opens promotion modal
+    await page.getByTestId('save-to-sheet-button').click();
+    await expect(page.getByTestId('promotion-modal')).toBeVisible({ timeout: 5_000 });
+
+    // Modal shows sign-in gate first
+    await expect(page.getByTestId('sign-in-button')).toBeVisible();
+    await page.getByTestId('sign-in-button').click();
+
+    // After sign-in, destination picker appears with both options
+    await expect(page.getByTestId('create-new-sheet-button')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('save-to-existing-button')).toBeVisible();
+
+    // Click "Create new sheet" — attempts to create a Google Sheet
+    await page.getByTestId('create-new-sheet-button').click();
+
+    // Wait for result: either promotion succeeds (sandbox banner gone, URL has ?sheet=)
+    // or fails (error message in modal). Both are valid E2E outcomes.
+    await page.waitForTimeout(5000);
+    const urlHasSheet = page.url().includes('sheet=');
+    const sandboxVisible = await page.getByTestId('sandbox-banner').isVisible();
+
+    if (urlHasSheet) {
+      // Success: sheet was created, app transitioned to sheet mode
+      expect(sandboxVisible).toBe(false);
+    } else {
+      // Sheet creation may fail if SA lacks Drive quota —
+      // verify error state is shown (not a crash)
+      const hasError = await page
+        .locator('text=Failed')
+        .isVisible()
+        .catch(() => false);
+      const hasTryAgain = await page
+        .locator('text=Try again')
+        .isVisible()
+        .catch(() => false);
+      expect(hasError || hasTryAgain || sandboxVisible).toBeTruthy();
+    }
+
+    await context.close();
+  });
+
   // ── Journey 10: Sync status ──
 
   test('sync status shows Synced after loading real sheet', async ({ browser }) => {

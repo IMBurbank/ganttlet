@@ -35,10 +35,9 @@ status. Or use `ATTEST_E2E=1 ./scripts/full-verify.sh` to auto-attest on success
 - PR body must include `Closes #{issue_number}` for auto-closing
 - Write `.agent-summary.md`: what changed, tests added, what couldn't be done
 - PR body should include structured sections: Summary, Test plan, Closes #N
-- **After PR is merged**, clean up (each a separate Bash call):
-  1. `rm -rf /workspace/.claude/worktrees/issue-{number}`
-  2. `git worktree prune`
-  3. `git branch -d agent/issue-{number}`
+- **After PR is merged**, clean up:
+  1. `git push origin --delete agent/issue-{number}` (delete remote branch)
+  2. Use `ExitWorktree` with `action: "remove"` (deletes directory + local branch + restores CWD)
 
 ## Error Handling Protocol
 <!-- Canonical location for error escalation (moved from root CLAUDE.md) -->

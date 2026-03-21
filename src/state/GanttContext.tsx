@@ -20,6 +20,7 @@ import {
   stopPolling,
   getSpreadsheetId,
 } from '../sheets/sheetsSync';
+import { classifySyncError } from '../sheets/syncErrors';
 import {
   isSignedIn,
   getAccessToken,
@@ -101,6 +102,9 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
     dispatch(action);
 
+    // Only sync to Yjs when connected to a sheet
+    if (stateRef.current.dataSource !== 'sheet') return;
+
     if (
       action.type === 'UNDO' ||
       action.type === 'REDO' ||
@@ -118,16 +122,25 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   // Sheets sync integration
   useEffect(() => {
     const spreadsheetId = new URLSearchParams(window.location.search).get('sheet');
-    if (!spreadsheetId) return;
+    if (!spreadsheetId || !isSignedIn()) return;
 
+    dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'loading' });
     initSync(spreadsheetId, dispatch);
 
-    loadFromSheet().then((tasks) => {
-      if (tasks.length > 0) {
-        dispatch({ type: 'SET_TASKS', tasks });
-        loadedSheetTasksRef.current = tasks;
-      }
-    });
+    loadFromSheet()
+      .then((tasks) => {
+        if (tasks.length > 0) {
+          dispatch({ type: 'SET_TASKS', tasks });
+          dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
+          loadedSheetTasksRef.current = tasks;
+        } else {
+          dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
+        }
+        // TODO: addRecentSheet(spreadsheetId) — wired by Group B (Stage 2)
+      })
+      .catch((err) => {
+        dispatch({ type: 'SET_SYNC_ERROR', error: classifySyncError(err) });
+      });
 
     startPolling();
 
@@ -136,14 +149,16 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
 
   // Auto-save on task changes
   useEffect(() => {
+    if (state.dataSource !== 'sheet') return;
     const spreadsheetId = getSpreadsheetId();
     if (spreadsheetId && isSignedIn()) {
       scheduleSave(state.tasks);
     }
-  }, [state.tasks]);
+  }, [state.tasks, state.dataSource]);
 
   // Yjs collaboration connection — reconnects when access token changes (e.g. after sign-in)
   useEffect(() => {
+    if (state.dataSource !== 'sheet') return;
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
     if (!roomId || !accessToken) return;
@@ -193,7 +208,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_COLLAB_CONNECTED', connected: false });
       dispatch({ type: 'SET_COLLAB_USERS', users: [] });
     };
-  }, [accessToken]);
+  }, [accessToken, state.dataSource]);
 
   // Full Yjs sync after undo/redo (replaces entire task array)
   useEffect(() => {
@@ -222,6 +237,16 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [collabDispatch]);
+
+  // Warn before leaving with unsaved sandbox changes
+  useEffect(() => {
+    if (state.dataSource !== 'sandbox' || !state.sandboxDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [state.dataSource, state.sandboxDirty]);
 
   return (
     <GanttStateContext.Provider value={state}>

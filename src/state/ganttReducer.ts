@@ -150,7 +150,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, isSyncing: false, syncComplete: true };
 
     case 'RESET_SYNC':
-      return { ...state, syncComplete: false };
+      return { ...state, isSyncing: false, syncComplete: false };
 
     case 'SET_CONTEXT_MENU':
       return { ...state, contextMenu: action.menu };

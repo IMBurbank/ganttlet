@@ -125,6 +125,10 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     const spreadsheetId = new URLSearchParams(window.location.search).get('sheet');
     if (!spreadsheetId || !isSignedIn()) return;
 
+    // Skip re-initialization if already connected (e.g. silent token refresh)
+    const current = stateRef.current.dataSource;
+    if (current === 'sheet' || current === 'empty') return;
+
     dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'loading' });
     initSync(spreadsheetId, dispatch);
 

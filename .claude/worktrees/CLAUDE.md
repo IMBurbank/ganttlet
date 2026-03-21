@@ -30,6 +30,7 @@ It does NOT apply to CI/workflow agents.
   1. Verify merge: `gh pr view <number> --json state --jq '.state'` — must be `"MERGED"`
   2. `git push origin --delete <branch>` (delete remote branch — do this before exit)
   3. `ExitWorktree` with `action: "remove"` (deletes directory + local branch + restores CWD)
+  4. `git pull origin main` (update main with the merged changes)
   - **Why not `rm -rf`**: Deleting your own CWD breaks the Bash tool — no subsequent commands can run. `ExitWorktree` handles this safely by restoring CWD first.
   - **Why not `git worktree remove`**: The guard binary blocks it to prevent agents from deleting each other's worktrees.
   - **Why no `--delete-branch` on merge**: `gh pr merge --squash --delete-branch` tries to delete the local branch while the worktree still holds it, causing an error. Always merge without `--delete-branch`.

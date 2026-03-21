@@ -22,7 +22,7 @@ export interface CloudAuthOptions {
  * immediately fires the callback with the provided token when
  * requestAccessToken() is called.
  */
-function gisInitScript(token: string): string {
+export function gisInitScript(token: string): string {
   return `
     window.__ganttlet_cloud_token = ${JSON.stringify(token)};
 

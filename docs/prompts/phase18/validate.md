@@ -192,7 +192,7 @@ Common issues after merging 6 branches across 4 stages:
 
 ## Phase 3: Final Report
 
-Run `./scripts/full-verify.sh` and re-run all 11 checks. Print summary:
+Run `./scripts/full-verify.sh` and re-run all 12 checks. Print summary:
 
 ```
 ╔═════════════════════════════════════════════════════╗

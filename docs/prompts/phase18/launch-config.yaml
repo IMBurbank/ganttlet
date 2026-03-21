@@ -23,7 +23,7 @@ stages:
         branch: feature/phase18-error-handling
         merge_message: "Merge feature/phase18-error-handling: ErrorBanner, SyncStatus, polling backoff, offline detection, HeaderMismatchError"
 
-  - name: "Stage 3: Onboarding Screens + Promotion Flow (parallel — 2 agents)"
+  - name: "Stage 3: Onboarding Screens + Promotion + Sheet Creation (parallel — 2 agents)"
     merge_order: [groupD, groupE]
     groups:
       - id: groupD

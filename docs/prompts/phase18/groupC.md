@@ -81,9 +81,10 @@ Read-only:
 - `src/types/index.ts` — SyncError type (from Group A)
 - `src/sheets/syncErrors.ts` — classifySyncError (from Group A)
 - `src/sheets/sheetsMapper.ts` — SHEET_COLUMNS for CSV download
-- `src/utils/recentSheets.ts` — removeRecentSheet (created by Group B in the same stage;
-  both branches merge into the stage branch, so the import resolves at merge time — use
-  a normal import, not a conditional guard)
+- `src/utils/recentSheets.ts` — removeRecentSheet (created by Group B in the same stage).
+  Since B and C run in parallel, this file may not exist when you run tsc/tests. Add a
+  TODO comment at the call site with the intended import and function call. The merge-fix
+  agent will wire it after both branches merge. Do NOT add a broken import that fails tsc.
 
 ## Tasks — execute in order
 

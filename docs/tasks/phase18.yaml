@@ -40,7 +40,7 @@ stages:
             - src/state/__tests__/dataSource.test.ts
             - src/sheets/__tests__/syncErrors.test.ts
             - src/sheets/__tests__/headerValidation.test.ts
-            - src/components/__tests__/WelcomeGate.test.tsx
+            - src/components/onboarding/__tests__/WelcomeGate.test.tsx
           read_only:
             - src/sheets/sheetsClient.ts
             - src/sheets/oauth.ts

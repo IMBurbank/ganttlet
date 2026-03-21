@@ -154,8 +154,9 @@ When `dataSource='sheet'` and user is signed in:
   - "Switch sheet" → teardown current sheet first (`stopPolling()`, disconnect Yjs, clear
     auto-save), then open SheetSelector → on select, full connection cycle with new sheet
   - "Create new project" → opens TemplatePicker
-  - "Disconnect" → clear `?sheet=` and `?room=` from URL, `stopPolling()`, disconnect Yjs,
-    dispatch `RESET_STATE` → WelcomeGate renders return-visitor variant. Auth persists in
+  - "Disconnect" → show confirmation dialog ("Disconnect from this sheet?") first. On confirm:
+    clear `?sheet=` and `?room=` from URL, `stopPolling()`, disconnect Yjs, dispatch
+    `RESET_STATE` → WelcomeGate renders return-visitor variant. Auth persists in
     localStorage — `RESET_STATE` does NOT clear Google auth.
 
 Header test covers: share with toast, disconnect flow, switch sheet behavior.
@@ -178,6 +179,6 @@ In `src/components/onboarding/EmptyState.tsx`:
 4. createProjectFromTemplate creates sheet + writes headers + rows + connects
 5. Header shows title, share (with toast), dropdown with all 4 actions
 6. Switch sheet tears down current connection before opening selector
-7. Disconnect clears URL, stops polling, disconnects Yjs, dispatches RESET_STATE
+7. Disconnect shows confirmation dialog, then clears URL, stops polling, disconnects Yjs, dispatches RESET_STATE
 8. EmptyState "Start from template" opens TemplatePicker
 9. All tests pass, all changes committed

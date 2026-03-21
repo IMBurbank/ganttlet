@@ -22,7 +22,7 @@ scope:
     - src/state/__tests__/dataSource.test.ts
     - src/sheets/__tests__/syncErrors.test.ts
     - src/sheets/__tests__/headerValidation.test.ts
-    - src/components/__tests__/WelcomeGate.test.tsx
+    - src/components/onboarding/__tests__/WelcomeGate.test.tsx
   read_only:
     - src/sheets/sheetsClient.ts
     - src/sheets/oauth.ts
@@ -214,7 +214,7 @@ This is a placeholder — Design 3 (Group D, Stage 3) will replace the routing w
 
 In `src/App.tsx`: Wrap `AppContent` with `<WelcomeGate>` inside `GanttProvider`.
 
-Write component test in `src/components/__tests__/WelcomeGate.test.tsx`.
+Write component test in `src/components/onboarding/__tests__/WelcomeGate.test.tsx`.
 
 ### A10: Update existing reducer tests
 Update `makeState()` helper in `src/state/__tests__/ganttReducer.test.ts` to include new

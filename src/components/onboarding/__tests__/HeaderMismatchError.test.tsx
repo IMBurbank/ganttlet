@@ -64,8 +64,11 @@ describe('HeaderMismatchError', () => {
     const mockUrl = 'blob:test';
     const revokeObjectURL = vi.fn();
     const createObjectURL = vi.fn().mockReturnValue(mockUrl);
-    global.URL.createObjectURL = createObjectURL;
-    global.URL.revokeObjectURL = revokeObjectURL;
+    (globalThis as Record<string, unknown>).URL = {
+      ...globalThis.URL,
+      createObjectURL,
+      revokeObjectURL,
+    };
 
     const clickSpy = vi.fn();
     const originalCreateElement = document.createElement.bind(document);

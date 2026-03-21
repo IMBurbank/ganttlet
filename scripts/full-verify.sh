@@ -38,9 +38,11 @@ SCRIPT_DIR="$(dirname "$0")"
 [ -x "${SCRIPT_DIR}/check-curation.sh" ] && "${SCRIPT_DIR}/check-curation.sh" || true
 
 # Check for debrief report
-if [ -d "docs/prompts/curation/feedback" ]; then
+# Use git rev-parse to resolve .git/HEAD correctly in worktrees (where .git is a file)
+_git_head="$(git rev-parse --git-dir)/HEAD"
+if [ -d "docs/prompts/curation/feedback" ] && [ -f "$_git_head" ]; then
   has_debrief=$(find docs/prompts/curation/feedback -maxdepth 1 -name "*.md" \
-    -not -name "debrief-template.md" -newer .git/HEAD 2>/dev/null | head -1)
+    -not -name "debrief-template.md" -newer "$_git_head" 2>/dev/null | head -1 || true)
   if [ -z "$has_debrief" ]; then
     echo "[curation] No debrief report found for this session."
     echo "Read docs/prompts/curation/debrief-template.md and write your report."

@@ -339,8 +339,8 @@ mod tests {
 
     // --- check_edit: CWD enforcement for worktree files ---
     // Note: check 3 (CWD-based) can't be fully tested in unit tests because
-    // std::env::current_dir() returns the test runner's CWD. The logic is
-    // tested via integration tests or manual verification. The unit tests
+    // std::env::current_dir() returns the test runner's CWD. The block path
+    // (CWD == /workspace) is verified by manual testing only. The unit tests
     // below verify the path-matching conditions only.
 
     #[test]

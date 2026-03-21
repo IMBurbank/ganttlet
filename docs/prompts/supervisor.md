@@ -33,7 +33,7 @@ All commands require the config file as the first argument:
 2. Run `./scripts/launch-phase.sh <config> status` to see current state
 3. Check if this is a fresh start or a resume:
    - Look for existing branches: `git branch -a | grep <merge_target>`
-   - Check for log files in the log directory (from config: `logs/<phase>/`)
+   - Check for log files in the log directory (from config: `/tmp/ganttlet-logs/<phase>/`)
    - Check `stage-succeeded.txt` / `stage-failed.txt` in the log dir
 4. If resuming, identify which step to start from and skip completed steps
 
@@ -52,8 +52,8 @@ This blocks until all parallel agents in the stage finish. The command handles w
 - Exit code 0 with no warnings = all groups succeeded
 - Exit code 0 with warnings = partial success (some groups failed)
 - Exit code 1 = all groups failed
-- Read `logs/<phase>/stage-succeeded.txt` and `stage-failed.txt` for details
-- If a group failed, read the last 50 lines of its log: `tail -50 logs/<phase>/<group>.log`
+- Read `/tmp/ganttlet-logs/<phase>/stage-succeeded.txt` and `stage-failed.txt` for details
+- If a group failed, read the last 50 lines of its log: `tail -50 /tmp/ganttlet-logs/<phase>/<group>.log`
 
 **Decision on failure:**
 - Partial success → proceed to merge (failed groups are auto-skipped)
@@ -70,7 +70,7 @@ This merges succeeded branches to the implementation branch in a dedicated merge
 **Check merge results:**
 - Exit code 0 = clean merge + verification passed
 - Non-zero = merge or verification failed after retries
-- Read merge-fix logs: `ls logs/<phase>/merge-fix*.log`
+- Read merge-fix logs: `ls /tmp/ganttlet-logs/<phase>/merge-fix*.log`
 - If merge failed: do NOT proceed to the next stage. Report the situation and stop.
 
 ### Step 2: Validate
@@ -83,7 +83,7 @@ After all stages are merged:
 The validation step has its own retry loop (default 3 attempts). It runs the validation prompt which executes all test suites and attempts fixes.
 
 **Check validation results:**
-- Read the latest validation log: `ls -t logs/<phase>/validate-attempt*.log | head -1`
+- Read the latest validation log: `ls -t /tmp/ganttlet-logs/<phase>/validate-attempt*.log | head -1`
 - Look for the validation report table (grep for `OVERALL`)
 - If OVERALL PASS → proceed to create-pr
 - If OVERALL FAIL after all attempts → read the specific failures and report them
@@ -182,7 +182,7 @@ Once the code review finds no issues:
 
 ## Log Inspection
 
-All logs are in the log directory (default: `logs/<phase>/`):
+All logs are in the log directory (default: `/tmp/ganttlet-logs/<phase>/`):
 - `<group>.log` — individual agent output
 - `merge-fix*.log` — merge conflict resolution attempts
 - `validate-attempt*.log` — validation runs
@@ -238,10 +238,10 @@ source scripts/lib/tmux-supervisor.sh
 SESSION=$(tmux display-message -p '#S')
 
 # Quick overview of all agents
-tmux_stage_status "$SESSION" "logs/<phase>" groupA groupB groupC
+tmux_stage_status "$SESSION" "/tmp/ganttlet-logs/<phase>" groupA groupB groupC
 
 # Detailed check on one agent
-tmux_poll_log "logs/<phase>/groupA.log" 50
+tmux_poll_log "/tmp/ganttlet-logs/<phase>/groupA.log" 50
 
 # Pane capture (useful if log hasn't flushed yet)
 tmux_poll_agent "$SESSION" "groupA"
@@ -250,7 +250,7 @@ tmux_poll_agent "$SESSION" "groupA"
 ### Intervention
 ```bash
 # Kill a stuck agent
-tmux_kill_agent "$SESSION" "groupA" "logs/<phase>/groupA.log"
+tmux_kill_agent "$SESSION" "groupA" "/tmp/ganttlet-logs/<phase>/groupA.log"
 
 # Restart with fresh prompt (or modified prompt for retry)
 tmux_launch_agent "$SESSION" "groupA" "/workspace/.claude/worktrees/<phase>-groupA" \

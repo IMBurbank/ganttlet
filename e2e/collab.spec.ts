@@ -200,7 +200,7 @@ test.describe('Collaboration E2E', () => {
       }
     });
 
-    await page.goto('/');
+    await page.goto('/?demo=1');
 
     // Wait for the app to fully render
     await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });

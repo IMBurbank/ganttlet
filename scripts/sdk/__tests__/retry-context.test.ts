@@ -18,10 +18,10 @@ describe('buildRetryContext', () => {
   });
 
   it('worktree with git commits → includes last 5 commit lines', () => {
-    execSync('git init && git commit --allow-empty -m "test commit 1"', {
-      cwd: tmpDir,
-      stdio: 'pipe',
-    });
+    execSync(
+      'git init && git config user.email "test@test.com" && git config user.name "Test" && git commit --allow-empty -m "test commit 1"',
+      { cwd: tmpDir, stdio: 'pipe' }
+    );
     const ctx = buildRetryContext(tmpDir, null);
     expect(ctx).toContain('test commit 1');
     expect(ctx).toContain('Recent commits');

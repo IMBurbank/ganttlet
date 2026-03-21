@@ -1,5 +1,6 @@
 import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { GanttProvider, useGanttState, useGanttDispatch } from './state/GanttContext';
+import WelcomeGate from './components/onboarding/WelcomeGate';
 import { getVisibleTasks } from './utils/layoutUtils';
 import Header from './components/layout/Header';
 import Toolbar from './components/layout/Toolbar';
@@ -28,10 +29,7 @@ function AppContent() {
     localStorage.setItem('ganttlet-theme', state.theme);
   }, [state.theme]);
 
-  const taskMap = useMemo(
-    () => new Map(state.tasks.map(t => [t.id, t])),
-    [state.tasks]
-  );
+  const taskMap = useMemo(() => new Map(state.tasks.map((t) => [t.id, t])), [state.tasks]);
 
   const visibleTasks = useMemo(
     () => getVisibleTasks(state.tasks, state.searchQuery),
@@ -95,7 +93,8 @@ function AppContent() {
         : [
             {
               label: 'Edit dependencies',
-              onClick: () => dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: { taskId: task.id } }),
+              onClick: () =>
+                dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: { taskId: task.id } }),
             },
             {
               label: 'Move to workstream...',
@@ -104,26 +103,35 @@ function AppContent() {
           ]),
       // Recalculate options
       ...(!task.isSummary
-        ? [{
-            label: 'Recalculate to earliest',
-            onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { taskId: task.id } }),
-          }]
+        ? [
+            {
+              label: 'Recalculate to earliest',
+              onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { taskId: task.id } }),
+            },
+          ]
         : []),
       ...(isWorkstreamSummary
-        ? [{
-            label: 'Recalculate workstream',
-            onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { workstream: task.workStream } }),
-          }]
+        ? [
+            {
+              label: 'Recalculate workstream',
+              onClick: () =>
+                dispatch({ type: 'RECALCULATE_EARLIEST', scope: { workstream: task.workStream } }),
+            },
+          ]
         : []),
       ...(isProjectSummary
-        ? [{
-            label: 'Recalculate project',
-            onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { project: task.project } }),
-          }]
+        ? [
+            {
+              label: 'Recalculate project',
+              onClick: () =>
+                dispatch({ type: 'RECALCULATE_EARLIEST', scope: { project: task.project } }),
+            },
+          ]
         : []),
       {
         label: 'Add task below',
-        onClick: () => dispatch({ type: 'ADD_TASK', parentId: task.parentId, afterTaskId: task.id }),
+        onClick: () =>
+          dispatch({ type: 'ADD_TASK', parentId: task.parentId, afterTaskId: task.id }),
       },
       {
         label: 'Delete task',
@@ -134,7 +142,10 @@ function AppContent() {
   }, [state.contextMenu, taskMap, dispatch]);
 
   return (
-    <div className="flex flex-col h-screen bg-surface-base text-text-primary" data-collab-status={state.isCollabConnected ? 'connected' : 'disconnected'}>
+    <div
+      className="flex flex-col h-screen bg-surface-base text-text-primary"
+      data-collab-status={state.isCollabConnected ? 'connected' : 'disconnected'}
+    >
       <Header />
       <Toolbar />
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -163,7 +174,10 @@ function AppContent() {
           title={state.isLeftPaneCollapsed ? 'Show table (Ctrl+B)' : 'Hide table (Ctrl+B)'}
         >
           <svg
-            width="10" height="10" viewBox="0 0 10 10" fill="currentColor"
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="currentColor"
             className={`text-text-muted transition-transform duration-200 ${state.isLeftPaneCollapsed ? 'rotate-0' : 'rotate-180'}`}
           >
             <path d="M3 1 L8 5 L3 9 Z" />
@@ -187,9 +201,7 @@ function AppContent() {
           />
         </div>
         {/* Change History Panel */}
-        {state.isHistoryPanelOpen && (
-          <ChangeHistoryPanel records={state.changeHistory} />
-        )}
+        {state.isHistoryPanelOpen && <ChangeHistoryPanel records={state.changeHistory} />}
       </div>
 
       {/* Context Menu */}
@@ -214,7 +226,9 @@ function AppContent() {
 export default function App() {
   return (
     <GanttProvider>
-      <AppContent />
+      <WelcomeGate>
+        <AppContent />
+      </WelcomeGate>
     </GanttProvider>
   );
 }

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import React from 'react';
 import WelcomeGate from '../WelcomeGate';
 import { GanttProvider } from '../../../state/GanttContext';
 
@@ -37,6 +36,7 @@ vi.mock('../../../sheets/oauth', () => ({
   getAuthState: () => ({}),
   setAuthChangeCallback: vi.fn(),
   removeAuthChangeCallback: vi.fn(),
+  signIn: vi.fn(),
 }));
 
 vi.mock('../../../sheets/sheetsSync', () => ({
@@ -48,16 +48,24 @@ vi.mock('../../../sheets/sheetsSync', () => ({
   getSpreadsheetId: () => null,
 }));
 
+vi.mock('../../../utils/recentSheets', () => ({
+  getRecentSheets: () => [],
+}));
+
+vi.mock('../../../sheets/sheetsBrowser', () => ({
+  listUserSheets: vi.fn().mockResolvedValue([]),
+}));
+
 describe('WelcomeGate', () => {
   beforeEach(() => {
     // Reset URL to no params
     Object.defineProperty(window, 'location', {
-      value: { search: '', href: '' },
+      value: { search: '', href: 'http://localhost/' },
       writable: true,
     });
   });
 
-  it('renders welcome screen when no dataSource and no URL params', () => {
+  it('renders FirstVisitWelcome when no auth and no URL params', () => {
     render(
       <GanttProvider>
         <WelcomeGate>
@@ -66,8 +74,8 @@ describe('WelcomeGate', () => {
       </GanttProvider>
     );
 
-    expect(screen.getByText('Welcome to Ganttlet')).toBeTruthy();
-    expect(screen.getByText('Try the demo')).toBeTruthy();
+    expect(screen.getByTestId('first-visit-title')).toBeTruthy();
+    expect(screen.getByTestId('try-demo-button')).toBeTruthy();
     expect(screen.queryByTestId('app-content')).toBeNull();
   });
 
@@ -80,10 +88,28 @@ describe('WelcomeGate', () => {
       </GanttProvider>
     );
 
-    fireEvent.click(screen.getByText('Try the demo'));
+    fireEvent.click(screen.getByTestId('try-demo-button'));
 
     await waitFor(() => {
       expect(screen.getByTestId('app-content')).toBeTruthy();
     });
+  });
+
+  it('renders CollaboratorWelcome when URL has ?sheet= and not signed in', () => {
+    Object.defineProperty(window, 'location', {
+      value: { search: '?sheet=abc123', href: 'http://localhost/?sheet=abc123' },
+      writable: true,
+    });
+
+    render(
+      <GanttProvider>
+        <WelcomeGate>
+          <div data-testid="app-content">App Content</div>
+        </WelcomeGate>
+      </GanttProvider>
+    );
+
+    expect(screen.getByTestId('collaborator-title')).toBeTruthy();
+    expect(screen.queryByTestId('app-content')).toBeNull();
   });
 });

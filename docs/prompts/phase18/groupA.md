@@ -29,9 +29,9 @@ scope:
 depends_on: []
 tasks:
   - id: A1
-    summary: "Read types.ts, actions.ts, ganttReducer.ts, GanttContext.tsx, fakeData.ts"
+    summary: "Read types.ts, actions.ts, ganttReducer.ts, GanttContext.tsx, fakeData.ts — understand current state model"
   - id: A2
-    summary: "Add DataSource, SyncError types to GanttState"
+    summary: "Add DataSource, SyncError types to types/index.ts; add dataSource, syncError, sandboxDirty to GanttState"
   - id: A3
     summary: "Add SET_DATA_SOURCE, SET_SYNC_ERROR, ENTER_SANDBOX, RESET_STATE actions; move TASK_MODIFYING_ACTIONS"
   - id: A4

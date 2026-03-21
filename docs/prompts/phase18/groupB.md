@@ -116,6 +116,7 @@ export async function listUserSheets(token: string): Promise<SheetInfo[]>
 - Component test covers: render, select from list, paste valid URL, paste invalid URL
 
 ## Error Handling
+- NEVER compute dates mentally — use `taskEndDate`/`taskDuration` shell functions
 - If a task fails after 3 approaches, commit WIP and move to the next task
 - Commit after each logical change with conventional commits
 

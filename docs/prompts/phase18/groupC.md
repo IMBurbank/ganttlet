@@ -119,8 +119,8 @@ Persistent banners based on `syncError.type`:
 - `not_found`: "Can't access this sheet. It may have been deleted." + [Open another sheet].
   Calls `stopPolling()` + `removeRecentSheet(sheetId)` (from recentSheets.ts).
 - `forbidden`: Same banner text + [Open another sheet] (no removeRecentSheet).
-- When `dataSource='loading'` + any error: also show [Retry] button alongside [Open another
-  sheet]. [Retry] re-calls `loadFromSheet()`.
+- When `dataSource='loading'` + error (`auth`, `not_found`, or `forbidden`): also show
+  [Retry] button alongside [Open another sheet]. [Retry] re-calls `loadFromSheet()`.
 - `network`: "You're offline. Changes saved locally."
 - `rate_limit`: NOT a banner — handled by SyncStatus (C6)
 - `header_mismatch`: NOT handled by ErrorBanner — renders HeaderMismatchError (C7) instead

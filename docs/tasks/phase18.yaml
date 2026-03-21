@@ -239,8 +239,8 @@ stages:
               not_found: "Can't access this sheet. It may have been deleted." + [Open another sheet].
               Calls stopPolling() + removeRecentSheet(sheetId).
               forbidden: same banner text + [Open another sheet] (no removeRecentSheet).
-              When dataSource='loading' + any error: also show [Retry] button alongside
-              [Open another sheet]. [Retry] re-calls loadFromSheet().
+              When dataSource='loading' + error (auth, not_found, or forbidden): also show
+              [Retry] button alongside [Open another sheet]. [Retry] re-calls loadFromSheet().
               network: "You're offline. Changes saved locally."
               rate_limit: NOT a banner — handled by SyncStatus (C6).
               Component test covers each error type rendering + action triggers.
@@ -345,6 +345,8 @@ stages:
             status: pending
             exit_criteria: >
               ?sheet= or ?room= + signed in → render children (loading, useEffect handles).
+              When dataSource='loading' → render loading skeleton (timeline grid scaffolding
+              with centered spinner, same layout as EmptyState but with loading indicator).
               ?sheet= or ?room= + NOT signed in → CollaboratorWelcome.
               No URL params + auth + recent sheets → ReturnVisitorWelcome.
               No URL params + auth + no recent → ChoosePath.

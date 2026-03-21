@@ -8,13 +8,13 @@ phase: phase18
 merge_target: feature/phase18
 
 stages:
-  - name: "State Machine + WelcomeGate + Fake Data Decoupling"
+  - name: "Stage 1: State Machine + WelcomeGate + Fake Data Decoupling (single agent)"
     groups:
       - id: groupA
         branch: feature/phase18-state-machine
         merge_message: "Merge feature/phase18-state-machine: DataSource state machine, WelcomeGate shell, fake data decoupling, header validation, error classification"
 
-  - name: "Sheet Selector + Error Handling"
+  - name: "Stage 2: Sheet Selector + Error Handling (parallel — 2 agents)"
     groups:
       - id: groupB
         branch: feature/phase18-sheet-selector
@@ -23,7 +23,7 @@ stages:
         branch: feature/phase18-error-handling
         merge_message: "Merge feature/phase18-error-handling: ErrorBanner, SyncStatus, polling backoff, offline detection, HeaderMismatchError"
 
-  - name: "Onboarding Screens + Promotion Flow"
+  - name: "Stage 3: Onboarding Screens + Promotion Flow (parallel — 2 agents)"
     merge_order: [groupD, groupE]
     groups:
       - id: groupD
@@ -33,7 +33,7 @@ stages:
         branch: feature/phase18-promotion-flow
         merge_message: "Merge feature/phase18-promotion-flow: sheetCreation, TargetSheetCheck, PromotionFlow, sandbox banner"
 
-  - name: "Templates + Sheet Management"
+  - name: "Stage 4: Templates + Sheet Management (single agent)"
     groups:
       - id: groupF
         branch: feature/phase18-templates-management

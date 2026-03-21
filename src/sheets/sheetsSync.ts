@@ -1,6 +1,7 @@
 import { readSheet, updateSheet } from './sheetsClient';
 import { tasksToRows, rowsToTasks, validateHeaders, SHEET_COLUMNS } from './sheetsMapper';
 import { isSignedIn } from './oauth';
+import { classifySyncError } from './syncErrors';
 import { applyTasksToYjs } from '../collab/yjsBinding';
 import { getDoc } from '../collab/yjsProvider';
 import type { Task } from '../types';
@@ -18,15 +19,18 @@ export function columnLetter(n: number): string {
   }
   return s;
 }
-const POLL_INTERVAL_MS = 30000;
+export const BASE_POLL_INTERVAL_MS = 30000;
+const MAX_POLL_INTERVAL_MS = 300000;
 
 type SyncCallback = (action: GanttAction) => void;
 
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let lastWriteHash = '';
 let dispatch: SyncCallback | null = null;
 let currentSpreadsheetId: string | null = null;
+let consecutiveErrors = 0;
+let currentPollInterval = BASE_POLL_INTERVAL_MS;
 
 function hashTasks(tasks: Task[]): string {
   return JSON.stringify(
@@ -101,16 +105,22 @@ export function scheduleSave(tasks: Task[]): void {
   }, WRITE_DEBOUNCE_MS);
 }
 
-export function startPolling(): void {
-  stopPolling();
-  pollTimer = setInterval(async () => {
-    if (!currentSpreadsheetId || !isSignedIn()) return;
-    try {
-      const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
-      const incomingTasks = rowsToTasks(rows);
-      // Don't overwrite local data with an empty sheet — the sheet may not
-      // have been populated yet (first deploy, API just enabled, etc.)
-      if (incomingTasks.length === 0) return;
+function schedulePoll(): void {
+  pollTimer = setTimeout(pollOnce, currentPollInterval);
+}
+
+async function pollOnce(): Promise<void> {
+  pollTimer = null;
+  if (!currentSpreadsheetId || !isSignedIn()) {
+    schedulePoll();
+    return;
+  }
+  try {
+    const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
+    const incomingTasks = rowsToTasks(rows);
+    // Don't overwrite local data with an empty sheet — the sheet may not
+    // have been populated yet (first deploy, API just enabled, etc.)
+    if (incomingTasks.length > 0) {
       const newHash = hashTasks(incomingTasks);
       if (newHash !== lastWriteHash) {
         lastWriteHash = newHash;
@@ -125,15 +135,47 @@ export function startPolling(): void {
           applyTasksToYjs(doc, incomingTasks);
         }
       }
-    } catch (err) {
-      console.error('Poll error:', err);
     }
-  }, POLL_INTERVAL_MS);
+    // Success: reset backoff
+    consecutiveErrors = 0;
+    currentPollInterval = BASE_POLL_INTERVAL_MS;
+    schedulePoll();
+  } catch (err) {
+    console.error('Poll error:', err);
+    consecutiveErrors++;
+
+    // Classify the error for dispatch
+    const syncError = classifySyncError(err);
+
+    // Hard stop on not_found or forbidden — do not reschedule
+    if (syncError.type === 'not_found' || syncError.type === 'forbidden') {
+      dispatch?.({ type: 'SET_SYNC_ERROR', error: syncError });
+      return;
+    }
+
+    // Set syncError once per error sequence (on first failure)
+    if (consecutiveErrors === 1) {
+      dispatch?.({ type: 'SET_SYNC_ERROR', error: syncError });
+    }
+
+    // Backoff: double interval after 3+ consecutive errors
+    if (consecutiveErrors >= 3) {
+      currentPollInterval = Math.min(currentPollInterval * 2, MAX_POLL_INTERVAL_MS);
+    }
+    schedulePoll();
+  }
+}
+
+export function startPolling(): void {
+  stopPolling();
+  consecutiveErrors = 0;
+  currentPollInterval = BASE_POLL_INTERVAL_MS;
+  schedulePoll();
 }
 
 export function stopPolling(): void {
   if (pollTimer) {
-    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
     pollTimer = null;
   }
 }

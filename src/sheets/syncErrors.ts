@@ -18,5 +18,12 @@ export function classifySyncError(err: unknown): SyncError {
   if (err instanceof TypeError) {
     return { type: 'network', message: 'Network error', since: Date.now() };
   }
+  if (err instanceof Error && err.message === 'HEADER_MISMATCH') {
+    return {
+      type: 'header_mismatch',
+      message: 'Sheet headers do not match expected format',
+      since: Date.now(),
+    };
+  }
   return { type: 'network', message: String(err), since: Date.now() };
 }

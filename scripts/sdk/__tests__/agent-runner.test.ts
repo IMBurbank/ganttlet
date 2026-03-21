@@ -506,4 +506,18 @@ describe('agent-runner — output validation + fix_output', () => {
     expect(result.output).toBe('fix is VALID');
     expect(calls).toHaveLength(2);
   });
+
+  it('budget exhausted before fix_output → fails without fix call', async () => {
+    const { queryFn, calls } = fakeQuery([
+      { subtype: 'success', result: 'bad output', costUsd: 5.0 }, // uses full budget
+      { subtype: 'success', result: 'should not reach' },
+    ]);
+    const result = await runAgent(
+      { ...baseOptions(workdir), policy: 'test-validating', maxBudget: 5.0 },
+      queryFn
+    );
+    expect(result.failed).toBe(true);
+    expect(result.failureMode).toBe('error_max_budget_usd');
+    expect(calls).toHaveLength(1); // fix call never made
+  });
 });

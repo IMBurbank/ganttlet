@@ -80,6 +80,13 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
     }
 
     if (action.kind === 'fix_output') {
+      // Check budget before fix call
+      if (options.maxBudget !== undefined && cumulativeCostUsd >= options.maxBudget) {
+        action = { kind: 'done', failed: true, failureMode: 'error_max_budget_usd' };
+        break;
+      }
+      const fixRemainingBudget =
+        options.maxBudget !== undefined ? options.maxBudget - cumulativeCostUsd : undefined;
       const fixPrompt = policy.outputValidation!.fixPrompt;
       try {
         const fixResult = await callQuery(queryFn, {
@@ -88,6 +95,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
           resume: lastSessionId ?? undefined,
           persistSession,
           maxTurns: 5,
+          maxBudgetUsd: fixRemainingBudget,
           model: policy.attempts[action.attemptIndex].model,
           agent: options.agent,
         });
@@ -124,13 +132,14 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
     // action.kind === 'call'
     attemptIndex = action.attemptIndex;
     const attemptConfig = policy.attempts[attemptIndex];
-    totalAttempts++;
 
     // Check budget before calling
     if (options.maxBudget !== undefined && cumulativeCostUsd >= options.maxBudget) {
       action = { kind: 'done', failed: true, failureMode: 'error_max_budget_usd' };
       break;
     }
+
+    totalAttempts++;
 
     const remainingBudget =
       options.maxBudget !== undefined ? options.maxBudget - cumulativeCostUsd : undefined;

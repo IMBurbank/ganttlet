@@ -102,6 +102,10 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         crashCount = 0; // Reset crash count on successful fix call
       } catch {
         crashCount++;
+        if (crashCount < maxCrashRetries) {
+          const delay = crashRetryDelayMs * Math.pow(2, crashCount - 1);
+          await new Promise((r) => setTimeout(r, delay));
+        }
       }
 
       outputValid = policy.outputValidation!.isValid(lastOutput);

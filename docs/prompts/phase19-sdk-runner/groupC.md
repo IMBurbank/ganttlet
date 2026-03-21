@@ -181,5 +181,5 @@ Update `.agent-status.json` after each task.
 - Level 1: Fix and retry (up to 3 approaches)
 - Level 2: Commit WIP, move to next task
 - Level 3: Commit, mark blocked
-- Emergency: `git add -A && git commit -m "emergency: groupC saving work"`
+- Emergency: `git add docs/multi-agent-guide.md .claude/skills/multi-agent-orchestration/ scripts/lib/config.sh scripts/generate-retry-config.sh && git commit -m "emergency: groupC saving work"`
 - **Calculations**: NEVER do mental math — use `python3 -c` for arithmetic

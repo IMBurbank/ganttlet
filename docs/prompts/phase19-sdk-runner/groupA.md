@@ -330,5 +330,5 @@ Update `.agent-status.json` after each task:
 - Level 1: Fix and retry (up to 3 approaches)
 - Level 2: Commit WIP, move to next task
 - Level 3: Commit, mark blocked in .agent-status.json
-- Emergency: `git add -A && git commit -m "emergency: groupA saving work"`
+- Emergency: `git add scripts/sdk/ tsconfig.sdk.json package.json package-lock.json && git commit -m "emergency: groupA saving work"`
 - **Calculations**: NEVER do mental math — use `python3 -c` for arithmetic

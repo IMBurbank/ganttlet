@@ -199,5 +199,5 @@ Update `.agent-status.json` after each task.
 - Level 1: Fix and retry (up to 3 approaches)
 - Level 2: Commit WIP, move to next task
 - Level 3: Commit, mark blocked
-- Emergency: `git add -A && git commit -m "emergency: groupB saving work"`
+- Emergency: `git add docs/prompts/curation/ .claude/skills/curation/ && git commit -m "emergency: groupB saving work"`
 - **Calculations**: NEVER do mental math — use `python3 -c` for arithmetic

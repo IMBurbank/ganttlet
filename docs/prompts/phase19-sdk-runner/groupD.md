@@ -277,5 +277,5 @@ Update `.agent-status.json` after each task.
 - Level 1: Fix and retry (up to 3 approaches)
 - Level 2: Commit WIP, move to next task
 - Level 3: Commit, mark blocked
-- Emergency: `git add -A && git commit -m "emergency: groupD saving work"`
+- Emergency: `git add scripts/lib/agent.sh scripts/lib/stage.sh scripts/full-verify.sh scripts/sdk/__tests__/integration.test.ts && git commit -m "emergency: groupD saving work"`
 - **Calculations**: NEVER do mental math — use `python3 -c` for arithmetic

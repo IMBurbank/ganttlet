@@ -93,6 +93,14 @@ export interface CascadeShift {
   fromEndDate: string;
 }
 
+export type DataSource = 'sandbox' | 'loading' | 'sheet' | 'empty';
+
+export interface SyncError {
+  type: 'auth' | 'not_found' | 'forbidden' | 'rate_limit' | 'network' | 'header_mismatch';
+  message: string;
+  since: number;
+}
+
 export interface GanttState {
   tasks: Task[];
   columns: ColumnConfig[];
@@ -122,4 +130,7 @@ export interface GanttState {
   focusNewTaskId: string | null;
   isLeftPaneCollapsed: boolean;
   reparentPicker: { taskId: string } | null;
+  dataSource: DataSource | undefined;
+  syncError: SyncError | null;
+  sandboxDirty: boolean;
 }

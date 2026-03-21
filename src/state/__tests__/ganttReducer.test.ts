@@ -64,6 +64,9 @@ function makeState(overrides: Partial<GanttState> = {}): GanttState {
     focusNewTaskId: null,
     isLeftPaneCollapsed: false,
     reparentPicker: null,
+    dataSource: 'sheet',
+    syncError: null,
+    sandboxDirty: false,
     ...overrides,
   };
 }

@@ -180,6 +180,21 @@ function parseDependencies(str: string): Dependency[] {
     });
 }
 
+/**
+ * Validate that the header row matches the expected SHEET_COLUMNS.
+ * Case-insensitive, order-sensitive. All 20 required columns must be present.
+ * Extra columns after column T are ignored.
+ */
+export function validateHeaders(headerRow: string[]): boolean {
+  if (headerRow.length < SHEET_COLUMNS.length) return false;
+  for (let i = 0; i < SHEET_COLUMNS.length; i++) {
+    if (headerRow[i].toLowerCase() !== SHEET_COLUMNS[i].toLowerCase()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function tasksToRows(tasks: Task[]): string[][] {
   return [HEADER_ROW, ...tasks.filter((t) => !t.isSummary || t.childIds.length > 0).map(taskToRow)];
 }

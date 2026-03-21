@@ -1,54 +1,44 @@
-import React, { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type Dispatch } from 'react';
-import type { GanttState, CriticalPathScope } from '../types';
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type Dispatch,
+} from 'react';
+import type { GanttState } from '../types';
 import { ganttReducer } from './ganttReducer';
-import type { GanttAction } from './actions';
-import { fakeTasks, fakeChangeHistory, defaultColumns } from '../data/fakeData';
-import { initSync, loadFromSheet, scheduleSave, startPolling, stopPolling, getSpreadsheetId } from '../sheets/sheetsSync';
-import { isSignedIn, getAccessToken, getAuthState, setAuthChangeCallback, removeAuthChangeCallback, type AuthState } from '../sheets/oauth';
+import { TASK_MODIFYING_ACTIONS, type GanttAction } from './actions';
+import { initialState } from './initialState';
+import {
+  initSync,
+  loadFromSheet,
+  scheduleSave,
+  startPolling,
+  stopPolling,
+  getSpreadsheetId,
+} from '../sheets/sheetsSync';
+import { classifySyncError } from '../sheets/syncErrors';
+import {
+  isSignedIn,
+  getAccessToken,
+  getAuthState,
+  setAuthChangeCallback,
+  removeAuthChangeCallback,
+  type AuthState,
+} from '../sheets/oauth';
 import { connectCollab, disconnectCollab } from '../collab/yjsProvider';
-import { bindYjsToDispatch, applyTasksToYjs, applyActionToYjs, hydrateYjsFromTasks } from '../collab/yjsBinding';
+import {
+  bindYjsToDispatch,
+  applyTasksToYjs,
+  applyActionToYjs,
+  hydrateYjsFromTasks,
+} from '../collab/yjsBinding';
 import { setLocalAwareness, updateViewingTask, getCollabUsers } from '../collab/awareness';
 import type { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
-
-function getInitialTheme(): 'light' | 'dark' {
-  if (typeof window !== 'undefined') {
-    const stored = localStorage.getItem('ganttlet-theme');
-    if (stored === 'light' || stored === 'dark') return stored;
-  }
-  return 'dark';
-}
-
-const initialState: GanttState = {
-  tasks: fakeTasks,
-  columns: defaultColumns,
-  colorBy: 'owner',
-  zoomLevel: 'day',
-  searchQuery: '',
-  changeHistory: fakeChangeHistory,
-  users: [],
-  isHistoryPanelOpen: false,
-  isSyncing: false,
-  syncComplete: false,
-  contextMenu: null,
-  showOwnerOnBar: true,
-  showAreaOnBar: true,
-  showOkrsOnBar: false,
-  showCriticalPath: false,
-  dependencyEditor: null,
-  theme: getInitialTheme(),
-  collabUsers: [],
-  isCollabConnected: false,
-  undoStack: [],
-  redoStack: [],
-  lastCascadeIds: [],
-  cascadeShifts: [],
-  criticalPathScope: { type: 'project', name: '' } as CriticalPathScope,
-  collapseWeekends: true,
-  focusNewTaskId: null,
-  isLeftPaneCollapsed: false,
-  reparentPicker: null,
-};
 
 const GanttStateContext = createContext<GanttState>(initialState);
 const GanttDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
@@ -56,22 +46,6 @@ const LocalDispatchContext = createContext<Dispatch<GanttAction>>(() => {});
 const activeDragDefault: React.RefObject<string | null> = { current: null };
 const ActiveDragContext = createContext<React.RefObject<string | null>>(activeDragDefault);
 const AwarenessContext = createContext<Awareness | null>(null);
-
-/** Action types that modify task data and should be synced to Yjs */
-const TASK_MODIFYING_ACTIONS = new Set([
-  'MOVE_TASK',
-  'RESIZE_TASK',
-  'UPDATE_TASK_FIELD',
-  'TOGGLE_EXPAND',
-  'HIDE_TASK',
-  'SHOW_ALL_TASKS',
-  'CASCADE_DEPENDENTS',
-  'COMPLETE_DRAG',
-  'ADD_DEPENDENCY',
-  'UPDATE_DEPENDENCY',
-  'REMOVE_DEPENDENCY',
-  'SET_CONSTRAINT',
-]);
 
 export function GanttProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(ganttReducer, initialState);
@@ -98,28 +72,46 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Guarded dispatch: preserves dragged task's dates when SET_TASKS arrives during drag (R3)
-  const guardedDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
-    if (action.type === 'SET_TASKS' && activeDragRef.current) {
-      const dragId = activeDragRef.current;
-      const currentTask = stateRef.current.tasks.find(t => t.id === dragId);
-      if (currentTask) {
-        const preserved = action.tasks.map(t =>
-          t.id === dragId ? { ...t, startDate: currentTask.startDate, endDate: currentTask.endDate, duration: currentTask.duration } : t
-        );
-        dispatch({ type: 'SET_TASKS', tasks: preserved });
-        return;
+  const guardedDispatch = useCallback<Dispatch<GanttAction>>(
+    (action: GanttAction) => {
+      if (action.type === 'SET_TASKS' && activeDragRef.current) {
+        const dragId = activeDragRef.current;
+        const currentTask = stateRef.current.tasks.find((t) => t.id === dragId);
+        if (currentTask) {
+          const preserved = action.tasks.map((t) =>
+            t.id === dragId
+              ? {
+                  ...t,
+                  startDate: currentTask.startDate,
+                  endDate: currentTask.endDate,
+                  duration: currentTask.duration,
+                }
+              : t
+          );
+          dispatch({ type: 'SET_TASKS', tasks: preserved });
+          return;
+        }
       }
-    }
-    dispatch(action);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
+      dispatch(action);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [dispatch]
+  );
 
   // Wrap dispatch to also apply task-modifying actions to Yjs
   const collabDispatch = useCallback<Dispatch<GanttAction>>((action: GanttAction) => {
     dispatch(action);
 
-    if (action.type === 'UNDO' || action.type === 'REDO' || action.type === 'REPARENT_TASK'
-        || action.type === 'ADD_TASK' || action.type === 'DELETE_TASK') {
+    // Only sync to Yjs when connected to a sheet
+    if (stateRef.current.dataSource !== 'sheet') return;
+
+    if (
+      action.type === 'UNDO' ||
+      action.type === 'REDO' ||
+      action.type === 'REPARENT_TASK' ||
+      action.type === 'ADD_TASK' ||
+      action.type === 'DELETE_TASK'
+    ) {
       // These actions change the task array structure — flag for full sync in useEffect
       pendingFullSyncRef.current = true;
     } else if (yjsDocRef.current && TASK_MODIFYING_ACTIONS.has(action.type)) {
@@ -130,16 +122,25 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   // Sheets sync integration
   useEffect(() => {
     const spreadsheetId = new URLSearchParams(window.location.search).get('sheet');
-    if (!spreadsheetId) return;
+    if (!spreadsheetId || !isSignedIn()) return;
 
+    dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'loading' });
     initSync(spreadsheetId, dispatch);
 
-    loadFromSheet().then(tasks => {
-      if (tasks.length > 0) {
-        dispatch({ type: 'SET_TASKS', tasks });
-        loadedSheetTasksRef.current = tasks;
-      }
-    });
+    loadFromSheet()
+      .then((tasks) => {
+        if (tasks.length > 0) {
+          dispatch({ type: 'SET_TASKS', tasks });
+          dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
+          loadedSheetTasksRef.current = tasks;
+        } else {
+          dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
+        }
+        // TODO: addRecentSheet(spreadsheetId) — wired by Group B (Stage 2)
+      })
+      .catch((err) => {
+        dispatch({ type: 'SET_SYNC_ERROR', error: classifySyncError(err) });
+      });
 
     startPolling();
 
@@ -148,14 +149,16 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
 
   // Auto-save on task changes
   useEffect(() => {
+    if (state.dataSource !== 'sheet') return;
     const spreadsheetId = getSpreadsheetId();
     if (spreadsheetId && isSignedIn()) {
       scheduleSave(state.tasks);
     }
-  }, [state.tasks]);
+  }, [state.tasks, state.dataSource]);
 
   // Yjs collaboration connection — reconnects when access token changes (e.g. after sign-in)
   useEffect(() => {
+    if (state.dataSource !== 'sheet') return;
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
     if (!roomId || !accessToken) return;
@@ -181,11 +184,10 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_COLLAB_CONNECTED', connected });
 
         if (connected) {
-          // If Yjs is empty, hydrate from Sheets data (or fall back to fake tasks)
-          const tasksToHydrate = loadedSheetTasksRef.current.length > 0
-            ? loadedSheetTasksRef.current
-            : fakeTasks;
-          hydrateYjsFromTasks(doc, tasksToHydrate);
+          // If Yjs is empty, hydrate from Sheets data
+          if (loadedSheetTasksRef.current.length > 0) {
+            hydrateYjsFromTasks(doc, loadedSheetTasksRef.current);
+          }
         }
       });
 
@@ -206,7 +208,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_COLLAB_CONNECTED', connected: false });
       dispatch({ type: 'SET_COLLAB_USERS', users: [] });
     };
-  }, [accessToken]);
+  }, [accessToken, state.dataSource]);
 
   // Full Yjs sync after undo/redo (replaces entire task array)
   useEffect(() => {
@@ -236,14 +238,22 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [collabDispatch]);
 
+  // Warn before leaving with unsaved sandbox changes
+  useEffect(() => {
+    if (state.dataSource !== 'sandbox' || !state.sandboxDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [state.dataSource, state.sandboxDirty]);
+
   return (
     <GanttStateContext.Provider value={state}>
       <GanttDispatchContext.Provider value={collabDispatch}>
         <LocalDispatchContext.Provider value={dispatch}>
           <ActiveDragContext.Provider value={activeDragRef}>
-            <AwarenessContext.Provider value={awareness}>
-              {children}
-            </AwarenessContext.Provider>
+            <AwarenessContext.Provider value={awareness}>{children}</AwarenessContext.Provider>
           </ActiveDragContext.Provider>
         </LocalDispatchContext.Provider>
       </GanttDispatchContext.Provider>
@@ -280,9 +290,12 @@ export function useAwareness() {
  */
 export function useSetViewingTask() {
   const aw = useContext(AwarenessContext);
-  return useCallback((taskId: string | null, cellColumn: string | null) => {
-    if (aw) {
-      updateViewingTask(aw, taskId, cellColumn);
-    }
-  }, [aw]);
+  return useCallback(
+    (taskId: string | null, cellColumn: string | null) => {
+      if (aw) {
+        updateViewingTask(aw, taskId, cellColumn);
+      }
+    },
+    [aw]
+  );
 }

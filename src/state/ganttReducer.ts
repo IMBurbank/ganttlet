@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import type { GanttState, Task, CascadeShift } from '../types';
-import type { GanttAction } from './actions';
+import { TASK_MODIFYING_ACTIONS, type GanttAction } from './actions';
+import { initialState } from './initialState';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
 import { taskDuration, taskEndDate, ensureBusinessDay } from '../utils/dateUtils';
@@ -36,7 +37,8 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
     stateForReducer = { ...state, undoStack, redoStack: [] };
   }
 
-  return ganttReducerInner(stateForReducer, action);
+  const newState = ganttReducerInner(stateForReducer, action);
+  return postProcess(newState, action);
 }
 
 function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
@@ -625,7 +627,36 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: [] };
     }
 
+    case 'SET_DATA_SOURCE':
+      return { ...state, dataSource: action.dataSource, sandboxDirty: false };
+
+    case 'SET_SYNC_ERROR':
+      return { ...state, syncError: action.error };
+
+    case 'ENTER_SANDBOX':
+      return {
+        ...state,
+        dataSource: 'sandbox',
+        tasks: action.tasks,
+        changeHistory: action.changeHistory,
+      };
+
+    case 'RESET_STATE':
+      return { ...initialState };
+
     default:
       return state;
   }
+}
+
+function postProcess(newState: GanttState, action: GanttAction): GanttState {
+  // Track sandbox dirty state
+  if (newState.dataSource === 'sandbox' && TASK_MODIFYING_ACTIONS.has(action.type)) {
+    return { ...newState, sandboxDirty: true };
+  }
+  // Auto-transition from empty to sheet on task-modifying actions
+  if (newState.dataSource === 'empty' && TASK_MODIFYING_ACTIONS.has(action.type)) {
+    return { ...newState, dataSource: 'sheet' };
+  }
+  return newState;
 }

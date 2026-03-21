@@ -1,5 +1,5 @@
 import { readSheet, updateSheet } from './sheetsClient';
-import { tasksToRows, rowsToTasks, SHEET_COLUMNS } from './sheetsMapper';
+import { tasksToRows, rowsToTasks, validateHeaders, SHEET_COLUMNS } from './sheetsMapper';
 import { isSignedIn } from './oauth';
 import { applyTasksToYjs } from '../collab/yjsBinding';
 import { getDoc } from '../collab/yjsProvider';
@@ -29,38 +29,52 @@ let dispatch: SyncCallback | null = null;
 let currentSpreadsheetId: string | null = null;
 
 function hashTasks(tasks: Task[]): string {
-  return JSON.stringify(tasks.map(t => ({
-    id: t.id, name: t.name, startDate: t.startDate, endDate: t.endDate,
-    duration: t.duration, owner: t.owner, done: t.done, dependencies: t.dependencies,
-    parentId: t.parentId, childIds: t.childIds,
-    constraintType: t.constraintType, constraintDate: t.constraintDate,
-  })));
+  return JSON.stringify(
+    tasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      startDate: t.startDate,
+      endDate: t.endDate,
+      duration: t.duration,
+      owner: t.owner,
+      done: t.done,
+      dependencies: t.dependencies,
+      parentId: t.parentId,
+      childIds: t.childIds,
+      constraintType: t.constraintType,
+      constraintDate: t.constraintDate,
+    }))
+  );
 }
 
-export function initSync(
-  spreadsheetId: string,
-  dispatchFn: SyncCallback,
-): void {
+export function initSync(spreadsheetId: string, dispatchFn: SyncCallback): void {
   currentSpreadsheetId = spreadsheetId;
   dispatch = dispatchFn;
 }
 
 export async function loadFromSheet(): Promise<Task[]> {
-  if (!currentSpreadsheetId || !isSignedIn()) return [];
+  if (!currentSpreadsheetId) return [];
 
   dispatch?.({ type: 'START_SYNC' });
-  try {
-    const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
-    const tasks = rowsToTasks(rows);
+  const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
+
+  // Empty sheet (no rows at all, or only a blank row 1) — skip validation
+  if (rows.length === 0 || (rows.length === 1 && rows[0].every((c) => !c))) {
     dispatch?.({ type: 'COMPLETE_SYNC' });
     setTimeout(() => dispatch?.({ type: 'RESET_SYNC' }), 2000);
-    lastWriteHash = hashTasks(tasks);
-    return tasks;
-  } catch (err) {
-    console.error('Failed to load from sheet:', err);
-    dispatch?.({ type: 'RESET_SYNC' });
     return [];
   }
+
+  // Validate header row
+  if (rows.length > 0 && !validateHeaders(rows[0])) {
+    throw new Error('HEADER_MISMATCH');
+  }
+
+  const tasks = rowsToTasks(rows);
+  dispatch?.({ type: 'COMPLETE_SYNC' });
+  setTimeout(() => dispatch?.({ type: 'RESET_SYNC' }), 2000);
+  lastWriteHash = hashTasks(tasks);
+  return tasks;
 }
 
 export function scheduleSave(tasks: Task[]): void {

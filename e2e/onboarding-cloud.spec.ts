@@ -38,7 +38,7 @@ test.describe('Onboarding Cloud E2E', () => {
     await context.close();
   });
 
-  test('?sheet= with auth reaches non-welcome state', async ({ browser }) => {
+  test('?sheet= URL with auth shows collaborator or loads data', async ({ browser }) => {
     test.skip(!testSheetId, 'Requires TEST_SHEET_ID_DEV');
 
     const token = await getToken();
@@ -46,26 +46,34 @@ test.describe('Onboarding Cloud E2E', () => {
     await setupMockAuth(context, token);
     const page = await context.newPage();
 
-    // Sign in first
-    await page.goto('/');
-    await ensureClientId(page);
-    await page.getByTestId('sign-in-button').click();
-    await page.waitForTimeout(2000);
-
-    // Navigate to sheet URL
-    await page.goto(`/?sheet=${testSheetId}&room=${testSheetId}`);
+    // Navigate directly to sheet URL — sign in happens on this page
+    await page.goto(`/?sheet=${testSheetId}`);
     await ensureClientId(page);
 
-    // Should reach a non-welcome state (task bars, empty state, loading, or error)
+    // Should see either CollaboratorWelcome (need to sign in) or loading/data/error
     await expect(
       page
-        .locator('.task-bar')
-        .first()
+        .getByTestId('collaborator-title')
+        .or(page.locator('.task-bar').first())
         .or(page.getByTestId('empty-state'))
         .or(page.getByTestId('loading-skeleton'))
         .or(page.getByTestId('error-banner'))
     ).toBeVisible({ timeout: 30_000 });
 
+    // If CollaboratorWelcome, click sign in and wait for data
+    if (await page.getByTestId('collaborator-title').isVisible()) {
+      await page.getByTestId('collab-sign-in-button').click();
+      await expect(
+        page
+          .locator('.task-bar')
+          .first()
+          .or(page.getByTestId('empty-state'))
+          .or(page.getByTestId('loading-skeleton'))
+          .or(page.getByTestId('error-banner'))
+      ).toBeVisible({ timeout: 30_000 });
+    }
+
+    // Should NOT show FirstVisit welcome
     await expect(page.getByTestId('first-visit-title')).not.toBeVisible();
 
     await context.close();

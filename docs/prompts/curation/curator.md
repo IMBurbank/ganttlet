@@ -40,66 +40,25 @@ SKILL="scheduling-engine"  # ← replace with your actual target
 - Feedback reports: `find docs/prompts/curation/feedback -maxdepth 1 -name "*.md" -not -name "debrief-template.md" | sort | head -20`
 - Note which report observations reference files in your skill's domain
 
-**For the scope reviewer**, list other skill paths:
+**Reviewer reports** (produced by the review stage — do NOT spawn reviewers):
 ```bash
-ls .claude/skills/*/SKILL.md
+ls {LOG_DIR}/reviews/{SKILL}/
 ```
 
-## Step 2: Spawn 5 Reviewers
+Read all 5 reviewer reports. Each contains a structured findings table with
+claims, classifications, evidence, and evidence levels. If any report file
+is missing, note it in your debrief and proceed with the reports you have.
 
-Launch all 5 in parallel using the Agent tool with `subagent_type: "skill-reviewer"`.
+For each finding across all reports, proceed to scoring.
 
-For each angle (accuracy, structure, scope, history, adversarial):
-```
-Review angle: {angle}
+> **Note:** Reviewers are first-class agents launched by `launch-phase.sh`
+> stage 1 via the SDK runner. The 3-attempt fallback policy (sonnet 30 turns
+> → resume wrap-up 5 turns → haiku synthesize) replaces the old in-curator
+> synthesis pass. Without `SDK_RUNNER=1`, reviewers run via `claude -p` with
+> no fallback — partial output with no synthesis recovery. This is an accepted
+> tradeoff; the SDK runner is the intended path forward.
 
-Target skill: .claude/skills/{SKILL}/SKILL.md
-
-Feedback reports:
-{list paths, or "none"}
-
-Other skills:
-{list .claude/skills/*/SKILL.md paths}
-```
-
-Reviewers read files themselves — do NOT paste file contents.
-
-## Step 2b: Verify Reports
-
-For each reviewer output, check if it contains the structured report
-header `## Skill Review:`. If the header is missing, the reviewer
-investigated but didn't synthesize its findings into a report.
-
-For any reviewer with missing report, run a synthesis pass:
-
-```
-You are a report synthesizer. The skill reviewer below investigated
-a skill file but ran out of turns before writing its structured report.
-
-REVIEWER RAW OUTPUT:
-{paste the reviewer's full output}
-
-REQUIRED OUTPUT FORMAT:
-## Skill Review: {skill_name} — {angle}
-
-### Skill Content Findings
-| # | Claim | Classification | Evidence | Evidence level |
-|---|---|---|---|---|
-
-Write the structured report now using ONLY the evidence from the
-reviewer's output above. Do not investigate further. Do not read files.
-Just organize what the reviewer already found into the table format.
-```
-
-Launch this with `model: "haiku"` and `--max-turns 5`. No `subagent_type` —
-this is a formatting task, not a review. The synthesizer has no tools and
-no file access. It just organizes existing evidence.
-
-This is NOT optional. Every reviewer MUST produce a structured report.
-If the reviewer didn't write one, the synthesizer writes it from the
-reviewer's raw investigation output.
-
-## Step 3: Score Findings
+## Step 2: Score Findings
 
 For each finding from all reviewers, spawn a parallel haiku scorer using
 the Agent tool with `model: "haiku"` (no `subagent_type`).
@@ -136,7 +95,7 @@ FALSE POSITIVES (score 0 or 25):
 Return ONLY: {"score": N, "reason": "one sentence"}
 ```
 
-## Step 4: Filter and Validate
+## Step 3: Filter and Validate
 
 Drop findings scoring below threshold. Record what was filtered for your
 debrief (threshold calibration).
@@ -152,7 +111,7 @@ They inherit your worktree CWD and must read files from it, not main.
 
 If validation is inconclusive after 2 attempts, downgrade to `keep`.
 
-## Step 5: Rewrite the Skill
+## Step 4: Rewrite the Skill
 
 Produce a **full synthesis** — a better skill file, not the old file with
 patches. See the curation skill for the full model.
@@ -176,7 +135,7 @@ grep "^## " .claude/skills/$SKILL/SKILL.md  # sections intact?
 
 If broken, fix. If unfixable after 2 attempts, revert and note in debrief.
 
-## Step 6: Commit
+## Step 5: Commit
 
 Use a detailed commit message (the primary audit trail):
 
@@ -219,7 +178,7 @@ All sections required (write "none" if empty).
 
 No changes? Commit with `--allow-empty` explaining why.
 
-## Step 7: Debrief
+## Step 6: Debrief
 
 Write a debrief to `docs/prompts/curation/feedback/` following
 `docs/prompts/curation/debrief-template.md`.

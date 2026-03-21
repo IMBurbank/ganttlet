@@ -74,14 +74,10 @@ export async function createCollabPair(
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
 
-  const testSheetId = process.env.TEST_SHEET_ID_DEV;
-
   if (cloudAuth) {
-    // Cloud mode: block real GIS + inject SA tokens
+    // Cloud mode: inject real SA tokens via GIS mock
     await contextA.addInitScript(gisInitScript(cloudAuth.tokenA));
-    await contextA.route('**/accounts.google.com/**', (route) => route.abort());
     await contextB.addInitScript(gisInitScript(cloudAuth.tokenB));
-    await contextB.route('**/accounts.google.com/**', (route) => route.abort());
   }
 
   const pageA = await contextA.newPage();
@@ -90,25 +86,8 @@ export async function createCollabPair(
   // Use a shared room ID for both pages
   const roomId = `e2e-test-${Date.now()}`;
 
-  if (cloudAuth && testSheetId) {
-    // Cloud mode: navigate with sheet + room params, sign in on each page
-    const url = `/?sheet=${testSheetId}&room=${roomId}`;
-    await Promise.all([pageA.goto(url), pageB.goto(url)]);
-
-    // Set fake client ID and sign in on both pages
-    for (const page of [pageA, pageB]) {
-      await page.evaluate(() => {
-        (window as any).__ganttlet_config = (window as any).__ganttlet_config || {};
-        (window as any).__ganttlet_config.googleClientId = 'fake-e2e-client-id';
-      });
-      // If CollaboratorWelcome shows, click sign in
-      const collabTitle = page.getByTestId('collaborator-title');
-      if (await collabTitle.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await page.getByTestId('collaborator-sign-in-button').click();
-      }
-    }
-  } else if (cloudAuth) {
-    // Cloud mode without test sheet: use room-only URL
+  if (cloudAuth) {
+    // Cloud mode: navigate with room param — auth is already injected
     const url = `/?room=${roomId}`;
     await Promise.all([pageA.goto(url), pageB.goto(url)]);
   } else {

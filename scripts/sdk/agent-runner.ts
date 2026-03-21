@@ -205,16 +205,23 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
       if (crashCount < maxCrashRetries) {
         const delay = crashRetryDelayMs * Math.pow(2, crashCount - 1);
         await new Promise((r) => setTimeout(r, delay));
+        // Retry same attempt
+        action = {
+          kind: 'call',
+          attemptIndex,
+          resume: lastSessionId !== null,
+        };
+      } else {
+        action = nextAction(
+          policy.attempts,
+          attemptIndex,
+          resultType,
+          crashCount,
+          maxCrashRetries,
+          outputValid,
+          outputFixAttempted
+        );
       }
-      action = nextAction(
-        policy.attempts,
-        attemptIndex,
-        resultType,
-        crashCount,
-        maxCrashRetries,
-        outputValid,
-        outputFixAttempted
-      );
     }
   }
 
@@ -327,9 +334,12 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
       const subtype = msg.subtype as string;
       if (subtype === 'success') {
         resultType = 'success';
-        output = (msg.result as string) ?? null;
       } else {
         resultType = subtype as AttemptResultType;
+      }
+      // Capture output from any result type (partial output on error)
+      if (msg.result !== undefined) {
+        output = (msg.result as string) ?? null;
       }
       costUsd = (msg.total_cost_usd as number) ?? 0;
     }

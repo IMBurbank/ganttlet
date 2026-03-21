@@ -19,7 +19,26 @@ export function stripFrontmatter(content: string): string {
 export function substituteVars(content: string, vars: Record<string, string>): string {
   let result = content;
   for (const [key, value] of Object.entries(vars)) {
-    result = result.split('{' + key + '}').join(value);
+    const token = '{' + key + '}';
+    const parts: string[] = [];
+    let idx = 0;
+    while (idx < result.length) {
+      const pos = result.indexOf(token, idx);
+      if (pos === -1) {
+        parts.push(result.slice(idx));
+        break;
+      }
+      // Skip if preceded by $ (bash syntax like ${HOME})
+      if (pos > 0 && result[pos - 1] === '$') {
+        parts.push(result.slice(idx, pos + token.length));
+        idx = pos + token.length;
+        continue;
+      }
+      parts.push(result.slice(idx, pos));
+      parts.push(value);
+      idx = pos + token.length;
+    }
+    result = parts.join('');
   }
   return result;
 }

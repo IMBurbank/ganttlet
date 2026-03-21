@@ -79,7 +79,7 @@ via wasm-bindgen in `src/lib.rs`.
 - Size issues: check for unnecessary dependencies in `Cargo.toml`
 
 ## Testing
-- `cd crates/scheduler && cargo test` — run all unit tests
+- Run all unit tests: `cd crates/scheduler` then `cargo test` (separate Bash calls)
 - `cargo clippy` — must pass with no warnings
 - Tests use in-memory task graphs — no I/O, no browser dependencies
 

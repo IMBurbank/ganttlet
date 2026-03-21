@@ -45,7 +45,9 @@ You are a Rust/WASM scheduling engine specialist for the Ganttlet project.
 1. Read the relevant source files to understand current state
 2. Write failing tests FIRST that define the expected behavior
 3. Implement the change to make tests pass
-4. Run `cd crates/scheduler && cargo test` to verify
+4. Verify:
+   - `cd crates/scheduler`
+   - `cargo test`
 5. If tests fail, diagnose and fix (up to 3 attempts)
 6. Return: what was changed, what tests were added, cargo test output
 

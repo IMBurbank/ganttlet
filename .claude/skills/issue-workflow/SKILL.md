@@ -7,7 +7,7 @@ description: "Use when working from a GitHub issue (agent-ready label, single-ag
 
 ## Setup
 - Create a worktree: `git worktree add /workspace/.claude/worktrees/issue-{number} -b agent/issue-{number}`
-- `cd /workspace/.claude/worktrees/issue-{number}` — all work happens here, not in `/workspace`
+- `cd /workspace/.claude/worktrees/issue-{number}` (separate Bash call) — all work happens here, not in `/workspace`
 - Read the issue carefully. Identify acceptance criteria and scope boundaries.
 - If the issue lacks acceptance criteria, write your own based on the description.
 - Read CLAUDE.md and relevant skill files before starting work.
@@ -22,7 +22,7 @@ description: "Use when working from a GitHub issue (agent-ready label, single-ag
 Run `./scripts/full-verify.sh` before declaring done. This runs:
 - `npx tsc --noEmit` (TypeScript type check)
 - `npx vitest run` (unit tests)
-- `cd crates/scheduler && cargo test` (Rust tests)
+- Rust tests: `cd crates/scheduler` then `cargo test` (separate Bash calls)
 - `E2E_RELAY=1 npx playwright test` (E2E with relay)
 
 If E2E tests fail but unit tests pass, note this in your summary.
@@ -35,7 +35,10 @@ status. Or use `ATTEST_E2E=1 ./scripts/full-verify.sh` to auto-attest on success
 - PR body must include `Closes #{issue_number}` for auto-closing
 - Write `.agent-summary.md`: what changed, tests added, what couldn't be done
 - PR body should include structured sections: Summary, Test plan, Closes #N
-- **After PR is merged**, clean up: `cd /workspace`, then `rm -rf /workspace/.claude/worktrees/issue-{number}`, then `git worktree prune`
+- **After PR is merged**, clean up (each a separate Bash call):
+  1. `rm -rf /workspace/.claude/worktrees/issue-{number}`
+  2. `git worktree prune`
+  3. `git branch -d agent/issue-{number}`
 
 ## Error Handling Protocol
 <!-- Canonical location for error escalation (moved from root CLAUDE.md) -->

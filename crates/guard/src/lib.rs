@@ -125,6 +125,22 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
         );
     }
 
+    // Check 3: Agents must not edit worktree files from /workspace.
+    // Only the admin works from /workspace. Agents must enter their worktree first.
+    if file_path.starts_with("/workspace/.claude/worktrees/") {
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_str = cwd.to_string_lossy();
+            if cwd_str == "/workspace" || cwd_str == "/workspace/" {
+                return Some(
+                    "You are editing a worktree file but your CWD is /workspace. \
+                     Enter the worktree first (use the EnterWorktree tool or cd into it). \
+                     Only the admin works from /workspace."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
     None
 }
 
@@ -318,6 +334,22 @@ mod tests {
     fn edit_fail_closed_bad_json_no_file_path() {
         // Missing file_path → empty string → no checks triggered → allow
         let v = json!({"tool_input": {}});
+        assert!(check_edit(&v).is_none());
+    }
+
+    // --- check_edit: CWD enforcement for worktree files ---
+    // Note: check 3 (CWD-based) can't be fully tested in unit tests because
+    // std::env::current_dir() returns the test runner's CWD. The logic is
+    // tested via integration tests or manual verification. The unit tests
+    // below verify the path-matching conditions only.
+
+    #[test]
+    fn edit_allows_worktree_file_from_worktree_cwd() {
+        // When CWD is a worktree (not /workspace), editing worktree files is allowed.
+        // This test runs from the test runner's CWD which is not /workspace,
+        // so it verifies the allow path.
+        let v =
+            json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
         assert!(check_edit(&v).is_none());
     }
 

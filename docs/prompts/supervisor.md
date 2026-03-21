@@ -65,7 +65,7 @@ This blocks until all parallel agents in the stage finish. The command handles w
 ./scripts/launch-phase.sh <config> merge <N>
 ```
 
-This merges succeeded branches to the implementation branch in a dedicated merge worktree (`/workspace/.claude/worktrees/<phase>-merge`). After each branch merge, it runs build verification (WASM + tsc + vitest + cargo test in parallel) and auto-launches fix agents if verification fails. This catches breakage early — before merging more branches on top. The merge worktree persists across stages and is cleaned up after PR creation. `/workspace` stays on `main` at all times.
+This merges succeeded branches to the implementation branch in a dedicated merge worktree. After each branch merge, it runs build verification (WASM + tsc + vitest + cargo test in parallel) and auto-launches fix agents if verification fails. This catches breakage early — before merging more branches on top. The merge worktree persists across stages and is cleaned up after PR creation.
 
 **Check merge results:**
 - Exit code 0 = clean merge + verification passed
@@ -171,21 +171,12 @@ Once the code review finds no issues:
    ```
    This removes all worktrees matching the phase, prunes stale references, and deletes phase branches. If cleanup fails for specific worktrees, clean up manually (**each command must be a separate Bash call** — never chain `cd` with `&&`):
    ```bash
-   # Bash call 1:
-   cd /workspace
-   # Bash call 2:
    rm -rf /workspace/.claude/worktrees/<name>
-   # Bash call 3:
    git worktree prune
    ```
 
-6. Update main (separate Bash call after cd):
-   ```bash
-   # Bash call 1:
-   cd /workspace
-   # Bash call 2:
-   git pull origin main
-   ```
+6. Update main (only the admin does this from `/workspace`).
+   Agents should NOT run these commands.
 
 **CRITICAL**: Never chain `cd` with `&&` or `;` in a single Bash call. If the second command fails, the `cd` does not persist and all subsequent commands run in the wrong directory. Always `cd` in a standalone Bash call first.
 
@@ -235,7 +226,7 @@ SESSION=$(tmux display-message -p '#S')
 # (Use setup_worktree from worktree.sh, or create manually)
 git worktree add /workspace/.claude/worktrees/<phase>-<group> -b <branch> main
 tmux_launch_agent "$SESSION" "groupA" "/workspace/.claude/worktrees/<phase>-groupA" \
-  "/workspace/docs/prompts/<phase>/groupA.md" "/workspace/logs/<phase>/groupA.log" 80 10.00
+  "/workspace/.claude/worktrees/<phase>-groupA/docs/prompts/<phase>/groupA.md" "/tmp/ganttlet-logs/<phase>/groupA.log" 80 10.00
 ```
 
 **Critical**: Always pass the worktree path as the agent's CWD, not `/workspace`.
@@ -263,7 +254,7 @@ tmux_kill_agent "$SESSION" "groupA" "logs/<phase>/groupA.log"
 
 # Restart with fresh prompt (or modified prompt for retry)
 tmux_launch_agent "$SESSION" "groupA" "/workspace/.claude/worktrees/<phase>-groupA" \
-  "/workspace/docs/prompts/<phase>/groupA.md" "logs/<phase>/groupA.log" 80 10.00
+  "/workspace/.claude/worktrees/<phase>-groupA/docs/prompts/<phase>/groupA.md" "/tmp/ganttlet-logs/<phase>/groupA.log" 80 10.00
 ```
 
 ### Merge/validate/PR

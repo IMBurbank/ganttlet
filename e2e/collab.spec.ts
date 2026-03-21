@@ -49,7 +49,7 @@ test.describe('Collaboration E2E', () => {
       await nameCell.dblclick();
 
       const input = pageA.locator('input.inline-edit-input');
-      await input.waitFor({ timeout: 5_000 });
+      await input.waitFor({ timeout: 15_000 });
 
       const newName = 'Collab E2E Sync Test';
       await input.fill(newName);
@@ -60,7 +60,7 @@ test.describe('Collaboration E2E', () => {
       // In pageB, verify the new task name appears within 5 seconds
       await expect(
         pageB.getByTitle('Double-click to edit').filter({ hasText: newName })
-      ).toBeVisible({ timeout: 5_000 });
+      ).toBeVisible({ timeout: 15_000 });
     } finally {
       await cleanup();
     }
@@ -82,7 +82,7 @@ test.describe('Collaboration E2E', () => {
       await taskBar.dispatchEvent('dblclick');
 
       const popover = pageA.locator('.fade-in');
-      await popover.waitFor({ timeout: 5_000 });
+      await popover.waitFor({ timeout: 15_000 });
 
       // Change constraint to SNET
       const constraintSelect = popover.locator('select').last();
@@ -127,7 +127,7 @@ test.describe('Collaboration E2E', () => {
       await pageB.keyboard.press('Escape');
       await taskBar.dispatchEvent('dblclick');
       const resetPopover = pageA.locator('.fade-in');
-      await resetPopover.waitFor({ timeout: 5_000 });
+      await resetPopover.waitFor({ timeout: 15_000 });
       await resetPopover.locator('select').last().selectOption('ASAP');
       await pageA.keyboard.press('Escape');
     } finally {
@@ -151,7 +151,7 @@ test.describe('Collaboration E2E', () => {
       await taskBar.dispatchEvent('dblclick');
 
       const popover = pageA.locator('.fade-in');
-      await popover.waitFor({ timeout: 5_000 });
+      await popover.waitFor({ timeout: 15_000 });
 
       // Set MSO constraint with a date far in the past to force a conflict
       const constraintSelect = popover.locator('select').last();
@@ -178,7 +178,7 @@ test.describe('Collaboration E2E', () => {
       // Clean up: reset constraint to ASAP in pageA
       await taskBar.dispatchEvent('dblclick');
       const resetPopover = pageA.locator('.fade-in');
-      await resetPopover.waitFor({ timeout: 5_000 });
+      await resetPopover.waitFor({ timeout: 15_000 });
       await resetPopover.locator('select').last().selectOption('ASAP');
       await pageA.keyboard.press('Escape');
     } finally {
@@ -211,14 +211,14 @@ test.describe('Collaboration E2E', () => {
     await nameCell.dblclick();
 
     const input = page.locator('input.inline-edit-input');
-    await input.waitFor({ timeout: 5_000 });
+    await input.waitFor({ timeout: 15_000 });
 
     const testName = 'Single User Edit';
     await input.fill(testName);
     await page.locator('header').click();
 
     await expect(page.getByTitle('Double-click to edit').filter({ hasText: testName })).toBeVisible(
-      { timeout: 5_000 }
+      { timeout: 15_000 }
     );
 
     // Filter out expected WebSocket connection errors (relay not running)

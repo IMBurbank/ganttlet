@@ -112,4 +112,46 @@ describe('WelcomeGate', () => {
     expect(screen.getByTestId('collaborator-title')).toBeTruthy();
     expect(screen.queryByTestId('app-content')).toBeNull();
   });
+
+  it('shows sandbox banner when dataSource is sandbox', async () => {
+    render(
+      <GanttProvider>
+        <WelcomeGate>
+          <div data-testid="app-content">App Content</div>
+        </WelcomeGate>
+      </GanttProvider>
+    );
+
+    // Enter sandbox mode
+    fireEvent.click(screen.getByText('Try the demo'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('sandbox-banner')).toBeTruthy();
+    });
+
+    expect(screen.getByText(/demo project/)).toBeTruthy();
+    expect(screen.getByTestId('save-to-sheet-button')).toBeTruthy();
+  });
+
+  it('opens PromotionFlow when "Save to Google Sheet" is clicked', async () => {
+    render(
+      <GanttProvider>
+        <WelcomeGate>
+          <div data-testid="app-content">App Content</div>
+        </WelcomeGate>
+      </GanttProvider>
+    );
+
+    fireEvent.click(screen.getByText('Try the demo'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('save-to-sheet-button')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId('save-to-sheet-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('promotion-modal')).toBeTruthy();
+    });
+  });
 });

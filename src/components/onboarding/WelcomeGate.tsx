@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import React, { useCallback, useState, lazy, Suspense } from 'react';
 import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
 import { isSignedIn } from '../../sheets/oauth';
 import { getRecentSheets } from '../../utils/recentSheets';
@@ -7,11 +7,14 @@ import ReturnVisitorWelcome from './ReturnVisitorWelcome';
 import CollaboratorWelcome from './CollaboratorWelcome';
 import ChoosePath from './ChoosePath';
 
+const PromotionFlow = lazy(() => import('./PromotionFlow'));
+
 export default function WelcomeGate({ children }: { children: React.ReactNode }) {
   const state = useGanttState();
   const dispatch = useGanttDispatch();
   // Track if user just signed in from FirstVisit (show ChoosePath instead of FirstVisit)
   const [justSignedIn, setJustSignedIn] = useState(false);
+  const [showPromotion, setShowPromotion] = useState(false);
 
   const onSelectSheet = useCallback(
     (sheetId: string) => {
@@ -55,7 +58,31 @@ export default function WelcomeGate({ children }: { children: React.ReactNode })
         </div>
       );
     }
-    return <>{children}</>;
+    return (
+      <>
+        {state.dataSource === 'sandbox' && (
+          <div
+            className="bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-4 py-2 text-sm flex items-center justify-center gap-2"
+            data-testid="sandbox-banner"
+          >
+            <span>You&apos;re exploring a demo project. Nothing is saved.</span>
+            <button
+              onClick={() => setShowPromotion(true)}
+              className="underline font-medium hover:text-amber-700 dark:hover:text-amber-100 transition-colors"
+              data-testid="save-to-sheet-button"
+            >
+              Save to Google Sheet
+            </button>
+          </div>
+        )}
+        {showPromotion && (
+          <Suspense fallback={null}>
+            <PromotionFlow onClose={() => setShowPromotion(false)} />
+          </Suspense>
+        )}
+        {children}
+      </>
+    );
   }
 
   // Check URL params

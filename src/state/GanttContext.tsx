@@ -170,6 +170,8 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (state.dataSource !== 'sheet') return;
     if (state.lastTaskSource !== 'local') return;
+    // T3.1: Skip save during active drag — COMPLETE_DRAG will trigger save when done
+    if (activeDragRef.current) return;
     const spreadsheetId = getSpreadsheetId();
     if (spreadsheetId && isSignedIn()) {
       scheduleSave(state.tasks);

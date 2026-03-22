@@ -178,8 +178,9 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             let cwd_str = cwd.to_string_lossy();
             if cwd_str == "/workspace" || cwd_str == "/workspace/" {
                 return Some(
-                    "Do not run git reset --hard in /workspace. This modifies shared state \
-                     that other agents depend on. Only use git reset --hard in your own worktree. \
+                    "Do not run git reset --hard in /workspace — it modifies shared state \
+                     that other agents depend on. If you need to sync after a squash merge, \
+                     run git reset --hard origin/<branch> in your own worktree instead. \
                      See .claude/worktrees/CLAUDE.md."
                         .to_string(),
                 );
@@ -222,9 +223,11 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     for i in 0..ts.len().saturating_sub(2) {
         if ts[i] == "git" && ts[i + 1] == "worktree" && ts[i + 2] == "remove" {
             return Some(
-                "Worktree removal blocked. Only remove worktrees you created, \
-                 and only after your PR is merged. \
-                 Never remove or prune other agents' worktrees."
+                "Do not use git worktree remove directly. \
+                 Use ExitWorktree with action: \"remove\" to safely clean up \
+                 your own worktree (restores CWD, deletes directory and branch). \
+                 Never remove other agents' worktrees. \
+                 See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
                     .to_string(),
             );
         }

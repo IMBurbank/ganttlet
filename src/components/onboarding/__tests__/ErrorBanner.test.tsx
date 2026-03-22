@@ -25,6 +25,7 @@ vi.mock('../../../sheets/oauth', () => ({
 vi.mock('../../../sheets/sheetsSync', () => ({
   loadFromSheet: vi.fn().mockResolvedValue([]),
   scheduleSave: vi.fn(),
+  startPolling: vi.fn(),
   stopPolling: vi.fn(),
   getSpreadsheetId: () => 'test-sheet-id',
 }));
@@ -120,5 +121,19 @@ describe('ErrorBanner', () => {
     mockState.dataSource = 'loading';
     render(<ErrorBanner />);
     expect(screen.queryByTestId('retry-btn')).toBeNull();
+  });
+
+  it('calls startPolling after successful retry', async () => {
+    const { startPolling } = await import('../../../sheets/sheetsSync');
+    mockState.syncError = { type: 'not_found', message: 'Not found', since: Date.now() };
+    mockState.dataSource = 'loading';
+    render(<ErrorBanner />);
+
+    fireEvent.click(screen.getByTestId('retry-btn'));
+
+    // Wait for the async loadFromSheet promise to resolve
+    await vi.waitFor(() => {
+      expect(startPolling).toHaveBeenCalledTimes(1);
+    });
   });
 });

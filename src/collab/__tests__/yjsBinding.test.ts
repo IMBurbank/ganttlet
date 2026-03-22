@@ -145,6 +145,24 @@ describe('T1.3 — isLocalUpdate scoped per Y.Doc', () => {
   });
 });
 
+describe('applyActionToYjs ignores SET_TASKS (dead code removed)', () => {
+  it('SET_TASKS action is a no-op — does not modify Yjs doc', () => {
+    const doc = new Y.Doc();
+    applyTasksToYjs(doc, [makeTask({ id: 'existing-1' })]);
+
+    const yarray = doc.getArray<Y.Map<unknown>>('tasks');
+    const beforeLength = yarray.length;
+
+    // Calling applyActionToYjs with SET_TASKS should NOT modify the doc
+    applyActionToYjs(doc, {
+      type: 'SET_TASKS',
+      tasks: [makeTask({ id: 'new-1' }), makeTask({ id: 'new-2' })],
+    });
+
+    expect(yarray.length).toBe(beforeLength);
+  });
+});
+
 describe('T2.4 — SET_TASKS dispatch includes source: yjs', () => {
   it('bindYjsToDispatch observer dispatches SET_TASKS with source yjs', () => {
     const doc = new Y.Doc();

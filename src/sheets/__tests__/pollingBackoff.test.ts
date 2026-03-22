@@ -26,10 +26,12 @@ vi.mock('../../collab/yjsProvider', () => ({
 }));
 
 import { readSheet } from '../sheetsClient';
+import { validateHeaders } from '../sheetsMapper';
 import { initSync, startPolling, stopPolling, BASE_POLL_INTERVAL_MS } from '../sheetsSync';
 import type { GanttAction } from '../../state/actions';
 
 const mockedReadSheet = vi.mocked(readSheet);
+const mockedValidateHeaders = vi.mocked(validateHeaders);
 
 describe('polling backoff', () => {
   let dispatchSpy: ReturnType<typeof vi.fn<(action: GanttAction) => void>>;
@@ -176,6 +178,41 @@ describe('polling backoff', () => {
     // Should NOT poll again
     await vi.advanceTimersByTimeAsync(BASE_POLL_INTERVAL_MS * 10);
     expect(mockedReadSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('hard-stops on header mismatch — dispatches SET_SYNC_ERROR, no reschedule', async () => {
+    mockedReadSheet.mockResolvedValue([['wrong', 'headers']]);
+    mockedValidateHeaders.mockReturnValue(false);
+
+    startPolling();
+    await vi.advanceTimersByTimeAsync(BASE_POLL_INTERVAL_MS);
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_SYNC_ERROR',
+        error: expect.objectContaining({ type: 'header_mismatch' }),
+      })
+    );
+
+    // Should NOT poll again
+    mockedReadSheet.mockClear();
+    await vi.advanceTimersByTimeAsync(BASE_POLL_INTERVAL_MS * 10);
+    expect(mockedReadSheet).not.toHaveBeenCalled();
+  });
+
+  it('skips header validation when rows are empty', async () => {
+    mockedReadSheet.mockResolvedValue([]);
+    mockedValidateHeaders.mockReturnValue(false); // would fail if called
+
+    startPolling();
+    await vi.advanceTimersByTimeAsync(BASE_POLL_INTERVAL_MS);
+
+    // validateHeaders should NOT be called for empty rows
+    expect(mockedValidateHeaders).not.toHaveBeenCalled();
+
+    // Should continue polling (no hard stop)
+    await vi.advanceTimersByTimeAsync(BASE_POLL_INTERVAL_MS);
+    expect(mockedReadSheet).toHaveBeenCalledTimes(2);
   });
 
   it('dispatches SET_SYNC_ERROR only once per error sequence', async () => {

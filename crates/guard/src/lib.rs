@@ -676,14 +676,6 @@ fn is_control_operator(op: &str) -> bool {
 }
 
 impl Segment {
-    /// Get the string value of token at index, only if it's a Word.
-    fn word_str(&self, i: usize) -> Option<&str> {
-        match self.tokens.get(i)? {
-            Token::Word(w) => Some(w.as_str()),
-            Token::Operator(_) => None,
-        }
-    }
-
     /// Find the effective command, skipping variable assignments, known prefixes,
     /// and redirect operators.
     pub fn effective_command(&self) -> Option<(usize, &str)> {

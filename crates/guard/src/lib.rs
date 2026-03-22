@@ -52,12 +52,15 @@ const COMMAND_PREFIXES: &[&str] = &["sudo", "env", "command", "nice", "nohup", "
 /// Shell interpreters whose -c argument should be recursively parsed.
 const SHELL_COMMANDS: &[&str] = &["bash", "sh", "dash", "zsh", "ksh"];
 
-/// Non-shell interpreters whose code argument should be scanned for
-/// dangerous patterns (workspace paths, git commands).
-const SCRIPT_INTERPRETERS: &[&str] = &["python", "python3", "node", "ruby", "perl"];
-
-/// The flag that introduces an inline code argument for each interpreter.
-const SCRIPT_INLINE_FLAGS: &[&str] = &["-c", "-c", "-e", "-e", "-e"];
+/// Non-shell interpreters and the flag that introduces inline code.
+/// (name, inline_flag) — e.g., python uses -c, node uses -e.
+const SCRIPT_INTERPRETERS: &[(&str, &str)] = &[
+    ("python", "-c"),
+    ("python3", "-c"),
+    ("node", "-e"),
+    ("ruby", "-e"),
+    ("perl", "-e"),
+];
 
 /// True if a token is a shell interpreter (handles full paths like /bin/bash).
 fn is_shell_command(token: &str) -> bool {
@@ -73,8 +76,7 @@ fn script_interpreter_flag(token: &str) -> Option<&'static str> {
     let base = token.rsplit('/').next().unwrap_or(token);
     SCRIPT_INTERPRETERS
         .iter()
-        .zip(SCRIPT_INLINE_FLAGS.iter())
-        .find(|(name, _)| *name == &base)
+        .find(|(name, _)| *name == base)
         .map(|(_, flag)| *flag)
 }
 
@@ -503,29 +505,10 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
                     }
                 }
                 if !delim.is_empty() {
-                    // Process rest of current line (tokens after << DELIM on same line)
-                    // These belong to the command context, not the heredoc body
-                    // We'll let normal processing handle them — just set heredoc_delimiter
-                    // so the body gets skipped starting from the next newline
+                    // Set delimiter; the \n handler will enter body mode.
+                    // Tokens on the rest of this line (e.g., `<< EOF && echo done`)
+                    // are processed normally by the main loop.
                     heredoc_delimiter = Some(delim);
-                    // We need to skip to the next newline to start heredoc body
-                    // But first, any tokens on this line (e.g., `<< EOF && echo done`)
-                    // should still be parsed. The heredoc body starts after the newline.
-                    // We'll handle this by NOT entering heredoc body until we see \n.
-                    // The heredoc_delimiter is set, and the \n handler will transition.
-                    // Actually, the main loop will continue processing. When it hits \n,
-                    // the newline code emits Operator("\n"), then the top of the loop
-                    // checks heredoc_delimiter and enters body mode.
-                    // But we DON'T want the \n to be emitted as an operator here.
-                    // Let's handle it differently: after setting delimiter, continue
-                    // normal parsing until we see \n. When we see \n, skip it and
-                    // enter heredoc body mode (don't emit it as operator).
-
-                    // Actually, let's process rest-of-line tokens, then enter heredoc
-                    // body mode. The approach: continue the main loop normally.
-                    // When we encounter \n while heredoc_delimiter is Some, we enter
-                    // body mode instead of emitting an operator.
-                    // This means we need to check heredoc_delimiter in the \n handler.
                 }
             }
             continue;
@@ -1040,9 +1023,11 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
     let file_path = input["tool_input"]["file_path"].as_str().unwrap_or("");
 
     // Protected files
+    let basename = file_path.rsplit('/').next().unwrap_or(file_path);
     if file_path.contains("package-lock.json")
         || file_path.contains("src/wasm/scheduler/")
-        || file_path.contains(".env")
+        || basename == ".env"
+        || basename.starts_with(".env.")
     {
         return Some(format!("Protected file: {}", file_path));
     }
@@ -1108,14 +1093,13 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             && !seg.has_short_flag('B')
             && !seg.has_short_flag('c')
             && !seg.has_token_containing("worktree")
+            && !is_worktree_cwd()
         {
-            if !is_worktree_cwd() {
-                return Some(
-                    "Do not use git checkout/switch in /workspace. \
-                     Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>"
-                        .to_string(),
-                );
-            }
+            return Some(
+                "Do not use git checkout/switch in /workspace. \
+                 Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>"
+                    .to_string(),
+            );
         }
     }
 

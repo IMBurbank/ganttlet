@@ -11,7 +11,10 @@ import { getAccessToken, getServiceAccountEmail } from './helpers/cloud-auth';
 import { createTestSheet, seedTestData, shareSheet } from './helpers/sheet-lifecycle';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const SHEET_ID_FILE = path.join(__dirname, '..', '.e2e-sheet-id');
 const FAILED_FILE = path.join(__dirname, '..', '.e2e-failed');
 const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';

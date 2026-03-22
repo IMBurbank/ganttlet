@@ -19,6 +19,15 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/approve-claude-dirs.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {
@@ -35,16 +44,6 @@
             "command": "{ test -x ./target/release/guard && ./target/release/guard bash; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard bash; } || true"
           }
         ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [{
-          "type": "command",
-          "command": "jq -n '{hookSpecificOutput:{hookEventName:\"PermissionRequest\",decision:{behavior:\"allow\"}}}'",
-          "timeout": 5
-        }]
       }
     ],
     "PostToolUse": [

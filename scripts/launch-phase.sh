@@ -90,6 +90,7 @@ Commands:
   create-pr         Create PR from implementation branch to main + trigger code review
   resume <step>     Resume pipeline from a step (e.g., "stage:2", "merge:1", "validate")
   cleanup           Remove all worktrees and prune branches for this phase
+  post-merge-cleanup  Delete local/remote branches after PR is squash-merged
   status            Show current worktree and branch status
   logs [group]      Tail agent logs (optionally for a specific group)
 
@@ -302,7 +303,10 @@ cleanup_phase() {
   # Prune any stale worktree references
   git worktree prune 2>/dev/null || true
 
-  # Remove phase branches (implementation branch + group branches)
+  # Remove phase branches (implementation branch + group branches).
+  # Uses delete_merged_branch() to handle squash-merged branches that
+  # git branch -d refuses to delete (no commit ancestry after squash).
+  git fetch origin main --quiet 2>/dev/null || true
   local phase_branches
   phase_branches=$(git branch --list "*${PHASE}*" 2>/dev/null || echo "")
   if [[ -n "$phase_branches" ]]; then
@@ -310,8 +314,8 @@ cleanup_phase() {
       branch=$(echo "$branch" | sed 's/^[* ]*//')
       if [[ -n "$branch" && "$branch" != "main" ]]; then
         log "Deleting branch: ${branch}"
-        git branch -d "$branch" 2>/dev/null || \
-          warn "Could not delete branch: ${branch} (may need -D)"
+        delete_merged_branch "$branch" "origin/main" || \
+          warn "Could not delete branch: ${branch} (genuinely unmerged)"
       fi
     done <<< "$phase_branches"
   fi
@@ -381,6 +385,9 @@ case "$COMMAND" in
     ;;
   cleanup)
     cleanup_phase
+    ;;
+  post-merge-cleanup)
+    post_merge_cleanup
     ;;
   status)
     show_status

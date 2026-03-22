@@ -13,6 +13,7 @@ description: "Use when modifying launch-phase.sh, creating phase prompts, debugg
 - **Retry-on-crash**: Agents that crash are restarted automatically
 - **Validation**: Post-merge validation agent runs fix-and-retry cycles
 - **Cleanup command**: `./scripts/launch-phase.sh <config> cleanup` removes all phase worktrees/branches
+- **Post-merge cleanup**: `./scripts/launch-phase.sh <config> post-merge-cleanup` deletes local+remote branches after squash merge (handles the squash-merge orphan problem where `git branch -d` refuses)
 
 See `docs/multi-agent-guide.md` for full command reference and usage examples.
 

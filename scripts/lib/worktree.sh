@@ -1,6 +1,49 @@
 #!/usr/bin/env bash
 # scripts/lib/worktree.sh — Git worktree setup and cleanup utilities
 
+# Delete a local branch safely, handling squash merges.
+# Squash merges create a new commit with no parent link to the branch, so
+# `git branch -d` refuses ("not fully merged"). This function detects that
+# the branch content is already on the target ref by comparing trees:
+#   - If git diff shows no file differences → content is merged, safe to delete
+#   - If git diff shows changes → genuinely unmerged, refuse
+#
+# Usage: delete_merged_branch "feature/my-branch" "origin/main"
+delete_merged_branch() {
+  local branch="$1"
+  local target="${2:-origin/main}"
+
+  # Fast path: git branch -d works when ancestry is intact (non-squash merges)
+  if git branch -d "$branch" 2>/dev/null; then
+    return 0
+  fi
+
+  # Check if the branch even exists
+  if ! git rev-parse --verify "$branch" >/dev/null 2>&1; then
+    return 0  # already gone
+  fi
+
+  # Compare tree content (files), not commit history
+  local tree_diff
+  tree_diff=$(git diff "${target}...${branch}" --stat 2>/dev/null || echo "ERROR")
+
+  if [[ "$tree_diff" == "ERROR" ]]; then
+    warn "Could not compare ${branch} to ${target} — skipping deletion"
+    return 1
+  fi
+
+  if [[ -z "$tree_diff" ]]; then
+    # Same tree content — squash merged. Fast-forward branch ref then delete.
+    git branch -f "$branch" "$target" 2>/dev/null
+    git branch -d "$branch" 2>/dev/null
+    return 0
+  fi
+
+  # Genuinely unmerged — refuse
+  warn "Branch ${branch} has unmerged changes — not deleting"
+  return 1
+}
+
 # Setup a worktree for an agent group. Prints the worktree path to stdout.
 # All log output goes to stderr to keep stdout clean for path capture.
 #
@@ -101,8 +144,7 @@ cleanup_worktrees() {
       rm -rf "$worktree"
       log "Removed worktree: ${worktree}"
     fi
-    git branch -d "$branch" 2>/dev/null || \
-      warn "Could not delete branch: ${branch}"
+    delete_merged_branch "$branch" "${MERGE_TARGET}" || true
   done
   git worktree prune 2>/dev/null || true
 }

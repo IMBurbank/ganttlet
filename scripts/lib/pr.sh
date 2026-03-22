@@ -168,6 +168,41 @@ ${PR_TEST_PLAN}"
   ok "=== PR created and code review triggered ==="
 }
 
+# Clean up all branches after a squash merge is confirmed.
+# Call this after `gh pr merge --squash` has completed.
+# Handles the squash-merge orphan problem: git branch -d refuses because
+# squash commits have no parent link to the original branch.
+#
+# Usage: post_merge_cleanup
+post_merge_cleanup() {
+  log "=== Post-merge branch cleanup ==="
+
+  # Verify the PR was actually merged
+  local pr_branch="$MERGE_TARGET"
+  git fetch origin main --quiet 2>/dev/null || true
+
+  # Clean up implementation branch (the PR branch)
+  if delete_merged_branch "$pr_branch" "origin/main"; then
+    log "Deleted implementation branch: ${pr_branch}"
+  fi
+  # Delete remote implementation branch
+  git push origin --delete "$pr_branch" 2>/dev/null || true
+
+  # Clean up per-group branches from all stages
+  for ((s=0; s<NUM_STAGES; s++)); do
+    local count="${STAGE_GROUP_COUNTS[$s]}"
+    for ((g=0; g<count; g++)); do
+      local branch="${STAGE_BRANCHES["${s}:${g}"]}"
+      if delete_merged_branch "$branch" "origin/main"; then
+        log "Deleted group branch: ${branch}"
+      fi
+      git push origin --delete "$branch" 2>/dev/null || true
+    done
+  done
+
+  ok "=== Post-merge cleanup complete ==="
+}
+
 # Helper: total groups across all stages
 get_total_group_count() {
   local total=0

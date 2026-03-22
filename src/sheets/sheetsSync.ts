@@ -114,7 +114,7 @@ export function scheduleSave(tasks: Task[]): void {
 
       // T1.1: Clear orphaned rows below written data
       const dataEndRow = rows.length;
-      const clearRange = `Sheet1!A${dataEndRow + 1}:${endCol}`;
+      const clearRange = `${DATA_RANGE}!A${dataEndRow + 1}:${endCol}`;
       await clearSheet(currentSpreadsheetId!, clearRange).catch(() => {
         console.warn('Failed to clear orphaned rows');
       });
@@ -124,6 +124,8 @@ export function scheduleSave(tasks: Task[]): void {
       setTimeout(() => dispatch?.({ type: 'RESET_SYNC' }), 2000);
     } catch (err) {
       console.error('Failed to save to sheet:', err);
+      const syncError = classifySyncError(err);
+      dispatch?.({ type: 'SET_SYNC_ERROR', error: syncError });
       dispatch?.({ type: 'RESET_SYNC' });
     } finally {
       saveInFlight = false;
@@ -161,6 +163,21 @@ async function pollOnce(): Promise<void> {
   }
   try {
     const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
+
+    // Validate headers on every poll — catch mid-session header edits
+    if (rows.length > 0 && !validateHeaders(rows[0])) {
+      dispatch?.({
+        type: 'SET_SYNC_ERROR',
+        error: {
+          type: 'header_mismatch',
+          message: 'Sheet headers do not match expected format',
+          since: Date.now(),
+        },
+      });
+      // Hard stop — don't reschedule polling
+      return;
+    }
+
     const incomingTasks = rowsToTasks(rows);
     // Don't overwrite local data with an empty sheet — the sheet may not
     // have been populated yet (first deploy, API just enabled, etc.)

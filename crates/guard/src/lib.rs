@@ -693,6 +693,12 @@ fn is_control_operator(op: &str) -> bool {
     matches!(op, "&&" | "||" | "|" | ";" | "&" | "\n" | "(" | ")")
 }
 
+/// True if an operator can write to a file.
+/// Used by the redirect check to block writes to protected paths.
+fn is_write_redirect(op: &str) -> bool {
+    matches!(op, ">" | ">>" | ">|" | ">&" | "<>")
+}
+
 impl Segment {
     /// Find the effective command, skipping variable assignments, known prefixes,
     /// and redirect operators.
@@ -969,11 +975,8 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
             Component::ParentDir => {
                 // Pop the last Normal component (go up one level).
                 // Never pop RootDir or Prefix — can't go above filesystem root.
-                match components.last() {
-                    Some(Component::Normal(_)) => {
-                        components.pop();
-                    }
-                    _ => {}
+                if matches!(components.last(), Some(Component::Normal(_))) {
+                    components.pop();
                 }
             }
             Component::CurDir => {
@@ -1170,13 +1173,11 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             // Removing a DIFFERENT worktree is safe for the caller but risks
             // destroying another agent's in-progress work.
             let target_is_cwd = if let Ok(cwd) = std::env::current_dir() {
-                let cwd_str = cwd.to_string_lossy();
+                let cwd_normalized = normalize_path(&cwd);
                 seg.tokens.iter().any(|t| {
                     if let Token::Word(w) = t {
-                        // Normalize trailing slashes for comparison
-                        let w_trimmed = w.trim_end_matches('/');
-                        let cwd_trimmed = cwd_str.trim_end_matches('/');
-                        w_trimmed == cwd_trimmed
+                        let w_normalized = normalize_path(std::path::Path::new(w));
+                        w_normalized == cwd_normalized
                     } else {
                         false
                     }
@@ -1197,9 +1198,17 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
 
             // Check if target is under the worktrees directory — if so, it could
             // be another agent's active workspace. Block with strong warning.
-            let targets_worktree_dir = seg.tokens.iter().any(
-                |t| matches!(t, Token::Word(w) if w.starts_with("/workspace/.claude/worktrees/")),
-            );
+            // Normalize paths to catch ../ escape attempts.
+            let targets_worktree_dir = seg.tokens.iter().any(|t| {
+                if let Token::Word(w) = t {
+                    let normalized = normalize_path(std::path::Path::new(w));
+                    normalized
+                        .to_string_lossy()
+                        .starts_with("/workspace/.claude/worktrees/")
+                } else {
+                    false
+                }
+            });
             if targets_worktree_dir {
                 return Some(
                     "⚠️  STOP — You are about to remove a worktree that may belong to \
@@ -1299,7 +1308,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     for seg in &segments {
         for j in 0..seg.tokens.len() {
             if let Token::Operator(op) = &seg.tokens[j] {
-                if op == ">" || op == ">>" || op == ">|" || op == ">&" || op == "<>" {
+                if is_write_redirect(op) {
                     if let Some(Token::Word(path)) = seg.tokens.get(j + 1) {
                         if is_protected_path(path) {
                             return Some(
@@ -3376,6 +3385,23 @@ mod tests {
     }
 
     #[test]
+    fn l3_worktree_remove_dotdot_escape_block() {
+        // Attempt to bypass tier-2 warning via .. that resolves to a worktree path
+        let v = json!({"tool_input": {"command": "git worktree remove /workspace/.claude/worktrees/../worktrees/other-agent"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_worktree_remove_cwd_dotdot_block() {
+        // Attempt to bypass tier-1 CWD check via .. that resolves to own CWD
+        let cwd = std::env::current_dir().unwrap();
+        // Add a bogus subdir and .. to resolve back to CWD
+        let cmd = format!("git worktree remove {}/subdir/..", cwd.to_string_lossy());
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
     fn l3_worktree_remove_own_cwd_block() {
         // If the target path matches CWD, block — removing your own CWD breaks Bash
         let cwd = std::env::current_dir().unwrap();
@@ -4306,6 +4332,36 @@ mod tests {
         // Bash: "echo">/tmp/file → echo is command, > is redirect
         let tokens = tok("\"echo\">/tmp/file");
         assert_eq!(tokens, vec![w("echo"), op(">"), w("/tmp/file")]);
+    }
+
+    // --- Operator classification unit tests ---
+
+    #[test]
+    fn write_redirect_classification() {
+        assert!(is_write_redirect(">"));
+        assert!(is_write_redirect(">>"));
+        assert!(is_write_redirect(">|"));
+        assert!(is_write_redirect(">&"));
+        assert!(is_write_redirect("<>"));
+        assert!(!is_write_redirect("<"));
+        assert!(!is_write_redirect("<&"));
+        assert!(!is_write_redirect("&&"));
+        assert!(!is_write_redirect("|"));
+    }
+
+    #[test]
+    fn control_operator_classification() {
+        assert!(is_control_operator("&&"));
+        assert!(is_control_operator("||"));
+        assert!(is_control_operator("|"));
+        assert!(is_control_operator(";"));
+        assert!(is_control_operator("&"));
+        assert!(is_control_operator("\n"));
+        assert!(is_control_operator("("));
+        assert!(is_control_operator(")"));
+        assert!(!is_control_operator(">"));
+        assert!(!is_control_operator(">>"));
+        assert!(!is_control_operator("<"));
     }
 
     // --- Heredoc: strict delimiter matching ---

@@ -245,7 +245,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'SET_TASKS':
-      return { ...state, tasks: action.tasks };
+      return { ...state, tasks: action.tasks, lastTaskSource: action.source || 'local' };
 
     case 'MERGE_EXTERNAL_TASKS': {
       const { externalTasks } = action;
@@ -259,7 +259,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         return local;
       });
 
-      return { ...state, tasks: merged };
+      return { ...state, tasks: merged, lastTaskSource: 'sheets' };
     }
 
     case 'SET_DEPENDENCY_EDITOR':
@@ -396,6 +396,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         redoStack: [...state.redoStack, state.tasks],
         lastCascadeIds: [],
         cascadeShifts: [],
+        lastTaskSource: 'local',
       };
     }
 
@@ -409,6 +410,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         undoStack: [...state.undoStack, state.tasks],
         lastCascadeIds: [],
         cascadeShifts: [],
+        lastTaskSource: 'local',
       };
     }
 
@@ -650,6 +652,10 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 }
 
 function postProcess(newState: GanttState, action: GanttAction): GanttState {
+  // T2.4: Reset lastTaskSource to 'local' for task-modifying actions (not SET_TASKS)
+  if (TASK_MODIFYING_ACTIONS.has(action.type) && action.type !== 'SET_TASKS') {
+    newState = { ...newState, lastTaskSource: 'local' };
+  }
   // Track sandbox dirty state
   if (newState.dataSource === 'sandbox' && TASK_MODIFYING_ACTIONS.has(action.type)) {
     return { ...newState, sandboxDirty: true };

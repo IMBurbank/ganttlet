@@ -36,7 +36,7 @@ export default function ErrorBanner() {
     loadFromSheet()
       .then((loadedTasks) => {
         if (loadedTasks.length > 0) {
-          dispatch({ type: 'SET_TASKS', tasks: loadedTasks });
+          dispatch({ type: 'SET_TASKS', tasks: loadedTasks, source: 'sheets' });
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
         } else {
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });

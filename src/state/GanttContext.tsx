@@ -166,13 +166,16 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     };
   }, [dispatch, accessToken]);
 
-  // Auto-save on task changes
+  // Auto-save on task changes — T2.4: skip Yjs and poll echoes
   useEffect(() => {
     if (state.dataSource !== 'sheet') return;
+    if (state.lastTaskSource !== 'local') return;
     const spreadsheetId = getSpreadsheetId();
     if (spreadsheetId && isSignedIn()) {
       scheduleSave(state.tasks);
     }
+    // NOTE: lastTaskSource intentionally NOT in deps — it changes on TOGGLE_EXPAND
+    // etc. without a tasks change, which would cause spurious saves.
   }, [state.tasks, state.dataSource]);
 
   // Online/offline detection

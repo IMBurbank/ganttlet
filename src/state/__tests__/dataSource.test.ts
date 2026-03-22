@@ -188,4 +188,92 @@ describe('dataSource reducer actions', () => {
       expect(result.dataSource).toBe('empty');
     });
   });
+
+  describe('T2.4 — lastTaskSource tracking', () => {
+    it('SET_TASKS with source yjs sets lastTaskSource to yjs', () => {
+      const state = makeState({ lastTaskSource: 'local' });
+      const result = ganttReducer(state, {
+        type: 'SET_TASKS',
+        tasks: [makeTask()],
+        source: 'yjs',
+      });
+      expect(result.lastTaskSource).toBe('yjs');
+    });
+
+    it('SET_TASKS with source sheets sets lastTaskSource to sheets', () => {
+      const state = makeState({ lastTaskSource: 'local' });
+      const result = ganttReducer(state, {
+        type: 'SET_TASKS',
+        tasks: [makeTask()],
+        source: 'sheets',
+      });
+      expect(result.lastTaskSource).toBe('sheets');
+    });
+
+    it('SET_TASKS without source defaults to local', () => {
+      const state = makeState({ lastTaskSource: 'yjs' });
+      const result = ganttReducer(state, {
+        type: 'SET_TASKS',
+        tasks: [makeTask()],
+      });
+      expect(result.lastTaskSource).toBe('local');
+    });
+
+    it('MERGE_EXTERNAL_TASKS sets lastTaskSource to sheets', () => {
+      const state = makeState({
+        lastTaskSource: 'local',
+        tasks: [makeTask({ id: 'existing' })],
+      });
+      const result = ganttReducer(state, {
+        type: 'MERGE_EXTERNAL_TASKS',
+        externalTasks: [makeTask({ id: 'existing' })],
+      });
+      expect(result.lastTaskSource).toBe('sheets');
+    });
+
+    it('MOVE_TASK (task-modifying) resets lastTaskSource to local', () => {
+      const state = makeState({
+        lastTaskSource: 'yjs',
+        tasks: [makeTask({ id: 'a' })],
+      });
+      const result = ganttReducer(state, {
+        type: 'MOVE_TASK',
+        taskId: 'a',
+        newStartDate: '2026-04-01',
+        newEndDate: '2026-04-05',
+      });
+      expect(result.lastTaskSource).toBe('local');
+    });
+
+    it('postProcess does NOT reset lastTaskSource for SET_TASKS', () => {
+      const state = makeState({ lastTaskSource: 'local' });
+      const result = ganttReducer(state, {
+        type: 'SET_TASKS',
+        tasks: [makeTask()],
+        source: 'yjs',
+      });
+      // SET_TASKS is excluded from the postProcess reset
+      expect(result.lastTaskSource).toBe('yjs');
+    });
+
+    it('UNDO sets lastTaskSource to local', () => {
+      const state = makeState({
+        lastTaskSource: 'yjs',
+        tasks: [makeTask({ id: 'a' })],
+        undoStack: [[makeTask({ id: 'a', name: 'Old' })]],
+      });
+      const result = ganttReducer(state, { type: 'UNDO' });
+      expect(result.lastTaskSource).toBe('local');
+    });
+
+    it('REDO sets lastTaskSource to local', () => {
+      const state = makeState({
+        lastTaskSource: 'yjs',
+        tasks: [makeTask({ id: 'a' })],
+        redoStack: [[makeTask({ id: 'a', name: 'Future' })]],
+      });
+      const result = ganttReducer(state, { type: 'REDO' });
+      expect(result.lastTaskSource).toBe('local');
+    });
+  });
 });

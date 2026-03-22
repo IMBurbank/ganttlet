@@ -41,4 +41,5 @@ export const initialState: GanttState = {
   dataSource: undefined,
   syncError: null,
   sandboxDirty: false,
+  lastTaskSource: 'local',
 };

@@ -80,6 +80,50 @@ fn script_interpreter_flag(token: &str) -> Option<&'static str> {
         .map(|(_, flag)| *flag)
 }
 
+/// True if a code string contains indicators of write or exec operations.
+/// Used to narrow interpreter code scanning — we only block when a /workspace/
+/// path appears alongside a write-like pattern, avoiding false positives on
+/// read-only operations (print, listdir, open for read).
+fn has_write_indicator(code: &str) -> bool {
+    // Shell-out patterns (any language)
+    code.contains("system(")
+        || code.contains("exec(")
+        || code.contains("popen(")
+        || code.contains("subprocess")
+        || code.contains("execSync")
+        || code.contains("spawnSync")
+        || code.contains("child_process")
+        // Python write patterns
+        || code.contains("\"w\"")
+        || code.contains("'w'")
+        || code.contains("\"w+\"")
+        || code.contains("'w+'")
+        || code.contains("\"a\"")
+        || code.contains("'a'")
+        || code.contains("\"a+\"")
+        || code.contains("'a+'")
+        || code.contains("rmtree")
+        || code.contains("unlink(")
+        || code.contains("os.remove(")
+        || code.contains("os.rename(")
+        || code.contains("shutil.")
+        // Node.js write patterns
+        || code.contains("writeFile")
+        || code.contains("appendFile")
+        || code.contains("createWriteStream")
+        || code.contains("mkdirSync")
+        || code.contains("rmdirSync")
+        || code.contains("unlinkSync")
+        || code.contains("renameSync")
+        // Perl write patterns
+        || code.contains("unlink(")
+        || code.contains("rename(")
+        // Ruby write patterns
+        || code.contains("File.write")
+        || code.contains("File.delete")
+        || code.contains("FileUtils")
+}
+
 /// Git global flags that consume the NEXT token as a value.
 const GIT_VALUE_FLAGS: &[&str] = &[
     "-C",
@@ -1280,13 +1324,14 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     }
 
     // interpreter-workspace: scan code arguments to python/node/perl/ruby
-    // for workspace paths. We can't parse these languages, but we can detect
-    // hardcoded /workspace/ paths in inline code — agents have no legitimate
-    // reason to embed absolute workspace paths in interpreter code.
+    // for workspace paths combined with write/exec indicators. We can't parse
+    // these languages, but we can detect the combination of a /workspace/ path
+    // and a write-like operation. This avoids false positives on read-only
+    // operations (print, listdir, open for read) while catching writes and
+    // shell-outs that bypass bash-level guards.
     for seg in &segments {
         if let Some((cmd_pos, cmd)) = seg.effective_command() {
             if let Some(flag) = script_interpreter_flag(cmd) {
-                // Find the inline code flag and its argument
                 if let Some(f_pos) = seg.tokens[cmd_pos + 1..]
                     .iter()
                     .position(|t| matches!(t, Token::Word(w) if w == flag))
@@ -1295,11 +1340,12 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                     if let Some(Token::Word(code)) = seg.tokens.get(arg_pos) {
                         if code.contains("/workspace/")
                             && !code.contains("/workspace/.claude/worktrees/")
+                            && has_write_indicator(code)
                         {
                             return Some(
-                                "Do not use interpreter code to access /workspace/ directly. \
-                                 Use a worktree. Detected /workspace/ path in inline code \
-                                 argument to a script interpreter."
+                                "Do not use interpreter code to write to /workspace/ directly. \
+                                 Use a worktree. Detected /workspace/ path with a write or exec \
+                                 operation in inline code."
                                     .to_string(),
                             );
                         }
@@ -4758,6 +4804,63 @@ mod tests {
     fn l3_python_fullpath_block() {
         // Full path to interpreter
         let v = json!({"tool_input": {"command": "/usr/bin/python3 -c \"open('/workspace/file', 'w')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_python_read_workspace_allow() {
+        // Reading from /workspace/ is not a write — allow
+        let v = json!({"tool_input": {"command": "python3 -c \"data = open('/workspace/package.json').read()\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_python_print_workspace_allow() {
+        // Just printing a path — allow
+        let v =
+            json!({"tool_input": {"command": "python3 -c \"print('/workspace/src/file.ts')\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_python_listdir_workspace_allow() {
+        // Listing directory contents — allow
+        let v = json!({"tool_input": {"command": "python3 -c \"import os; print(os.listdir('/workspace/src/'))\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_python_exists_workspace_allow() {
+        // Checking file existence — allow
+        let v = json!({"tool_input": {"command": "python3 -c \"import os; print(os.path.exists('/workspace/file'))\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_node_read_workspace_allow() {
+        // Reading file in node — allow
+        let v = json!({"tool_input": {"command": "node -e \"console.log(require('fs').readFileSync('/workspace/file', 'utf8'))\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_python_subprocess_workspace_block() {
+        // subprocess with /workspace/ — block (shell-out)
+        let v = json!({"tool_input": {"command": "python3 -c \"import subprocess; subprocess.run(['rm', '/workspace/file'])\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_python_shutil_workspace_block() {
+        // shutil with /workspace/ — block (destructive)
+        let v = json!({"tool_input": {"command": "python3 -c \"import shutil; shutil.rmtree('/workspace/src/')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_python_append_mode_workspace_block() {
+        // open with 'a' mode — block (write)
+        let v = json!({"tool_input": {"command": "python3 -c \"open('/workspace/file', 'a').write('x')\""}});
         assert!(check_bash(&v).is_some());
     }
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../sheetsClient', () => ({
   readSheet: vi.fn().mockResolvedValue([]),
   updateSheet: vi.fn().mockResolvedValue(undefined),
+  clearSheet: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../sheetsMapper', async () => {

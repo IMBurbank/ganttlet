@@ -1254,7 +1254,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             }
 
             // Check if target is under the worktrees directory — if so, it could
-            // be another agent's active workspace. Block with strong warning.
+            // be another agent's active workspace.
             // Normalize paths to catch ../ escape attempts.
             let targets_worktree_dir = seg.tokens.iter().any(|t| {
                 if let Token::Word(w) = t {
@@ -1267,19 +1267,29 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                 }
             });
             if targets_worktree_dir {
-                return Some(
-                    "⚠️  STOP — You are about to remove a worktree that may belong to \
-                     another agent. Read this FULLY before proceeding.\n\n\
-                     NEVER remove another agent's worktree. Other agents may be \
-                     actively working in sibling worktrees even if they look idle.\n\n\
-                     You may ONLY remove a worktree if ALL of these are true:\n\
-                     1. YOU created it (in this session or a previous one)\n\
-                     2. Its PR is merged OR it was a test/scratch worktree\n\
-                     3. You have verified no other agent is using it\n\n\
-                     If this is your own orphaned worktree, ask the user to remove it, \
-                     or use: git -C /workspace worktree remove <path>"
-                        .to_string(),
-                );
+                // Allow if the agent has explicitly acknowledged ownership by
+                // prefixing with I_CREATED_THIS=1 (a shell variable assignment
+                // that the tokenizer parses and effective_command skips).
+                let acknowledged = seg
+                    .tokens
+                    .iter()
+                    .any(|t| matches!(t, Token::Word(w) if w == "I_CREATED_THIS=1"));
+                if !acknowledged {
+                    return Some(
+                        "⚠️  STOP — You are about to remove a worktree that may belong to \
+                         another agent. Read this FULLY before proceeding.\n\n\
+                         NEVER remove another agent's worktree. Other agents may be \
+                         actively working in sibling worktrees even if they look idle.\n\n\
+                         You may ONLY proceed if ALL of these are true:\n\
+                         1. YOU created it (in this session or a previous one)\n\
+                         2. Its PR is merged OR it was a test/scratch worktree\n\
+                         3. You have verified no other agent is using it\n\n\
+                         If all three are true, re-run with:\n\
+                         I_CREATED_THIS=1 git worktree remove <path>\n\n\
+                         If unsure, ask the user to remove it."
+                            .to_string(),
+                    );
+                }
             }
 
             // Target is not under /workspace/.claude/worktrees/ (e.g. /tmp/wt) —
@@ -3470,15 +3480,28 @@ mod tests {
 
     #[test]
     fn l3_worktree_remove_agent_path_block() {
-        // Target is under /workspace/.claude/worktrees/ — block with warning
+        // Target is under /workspace/.claude/worktrees/ — block without acknowledgment
         let v = json!({"tool_input": {"command": "git worktree remove /workspace/.claude/worktrees/other-agent"}});
         assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_worktree_remove_agent_path_acknowledged_allow() {
+        // Same target, but with I_CREATED_THIS=1 acknowledgment — allow
+        let v = json!({"tool_input": {"command": "I_CREATED_THIS=1 git worktree remove /workspace/.claude/worktrees/other-agent"}});
+        assert!(check_bash(&v).is_none());
     }
 
     #[test]
     fn l3_worktree_remove_agent_path_chained_block() {
         let v = json!({"tool_input": {"command": "echo hi && git worktree remove /workspace/.claude/worktrees/stale-wt"}});
         assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_worktree_remove_agent_path_chained_acknowledged_allow() {
+        let v = json!({"tool_input": {"command": "echo hi && I_CREATED_THIS=1 git worktree remove /workspace/.claude/worktrees/stale-wt"}});
+        assert!(check_bash(&v).is_none());
     }
 
     #[test]

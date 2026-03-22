@@ -162,6 +162,7 @@ test_block  "Fail-closed on bad JSON"          bash 'not-json'
 echo "--- Worktree removal guard (bash mode) ---"
 test_allow  "Allow worktree remove (non-agent path)" bash '{"tool_input":{"command":"git worktree remove /tmp/test"}}'
 test_block  "Block worktree remove (agent path)"     bash '{"tool_input":{"command":"git worktree remove /workspace/.claude/worktrees/some-agent"}}'
+test_allow  "Allow worktree remove (acknowledged)"   bash '{"tool_input":{"command":"I_CREATED_THIS=1 git worktree remove /workspace/.claude/worktrees/some-agent"}}'
 test_allow  "Allow git worktree prune"               bash '{"tool_input":{"command":"git worktree prune"}}'
 test_allow  "Allow git worktree add"                 bash '{"tool_input":{"command":"git worktree add /tmp/test"}}'
 

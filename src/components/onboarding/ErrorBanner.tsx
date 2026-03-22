@@ -42,6 +42,8 @@ export default function ErrorBanner() {
         } else {
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
         }
+        // Resume polling — loadFromSheet sets lastWriteHash when tasks exist;
+        // empty sheets poll safely (incomingTasks.length === 0 guard in pollOnce)
         startPolling();
       })
       .catch((err) => {

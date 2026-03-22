@@ -400,6 +400,9 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
       break;
     }
 
+    // SET_TASKS intentionally omitted — it's a read-only observer action dispatched
+    // by bindYjsToDispatch. Routing it back into Yjs would write data that just arrived.
+
     default:
       break;
   }

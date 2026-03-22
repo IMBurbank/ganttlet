@@ -166,16 +166,7 @@ async function pollOnce(): Promise<void> {
 
     // Validate headers on every poll — catch mid-session header edits
     if (rows.length > 0 && !validateHeaders(rows[0])) {
-      dispatch?.({
-        type: 'SET_SYNC_ERROR',
-        error: {
-          type: 'header_mismatch',
-          message: 'Sheet headers do not match expected format',
-          since: Date.now(),
-        },
-      });
-      // Hard stop — don't reschedule polling
-      return;
+      throw new Error('HEADER_MISMATCH');
     }
 
     const incomingTasks = rowsToTasks(rows);
@@ -209,8 +200,12 @@ async function pollOnce(): Promise<void> {
     // Classify the error for dispatch
     const syncError = classifySyncError(err);
 
-    // Hard stop on not_found or forbidden — do not reschedule
-    if (syncError.type === 'not_found' || syncError.type === 'forbidden') {
+    // Hard stop on not_found, forbidden, or header_mismatch — do not reschedule
+    if (
+      syncError.type === 'not_found' ||
+      syncError.type === 'forbidden' ||
+      syncError.type === 'header_mismatch'
+    ) {
       dispatch?.({ type: 'SET_SYNC_ERROR', error: syncError });
       return;
     }

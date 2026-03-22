@@ -334,8 +334,40 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
             continue;
         }
 
-        // Operators: &&, ||, |, ;, &, (, )
-        // Also << for heredoc detection
+        // Redirect operators: > >> >& >|
+        // Must be checked BEFORE & and | to prevent >& and >| from being
+        // consumed by the & and | handlers respectively.
+        if ch == '>' {
+            if in_word {
+                tokens.push(Token::Word(std::mem::take(&mut word)));
+                in_word = false;
+            }
+            if i + 1 < len && chars[i + 1] == '>' {
+                let op = ">>".to_string();
+                last_emitted_op = Some(op.clone());
+                tokens.push(Token::Operator(op));
+                i += 2;
+            } else if i + 1 < len && chars[i + 1] == '&' {
+                let op = ">&".to_string();
+                last_emitted_op = Some(op.clone());
+                tokens.push(Token::Operator(op));
+                i += 2;
+            } else if i + 1 < len && chars[i + 1] == '|' {
+                let op = ">|".to_string();
+                last_emitted_op = Some(op.clone());
+                tokens.push(Token::Operator(op));
+                i += 2;
+            } else {
+                let op = ">".to_string();
+                last_emitted_op = Some(op.clone());
+                tokens.push(Token::Operator(op));
+                i += 1;
+            }
+            continue;
+        }
+
+        // Control operators: &&, ||, |, ;, &, (, )
+        // Also << for heredoc detection, < <& <> for input redirects
         if ch == '&' {
             if in_word {
                 tokens.push(Token::Word(std::mem::take(&mut word)));
@@ -481,8 +513,32 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
             continue;
         }
 
-        // < and > are NOT operators for segment purposes — treat as word chars
-        // (Redirects are handled by separate string scan)
+        // Redirect operators: < <& <>
+        // The heredoc handler above consumed << and continue'd, so if we reach
+        // here with '<', it's a single < (possibly followed by & or >).
+        if ch == '<' {
+            if in_word {
+                tokens.push(Token::Word(std::mem::take(&mut word)));
+                in_word = false;
+            }
+            if i + 1 < len && chars[i + 1] == '&' {
+                let op = "<&".to_string();
+                last_emitted_op = Some(op.clone());
+                tokens.push(Token::Operator(op));
+                i += 2;
+            } else if i + 1 < len && chars[i + 1] == '>' {
+                let op = "<>".to_string();
+                last_emitted_op = Some(op.clone());
+                tokens.push(Token::Operator(op));
+                i += 2;
+            } else {
+                let op = "<".to_string();
+                last_emitted_op = Some(op.clone());
+                tokens.push(Token::Operator(op));
+                i += 1;
+            }
+            continue;
+        }
 
         // Default: regular character, accumulate into word
         in_word = true;
@@ -1662,7 +1718,7 @@ mod tests {
     fn l1_redirect_gt() {
         assert_eq!(
             tok("echo hello > /tmp/file"),
-            vec![w("echo"), w("hello"), w(">"), w("/tmp/file")]
+            vec![w("echo"), w("hello"), op(">"), w("/tmp/file")]
         );
     }
 
@@ -1670,7 +1726,112 @@ mod tests {
     fn l1_redirect_append() {
         assert_eq!(
             tok("echo hello >> /tmp/file"),
-            vec![w("echo"), w("hello"), w(">>"), w("/tmp/file")]
+            vec![w("echo"), w("hello"), op(">>"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_clobber() {
+        assert_eq!(
+            tok("echo hello >| /tmp/file"),
+            vec![w("echo"), w("hello"), op(">|"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_fd_dup() {
+        assert_eq!(tok("echo >&2"), vec![w("echo"), op(">&"), w("2")]);
+    }
+
+    #[test]
+    fn l1_redirect_input() {
+        assert_eq!(
+            tok("cat < /tmp/file"),
+            vec![w("cat"), op("<"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_input_dup() {
+        assert_eq!(tok("cmd <& 3"), vec![w("cmd"), op("<&"), w("3")]);
+    }
+
+    #[test]
+    fn l1_redirect_readwrite() {
+        assert_eq!(
+            tok("cmd <> /tmp/file"),
+            vec![w("cmd"), op("<>"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_nospace() {
+        // Bash: echo>/tmp/file is a redirect — > splits the token
+        assert_eq!(
+            tok("echo>/tmp/file"),
+            vec![w("echo"), op(">"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_fd_nospace() {
+        // Bash: 2>/dev/null — digit before > is the fd number
+        assert_eq!(tok("2>/dev/null"), vec![w("2"), op(">"), w("/dev/null")]);
+    }
+
+    #[test]
+    fn l1_redirect_append_nospace() {
+        assert_eq!(
+            tok("echo>>/tmp/file"),
+            vec![w("echo"), op(">>"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_escaped_gt() {
+        // Backslash escapes > — becomes Word, not Operator
+        assert_eq!(
+            tok("echo \\> /tmp/file"),
+            vec![w("echo"), w(">"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_single_quoted_gt() {
+        assert_eq!(
+            tok("echo '>' /tmp/file"),
+            vec![w("echo"), w(">"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_double_quoted_gt() {
+        assert_eq!(
+            tok("echo \">\" /tmp/file"),
+            vec![w("echo"), w(">"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_quoted_word_then_gt() {
+        // Quoted word immediately followed by > — word ends, > is operator
+        assert_eq!(
+            tok("\"echo\">/tmp/file"),
+            vec![w("echo"), op(">"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_backslash_nospace() {
+        // echo 2\>/dev/null — backslash escapes >, preventing split
+        assert_eq!(tok("echo 2\\>/dev/null"), vec![w("echo"), w("2>/dev/null")]);
+    }
+
+    #[test]
+    fn l1_redirect_fd_dup_stderr() {
+        assert_eq!(
+            tok("echo >&2 hello"),
+            vec![w("echo"), op(">&"), w("2"), w("hello")]
         );
     }
 

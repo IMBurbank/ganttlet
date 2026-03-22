@@ -1186,7 +1186,10 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     // branch-force-delete: block in /workspace (could delete other agents' branches).
     // Allow in worktrees — needed for squash-merge cleanup where -d fails.
     for seg in &segments {
-        if seg.is_git("branch") && seg.has_short_flag('D') && is_workspace_cwd() {
+        if seg.is_git("branch")
+            && (seg.has_short_flag('D') || (seg.has_arg("--delete") && seg.has_arg("--force")))
+            && is_workspace_cwd()
+        {
             return Some(
                 "Do not run git branch -D in /workspace — it could delete another agent's \
                  branch. Use git branch -d (lowercase) which checks merge status, or run \
@@ -1275,7 +1278,11 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     for seg in &segments {
         let cmd_name = seg.effective_command().map(|(_, c)| c);
         if cmd_name == Some("rm")
-            && (seg.has_short_flag('r') || seg.has_short_flag('R') || seg.has_short_flag('f'))
+            && (seg.has_short_flag('r')
+                || seg.has_short_flag('R')
+                || seg.has_arg("--recursive")
+                || seg.has_short_flag('f')
+                || seg.has_arg("--force"))
             && seg.targets_worktree_root()
         {
             return Some(msg_rm_worktree_block());
@@ -1343,7 +1350,9 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             if let Token::Operator(op) = &seg.tokens[j] {
                 if is_write_redirect(op) {
                     if let Some(Token::Word(path)) = seg.tokens.get(j + 1) {
-                        if is_protected_path(path) {
+                        // Pure digits (0, 1, 2) are fd numbers, not file paths.
+                        // >&2 means dup stdout to stderr, not write to file "2".
+                        if !path.chars().all(|c| c.is_ascii_digit()) && is_protected_path(path) {
                             return Some(MSG_USE_WORKTREE.to_string());
                         }
                     }
@@ -4075,6 +4084,13 @@ mod tests {
     }
 
     #[test]
+    fn l3_branch_delete_force_long_workspace_block() {
+        // Long form --delete --force is equivalent to -D
+        let v = json!({"tool_input": {"command": "git branch --delete --force feature"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
     fn l3_branch_d_heredoc_allow() {
         let v = json!({"tool_input": {"command": "cat << EOF\ngit branch -D feature\nEOF"}});
         assert!(check_bash(&v).is_none());
@@ -4352,6 +4368,27 @@ mod tests {
     }
 
     #[test]
+    fn l3_rm_long_recursive_block() {
+        // rm --recursive is equivalent to rm -r
+        let v =
+            json!({"tool_input": {"command": "rm --recursive /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_rm_long_force_block() {
+        // rm --force is equivalent to rm -f
+        let v = json!({"tool_input": {"command": "rm --force /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_rm_long_recursive_force_block() {
+        let v = json!({"tool_input": {"command": "rm --recursive --force /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
     fn l3_rm_no_flags_allow() {
         let v =
             json!({"tool_input": {"command": "rm /workspace/.claude/worktrees/my-wt/file.txt"}});
@@ -4551,6 +4588,20 @@ mod tests {
     fn l3_redirect_fd_dup_number_allow() {
         // >&2 targets an fd number, not a path — allow
         let v = json!({"tool_input": {"command": "echo >&2"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_fd_dup_stdout_allow() {
+        // >&1 targets fd 1 (stdout) — allow
+        let v = json!({"tool_input": {"command": "echo >&1"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_fd_zero_allow() {
+        // >0 is fd 0 — not a file path
+        let v = json!({"tool_input": {"command": "echo > 0"}});
         assert!(check_bash(&v).is_none());
     }
 

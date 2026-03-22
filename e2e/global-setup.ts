@@ -24,7 +24,7 @@ async function globalSetup(_config: FullConfig) {
   console.log(`[E2E] Resetting test sheet to seed state: ${url}`);
   const token = await getAccessToken(writerKey);
   await resetTestSheet(token, sheetId);
-  console.log('[E2E] Sheet reset complete — 3 seed tasks written');
+  console.log(`[E2E] Sheet reset complete — 3 seed tasks written to ${sheetId}`);
 }
 
 export default globalSetup;

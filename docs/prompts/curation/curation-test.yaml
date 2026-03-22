@@ -1,0 +1,29 @@
+# Single-skill curation test — multi-agent-orchestration only
+# Usage: SDK_RUNNER=1 ./scripts/launch-phase.sh docs/prompts/curation/curation-test.yaml stage 1
+
+phase: skill-curation
+merge_target: curation/run  # overridden by _USER_MERGE_TARGET env var
+
+stages:
+  # ── Stage 1: Review ──────────────────────────────────────────────
+  # 5 reviewers for multi-agent-orchestration skill
+  - name: "Review"
+    groups:
+      - id: multi-agent-orchestration-accuracy
+        branch: curation/multi-agent-orchestration-accuracy
+      - id: multi-agent-orchestration-structure
+        branch: curation/multi-agent-orchestration-structure
+      - id: multi-agent-orchestration-scope
+        branch: curation/multi-agent-orchestration-scope
+      - id: multi-agent-orchestration-history
+        branch: curation/multi-agent-orchestration-history
+      - id: multi-agent-orchestration-adversarial
+        branch: curation/multi-agent-orchestration-adversarial
+
+  # ── Stage 2: Curate ─────────────────────────────────────────────
+  # 1 curator reads all 5 reviewer reports from disk, rewrites skill
+  - name: "Curate"
+    groups:
+      - id: multi-agent-orchestration
+        branch: curation/multi-agent-orchestration
+        merge_message: "docs: curate multi-agent-orchestration skill"

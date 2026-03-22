@@ -283,13 +283,13 @@ else
 fi
 
 # Test that a prompt without frontmatter works
+# This is informational — --print-system-prompt may not exist in all CLI versions.
 PLAIN_OUT=$(claude --print-system-prompt -p "hello world" 2>/dev/null || true)
 if [ -n "$PLAIN_OUT" ]; then
   printf '  PASS: no-frontmatter prompt passes through unchanged\n'
   PASS=$((PASS + 1))
 else
-  printf '  PASS: no-frontmatter prompt passes through unchanged\n'
-  PASS=$((PASS + 1))
+  printf '  INFO: --print-system-prompt not available or produced empty output\n'
 fi
 
 # Test that YAML frontmatter in positional prompt is handled

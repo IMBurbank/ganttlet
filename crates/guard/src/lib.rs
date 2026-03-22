@@ -1030,23 +1030,32 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
     components.iter().collect()
 }
 
+/// Resolve any path (absolute or relative) to a normalized absolute path.
+/// Relative paths are joined against CWD. Returns None if CWD is unavailable
+/// and the path is relative (fail-open).
+fn resolve_path(path: &str) -> Option<std::path::PathBuf> {
+    if path.is_empty() {
+        return None;
+    }
+    if path.starts_with('/') {
+        Some(normalize_path(std::path::Path::new(path)))
+    } else {
+        std::env::current_dir()
+            .ok()
+            .map(|cwd| normalize_path(&cwd.join(path)))
+    }
+}
+
 /// True if a path (absolute or relative) resolves to a protected location.
 /// Protected = under /workspace/ but NOT under /workspace/.claude/worktrees/.
-/// Relative paths are resolved against CWD. Fails open if CWD is unavailable.
 fn is_protected_path(path: &str) -> bool {
-    if path.is_empty() {
-        return false;
-    }
-    let resolved = if path.starts_with('/') {
-        normalize_path(std::path::Path::new(path))
-    } else {
-        match std::env::current_dir() {
-            Ok(cwd) => normalize_path(&cwd.join(path)),
-            Err(_) => return false, // fail-open
+    match resolve_path(path) {
+        Some(resolved) => {
+            let s = resolved.to_string_lossy();
+            s.starts_with("/workspace/") && !s.starts_with("/workspace/.claude/worktrees/")
         }
-    };
-    let s = resolved.to_string_lossy();
-    s.starts_with("/workspace/") && !s.starts_with("/workspace/.claude/worktrees/")
+        None => false, // fail-open
+    }
 }
 
 // ============================================================
@@ -1229,19 +1238,25 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             // Removing your own CWD breaks all subsequent Bash calls.
             // Removing a DIFFERENT worktree is safe for the caller but risks
             // destroying another agent's in-progress work.
-            let target_is_cwd = if let Ok(cwd) = std::env::current_dir() {
-                let cwd_normalized = normalize_path(&cwd);
+            // Resolve all Word tokens to absolute paths for comparison.
+            // Uses resolve_path() — the same function is_protected_path() uses —
+            // so relative paths like "." and "../other-wt" are handled correctly.
+            let cwd_resolved = std::env::current_dir().ok().map(|cwd| normalize_path(&cwd));
+
+            // fail-safe: if CWD unknown, assume self-removal (block).
+            // Only check tokens that look like paths (start with / or . or ~),
+            // not command words like "git", "worktree", "remove".
+            let target_is_cwd = cwd_resolved.as_ref().is_none_or(|cwd| {
                 seg.tokens.iter().any(|t| {
                     if let Token::Word(w) = t {
-                        let w_normalized = normalize_path(std::path::Path::new(w));
-                        w_normalized == cwd_normalized
+                        let looks_like_path =
+                            w.starts_with('/') || w.starts_with('.') || w.starts_with('~');
+                        looks_like_path && resolve_path(w).as_ref() == Some(cwd)
                     } else {
                         false
                     }
                 })
-            } else {
-                true // fail-safe: can't determine CWD, assume self-removal
-            };
+            });
 
             if target_is_cwd {
                 return Some(
@@ -1253,15 +1268,22 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                 );
             }
 
-            // Check if target is under the worktrees directory — if so, it could
+            // Check if target resolves to the worktrees directory — if so, it could
             // be another agent's active workspace.
-            // Normalize paths to catch ../ escape attempts.
+            // Only check tokens that look like paths (start with / or . or ~),
+            // not command words like "git", "worktree", "remove" which would
+            // resolve against CWD and produce false matches.
             let targets_worktree_dir = seg.tokens.iter().any(|t| {
                 if let Token::Word(w) = t {
-                    let normalized = normalize_path(std::path::Path::new(w));
-                    normalized
-                        .to_string_lossy()
-                        .starts_with("/workspace/.claude/worktrees/")
+                    let looks_like_path =
+                        w.starts_with('/') || w.starts_with('.') || w.starts_with('~');
+                    looks_like_path
+                        && resolve_path(w)
+                            .map(|r| {
+                                r.to_string_lossy()
+                                    .starts_with("/workspace/.claude/worktrees/")
+                            })
+                            .unwrap_or(false)
                 } else {
                     false
                 }
@@ -1301,7 +1323,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     for seg in &segments {
         let cmd_name = seg.effective_command().map(|(_, c)| c);
         if cmd_name == Some("rm")
-            && (seg.has_short_flag('r') || seg.has_short_flag('f'))
+            && (seg.has_short_flag('r') || seg.has_short_flag('R') || seg.has_short_flag('f'))
             && seg.targets_worktree_root()
         {
             return Some(
@@ -3019,6 +3041,51 @@ mod tests {
         ));
     }
 
+    // --- resolve_path unit tests ---
+
+    #[test]
+    fn resolve_path_absolute() {
+        assert_eq!(
+            resolve_path("/workspace/file"),
+            Some(std::path::PathBuf::from("/workspace/file"))
+        );
+    }
+
+    #[test]
+    fn resolve_path_absolute_dotdot() {
+        assert_eq!(
+            resolve_path("/workspace/.claude/worktrees/wt/../../file"),
+            Some(std::path::PathBuf::from("/workspace/.claude/file"))
+        );
+    }
+
+    #[test]
+    fn resolve_path_relative_dot() {
+        // "." resolves to CWD
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(resolve_path("."), Some(normalize_path(&cwd)));
+    }
+
+    #[test]
+    fn resolve_path_relative_dotslash() {
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(resolve_path("./"), Some(normalize_path(&cwd)));
+    }
+
+    #[test]
+    fn resolve_path_relative_subdir() {
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(
+            resolve_path("subdir/file"),
+            Some(normalize_path(&cwd.join("subdir/file")))
+        );
+    }
+
+    #[test]
+    fn resolve_path_empty() {
+        assert_eq!(resolve_path(""), None);
+    }
+
     #[test]
     fn l2b_protected_path_with_dotdot() {
         // sed -i targeting a path that escapes via ..
@@ -3532,6 +3599,31 @@ mod tests {
     }
 
     #[test]
+    fn l3_worktree_remove_dot_cwd_block() {
+        // "." resolves to CWD — should be caught by tier-1 CWD check
+        let v = json!({"tool_input": {"command": "git worktree remove ."}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_worktree_remove_dotslash_cwd_block() {
+        // "./" also resolves to CWD
+        let v = json!({"tool_input": {"command": "git worktree remove ./"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_worktree_remove_relative_sibling_block() {
+        // "../other-wt" from a worktree resolves to a sibling worktree path
+        // (depends on CWD being under /workspace/.claude/worktrees/)
+        if is_worktree_cwd() {
+            let v = json!({"tool_input": {"command": "git worktree remove ../other-wt"}});
+            // Should hit tier-2 (agent path) since it resolves to /workspace/.claude/worktrees/other-wt
+            assert!(check_bash(&v).is_some());
+        }
+    }
+
+    #[test]
     fn l3_worktree_remove_own_cwd_trailing_slash_block() {
         let cwd = std::env::current_dir().unwrap();
         let cwd_str = format!("{}/", cwd.to_string_lossy());
@@ -3612,6 +3704,20 @@ mod tests {
     fn l3_rm_rf_tmp_allow() {
         let v = json!({"tool_input": {"command": "rm -rf /tmp/something"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_rm_upper_r_block() {
+        // rm -R is equivalent to rm -r — must also be caught
+        let v = json!({"tool_input": {"command": "rm -R /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_rm_upper_rf_block() {
+        // rm -Rf is equivalent to rm -rf
+        let v = json!({"tool_input": {"command": "rm -Rf /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]

@@ -31,7 +31,9 @@ async function globalSetup(_config: FullConfig) {
   const writerKey = process.env.GCP_SA_KEY_WRITER1_DEV;
   if (!writerKey) return;
 
+  console.log('[E2E] Requesting token with drive.file scope...');
   const token = await getAccessToken(writerKey, [DRIVE_FILE_SCOPE]);
+  console.log('[E2E] Token obtained. Creating sheet via Drive API...');
   const runId = `e2e-${Date.now()}`;
   const sheetId = await createTestSheet(token, `Ganttlet E2E ${runId}`);
 

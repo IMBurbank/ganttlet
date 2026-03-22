@@ -119,6 +119,9 @@ export async function createTestSheet(token: string, title: string): Promise<str
     throw new Error(`Failed to create sheet (${res.status}): ${text}`);
   }
   const data = await res.json();
+  if (!data.id) {
+    throw new Error(`Sheet created but no id in response: ${JSON.stringify(data)}`);
+  }
   return data.id;
 }
 

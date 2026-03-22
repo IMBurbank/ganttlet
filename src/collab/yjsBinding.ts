@@ -395,11 +395,6 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
       break;
     }
 
-    case 'SET_TASKS': {
-      applyTasksToYjs(doc, action.tasks);
-      break;
-    }
-
     case 'REPARENT_TASK': {
       // Reparent replaces multiple tasks — handled via full sync in GanttContext
       break;

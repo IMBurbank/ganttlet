@@ -88,7 +88,7 @@ jobs:
           GCP_SA_KEY_WRITER1_DEV: ${{ secrets.GCP_SA_KEY_WRITER1_DEV }}
           GCP_SA_KEY_WRITER2_DEV: ${{ secrets.GCP_SA_KEY_WRITER2_DEV }}
           GCP_SA_KEY_READER1_DEV: ${{ secrets.GCP_SA_KEY_READER1_DEV }}
-          TEST_SHEET_ID_DEV: ${{ secrets.TEST_SHEET_ID_DEV }}
+          # TEST_SHEET_ID_DEV intentionally omitted — ephemeral sheets created per-run
           PLAYWRIGHT_HTML_REPORT: playwright-report
 
       - name: Upload test results

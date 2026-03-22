@@ -7,8 +7,10 @@ import { test, expect } from '@playwright/test';
 import { getAccessToken } from './helpers/cloud-auth';
 import { setupMockAuth, ensureClientId } from './helpers/mock-auth';
 
+import { getTestSheetId } from './helpers/get-sheet-id';
+
 const hasCloudAuth = !!process.env.GCP_SA_KEY_WRITER1_DEV;
-const testSheetId = process.env.TEST_SHEET_ID_DEV;
+const testSheetId = getTestSheetId();
 
 async function getToken(): Promise<string> {
   const key = process.env.GCP_SA_KEY_WRITER1_DEV;

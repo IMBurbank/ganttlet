@@ -1,13 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { createCollabPair, CloudAuthOptions } from './helpers/collab-harness';
 import { getAccessToken } from './helpers/cloud-auth';
+import { getTestSheetId } from './helpers/get-sheet-id';
 
-// Cloud collab needs SA keys + TEST_SHEET_ID_DEV so both pages can load
-// a real sheet (dataSource='sheet') and connect via Yjs.
+// Cloud collab needs SA keys + a test sheet (ephemeral or override) so both
+// pages can load a real sheet (dataSource='sheet') and connect via Yjs.
 async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
   const keyA = process.env.GCP_SA_KEY_WRITER1_DEV;
   const keyB = process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV;
-  if (!keyA || !keyB || !process.env.TEST_SHEET_ID_DEV) return undefined;
+  if (!keyA || !keyB || !getTestSheetId()) return undefined;
   const [tokenA, tokenB] = await Promise.all([getAccessToken(keyA), getAccessToken(keyB)]);
   return { tokenA, tokenB };
 }
@@ -114,14 +115,6 @@ test.describe('Collaboration E2E', () => {
       // Verify task bars still render after cascade
       const taskBarsB = pageB.locator('.task-bar');
       expect(await taskBarsB.count()).toBeGreaterThan(0);
-
-      // Clean up: reset to ASAP
-      await pageB.keyboard.press('Escape');
-      await taskBar.dispatchEvent('dblclick');
-      const resetPopover = pageA.locator('.fade-in');
-      await resetPopover.waitFor({ timeout: 15_000 });
-      await resetPopover.locator('select').last().selectOption('ASAP');
-      await pageA.keyboard.press('Escape');
     } finally {
       await cleanup();
     }
@@ -165,13 +158,6 @@ test.describe('Collaboration E2E', () => {
       const rectCount = await conflictRects.count();
       const circleCount = await conflictCircles.count();
       expect(rectCount + circleCount).toBeGreaterThan(0);
-
-      // Clean up: reset constraint to ASAP
-      await taskBar.dispatchEvent('dblclick');
-      const resetPopover = pageA.locator('.fade-in');
-      await resetPopover.waitFor({ timeout: 15_000 });
-      await resetPopover.locator('select').last().selectOption('ASAP');
-      await pageA.keyboard.press('Escape');
     } finally {
       await cleanup();
     }

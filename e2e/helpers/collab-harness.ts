@@ -1,4 +1,5 @@
 import { Browser, BrowserContext, Page } from '@playwright/test';
+import { getTestSheetId } from './get-sheet-id';
 
 export interface CollabPair {
   pageA: Page;
@@ -65,7 +66,7 @@ export async function createCollabPair(
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
 
-  const testSheetId = process.env.TEST_SHEET_ID_DEV;
+  const testSheetId = getTestSheetId();
   const roomId = `e2e-test-${Date.now()}`;
 
   if (cloudAuth && testSheetId) {

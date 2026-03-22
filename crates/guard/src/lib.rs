@@ -1231,91 +1231,81 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // worktree-remove
+    // worktree-remove: extract the target path from `git worktree remove <path>`.
+    // Uses command structure (position after "remove") instead of scanning all tokens.
     for seg in &segments {
         if seg.is_git("worktree") && seg.has_arg("remove") {
-            // Check if the target worktree is the agent's own CWD.
-            // Removing your own CWD breaks all subsequent Bash calls.
-            // Removing a DIFFERENT worktree is safe for the caller but risks
-            // destroying another agent's in-progress work.
-            // Resolve all Word tokens to absolute paths for comparison.
-            // Uses resolve_path() — the same function is_protected_path() uses —
-            // so relative paths like "." and "../other-wt" are handled correctly.
-            let cwd_resolved = std::env::current_dir().ok().map(|cwd| normalize_path(&cwd));
-
-            // fail-safe: if CWD unknown, assume self-removal (block).
-            // Only check tokens that look like paths (start with / or . or ~),
-            // not command words like "git", "worktree", "remove".
-            let target_is_cwd = cwd_resolved.as_ref().is_none_or(|cwd| {
-                seg.tokens.iter().any(|t| {
-                    if let Token::Word(w) = t {
-                        let looks_like_path =
-                            w.starts_with('/') || w.starts_with('.') || w.starts_with('~');
-                        looks_like_path && resolve_path(w).as_ref() == Some(cwd)
-                    } else {
-                        false
+            // Find the "remove" token position, then take the next Word as the path.
+            let remove_pos = seg
+                .tokens
+                .iter()
+                .position(|t| matches!(t, Token::Word(w) if w == "remove"));
+            let target_path = remove_pos.and_then(|pos| {
+                // Skip any flags (--force, etc.) after "remove" to find the path argument
+                seg.tokens[pos + 1..].iter().find_map(|t| match t {
+                    Token::Word(w) if !w.starts_with('-') && w != "I_CREATED_THIS=1" => {
+                        Some(w.as_str())
                     }
+                    _ => None,
                 })
             });
 
-            if target_is_cwd {
-                return Some(
-                    "Do not use git worktree remove on your own CWD — it will break \
-                     all subsequent Bash calls. Use ExitWorktree with action: \"remove\" \
-                     to safely clean up (restores CWD, deletes directory and branch). \
-                     See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
-                        .to_string(),
-                );
-            }
+            if let Some(target) = target_path {
+                let resolved = resolve_path(target);
 
-            // Check if target resolves to the worktrees directory — if so, it could
-            // be another agent's active workspace.
-            // Only check tokens that look like paths (start with / or . or ~),
-            // not command words like "git", "worktree", "remove" which would
-            // resolve against CWD and produce false matches.
-            let targets_worktree_dir = seg.tokens.iter().any(|t| {
-                if let Token::Word(w) = t {
-                    let looks_like_path =
-                        w.starts_with('/') || w.starts_with('.') || w.starts_with('~');
-                    looks_like_path
-                        && resolve_path(w)
-                            .map(|r| {
-                                r.to_string_lossy()
-                                    .starts_with("/workspace/.claude/worktrees/")
-                            })
-                            .unwrap_or(false)
-                } else {
-                    false
-                }
-            });
-            if targets_worktree_dir {
-                // Allow if the agent has explicitly acknowledged ownership by
-                // prefixing with I_CREATED_THIS=1 (a shell variable assignment
-                // that the tokenizer parses and effective_command skips).
-                let acknowledged = seg
-                    .tokens
-                    .iter()
-                    .any(|t| matches!(t, Token::Word(w) if w == "I_CREATED_THIS=1"));
-                if !acknowledged {
+                // Tier 1: target is own CWD — hard block (breaks Bash)
+                let cwd_resolved = std::env::current_dir().ok().map(|cwd| normalize_path(&cwd));
+                let is_own_cwd = match (&resolved, &cwd_resolved) {
+                    (Some(r), Some(c)) => r == c,
+                    (None, _) => false, // can't resolve target — fail-open
+                    (_, None) => true,  // can't determine CWD — fail-safe
+                };
+
+                if is_own_cwd {
                     return Some(
-                        "⚠️  STOP — You are about to remove a worktree that may belong to \
-                         another agent. Read this FULLY before proceeding.\n\n\
-                         NEVER remove another agent's worktree. Other agents may be \
-                         actively working in sibling worktrees even if they look idle.\n\n\
-                         You may ONLY proceed if ALL of these are true:\n\
-                         1. YOU created it (in this session or a previous one)\n\
-                         2. Its PR is merged OR it was a test/scratch worktree\n\
-                         3. You have verified no other agent is using it\n\n\
-                         If all three are true, re-run with:\n\
-                         I_CREATED_THIS=1 git worktree remove <path>\n\n\
-                         If unsure, ask the user to remove it."
+                        "Do not use git worktree remove on your own CWD — it will break \
+                         all subsequent Bash calls. Use ExitWorktree with action: \"remove\" \
+                         to safely clean up (restores CWD, deletes directory and branch). \
+                         See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
                             .to_string(),
                     );
                 }
+
+                // Tier 2: target is under agent worktrees dir — block with warning
+                let is_agent_path = resolved
+                    .as_ref()
+                    .map(|r| {
+                        r.to_string_lossy()
+                            .starts_with("/workspace/.claude/worktrees/")
+                    })
+                    .unwrap_or(false);
+
+                if is_agent_path {
+                    // Allow if acknowledged with I_CREATED_THIS=1 prefix
+                    let acknowledged = seg
+                        .tokens
+                        .first()
+                        .is_some_and(|t| matches!(t, Token::Word(w) if w == "I_CREATED_THIS=1"));
+                    if !acknowledged {
+                        return Some(
+                            "⚠️  STOP — You are about to remove a worktree that may belong to \
+                             another agent. Read this FULLY before proceeding.\n\n\
+                             NEVER remove another agent's worktree. Other agents may be \
+                             actively working in sibling worktrees even if they look idle.\n\n\
+                             You may ONLY proceed if ALL of these are true:\n\
+                             1. YOU created it (in this session or a previous one)\n\
+                             2. Its PR is merged OR it was a test/scratch worktree\n\
+                             3. You have verified no other agent is using it\n\n\
+                             If all three are true, re-run with:\n\
+                             I_CREATED_THIS=1 git worktree remove <path>\n\n\
+                             If unsure, ask the user to remove it."
+                                .to_string(),
+                        );
+                    }
+                }
             }
 
-            // Target is not under /workspace/.claude/worktrees/ (e.g. /tmp/wt) —
-            // not an agent worktree, safe to remove.
+            // Tier 3: target is not an agent worktree (e.g. /tmp/wt) — allow.
         }
     }
 

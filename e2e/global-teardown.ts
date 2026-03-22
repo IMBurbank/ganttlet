@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const SHEET_ID_FILE = path.join(process.cwd(), '.e2e-sheet-id');
-const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
 async function globalTeardown(_config: FullConfig) {
   if (!fs.existsSync(SHEET_ID_FILE)) return;
@@ -30,7 +30,7 @@ async function globalTeardown(_config: FullConfig) {
   if (!writerKey) return;
 
   try {
-    const token = await getAccessToken(writerKey, [DRIVE_FILE_SCOPE]);
+    const token = await getAccessToken(writerKey, [DRIVE_SCOPE]);
     await deleteSheet(token, sheetId);
     console.log(`\n[E2E] Deleted ephemeral test sheet: ${sheetId}\n`);
   } catch (err) {

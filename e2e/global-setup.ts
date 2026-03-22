@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const SHEET_ID_FILE = path.join(process.cwd(), '.e2e-sheet-id');
-const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
 async function globalSetup(_config: FullConfig) {
   // Clean up sheet ID file from previous runs
@@ -32,7 +32,7 @@ async function globalSetup(_config: FullConfig) {
   if (!writerKey) return;
 
   console.log('[E2E] Requesting token with drive.file scope...');
-  const token = await getAccessToken(writerKey, [DRIVE_FILE_SCOPE]);
+  const token = await getAccessToken(writerKey, [DRIVE_SCOPE]);
   console.log('[E2E] Token obtained. Creating sheet via Drive API...');
   const runId = `e2e-${Date.now()}`;
   const sheetId = await createTestSheet(token, `Ganttlet E2E ${runId}`);

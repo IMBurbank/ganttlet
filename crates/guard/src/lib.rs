@@ -1456,6 +1456,29 @@ mod tests {
     }
 
     // ================================================================
+    // Test Organization
+    // ================================================================
+    //
+    // Tests are organized by architecture layer, then by component.
+    // Each L3 check covers these dimensions where applicable:
+    //
+    //   Dimension         | What it tests
+    //   ------------------|----------------------------------------------
+    //   basic trigger     | The check fires on the simplest form
+    //   chained (&&, |)   | Check works across segment boundaries
+    //   prefixed (sudo)   | Check works through command prefixes
+    //   quoted (commit -m)| No false positive on quoted text
+    //   heredoc body      | No false positive inside heredoc
+    //   $() substitution  | Check works inside command substitution
+    //   bash -c / eval    | Check works through recursive parsing
+    //   CWD variant       | CWD-dependent checks assert via in_workspace()
+    //   escape attempts   | ../  relative paths, case variants (-R vs -r)
+    //
+    // L1 Tokenizer: per-character-class + per-operator + quoting interactions
+    // L2 Segments:  splitting + method coverage
+    // L3 Checks:    per-check × dimensions above
+    //
+    // ================================================================
     // Layer 1: Tokenizer Tests
     // ================================================================
 
@@ -3460,6 +3483,25 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
+    #[test]
+    fn l3_clean_workspace_block() {
+        // CWD-dependent: blocked in /workspace
+        let v = json!({"tool_input": {"command": "git clean -fd"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn l3_clean_heredoc_allow() {
+        let v = json!({"tool_input": {"command": "cat << EOF\ngit clean -fd\nEOF"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_clean_subst_cwd_dependent() {
+        let v = json!({"tool_input": {"command": "echo $(git clean -fd)"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
     // --- 3.6 branch-force-delete ---
     // branch -D is only blocked in /workspace (could delete other agents' branches).
     // In worktrees, it's allowed — needed for squash-merge cleanup where -d fails.
@@ -3518,6 +3560,25 @@ mod tests {
     fn l3_branch_quoted_allow() {
         let v = json!({"tool_input": {"command": "git commit -m \"guard git branch -D\""}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_branch_d_workspace_block() {
+        // CWD-dependent: blocked in /workspace
+        let v = json!({"tool_input": {"command": "git branch -D feature"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn l3_branch_d_heredoc_allow() {
+        let v = json!({"tool_input": {"command": "cat << EOF\ngit branch -D feature\nEOF"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_branch_d_subst_cwd_dependent() {
+        let v = json!({"tool_input": {"command": "echo $(git branch -D feature)"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
     }
 
     // --- 3.7 worktree-remove ---
@@ -3802,6 +3863,18 @@ mod tests {
     fn l3_redirect_tmp_allow() {
         let v = json!({"tool_input": {"command": "echo hello > /tmp/file.txt"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_chained_block() {
+        let v = json!({"tool_input": {"command": "echo ok && echo hello > /workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_sudo_block() {
+        let v = json!({"tool_input": {"command": "sudo echo hello > /workspace/file"}});
+        assert!(check_bash(&v).is_some());
     }
 
     // --- 3.10 check_edit ---

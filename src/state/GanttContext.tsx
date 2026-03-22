@@ -90,7 +90,7 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
                 }
               : t
           );
-          dispatch({ type: 'SET_TASKS', tasks: preserved });
+          dispatch({ type: 'SET_TASKS', tasks: preserved, source: action.source });
           return;
         }
       }

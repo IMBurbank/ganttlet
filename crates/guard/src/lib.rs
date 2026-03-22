@@ -175,385 +175,404 @@ const GIT_VALUE_FLAGS: &[&str] = &[
     "--super-prefix",
 ];
 
-fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
-    let chars: Vec<char> = cmd.chars().collect();
-    let len = chars.len();
-    let mut tokens: Vec<Token> = Vec::new();
-    let mut inner_segment_groups: Vec<Vec<Segment>> = Vec::new();
-    let mut word = String::new();
-    let mut in_word = false;
-    let mut i = 0;
+// ============================================================
+// Tokenizer struct: encapsulates all mutable state for tokenize_inner
+// ============================================================
 
-    // Track last emitted operator for newline continuation detection.
-    // Only used to check "|", "&&", "||" — no allocation needed.
-    let mut last_emitted_op: Option<&'static str> = None;
+struct Tokenizer<'a> {
+    chars: &'a [char],
+    len: usize,
+    i: usize,
+    tokens: Vec<Token>,
+    word: String,
+    in_word: bool,
+    inner_segment_groups: Vec<Vec<Segment>>,
+    last_emitted_op: Option<&'static str>,
+    heredoc_delimiter: Option<String>,
+    heredoc_in_body: bool,
+    heredoc_strip_tabs: bool,
+    depth: usize,
+    cmd: &'a str, // for fail_open fallback
+}
 
-    // Emit an operator token and update the continuation tracker.
-    macro_rules! emit_op {
-        ($op_str:expr) => {{
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
-            last_emitted_op = Some($op_str);
-            tokens.push(Token::Operator($op_str.to_string()));
-        }};
+impl<'a> Tokenizer<'a> {
+    fn new(chars: &'a [char], cmd: &'a str, depth: usize) -> Self {
+        Tokenizer {
+            chars,
+            len: chars.len(),
+            i: 0,
+            tokens: Vec::new(),
+            word: String::new(),
+            in_word: false,
+            inner_segment_groups: Vec::new(),
+            last_emitted_op: None,
+            heredoc_delimiter: None,
+            heredoc_in_body: false,
+            heredoc_strip_tabs: false,
+            depth,
+            cmd,
+        }
     }
 
-    // Heredoc state: delimiter is captured, then we wait for \n to enter body
-    let mut heredoc_delimiter: Option<String> = None;
-    let mut heredoc_in_body = false;
-    let mut heredoc_strip_tabs = false; // true for <<- (indented heredoc)
+    /// Flush the current word if `in_word` is set.
+    fn emit_word(&mut self) {
+        if self.in_word {
+            self.tokens
+                .push(Token::Word(std::mem::take(&mut self.word)));
+            self.in_word = false;
+        }
+    }
 
-    while i < len {
-        // Heredoc body: skip until delimiter line
-        if heredoc_in_body {
-            let delim = heredoc_delimiter.as_ref().unwrap();
-            // Find end of current line
-            let line_start = i;
-            while i < len && chars[i] != '\n' {
-                i += 1;
+    /// Flush any pending word, then emit an operator token.
+    fn emit_op(&mut self, op: &'static str) {
+        self.emit_word();
+        self.last_emitted_op = Some(op);
+        self.tokens.push(Token::Operator(op.to_string()));
+    }
+
+    /// Handle `$()` command substitution at `self.i` (which points to `$`).
+    /// Always sets `self.in_word = true` (idempotent when already inside quotes).
+    /// Returns `false` if the substitution is unmatched (caller should fail-open).
+    fn parse_dollar_subst(&mut self) -> bool {
+        let start = self.i;
+        self.i += 2; // skip '$' and '('
+        match find_matching_close_paren(self.chars, self.i) {
+            Some((inner, new_i)) => {
+                self.i = new_i;
+                let subst_text: String = self.chars[start..self.i].iter().collect();
+                self.in_word = true;
+                self.word.push_str(&subst_text);
+                if self.depth < MAX_SUBST_DEPTH {
+                    let inner_segs = parse_segments_inner(&inner, self.depth + 1);
+                    if !inner_segs.is_empty() {
+                        self.inner_segment_groups.push(inner_segs);
+                    }
+                }
+                true
             }
-            let line: String = chars[line_start..i].iter().collect();
-            // <<- strips leading tabs; << requires exact match
-            let check_line = if heredoc_strip_tabs {
-                line.trim_start_matches('\t')
+            None => false,
+        }
+    }
+
+    /// Handle a backtick command substitution at `self.i` (which points to `` ` ``).
+    /// Always sets `self.in_word = true` (idempotent when already inside quotes).
+    /// Returns `false` if the closing backtick is missing (caller should fail-open).
+    fn parse_backtick(&mut self) -> bool {
+        let start = self.i;
+        self.i += 1; // skip opening `
+        let mut inner = String::new();
+        while self.i < self.len && self.chars[self.i] != '`' {
+            inner.push(self.chars[self.i]);
+            self.i += 1;
+        }
+        if self.i >= self.len {
+            return false;
+        }
+        self.i += 1; // skip closing `
+        let bt_text: String = self.chars[start..self.i].iter().collect();
+        self.in_word = true;
+        self.word.push_str(&bt_text);
+        if self.depth < MAX_SUBST_DEPTH {
+            let inner_segs = parse_segments_inner(&inner, self.depth + 1);
+            if !inner_segs.is_empty() {
+                self.inner_segment_groups.push(inner_segs);
+            }
+        }
+        true
+    }
+
+    /// Handle `<<` heredoc at `self.i` (which points to the first `<`).
+    /// Consumes `<<`, optional `-`, whitespace, and the delimiter.
+    fn parse_heredoc(&mut self) {
+        self.emit_word();
+        self.i += 2; // skip '<<'
+                     // Check for <<- (indented heredoc: strips leading tabs)
+        if self.i < self.len && self.chars[self.i] == '-' {
+            self.heredoc_strip_tabs = true;
+            self.i += 1;
+        }
+        // Skip whitespace before delimiter
+        while self.i < self.len && (self.chars[self.i] == ' ' || self.chars[self.i] == '\t') {
+            self.i += 1;
+        }
+        // Capture delimiter
+        if self.i < self.len {
+            let mut delim = String::new();
+            if self.chars[self.i] == '\'' || self.chars[self.i] == '"' {
+                let quote = self.chars[self.i];
+                self.i += 1;
+                while self.i < self.len && self.chars[self.i] != quote {
+                    delim.push(self.chars[self.i]);
+                    self.i += 1;
+                }
+                if self.i < self.len {
+                    self.i += 1; // skip closing quote
+                }
             } else {
-                &line
-            };
-            if check_line == delim.as_str() {
-                heredoc_delimiter = None;
-                heredoc_in_body = false;
-                heredoc_strip_tabs = false;
-            }
-            if i < len {
-                i += 1; // skip the \n
-            }
-            continue;
-        }
-
-        let ch = chars[i];
-
-        // Skip \r (treat as whitespace, \r\n becomes just \n)
-        if ch == '\r' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-                last_emitted_op = None;
-            }
-            i += 1;
-            continue;
-        }
-
-        // Whitespace: space, tab
-        if ch == ' ' || ch == '\t' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-                last_emitted_op = None;
-            }
-            i += 1;
-            continue;
-        }
-
-        // Comment: # at start of token (not mid-word)
-        if ch == '#' && !in_word {
-            // Skip rest of line
-            while i < len && chars[i] != '\n' {
-                i += 1;
-            }
-            // Don't consume the \n — let it be processed as an operator
-            continue;
-        }
-
-        // Newline: command separator, continuation, or heredoc body start
-        if ch == '\n' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-                last_emitted_op = None;
-            }
-            // If heredoc delimiter is set but body hasn't started, enter body mode
-            if heredoc_delimiter.is_some() && !heredoc_in_body {
-                heredoc_in_body = true;
-                i += 1;
-                continue;
-            }
-            // After |, &&, || → continuation (skip newline)
-            let is_continuation = matches!(last_emitted_op, Some("|" | "&&" | "||"));
-            if !is_continuation {
-                last_emitted_op = Some("\n");
-                tokens.push(Token::Operator("\n".to_string()));
-            }
-            i += 1;
-            continue;
-        }
-
-        // Single quote
-        if ch == '\'' {
-            in_word = true;
-            i += 1;
-            while i < len && chars[i] != '\'' {
-                word.push(chars[i]);
-                i += 1;
-            }
-            if i >= len {
-                // Unmatched single quote — fail-open
-                return fail_open(cmd);
-            }
-            i += 1; // skip closing '
-            continue;
-        }
-
-        // Double quote
-        if ch == '"' {
-            in_word = true;
-            i += 1;
-            while i < len && chars[i] != '"' {
-                if chars[i] == '\\' && i + 1 < len {
-                    let next = chars[i + 1];
-                    match next {
-                        '"' | '\\' | '$' | '`' => {
-                            word.push(next);
-                            i += 2;
-                        }
-                        '\n' => {
-                            // Line continuation inside double quotes
-                            i += 2;
-                        }
-                        _ => {
-                            word.push('\\');
-                            word.push(next);
-                            i += 2;
-                        }
-                    }
-                    continue;
-                }
-                // $() inside double quotes — extract for recursive parsing
-                if chars[i] == '$' && i + 1 < len && chars[i + 1] == '(' {
-                    let start = i;
-                    i += 2;
-                    match find_matching_close_paren(&chars, i) {
-                        Some((inner, new_i)) => {
-                            i = new_i;
-                            let subst_text: String = chars[start..i].iter().collect();
-                            word.push_str(&subst_text);
-                            if depth < MAX_SUBST_DEPTH {
-                                let inner_segs = parse_segments_inner(&inner, depth + 1);
-                                if !inner_segs.is_empty() {
-                                    inner_segment_groups.push(inner_segs);
-                                }
-                            }
-                        }
-                        None => return fail_open(cmd),
-                    }
-                    continue;
-                }
-                // Backtick inside double quotes
-                if chars[i] == '`' {
-                    let start = i;
-                    i += 1;
-                    let mut inner = String::new();
-                    while i < len && chars[i] != '`' {
-                        inner.push(chars[i]);
-                        i += 1;
-                    }
-                    if i >= len {
-                        return fail_open(cmd);
-                    }
-                    i += 1; // skip closing `
-                    let bt_text: String = chars[start..i].iter().collect();
-                    word.push_str(&bt_text);
-                    if depth < MAX_SUBST_DEPTH {
-                        let inner_segs = parse_segments_inner(&inner, depth + 1);
-                        if !inner_segs.is_empty() {
-                            inner_segment_groups.push(inner_segs);
-                        }
-                    }
-                    continue;
-                }
-                word.push(chars[i]);
-                i += 1;
-            }
-            if i >= len {
-                return fail_open(cmd);
-            }
-            i += 1; // skip closing "
-            continue;
-        }
-
-        // Backslash outside quotes
-        if ch == '\\' {
-            if i + 1 >= len {
-                // Dangling backslash — fail-open
-                return fail_open(cmd);
-            }
-            let next = chars[i + 1];
-            if next == '\n' {
-                // Line continuation
-                i += 2;
-                continue;
-            }
-            in_word = true;
-            word.push(next);
-            i += 2;
-            continue;
-        }
-
-        // $() command substitution outside quotes
-        if ch == '$' && i + 1 < len && chars[i + 1] == '(' {
-            let start = i;
-            i += 2;
-            match find_matching_close_paren(&chars, i) {
-                Some((inner, new_i)) => {
-                    i = new_i;
-                    let subst_text: String = chars[start..i].iter().collect();
-                    in_word = true;
-                    word.push_str(&subst_text);
-                    if depth < MAX_SUBST_DEPTH {
-                        let inner_segs = parse_segments_inner(&inner, depth + 1);
-                        if !inner_segs.is_empty() {
-                            inner_segment_groups.push(inner_segs);
-                        }
-                    }
-                }
-                None => return fail_open(cmd),
-            }
-            continue;
-        }
-
-        // Backtick command substitution outside quotes
-        if ch == '`' {
-            let start = i;
-            i += 1;
-            let mut inner = String::new();
-            while i < len && chars[i] != '`' {
-                inner.push(chars[i]);
-                i += 1;
-            }
-            if i >= len {
-                return fail_open(cmd);
-            }
-            i += 1; // skip closing `
-            let bt_text: String = chars[start..i].iter().collect();
-            in_word = true;
-            word.push_str(&bt_text);
-            if depth < MAX_SUBST_DEPTH {
-                let inner_segs = parse_segments_inner(&inner, depth + 1);
-                if !inner_segs.is_empty() {
-                    inner_segment_groups.push(inner_segs);
+                while self.i < self.len
+                    && self.chars[self.i] != ' '
+                    && self.chars[self.i] != '\t'
+                    && self.chars[self.i] != '\n'
+                    && self.chars[self.i] != ';'
+                    && self.chars[self.i] != '&'
+                    && self.chars[self.i] != '|'
+                {
+                    delim.push(self.chars[self.i]);
+                    self.i += 1;
                 }
             }
-            continue;
+            if !delim.is_empty() {
+                // Set delimiter; the \n handler will enter body mode.
+                // Tokens on the rest of this line (e.g., `<< EOF && echo done`)
+                // are processed normally by the main loop.
+                self.heredoc_delimiter = Some(delim);
+            }
         }
+    }
 
-        // Operator matching: greedy longest-first, table-driven.
-        // Ordered longest-first so ">>" matches before ">", "&&" before "&", etc.
-        // This is the same algorithm bash uses (shellmeta + peek-ahead).
-        //
-        // NOT in this table (require special handling):
-        //   <<  — heredoc (consumes delimiter + body)
-        //   <   — must come AFTER heredoc check (< vs << ambiguity)
-        //   <&  — must come AFTER heredoc check
-        //   <>  — must come AFTER heredoc check
-        //   \n  — newline continuation logic
+    /// Try to match a simple (table-driven) operator at `self.i`.
+    /// Returns `true` and advances `self.i` if matched.
+    ///
+    /// Operator matching: greedy longest-first, table-driven.
+    /// Ordered longest-first so ">>" matches before ">", "&&" before "&", etc.
+    /// This is the same algorithm bash uses (shellmeta + peek-ahead).
+    ///
+    /// Includes `<<` redirect variants (`<>`, `<&`, `<`) AFTER heredoc has been
+    /// checked (heredoc check runs before this method is called, so `<<` is never
+    /// in the remaining input when we reach here for a `<` character).
+    fn match_simple_op(&mut self) -> bool {
         const SIMPLE_OPS: &[&str] = &[
-            "&>>", "&&", "&>", ">>", ">&", ">|", "||", ">", "&", "|", ";", "(", ")",
+            "&>>", "&&", "&>", ">>", ">&", ">|", "||", ">", "&", "|", ";", "(", ")", "<>", "<&",
+            "<",
         ];
-        if let Some(op) = SIMPLE_OPS.iter().find(|op| {
+        if let Some(&op) = SIMPLE_OPS.iter().find(|op| {
             let ob = op.as_bytes();
-            i + ob.len() <= len
+            self.i + ob.len() <= self.len
                 && ob
                     .iter()
                     .enumerate()
-                    .all(|(j, &b)| chars[i + j] == b as char)
+                    .all(|(j, &b)| self.chars[self.i + j] == b as char)
         }) {
-            emit_op!(op);
-            i += op.len();
-            continue;
+            self.emit_op(op);
+            self.i += op.len();
+            true
+        } else {
+            false
         }
+    }
 
-        // Heredoc: << (consume << and delimiter, skip body)
-        if ch == '<' && i + 1 < len && chars[i + 1] == '<' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
-            i += 2;
-            // Check for <<- (indented heredoc: strips leading tabs)
-            if i < len && chars[i] == '-' {
-                heredoc_strip_tabs = true;
-                i += 1;
-            }
-            // Skip whitespace before delimiter
-            while i < len && (chars[i] == ' ' || chars[i] == '\t') {
-                i += 1;
-            }
-            // Capture delimiter
-            if i < len {
-                let mut delim = String::new();
-                if chars[i] == '\'' || chars[i] == '"' {
-                    let quote = chars[i];
-                    i += 1;
-                    while i < len && chars[i] != quote {
-                        delim.push(chars[i]);
-                        i += 1;
-                    }
-                    if i < len {
-                        i += 1; // skip closing quote
-                    }
+    /// Main tokenizer loop. Returns `(tokens, inner_segment_groups)` on success,
+    /// or the fail-open result if an unmatched delimiter is encountered.
+    fn run(mut self) -> (Vec<Token>, Vec<Vec<Segment>>) {
+        while self.i < self.len {
+            // Heredoc body: skip until delimiter line
+            if self.heredoc_in_body {
+                let delim = self.heredoc_delimiter.as_ref().unwrap().clone();
+                let line_start = self.i;
+                while self.i < self.len && self.chars[self.i] != '\n' {
+                    self.i += 1;
+                }
+                let line: String = self.chars[line_start..self.i].iter().collect();
+                // <<- strips leading tabs; << requires exact match
+                let matches = if self.heredoc_strip_tabs {
+                    line.trim_start_matches('\t') == delim.as_str()
                 } else {
-                    while i < len
-                        && chars[i] != ' '
-                        && chars[i] != '\t'
-                        && chars[i] != '\n'
-                        && chars[i] != ';'
-                        && chars[i] != '&'
-                        && chars[i] != '|'
-                    {
-                        delim.push(chars[i]);
-                        i += 1;
+                    line.as_str() == delim.as_str()
+                };
+                if matches {
+                    self.heredoc_delimiter = None;
+                    self.heredoc_in_body = false;
+                    self.heredoc_strip_tabs = false;
+                }
+                if self.i < self.len {
+                    self.i += 1; // skip the \n
+                }
+                continue;
+            }
+
+            let ch = self.chars[self.i];
+
+            // Skip \r (treat as whitespace, \r\n becomes just \n)
+            if ch == '\r' {
+                self.emit_word();
+                self.last_emitted_op = None;
+                self.i += 1;
+                continue;
+            }
+
+            // Whitespace: space, tab
+            if ch == ' ' || ch == '\t' {
+                self.emit_word();
+                self.last_emitted_op = None;
+                self.i += 1;
+                continue;
+            }
+
+            // Comment: # at start of token (not mid-word)
+            if ch == '#' && !self.in_word {
+                // Skip rest of line
+                while self.i < self.len && self.chars[self.i] != '\n' {
+                    self.i += 1;
+                }
+                // Don't consume the \n — let it be processed as an operator
+                continue;
+            }
+
+            // Newline: command separator, continuation, or heredoc body start
+            if ch == '\n' {
+                // Only reset last_emitted_op if we flush a word (mirrors original logic:
+                // the continuation check must see the operator that preceded the newline).
+                if self.in_word {
+                    self.emit_word();
+                    self.last_emitted_op = None;
+                }
+                // If heredoc delimiter is set but body hasn't started, enter body mode
+                if self.heredoc_delimiter.is_some() && !self.heredoc_in_body {
+                    self.heredoc_in_body = true;
+                    self.i += 1;
+                    continue;
+                }
+                // After |, &&, || → continuation (skip newline)
+                let is_continuation = matches!(self.last_emitted_op, Some("|" | "&&" | "||"));
+                if !is_continuation {
+                    self.last_emitted_op = Some("\n");
+                    self.tokens.push(Token::Operator("\n".to_string()));
+                }
+                self.i += 1;
+                continue;
+            }
+
+            // Single quote
+            if ch == '\'' {
+                self.in_word = true;
+                self.i += 1;
+                while self.i < self.len && self.chars[self.i] != '\'' {
+                    self.word.push(self.chars[self.i]);
+                    self.i += 1;
+                }
+                if self.i >= self.len {
+                    // Unmatched single quote — fail-open
+                    return fail_open(self.cmd);
+                }
+                self.i += 1; // skip closing '
+                continue;
+            }
+
+            // Double quote
+            if ch == '"' {
+                self.in_word = true;
+                self.i += 1;
+                while self.i < self.len && self.chars[self.i] != '"' {
+                    if self.chars[self.i] == '\\' && self.i + 1 < self.len {
+                        let next = self.chars[self.i + 1];
+                        match next {
+                            '"' | '\\' | '$' | '`' => {
+                                self.word.push(next);
+                                self.i += 2;
+                            }
+                            '\n' => {
+                                // Line continuation inside double quotes
+                                self.i += 2;
+                            }
+                            _ => {
+                                self.word.push('\\');
+                                self.word.push(next);
+                                self.i += 2;
+                            }
+                        }
+                        continue;
                     }
+                    // $() inside double quotes — extract for recursive parsing
+                    if self.chars[self.i] == '$'
+                        && self.i + 1 < self.len
+                        && self.chars[self.i + 1] == '('
+                    {
+                        if !self.parse_dollar_subst() {
+                            return fail_open(self.cmd);
+                        }
+                        continue;
+                    }
+                    // Backtick inside double quotes
+                    if self.chars[self.i] == '`' {
+                        if !self.parse_backtick() {
+                            return fail_open(self.cmd);
+                        }
+                        continue;
+                    }
+                    self.word.push(self.chars[self.i]);
+                    self.i += 1;
                 }
-                if !delim.is_empty() {
-                    // Set delimiter; the \n handler will enter body mode.
-                    // Tokens on the rest of this line (e.g., `<< EOF && echo done`)
-                    // are processed normally by the main loop.
-                    heredoc_delimiter = Some(delim);
+                if self.i >= self.len {
+                    return fail_open(self.cmd);
                 }
+                self.i += 1; // skip closing "
+                continue;
             }
-            continue;
+
+            // Backslash outside quotes
+            if ch == '\\' {
+                if self.i + 1 >= self.len {
+                    // Dangling backslash — fail-open
+                    return fail_open(self.cmd);
+                }
+                let next = self.chars[self.i + 1];
+                if next == '\n' {
+                    // Line continuation
+                    self.i += 2;
+                    continue;
+                }
+                self.in_word = true;
+                self.word.push(next);
+                self.i += 2;
+                continue;
+            }
+
+            // $() command substitution outside quotes
+            if ch == '$' && self.i + 1 < self.len && self.chars[self.i + 1] == '(' {
+                if !self.parse_dollar_subst() {
+                    return fail_open(self.cmd);
+                }
+                continue;
+            }
+
+            // Backtick command substitution outside quotes
+            if ch == '`' {
+                if !self.parse_backtick() {
+                    return fail_open(self.cmd);
+                }
+                continue;
+            }
+
+            // Heredoc: << must be checked BEFORE the table-driven operator match
+            // so that `<<` is consumed here and `<`, `<&`, `<>` can live in SIMPLE_OPS.
+            if ch == '<' && self.i + 1 < self.len && self.chars[self.i + 1] == '<' {
+                self.parse_heredoc();
+                continue;
+            }
+
+            // Operator matching: greedy longest-first, table-driven.
+            // Includes <>, <&, < (safe now that << was caught above).
+            if self.match_simple_op() {
+                continue;
+            }
+
+            // Default: regular character, accumulate into word
+            self.in_word = true;
+            self.word.push(ch);
+            self.i += 1;
         }
 
-        // Redirect operators: < <& <>
-        // The heredoc handler above consumed << and continue'd, so if we reach
-        // here with '<', it's a single < (possibly followed by & or >).
-        if ch == '<' {
-            if i + 1 < len && chars[i + 1] == '&' {
-                emit_op!("<&");
-                i += 2;
-            } else if i + 1 < len && chars[i + 1] == '>' {
-                emit_op!("<>");
-                i += 2;
-            } else {
-                emit_op!("<");
-                i += 1;
-            }
-            continue;
-        }
+        // Emit final word if any
+        self.emit_word();
 
-        // Default: regular character, accumulate into word
-        in_word = true;
-        word.push(ch);
-        i += 1;
+        (self.tokens, self.inner_segment_groups)
     }
+}
 
-    // Emit final word if any
-    if in_word {
-        tokens.push(Token::Word(std::mem::take(&mut word)));
-    }
-
-    (tokens, inner_segment_groups)
+fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
+    let chars: Vec<char> = cmd.chars().collect();
+    let tok = Tokenizer::new(&chars, cmd, depth);
+    tok.run()
 }
 
 /// Fail-open: return entire command as whitespace-split Word tokens, no inner segments.

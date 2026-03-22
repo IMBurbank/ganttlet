@@ -60,10 +60,13 @@ test_block  "Fail-closed on empty input" edit ''
 echo "--- Workspace isolation guard (edit mode) ---"
 test_block  "Block edit to /workspace/src/foo.ts"           edit '{"tool_input":{"file_path":"/workspace/src/foo.ts"}}'
 # Check 3 (CWD enforcement) only blocks when CWD is /workspace.
-# This test runs from wherever test-hooks.sh is invoked — from a worktree
-# the edit is allowed (agent editing its own worktree), from /workspace
-# it would be blocked (agent should have entered worktree first).
-test_allow  "Allow edit to worktree file"                   edit '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/foo.ts"}}'
+# From a worktree: allowed (agent editing its own worktree).
+# From /workspace: blocked (agent should have entered worktree first).
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Allow edit to worktree file (worktree CWD)"  edit '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/foo.ts"}}'
+else
+  test_block  "Block edit to worktree file (/workspace CWD)" edit '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/foo.ts"}}'
+fi
 test_allow  "Allow edit to file outside /workspace/"        edit '{"tool_input":{"file_path":"/home/user/project/src/App.tsx"}}'
 
 # --- Bash: push-to-main guard ---

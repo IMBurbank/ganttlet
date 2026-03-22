@@ -153,16 +153,22 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         return Some("Cannot push directly to main. Use a feature branch and PR.".to_string());
     }
 
-    // Check 5: Block git checkout/switch (unless -- file separator or worktree command)
+    // Check 5: Block git checkout/switch in /workspace (unless -- file separator or worktree command).
+    // Allowed in worktrees — agents may need to switch branches in their own isolated worktree.
     if (has_git_subcmd(cmd, "checkout") || has_git_subcmd(cmd, "switch"))
         && !cmd.contains("-- ")
         && !cmd.contains("worktree")
     {
-        return Some(
-            "Do not use git checkout/switch in /workspace. \
-             Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>"
-                .to_string(),
-        );
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_str = cwd.to_string_lossy();
+            if !cwd_str.starts_with("/workspace/.claude/worktrees/") {
+                return Some(
+                    "Do not use git checkout/switch in /workspace. \
+                     Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>"
+                        .to_string(),
+                );
+            }
+        }
     }
 
     // Check 6a: Block ALL git reset --hard in /workspace (even origin/*).
@@ -417,17 +423,46 @@ mod tests {
     }
 
     // --- check_bash: checkout/switch guard ---
+    // Note: Check 5 is CWD-dependent. Checkout/switch are blocked in /workspace
+    // but allowed in worktrees. When tests run from a worktree, these are allowed.
+    // The block path is verified by scripts/test-hooks.sh integration tests.
 
     #[test]
-    fn bash_blocks_git_checkout() {
+    fn bash_allows_git_checkout_in_worktree() {
+        // When CWD is a worktree (as in test runner), checkout is allowed
         let v = json!({"tool_input": {"command": "git checkout main"}});
-        assert!(check_bash(&v).is_some());
+        // Allowed because CWD is under /workspace/.claude/worktrees/
+        let result = check_bash(&v);
+        let cwd = std::env::current_dir().unwrap();
+        let in_worktree = cwd
+            .to_string_lossy()
+            .starts_with("/workspace/.claude/worktrees/");
+        if in_worktree {
+            assert!(result.is_none(), "checkout should be allowed in worktree");
+        } else {
+            assert!(
+                result.is_some(),
+                "checkout should be blocked outside worktree"
+            );
+        }
     }
 
     #[test]
-    fn bash_blocks_git_switch() {
+    fn bash_allows_git_switch_in_worktree() {
         let v = json!({"tool_input": {"command": "git switch feature"}});
-        assert!(check_bash(&v).is_some());
+        let result = check_bash(&v);
+        let cwd = std::env::current_dir().unwrap();
+        let in_worktree = cwd
+            .to_string_lossy()
+            .starts_with("/workspace/.claude/worktrees/");
+        if in_worktree {
+            assert!(result.is_none(), "switch should be allowed in worktree");
+        } else {
+            assert!(
+                result.is_some(),
+                "switch should be blocked outside worktree"
+            );
+        }
     }
 
     #[test]

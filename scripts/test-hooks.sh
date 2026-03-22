@@ -73,9 +73,15 @@ test_allow  "Allow git push origin feature"   bash '{"tool_input":{"command":"gi
 test_block  "Fail-closed on bad JSON"         bash 'not-json'
 
 # --- Bash: checkout/switch guard ---
+# Check 5 is CWD-dependent: blocked in /workspace, allowed in worktrees.
 echo "--- Checkout/switch guard (bash mode) ---"
-test_block  "Block git checkout main"         bash '{"tool_input":{"command":"git checkout main"}}'
-test_block  "Block git switch feature"        bash '{"tool_input":{"command":"git switch feature"}}'
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Allow git checkout in worktree"  bash '{"tool_input":{"command":"git checkout main"}}'
+  test_allow  "Allow git switch in worktree"    bash '{"tool_input":{"command":"git switch feature"}}'
+else
+  test_block  "Block git checkout main"         bash '{"tool_input":{"command":"git checkout main"}}'
+  test_block  "Block git switch feature"        bash '{"tool_input":{"command":"git switch feature"}}'
+fi
 test_allow  "Allow git worktree add"          bash '{"tool_input":{"command":"git worktree add /tmp/test -b branch"}}'
 test_allow  "Allow git checkout -- file"      bash '{"tool_input":{"command":"git checkout -- src/file.ts"}}'
 test_block  "Fail-closed on bad JSON"         bash 'not-json'

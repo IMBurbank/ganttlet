@@ -1008,10 +1008,23 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
 
     let segments = parse_segments(cmd);
 
-    // push-to-main
+    // push-to-main: block any push targeting the default branch.
+    // Catches: git push origin main, git push origin HEAD:main,
+    // git push origin feature:refs/heads/main, etc.
     for seg in &segments {
-        if seg.is_git("push") && seg.has_arg("main") {
-            return Some("Cannot push directly to main. Use a feature branch and PR.".to_string());
+        if seg.is_git("push") {
+            let targets_main = seg.tokens.iter().any(|t| {
+                if let Token::Word(w) = t {
+                    w == "main" || w.ends_with(":main") || w.ends_with(":refs/heads/main")
+                } else {
+                    false
+                }
+            });
+            if targets_main {
+                return Some(
+                    "Cannot push directly to main. Use a feature branch and PR.".to_string(),
+                );
+            }
         }
     }
 
@@ -2792,6 +2805,31 @@ mod tests {
     fn l3_push_main_subshell() {
         let v = json!({"tool_input": {"command": "(git push origin main)"}});
         assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_push_refspec_head_main_block() {
+        let v = json!({"tool_input": {"command": "git push origin HEAD:main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_push_refspec_branch_main_block() {
+        let v = json!({"tool_input": {"command": "git push origin feature:main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_push_refspec_refs_heads_main_block() {
+        let v = json!({"tool_input": {"command": "git push origin HEAD:refs/heads/main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_push_refspec_feature_allow() {
+        // Refspec targeting a non-main branch — allow
+        let v = json!({"tool_input": {"command": "git push origin HEAD:feature"}});
+        assert!(check_bash(&v).is_none());
     }
 
     #[test]

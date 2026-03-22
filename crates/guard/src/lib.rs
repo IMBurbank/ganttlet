@@ -1482,6 +1482,10 @@ mod tests {
     // Layer 1: Tokenizer Tests
     // ================================================================
 
+    // ================================================================
+    // Layer 1: Tokenizer Tests
+    // ================================================================
+
     // --- 1.1 Basic word splitting ---
 
     #[test]
@@ -1944,6 +1948,31 @@ mod tests {
         assert_eq!(words(&tok("cat << EOF\nhello world")), vec!["cat"]);
     }
 
+    #[test]
+    fn l1_heredoc_indented_delimiter_no_dash() {
+        // << EOF with indented closing should NOT match (only <<- allows indentation)
+        // The body should include everything until exact "EOF" line
+        let result = tok("cat << EOF\nhello\n   EOF\nEOF");
+        // "   EOF" doesn't match, body continues. "EOF" matches.
+        // Only "cat" is emitted as a word
+        assert_eq!(words(&result), vec!["cat"]);
+    }
+
+    #[test]
+    fn l1_heredoc_indented_delimiter_with_dash() {
+        // <<- EOF: tab-indented closing delimiter SHOULD match
+        let result = tok("cat <<- EOF\nhello\n\tEOF");
+        assert_eq!(words(&result), vec!["cat"]);
+    }
+
+    #[test]
+    fn l3_heredoc_strict_no_early_close() {
+        // Dangerous command after indented non-matching delimiter
+        // << EOF: "   EOF" doesn't close, "git push" is still body, "EOF" closes
+        let v = json!({"tool_input": {"command": "cat << EOF\n   EOF\ngit push origin main\nEOF"}});
+        assert!(check_bash(&v).is_none()); // all body, not commands
+    }
+
     // --- 1.11 Command substitution ---
 
     #[test]
@@ -1994,6 +2023,23 @@ mod tests {
         assert_eq!(tokens.len(), 2);
         assert!(!inner.is_empty());
         assert!(inner[0].iter().any(|s| s.is_git("push")));
+    }
+
+    #[test]
+    fn l1_cmd_subst_quoted_close_paren() {
+        // $(echo ")") — the ) inside quotes should NOT close the substitution
+        let (tokens, inner) = tokenize("echo $(echo \")\")");
+        // Should extract inner content correctly
+        assert_eq!(tokens.len(), 2);
+        assert!(!inner.is_empty());
+    }
+
+    #[test]
+    fn l1_cmd_subst_single_quoted_paren() {
+        // $(echo ')') — ) in single quotes
+        let (tokens, inner) = tokenize("echo $(echo ')')");
+        assert_eq!(tokens.len(), 2);
+        assert!(!inner.is_empty());
     }
 
     // --- 1.12 Subshells ---
@@ -2397,6 +2443,81 @@ mod tests {
         let _ = inner;
     }
 
+    // --- 1.23 Bash ground truth (redirect classification) ---
+
+    #[test]
+    fn l1_bash_gt_spaced_redirect_is_operator() {
+        // Bash: echo hello > /tmp/file → redirect
+        let tokens = tok("echo hello > /tmp/file");
+        assert!(tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_nospace_splits() {
+        // Bash: echo>/tmp/file → [echo] [>] [/tmp/file]
+        let tokens = tok("echo>/tmp/file");
+        assert_eq!(tokens, vec![w("echo"), op(">"), w("/tmp/file")]);
+    }
+
+    #[test]
+    fn l1_bash_gt_escaped_is_word() {
+        // Bash: echo \> /tmp/file → prints "> /tmp/file", no redirect
+        let tokens = tok("echo \\> /tmp/file");
+        assert!(tokens.contains(&w(">")));
+        assert!(!tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_dquoted_is_word() {
+        // Bash: echo ">" /tmp/file → prints "> /tmp/file", no redirect
+        let tokens = tok("echo \">\" /tmp/file");
+        assert!(tokens.contains(&w(">")));
+        assert!(!tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_squoted_is_word() {
+        // Bash: echo '>' /tmp/file → no redirect
+        let tokens = tok("echo '>' /tmp/file");
+        assert!(tokens.contains(&w(">")));
+        assert!(!tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_fd_redirect_splits() {
+        // Bash: echo 2>/dev/null → fd 2 redirect
+        let tokens = tok("echo 2>/dev/null");
+        assert_eq!(tokens, vec![w("echo"), w("2"), op(">"), w("/dev/null")]);
+    }
+
+    #[test]
+    fn l1_bash_gt_fd_escaped_no_split() {
+        // Bash: echo 2\>/dev/null → prints "2>/dev/null"
+        let tokens = tok("echo 2\\>/dev/null");
+        assert_eq!(tokens, vec![w("echo"), w("2>/dev/null")]);
+    }
+
+    #[test]
+    fn l1_bash_gt_clobber_is_operator() {
+        // Bash: echo >| /tmp/file → clobber redirect
+        let tokens = tok("echo >| /tmp/file");
+        assert!(tokens.contains(&op(">|")));
+    }
+
+    #[test]
+    fn l1_bash_gt_dup_is_operator() {
+        // Bash: echo >&2 → fd dup redirect
+        let tokens = tok("echo >&2");
+        assert!(tokens.contains(&op(">&")));
+    }
+
+    #[test]
+    fn l1_bash_gt_quoted_cmd_nospace() {
+        // Bash: "echo">/tmp/file → echo is command, > is redirect
+        let tokens = tok("\"echo\">/tmp/file");
+        assert_eq!(tokens, vec![w("echo"), op(">"), w("/tmp/file")]);
+    }
+
     // ================================================================
     // Layer 2: Segment Tests
     // ================================================================
@@ -2537,14 +2658,14 @@ mod tests {
         );
     }
 
-    // --- 2b.1 effective_command ---
-
     fn ec(tokens: &[&str]) -> Option<(usize, String)> {
         let seg = Segment {
             tokens: tokens.iter().map(|s| Token::Word(s.to_string())).collect(),
         };
         seg.effective_command().map(|(i, s)| (i, s.to_string()))
     }
+
+    // --- 2b.1 effective_command ---
 
     #[test]
     fn l2b_ec_git_push() {
@@ -2629,7 +2750,42 @@ mod tests {
         assert_eq!(ec(&["sudo"]), None);
     }
 
-    // --- 2b.2 git_subcmd ---
+    #[test]
+    fn l2b_ec_sudo_n_finds_git() {
+        // -n (no password) doesn't take a value, so git IS the command
+        assert_eq!(
+            ec(&["sudo", "-n", "git", "push"]),
+            Some((2, "git".to_string()))
+        );
+    }
+
+    #[test]
+    fn l2b_ec_sudo_v_finds_git() {
+        // -v (validate) doesn't take a value
+        assert_eq!(
+            ec(&["sudo", "-v", "git", "push"]),
+            Some((2, "git".to_string()))
+        );
+    }
+
+    #[test]
+    fn l2b_ec_sudo_e_finds_git() {
+        // -E (preserve env) doesn't take a value
+        assert_eq!(
+            ec(&["sudo", "-E", "git", "push"]),
+            Some((2, "git".to_string()))
+        );
+    }
+
+    #[test]
+    fn l2b_ec_sudo_u_known_gap() {
+        // -u takes a value but we can't know without enumerating.
+        // Returns "root" as command — fail-open (root != git)
+        assert_eq!(
+            ec(&["sudo", "-u", "root", "git", "push"]),
+            Some((2, "root".to_string()))
+        );
+    }
 
     fn gs(tokens: &[&str]) -> Option<(usize, String)> {
         let seg = Segment {
@@ -2637,6 +2793,8 @@ mod tests {
         };
         seg.git_subcmd().map(|(i, s)| (i, s.to_string()))
     }
+
+    // --- 2b.2 git_subcmd ---
 
     #[test]
     fn l2b_gs_basic() {
@@ -2730,13 +2888,13 @@ mod tests {
         assert_eq!(gs(&["echo"]), None);
     }
 
-    // --- 2b.3 is_git ---
-
     fn mk_seg(tokens: &[&str]) -> Segment {
         Segment {
             tokens: tokens.iter().map(|s| Token::Word(s.to_string())).collect(),
         }
     }
+
+    // --- 2b.3 is_git ---
 
     #[test]
     fn l2b_is_git_true() {
@@ -2902,6 +3060,33 @@ mod tests {
             ec(&["VAR=val", "sudo", "git", "push"]),
             Some((2, "git".to_string()))
         );
+    }
+
+    #[test]
+    fn l2b_assignment_url_not_assignment() {
+        // URL-like token: http://server=param — NOT an assignment because
+        // name part contains : and / which aren't alphanumeric or _
+        assert!(!is_var_assignment("http://server=param"));
+    }
+
+    #[test]
+    fn l2b_assignment_flag_not_assignment() {
+        // --flag=value — NOT an assignment (starts with -)
+        assert!(!is_var_assignment("--flag=value"));
+    }
+
+    #[test]
+    fn l2b_assignment_valid() {
+        assert!(is_var_assignment("VAR=val"));
+        assert!(is_var_assignment("_PRIVATE=1"));
+        assert!(is_var_assignment("A123=test"));
+    }
+
+    #[test]
+    fn l2b_assignment_invalid() {
+        assert!(!is_var_assignment("=value")); // starts with =
+        assert!(!is_var_assignment("123=val")); // starts with digit
+        assert!(!is_var_assignment("no-equals"));
     }
 
     // --- 2b.9 effective_command with full paths ---
@@ -3135,6 +3320,38 @@ mod tests {
         assert!(check_bash(&v).is_some());
     }
 
+    // --- Operator classification unit tests ---
+
+    #[test]
+    fn write_redirect_classification() {
+        assert!(is_write_redirect(">"));
+        assert!(is_write_redirect(">>"));
+        assert!(is_write_redirect(">|"));
+        assert!(is_write_redirect(">&"));
+        assert!(is_write_redirect("<>"));
+        assert!(is_write_redirect("&>"));
+        assert!(is_write_redirect("&>>"));
+        assert!(!is_write_redirect("<"));
+        assert!(!is_write_redirect("<&"));
+        assert!(!is_write_redirect("&&"));
+        assert!(!is_write_redirect("|"));
+    }
+
+    #[test]
+    fn control_operator_classification() {
+        assert!(is_control_operator("&&"));
+        assert!(is_control_operator("||"));
+        assert!(is_control_operator("|"));
+        assert!(is_control_operator(";"));
+        assert!(is_control_operator("&"));
+        assert!(is_control_operator("\n"));
+        assert!(is_control_operator("("));
+        assert!(is_control_operator(")"));
+        assert!(!is_control_operator(">"));
+        assert!(!is_control_operator(">>"));
+        assert!(!is_control_operator("<"));
+    }
+
     // ================================================================
     // Layer 3: Guard Check Tests
     // ================================================================
@@ -3263,6 +3480,261 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
+    #[test]
+    fn l3_heredoc_push() {
+        let v = json!({"tool_input": {"command": "python3 << EOF\ngit push origin main\nEOF"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_subst_push() {
+        let v = json!({"tool_input": {"command": "echo $(git push origin main)"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_subst_chained() {
+        let v = json!({"tool_input": {"command": "echo hi && echo $(git push origin main)"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_fullpath_push() {
+        let v = json!({"tool_input": {"command": "/usr/bin/git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_relpath_push() {
+        let v = json!({"tool_input": {"command": "./git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sudo_fullpath_push() {
+        let v = json!({"tool_input": {"command": "sudo /usr/bin/git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_fullpath_c_flag_push() {
+        let v = json!({"tool_input": {"command": "/usr/bin/git -C /tmp push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_assign_push() {
+        let v = json!({"tool_input": {"command": "VAR=val git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_assign_git_ssh_push() {
+        let v = json!({"tool_input": {"command": "GIT_SSH=/usr/bin/ssh git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_multi_assign_push() {
+        let v = json!({"tool_input": {"command": "A=1 B=2 git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_assign_sudo_push() {
+        let v = json!({"tool_input": {"command": "VAR=val sudo git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_assign_c_flag_push() {
+        let v = json!({"tool_input": {"command": "VAR=val git -C /tmp push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_line_continuation_push() {
+        let v = json!({"tool_input": {"command": "git push origin \\\nmain"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_line_continuation_push2() {
+        let v = json!({"tool_input": {"command": "git push \\\norigin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_pipe_continuation_push() {
+        let v = json!({"tool_input": {"command": "echo a |\ngit push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_and_continuation_push() {
+        let v = json!({"tool_input": {"command": "echo a &&\ngit push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_background_push() {
+        let v = json!({"tool_input": {"command": "git push origin main &"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_background_sep_push() {
+        let v = json!({"tool_input": {"command": "echo hi & git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_subst_dquote_push() {
+        let v = json!({"tool_input": {"command": "echo \"$(git push origin main)\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_subst_squote_push_allow() {
+        let v = json!({"tool_input": {"command": "echo '$(git push origin main)'"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_push() {
+        let cmd = "git commit -m \"block git push to the default branch\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_gh_push_main_body() {
+        let cmd = "gh pr comment 1 --body \"guard blocks git push to main\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_grep_git_push() {
+        let cmd = "grep -r \"git push\" scripts/";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_pull() {
+        let v = json!({"tool_input": {"command": "git pull origin main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_fetch() {
+        let v = json!({"tool_input": {"command": "git fetch origin main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_merge() {
+        let v = json!({"tool_input": {"command": "git merge feature/phase19 --no-edit"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_push_delete_remote() {
+        let v = json!({"tool_input": {"command": "git push origin --delete feature/old"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_multi_space_push_feature() {
+        let v = json!({"tool_input": {"command": "git  push  origin  feature"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_sudo_u_push_known_gap() {
+        // Known gap: sudo -u root git push origin main is NOT blocked
+        // because effective_command returns "root", which isn't git.
+        // This is acceptable: fail-open, and sudo -u is rare in agent commands.
+        let v = json!({"tool_input": {"command": "sudo -u root git push origin main"}});
+        assert!(check_bash(&v).is_none()); // known gap: not blocked
+    }
+
+    #[test]
+    fn l3_sudo_n_push_blocked() {
+        // sudo -n git push origin main IS blocked (correct)
+        let v = json!({"tool_input": {"command": "sudo -n git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sudo_e_push_blocked() {
+        let v = json!({"tool_input": {"command": "sudo -E git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_subst_quoted_paren_push() {
+        // $(echo ")" && git push origin main) — ) in quotes doesn't close
+        let v = json!({"tool_input": {"command": "echo $(echo \")\" && git push origin main)"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_or_continuation_push() {
+        // || continuation: newline after || doesn't separate
+        let v = json!({"tool_input": {"command": "echo a ||\ngit push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_bash_c_push_block() {
+        let v = json!({"tool_input": {"command": "bash -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sh_c_push_block() {
+        let v = json!({"tool_input": {"command": "sh -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_fullpath_bash_c_block() {
+        let v = json!({"tool_input": {"command": "/bin/bash -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_bash_c_multi_cmd_block() {
+        let v = json!({"tool_input": {"command": "bash -c \"echo hi; git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_eval_push_block() {
+        let v = json!({"tool_input": {"command": "eval \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_bash_c_safe_allow() {
+        let v = json!({"tool_input": {"command": "bash -c \"echo hello\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_bash_c_push_feature_allow() {
+        let v = json!({"tool_input": {"command": "bash -c \"git push origin feature\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_sudo_bash_c_push_block() {
+        let v = json!({"tool_input": {"command": "sudo bash -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
     // --- 3.2 checkout-switch ---
 
     #[test]
@@ -3332,10 +3804,15 @@ mod tests {
         }
     }
 
-    // --- 3.3 reset-hard-workspace (CWD-dependent) ---
-    // Block path tested in integration tests (CWD must be /workspace)
+    #[test]
+    fn bash_allows_echo_checkout() {
+        let cmd = "echo \"use git checkout to switch branches\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
 
-    // --- 3.4 reset-hard-destructive ---
+    // --- 3.3 reset-hard ---
+    // Block path tested in integration tests (CWD must be /workspace)
 
     #[test]
     fn l3_reset_hard_basic() {
@@ -3404,7 +3881,51 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
-    // --- 3.5 clean-force ---
+    #[test]
+    fn l3_heredoc_reset() {
+        let v = json!({"tool_input": {"command": "node << 'JS'\ngit reset --hard HEAD~3\nJS"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_subst_reset() {
+        let v = json!({"tool_input": {"command": "result=$(git reset --hard HEAD~3)"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_subst_dquote_reset() {
+        let v = json!({"tool_input": {"command": "echo \"result: $(git reset --hard HEAD~3)\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_subst_squote_reset_allow() {
+        let v = json!({"tool_input": {"command": "echo '$(git reset --hard)'"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_reset() {
+        let cmd = "git commit -m \"revert: undo git reset --hard changes\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_gh_pr_merge_body() {
+        let cmd = "gh pr merge 72 --squash --body \"block git reset --hard in /workspace\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_eval_reset_block() {
+        let v = json!({"tool_input": {"command": "eval git reset --hard HEAD~3"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    // --- 3.4 clean-force ---
     // clean -f is only blocked in /workspace (shared state).
     // In worktrees (where these tests run), it's allowed — agents
     // legitimately clean build artifacts in their own workspace.
@@ -3502,7 +4023,57 @@ mod tests {
         assert_eq!(check_bash(&v).is_some(), in_workspace());
     }
 
-    // --- 3.6 branch-force-delete ---
+    #[test]
+    fn l3_heredoc_clean() {
+        let v = json!({"tool_input": {"command": "cat << 'DELIM'\ngit clean --force\nDELIM"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_subst_backtick_clean() {
+        let v = json!({"tool_input": {"command": "VAR=`git clean -fd`"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn l3_fullpath_clean() {
+        // CWD-dependent: blocked in /workspace, allowed in worktrees
+        let v = json!({"tool_input": {"command": "/usr/bin/git clean -fd"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn l3_background_clean() {
+        let v = json!({"tool_input": {"command": "git clean -fd & echo done"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_clean() {
+        let cmd = "git commit -m \"docs: warn about git clean -f\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_clean_chained_no_spaces() {
+        let v = json!({"tool_input": {"command": "git clean -n&&echo done"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_background_clean_cwd_dependent() {
+        let v = json!({"tool_input": {"command": "git clean -fd &"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn l3_bash_c_clean_cwd_dependent() {
+        let v = json!({"tool_input": {"command": "bash -c \"echo hi && git clean -fd\""}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    // --- 3.5 branch-force-delete ---
     // branch -D is only blocked in /workspace (could delete other agents' branches).
     // In worktrees, it's allowed — needed for squash-merge cleanup where -d fails.
     // The /workspace blocking is verified by integration tests (test-hooks.sh).
@@ -3581,7 +4152,44 @@ mod tests {
         assert_eq!(check_bash(&v).is_some(), in_workspace());
     }
 
-    // --- 3.7 worktree-remove ---
+    #[test]
+    fn l3_heredoc_branch() {
+        let v = json!({"tool_input": {"command": "bash << END\ngit branch -D feature\nEND && echo done"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_subst_dquote_branch() {
+        let v = json!({"tool_input": {"command": "echo \"$(git branch -D feature)\""}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_branch_d() {
+        let cmd = "git commit -m \"fix: guard git branch -D\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_branch_piped_no_spaces() {
+        let v = json!({"tool_input": {"command": "git branch -a|grep -D 3 foo"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_branch_force_set() {
+        let v = json!({"tool_input": {"command": "git branch -f feature-branch origin/main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_sh_c_branch_d_cwd_dependent() {
+        let v = json!({"tool_input": {"command": "sh -c \"git branch -D mybranch\""}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    // --- 3.6 worktree-remove ---
     // Three tiers:
     // 1. Own CWD → hard block (breaks Bash)
     // 2. Agent worktree path (/workspace/.claude/worktrees/*) → block with warning
@@ -3718,7 +4326,20 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
-    // --- 3.8 rm-worktree-root ---
+    #[test]
+    fn l3_heredoc_worktree_remove() {
+        let v = json!({"tool_input": {"command": "cat << END\ngit worktree remove /tmp/wt\nEND"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_subst_worktree_remove_other_allow() {
+        // Target /tmp/wt is not CWD — allow even inside $()
+        let v = json!({"tool_input": {"command": "echo $(git worktree remove /tmp/wt)"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- 3.7 rm-worktree-root ---
 
     #[test]
     fn l3_rm_rf_worktree() {
@@ -3802,7 +4423,47 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
-    // --- 3.9 workspace-file-modification ---
+    #[test]
+    fn l3_heredoc_rm() {
+        let v = json!({"tool_input": {"command": "python3 << EOF\nrm -rf /workspace/.claude/worktrees/my-wt\nEOF"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_subst_rm() {
+        let v =
+            json!({"tool_input": {"command": "echo $(rm -rf /workspace/.claude/worktrees/my-wt)"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sudo_rm_worktree() {
+        let v =
+            json!({"tool_input": {"command": "sudo rm -rf /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_env_rm_worktree() {
+        let v = json!({"tool_input": {"command": "env PATH=/tmp rm -rf /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_commit_with_worktree_mention() {
+        let cmd = "git commit -m \"block direct edits in /workspace/ must use worktrees\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_rm_rf_worktree() {
+        let cmd = "git commit -m \"fix: guard blocks rm -rf /workspace/.claude/worktrees/\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- 3.8 workspace-file-modification ---
 
     #[test]
     fn l3_sed_workspace() {
@@ -3877,120 +4538,9 @@ mod tests {
         assert!(check_bash(&v).is_some());
     }
 
-    // --- 3.10 check_edit ---
-
-    #[test]
-    fn l3_edit_blocks_workspace_direct() {
-        let v = json!({"tool_input": {"file_path": "/workspace/src/foo.ts"}});
-        assert!(check_edit(&v).is_some());
-    }
-
-    #[test]
-    fn l3_edit_allows_worktree() {
-        let v =
-            json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
-        assert!(check_edit(&v).is_none());
-    }
-
-    #[test]
-    fn l3_edit_blocks_env() {
-        let v = json!({"tool_input": {"file_path": "/foo/.env"}});
-        assert!(check_edit(&v).is_some());
-    }
-
-    #[test]
-    fn l3_edit_blocks_package_lock() {
-        let v = json!({"tool_input": {"file_path": "/workspace/package-lock.json"}});
-        assert!(check_edit(&v).is_some());
-    }
-
-    // --- 3.11 Heredoc body (ALLOW) ---
-
-    #[test]
-    fn l3_heredoc_push() {
-        let v = json!({"tool_input": {"command": "python3 << EOF\ngit push origin main\nEOF"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_heredoc_clean() {
-        let v = json!({"tool_input": {"command": "cat << 'DELIM'\ngit clean --force\nDELIM"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_heredoc_branch() {
-        let v = json!({"tool_input": {"command": "bash << END\ngit branch -D feature\nEND && echo done"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_heredoc_reset() {
-        let v = json!({"tool_input": {"command": "node << 'JS'\ngit reset --hard HEAD~3\nJS"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_heredoc_rm() {
-        let v = json!({"tool_input": {"command": "python3 << EOF\nrm -rf /workspace/.claude/worktrees/my-wt\nEOF"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_heredoc_worktree_remove() {
-        let v = json!({"tool_input": {"command": "cat << END\ngit worktree remove /tmp/wt\nEND"}});
-        assert!(check_bash(&v).is_none());
-    }
-
     #[test]
     fn l3_heredoc_sed() {
         let v = json!({"tool_input": {"command": "cat << EOF\nsed -i s/x/y/ /workspace/src/file.ts\nEOF"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    // --- 3.12 Command substitution (BLOCK) ---
-
-    #[test]
-    fn l3_subst_push() {
-        let v = json!({"tool_input": {"command": "echo $(git push origin main)"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_subst_reset() {
-        let v = json!({"tool_input": {"command": "result=$(git reset --hard HEAD~3)"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_subst_backtick_clean() {
-        let v = json!({"tool_input": {"command": "VAR=`git clean -fd`"}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    #[test]
-    fn l3_subst_dquote_branch() {
-        let v = json!({"tool_input": {"command": "echo \"$(git branch -D feature)\""}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    #[test]
-    fn l3_subst_chained() {
-        let v = json!({"tool_input": {"command": "echo hi && echo $(git push origin main)"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_subst_rm() {
-        let v =
-            json!({"tool_input": {"command": "echo $(rm -rf /workspace/.claude/worktrees/my-wt)"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_subst_worktree_remove_other_allow() {
-        // Target /tmp/wt is not CWD — allow even inside $()
-        let v = json!({"tool_input": {"command": "echo $(git worktree remove /tmp/wt)"}});
         assert!(check_bash(&v).is_none());
     }
 
@@ -4000,477 +4550,11 @@ mod tests {
         assert!(check_bash(&v).is_some());
     }
 
-    // --- 3.13 Fail-open on parse errors ---
-
-    #[test]
-    fn l3_failopen_unmatched_dquote() {
-        let v = json!({"tool_input": {"command": "echo \"unmatched quote"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_failopen_unmatched_squote() {
-        let v = json!({"tool_input": {"command": "echo 'unmatched single"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_failopen_dangling_backslash() {
-        let v = json!({"tool_input": {"command": "echo hello\\"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_failopen_unclosed_backtick() {
-        let v = json!({"tool_input": {"command": "echo `git push"}});
-        // Fail-open: whitespace split won't have proper segment
-        assert!(check_bash(&v).is_none());
-    }
-
-    // --- 3.14 Full-path git (BLOCK) ---
-
-    #[test]
-    fn l3_fullpath_push() {
-        let v = json!({"tool_input": {"command": "/usr/bin/git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_relpath_push() {
-        let v = json!({"tool_input": {"command": "./git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_sudo_fullpath_push() {
-        let v = json!({"tool_input": {"command": "sudo /usr/bin/git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_fullpath_c_flag_push() {
-        let v = json!({"tool_input": {"command": "/usr/bin/git -C /tmp push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_fullpath_clean() {
-        // CWD-dependent: blocked in /workspace, allowed in worktrees
-        let v = json!({"tool_input": {"command": "/usr/bin/git clean -fd"}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    // --- 3.15 Assignment-prefixed (BLOCK) ---
-
-    #[test]
-    fn l3_assign_push() {
-        let v = json!({"tool_input": {"command": "VAR=val git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_assign_git_ssh_push() {
-        let v = json!({"tool_input": {"command": "GIT_SSH=/usr/bin/ssh git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_multi_assign_push() {
-        let v = json!({"tool_input": {"command": "A=1 B=2 git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_assign_sudo_push() {
-        let v = json!({"tool_input": {"command": "VAR=val sudo git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_assign_c_flag_push() {
-        let v = json!({"tool_input": {"command": "VAR=val git -C /tmp push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- 3.16 Continuation after operator ---
-
-    #[test]
-    fn l3_line_continuation_push() {
-        let v = json!({"tool_input": {"command": "git push origin \\\nmain"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_line_continuation_push2() {
-        let v = json!({"tool_input": {"command": "git push \\\norigin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_pipe_continuation_push() {
-        let v = json!({"tool_input": {"command": "echo a |\ngit push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_and_continuation_push() {
-        let v = json!({"tool_input": {"command": "echo a &&\ngit push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- 3.17 Background operator ---
-
-    #[test]
-    fn l3_background_push() {
-        let v = json!({"tool_input": {"command": "git push origin main &"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_background_sep_push() {
-        let v = json!({"tool_input": {"command": "echo hi & git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_background_clean() {
-        let v = json!({"tool_input": {"command": "git clean -fd & echo done"}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    // --- 3.19 $() in dquotes (BLOCK) ---
-
-    #[test]
-    fn l3_subst_dquote_push() {
-        let v = json!({"tool_input": {"command": "echo \"$(git push origin main)\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_subst_dquote_reset() {
-        let v = json!({"tool_input": {"command": "echo \"result: $(git reset --hard HEAD~3)\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- 3.20 $() in squotes (ALLOW) ---
-
-    #[test]
-    fn l3_subst_squote_push_allow() {
-        let v = json!({"tool_input": {"command": "echo '$(git push origin main)'"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_subst_squote_reset_allow() {
-        let v = json!({"tool_input": {"command": "echo '$(git reset --hard)'"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    // --- 3.21 Non-git with prefix (BLOCK) ---
-
-    #[test]
-    fn l3_sudo_rm_worktree() {
-        let v =
-            json!({"tool_input": {"command": "sudo rm -rf /workspace/.claude/worktrees/my-wt"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_env_rm_worktree() {
-        let v = json!({"tool_input": {"command": "env PATH=/tmp rm -rf /workspace/.claude/worktrees/my-wt"}});
-        assert!(check_bash(&v).is_some());
-    }
-
     #[test]
     fn l3_sudo_sed_workspace() {
         let v = json!({"tool_input": {"command": "sudo sed -i s/x/y/ /workspace/src/file.ts"}});
         assert!(check_bash(&v).is_some());
     }
-
-    // --- 3.22 Adversarial (no panic) ---
-
-    #[test]
-    fn l3_adversarial_long_input() {
-        let cmd = "a".repeat(10000);
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_adversarial_many_chains() {
-        let cmd = (0..1000)
-            .map(|i| format!("echo {}", i))
-            .collect::<Vec<_>>()
-            .join(" && ");
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_adversarial_mixed() {
-        let v = json!({"tool_input": {"command": "|;&(){}[]<>$`\"'\\!~*?#"}});
-        // Should not panic
-        let _ = check_bash(&v);
-    }
-
-    // --- Legacy regression tests (all must still pass) ---
-
-    #[test]
-    fn infra_error_enxio() {
-        let e = io::Error::from_raw_os_error(6);
-        assert!(is_infra_error(&e));
-    }
-
-    #[test]
-    fn infra_error_eagain() {
-        let e = io::Error::from_raw_os_error(11);
-        assert!(is_infra_error(&e));
-    }
-
-    #[test]
-    fn infra_error_enoent() {
-        let e = io::Error::from_raw_os_error(2);
-        assert!(is_infra_error(&e));
-    }
-
-    #[test]
-    fn infra_error_other_is_not_infra() {
-        let e = io::Error::from_raw_os_error(5);
-        assert!(!is_infra_error(&e));
-    }
-
-    #[test]
-    fn edit_blocks_env_file() {
-        let v = json!({"tool_input": {"file_path": "/foo/.env"}});
-        assert!(check_edit(&v).is_some());
-    }
-
-    #[test]
-    fn edit_blocks_wasm_scheduler() {
-        let v = json!({"tool_input": {"file_path": "/workspace/src/wasm/scheduler/scheduler.js"}});
-        assert!(check_edit(&v).is_some());
-    }
-
-    #[test]
-    fn edit_allows_normal_file() {
-        let v = json!({"tool_input": {"file_path": "/home/user/project/src/App.tsx"}});
-        assert!(check_edit(&v).is_none());
-    }
-
-    #[test]
-    fn edit_allows_worktree_file() {
-        let v = json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/issue-42/src/App.tsx"}});
-        assert!(check_edit(&v).is_none());
-    }
-
-    #[test]
-    fn edit_fail_closed_bad_json() {
-        let v = json!({"tool_input": {}});
-        assert!(check_edit(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_normal_commands() {
-        let v = json!({"tool_input": {"command": "git status"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_commit_with_worktree_mention() {
-        let cmd = "git commit -m \"block direct edits in /workspace/ must use worktrees\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_commit_referencing_push() {
-        let cmd = "git commit -m \"block git push to the default branch\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_commit_referencing_reset() {
-        let cmd = "git commit -m \"revert: undo git reset --hard changes\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_commit_referencing_clean() {
-        let cmd = "git commit -m \"docs: warn about git clean -f\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_commit_referencing_branch_d() {
-        let cmd = "git commit -m \"fix: guard git branch -D\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_branch_piped_no_spaces() {
-        let v = json!({"tool_input": {"command": "git branch -a|grep -D 3 foo"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_clean_chained_no_spaces() {
-        let v = json!({"tool_input": {"command": "git clean -n&&echo done"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_gh_pr_merge_body() {
-        let cmd = "gh pr merge 72 --squash --body \"block git reset --hard in /workspace\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_gh_push_main_body() {
-        let cmd = "gh pr comment 1 --body \"guard blocks git push to main\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_echo_checkout() {
-        let cmd = "echo \"use git checkout to switch branches\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_grep_git_push() {
-        let cmd = "grep -r \"git push\" scripts/";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_git_branch_force_set() {
-        let v = json!({"tool_input": {"command": "git branch -f feature-branch origin/main"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_git_pull() {
-        let v = json!({"tool_input": {"command": "git pull origin main"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_git_fetch() {
-        let v = json!({"tool_input": {"command": "git fetch origin main"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_git_merge() {
-        let v = json!({"tool_input": {"command": "git merge feature/phase19 --no-edit"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_push_delete_remote() {
-        let v = json!({"tool_input": {"command": "git push origin --delete feature/old"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_commit_rm_rf_worktree() {
-        let cmd = "git commit -m \"fix: guard blocks rm -rf /workspace/.claude/worktrees/\"";
-        let v = json!({"tool_input": {"command": cmd}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_empty_command() {
-        let v = json!({"tool_input": {"command": ""}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_whitespace_command() {
-        let v = json!({"tool_input": {"command": "   "}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn bash_allows_multi_space_push_feature() {
-        let v = json!({"tool_input": {"command": "git  push  origin  feature"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    // ================================================================
-    // Edge case tests from first-principles audit
-    // ================================================================
-
-    // --- effective_command() known gaps ---
-
-    #[test]
-    fn l2b_ec_sudo_n_finds_git() {
-        // -n (no password) doesn't take a value, so git IS the command
-        assert_eq!(
-            ec(&["sudo", "-n", "git", "push"]),
-            Some((2, "git".to_string()))
-        );
-    }
-
-    #[test]
-    fn l2b_ec_sudo_v_finds_git() {
-        // -v (validate) doesn't take a value
-        assert_eq!(
-            ec(&["sudo", "-v", "git", "push"]),
-            Some((2, "git".to_string()))
-        );
-    }
-
-    #[test]
-    fn l2b_ec_sudo_e_finds_git() {
-        // -E (preserve env) doesn't take a value
-        assert_eq!(
-            ec(&["sudo", "-E", "git", "push"]),
-            Some((2, "git".to_string()))
-        );
-    }
-
-    #[test]
-    fn l2b_ec_sudo_u_known_gap() {
-        // -u takes a value but we can't know without enumerating.
-        // Returns "root" as command — fail-open (root != git)
-        assert_eq!(
-            ec(&["sudo", "-u", "root", "git", "push"]),
-            Some((2, "root".to_string()))
-        );
-    }
-
-    #[test]
-    fn l3_sudo_u_push_known_gap() {
-        // Known gap: sudo -u root git push origin main is NOT blocked
-        // because effective_command returns "root", which isn't git.
-        // This is acceptable: fail-open, and sudo -u is rare in agent commands.
-        let v = json!({"tool_input": {"command": "sudo -u root git push origin main"}});
-        assert!(check_bash(&v).is_none()); // known gap: not blocked
-    }
-
-    #[test]
-    fn l3_sudo_n_push_blocked() {
-        // sudo -n git push origin main IS blocked (correct)
-        let v = json!({"tool_input": {"command": "sudo -n git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_sudo_e_push_blocked() {
-        let v = json!({"tool_input": {"command": "sudo -E git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- Redirect check: quote-aware ---
 
     #[test]
     fn l3_redirect_quoted_gt_allow() {
@@ -4586,225 +4670,6 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
-    // --- Bash ground truth: redirect classification ---
-    // These tests verify our tokenizer matches bash behavior for every
-    // edge case discovered during the first-principles audit.
-
-    #[test]
-    fn l1_bash_gt_spaced_redirect_is_operator() {
-        // Bash: echo hello > /tmp/file → redirect
-        let tokens = tok("echo hello > /tmp/file");
-        assert!(tokens.contains(&op(">")));
-    }
-
-    #[test]
-    fn l1_bash_gt_nospace_splits() {
-        // Bash: echo>/tmp/file → [echo] [>] [/tmp/file]
-        let tokens = tok("echo>/tmp/file");
-        assert_eq!(tokens, vec![w("echo"), op(">"), w("/tmp/file")]);
-    }
-
-    #[test]
-    fn l1_bash_gt_escaped_is_word() {
-        // Bash: echo \> /tmp/file → prints "> /tmp/file", no redirect
-        let tokens = tok("echo \\> /tmp/file");
-        assert!(tokens.contains(&w(">")));
-        assert!(!tokens.contains(&op(">")));
-    }
-
-    #[test]
-    fn l1_bash_gt_dquoted_is_word() {
-        // Bash: echo ">" /tmp/file → prints "> /tmp/file", no redirect
-        let tokens = tok("echo \">\" /tmp/file");
-        assert!(tokens.contains(&w(">")));
-        assert!(!tokens.contains(&op(">")));
-    }
-
-    #[test]
-    fn l1_bash_gt_squoted_is_word() {
-        // Bash: echo '>' /tmp/file → no redirect
-        let tokens = tok("echo '>' /tmp/file");
-        assert!(tokens.contains(&w(">")));
-        assert!(!tokens.contains(&op(">")));
-    }
-
-    #[test]
-    fn l1_bash_gt_fd_redirect_splits() {
-        // Bash: echo 2>/dev/null → fd 2 redirect
-        let tokens = tok("echo 2>/dev/null");
-        assert_eq!(tokens, vec![w("echo"), w("2"), op(">"), w("/dev/null")]);
-    }
-
-    #[test]
-    fn l1_bash_gt_fd_escaped_no_split() {
-        // Bash: echo 2\>/dev/null → prints "2>/dev/null"
-        let tokens = tok("echo 2\\>/dev/null");
-        assert_eq!(tokens, vec![w("echo"), w("2>/dev/null")]);
-    }
-
-    #[test]
-    fn l1_bash_gt_clobber_is_operator() {
-        // Bash: echo >| /tmp/file → clobber redirect
-        let tokens = tok("echo >| /tmp/file");
-        assert!(tokens.contains(&op(">|")));
-    }
-
-    #[test]
-    fn l1_bash_gt_dup_is_operator() {
-        // Bash: echo >&2 → fd dup redirect
-        let tokens = tok("echo >&2");
-        assert!(tokens.contains(&op(">&")));
-    }
-
-    #[test]
-    fn l1_bash_gt_quoted_cmd_nospace() {
-        // Bash: "echo">/tmp/file → echo is command, > is redirect
-        let tokens = tok("\"echo\">/tmp/file");
-        assert_eq!(tokens, vec![w("echo"), op(">"), w("/tmp/file")]);
-    }
-
-    // --- Operator classification unit tests ---
-
-    #[test]
-    fn write_redirect_classification() {
-        assert!(is_write_redirect(">"));
-        assert!(is_write_redirect(">>"));
-        assert!(is_write_redirect(">|"));
-        assert!(is_write_redirect(">&"));
-        assert!(is_write_redirect("<>"));
-        assert!(is_write_redirect("&>"));
-        assert!(is_write_redirect("&>>"));
-        assert!(!is_write_redirect("<"));
-        assert!(!is_write_redirect("<&"));
-        assert!(!is_write_redirect("&&"));
-        assert!(!is_write_redirect("|"));
-    }
-
-    #[test]
-    fn control_operator_classification() {
-        assert!(is_control_operator("&&"));
-        assert!(is_control_operator("||"));
-        assert!(is_control_operator("|"));
-        assert!(is_control_operator(";"));
-        assert!(is_control_operator("&"));
-        assert!(is_control_operator("\n"));
-        assert!(is_control_operator("("));
-        assert!(is_control_operator(")"));
-        assert!(!is_control_operator(">"));
-        assert!(!is_control_operator(">>"));
-        assert!(!is_control_operator("<"));
-    }
-
-    // --- Heredoc: strict delimiter matching ---
-
-    #[test]
-    fn l1_heredoc_indented_delimiter_no_dash() {
-        // << EOF with indented closing should NOT match (only <<- allows indentation)
-        // The body should include everything until exact "EOF" line
-        let result = tok("cat << EOF\nhello\n   EOF\nEOF");
-        // "   EOF" doesn't match, body continues. "EOF" matches.
-        // Only "cat" is emitted as a word
-        assert_eq!(words(&result), vec!["cat"]);
-    }
-
-    #[test]
-    fn l1_heredoc_indented_delimiter_with_dash() {
-        // <<- EOF: tab-indented closing delimiter SHOULD match
-        let result = tok("cat <<- EOF\nhello\n\tEOF");
-        assert_eq!(words(&result), vec!["cat"]);
-    }
-
-    #[test]
-    fn l3_heredoc_strict_no_early_close() {
-        // Dangerous command after indented non-matching delimiter
-        // << EOF: "   EOF" doesn't close, "git push" is still body, "EOF" closes
-        let v = json!({"tool_input": {"command": "cat << EOF\n   EOF\ngit push origin main\nEOF"}});
-        assert!(check_bash(&v).is_none()); // all body, not commands
-    }
-
-    // --- $() with quotes inside ---
-
-    #[test]
-    fn l1_cmd_subst_quoted_close_paren() {
-        // $(echo ")") — the ) inside quotes should NOT close the substitution
-        let (tokens, inner) = tokenize("echo $(echo \")\")");
-        // Should extract inner content correctly
-        assert_eq!(tokens.len(), 2);
-        assert!(!inner.is_empty());
-    }
-
-    #[test]
-    fn l1_cmd_subst_single_quoted_paren() {
-        // $(echo ')') — ) in single quotes
-        let (tokens, inner) = tokenize("echo $(echo ')')");
-        assert_eq!(tokens.len(), 2);
-        assert!(!inner.is_empty());
-    }
-
-    #[test]
-    fn l3_subst_quoted_paren_push() {
-        // $(echo ")" && git push origin main) — ) in quotes doesn't close
-        let v = json!({"tool_input": {"command": "echo $(echo \")\" && git push origin main)"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- Brace group known gap ---
-
-    #[test]
-    fn l3_brace_group_blocked() {
-        // { git push origin main; } — brace group: { is skipped, git is found
-        let v = json!({"tool_input": {"command": "{ git push origin main; }"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- is_var_assignment edge cases ---
-
-    #[test]
-    fn l2b_assignment_url_not_assignment() {
-        // URL-like token: http://server=param — NOT an assignment because
-        // name part contains : and / which aren't alphanumeric or _
-        assert!(!is_var_assignment("http://server=param"));
-    }
-
-    #[test]
-    fn l2b_assignment_flag_not_assignment() {
-        // --flag=value — NOT an assignment (starts with -)
-        assert!(!is_var_assignment("--flag=value"));
-    }
-
-    #[test]
-    fn l2b_assignment_valid() {
-        assert!(is_var_assignment("VAR=val"));
-        assert!(is_var_assignment("_PRIVATE=1"));
-        assert!(is_var_assignment("A123=test"));
-    }
-
-    #[test]
-    fn l2b_assignment_invalid() {
-        assert!(!is_var_assignment("=value")); // starts with =
-        assert!(!is_var_assignment("123=val")); // starts with digit
-        assert!(!is_var_assignment("no-equals"));
-    }
-
-    // --- Newline continuation edge cases ---
-
-    #[test]
-    fn l3_or_continuation_push() {
-        // || continuation: newline after || doesn't separate
-        let v = json!({"tool_input": {"command": "echo a ||\ngit push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- Background + push ---
-
-    #[test]
-    fn l3_background_clean_cwd_dependent() {
-        let v = json!({"tool_input": {"command": "git clean -fd &"}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    // --- Redirect in heredoc body (ALLOW) ---
-
     #[test]
     fn l3_redirect_in_heredoc_body_allow() {
         // Redirect syntax in heredoc body is NOT a real redirect.
@@ -4819,8 +4684,6 @@ mod tests {
         let v = json!({"tool_input": {"command": "git commit -m \"$(cat <<'EOF'\necho > /workspace/file\nEOF\n)\""}});
         assert!(check_bash(&v).is_none());
     }
-
-    // --- No-space redirects (BLOCK) ---
 
     #[test]
     fn l3_redirect_nospace_block() {
@@ -4869,95 +4732,7 @@ mod tests {
         assert!(check_bash(&v).is_some());
     }
 
-    // --- bash -c / sh -c / eval (BLOCK) ---
-
-    #[test]
-    fn l3_bash_c_push_block() {
-        let v = json!({"tool_input": {"command": "bash -c \"git push origin main\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_sh_c_push_block() {
-        let v = json!({"tool_input": {"command": "sh -c \"git push origin main\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_bash_c_clean_cwd_dependent() {
-        let v = json!({"tool_input": {"command": "bash -c \"echo hi && git clean -fd\""}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    #[test]
-    fn l3_sh_c_branch_d_cwd_dependent() {
-        let v = json!({"tool_input": {"command": "sh -c \"git branch -D mybranch\""}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    #[test]
-    fn l3_fullpath_bash_c_block() {
-        let v = json!({"tool_input": {"command": "/bin/bash -c \"git push origin main\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_bash_c_multi_cmd_block() {
-        let v = json!({"tool_input": {"command": "bash -c \"echo hi; git push origin main\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_eval_push_block() {
-        let v = json!({"tool_input": {"command": "eval \"git push origin main\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_eval_reset_block() {
-        let v = json!({"tool_input": {"command": "eval git reset --hard HEAD~3"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_bash_c_safe_allow() {
-        let v = json!({"tool_input": {"command": "bash -c \"echo hello\""}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_bash_c_push_feature_allow() {
-        let v = json!({"tool_input": {"command": "bash -c \"git push origin feature\""}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    #[test]
-    fn l3_sudo_bash_c_push_block() {
-        let v = json!({"tool_input": {"command": "sudo bash -c \"git push origin main\""}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    // --- exec (BLOCK) ---
-
-    #[test]
-    fn l3_exec_push_block() {
-        let v = json!({"tool_input": {"command": "exec git push origin main"}});
-        assert!(check_bash(&v).is_some());
-    }
-
-    #[test]
-    fn l3_exec_clean_cwd_dependent() {
-        let v = json!({"tool_input": {"command": "exec git clean -fd"}});
-        assert_eq!(check_bash(&v).is_some(), in_workspace());
-    }
-
-    #[test]
-    fn l3_exec_safe_allow() {
-        let v = json!({"tool_input": {"command": "exec git status"}});
-        assert!(check_bash(&v).is_none());
-    }
-
-    // --- Interpreter workspace scanning ---
+    // --- 3.9 interpreter-workspace ---
 
     #[test]
     fn l3_python_workspace_block() {
@@ -5067,8 +4842,6 @@ mod tests {
         assert!(check_bash(&v).is_some());
     }
 
-    // --- Node.js write patterns ---
-
     #[test]
     fn l3_node_writefile_workspace_block() {
         let v = json!({"tool_input": {"command": "node -e \"require('fs').writeFileSync('/workspace/file', 'x')\""}});
@@ -5117,8 +4890,6 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
-    // --- Perl write patterns ---
-
     #[test]
     fn l3_perl_unlink_workspace_block() {
         let v = json!({"tool_input": {"command": "perl -e \"unlink('/workspace/file')\""}});
@@ -5137,8 +4908,6 @@ mod tests {
             json!({"tool_input": {"command": "perl -e \"open(F, '/workspace/file'); print <F>\""}});
         assert!(check_bash(&v).is_none());
     }
-
-    // --- Ruby write patterns ---
 
     #[test]
     fn l3_ruby_filewrite_workspace_block() {
@@ -5171,8 +4940,6 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
-    // --- Cross-interpreter edge cases ---
-
     #[test]
     fn l3_interpreter_worktree_write_allow() {
         // Write to worktree path — always allowed
@@ -5195,7 +4962,89 @@ mod tests {
         assert!(check_bash(&v).is_some());
     }
 
-    // --- Brace groups (BLOCK) ---
+    // --- 3.10 check_edit ---
+
+    #[test]
+    fn l3_edit_blocks_workspace_direct() {
+        let v = json!({"tool_input": {"file_path": "/workspace/src/foo.ts"}});
+        assert!(check_edit(&v).is_some());
+    }
+
+    #[test]
+    fn l3_edit_allows_worktree() {
+        let v =
+            json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/test/src/foo.ts"}});
+        assert!(check_edit(&v).is_none());
+    }
+
+    #[test]
+    fn l3_edit_blocks_env() {
+        let v = json!({"tool_input": {"file_path": "/foo/.env"}});
+        assert!(check_edit(&v).is_some());
+    }
+
+    #[test]
+    fn l3_edit_blocks_package_lock() {
+        let v = json!({"tool_input": {"file_path": "/workspace/package-lock.json"}});
+        assert!(check_edit(&v).is_some());
+    }
+
+    #[test]
+    fn edit_blocks_env_file() {
+        let v = json!({"tool_input": {"file_path": "/foo/.env"}});
+        assert!(check_edit(&v).is_some());
+    }
+
+    #[test]
+    fn edit_blocks_wasm_scheduler() {
+        let v = json!({"tool_input": {"file_path": "/workspace/src/wasm/scheduler/scheduler.js"}});
+        assert!(check_edit(&v).is_some());
+    }
+
+    #[test]
+    fn edit_allows_normal_file() {
+        let v = json!({"tool_input": {"file_path": "/home/user/project/src/App.tsx"}});
+        assert!(check_edit(&v).is_none());
+    }
+
+    #[test]
+    fn edit_allows_worktree_file() {
+        let v = json!({"tool_input": {"file_path": "/workspace/.claude/worktrees/issue-42/src/App.tsx"}});
+        assert!(check_edit(&v).is_none());
+    }
+
+    #[test]
+    fn edit_fail_closed_bad_json() {
+        let v = json!({"tool_input": {}});
+        assert!(check_edit(&v).is_none());
+    }
+
+    // --- 3.11 cross-cutting ---
+
+    #[test]
+    fn l3_brace_group_blocked() {
+        // { git push origin main; } — brace group: { is skipped, git is found
+        let v = json!({"tool_input": {"command": "{ git push origin main; }"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_exec_push_block() {
+        let v = json!({"tool_input": {"command": "exec git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_exec_clean_cwd_dependent() {
+        let v = json!({"tool_input": {"command": "exec git clean -fd"}});
+        assert_eq!(check_bash(&v).is_some(), in_workspace());
+    }
+
+    #[test]
+    fn l3_exec_safe_allow() {
+        let v = json!({"tool_input": {"command": "exec git status"}});
+        assert!(check_bash(&v).is_none());
+    }
 
     #[test]
     fn l3_brace_clean_cwd_dependent() {
@@ -5219,5 +5068,98 @@ mod tests {
     fn l3_nested_brace_block() {
         let v = json!({"tool_input": {"command": "{ { git push origin main; }; }"}});
         assert!(check_bash(&v).is_some());
+    }
+
+    // --- 3.12 fail-open ---
+
+    #[test]
+    fn l3_failopen_unmatched_dquote() {
+        let v = json!({"tool_input": {"command": "echo \"unmatched quote"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_failopen_unmatched_squote() {
+        let v = json!({"tool_input": {"command": "echo 'unmatched single"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_failopen_dangling_backslash() {
+        let v = json!({"tool_input": {"command": "echo hello\\"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_failopen_unclosed_backtick() {
+        let v = json!({"tool_input": {"command": "echo `git push"}});
+        // Fail-open: whitespace split won't have proper segment
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_adversarial_long_input() {
+        let cmd = "a".repeat(10000);
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_adversarial_many_chains() {
+        let cmd = (0..1000)
+            .map(|i| format!("echo {}", i))
+            .collect::<Vec<_>>()
+            .join(" && ");
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_adversarial_mixed() {
+        let v = json!({"tool_input": {"command": "|;&(){}[]<>$`\"'\\!~*?#"}});
+        // Should not panic
+        let _ = check_bash(&v);
+    }
+
+    #[test]
+    fn infra_error_enxio() {
+        let e = io::Error::from_raw_os_error(6);
+        assert!(is_infra_error(&e));
+    }
+
+    #[test]
+    fn infra_error_eagain() {
+        let e = io::Error::from_raw_os_error(11);
+        assert!(is_infra_error(&e));
+    }
+
+    #[test]
+    fn infra_error_enoent() {
+        let e = io::Error::from_raw_os_error(2);
+        assert!(is_infra_error(&e));
+    }
+
+    #[test]
+    fn infra_error_other_is_not_infra() {
+        let e = io::Error::from_raw_os_error(5);
+        assert!(!is_infra_error(&e));
+    }
+
+    #[test]
+    fn bash_allows_normal_commands() {
+        let v = json!({"tool_input": {"command": "git status"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_empty_command() {
+        let v = json!({"tool_input": {"command": ""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_whitespace_command() {
+        let v = json!({"tool_input": {"command": "   "}});
+        assert!(check_bash(&v).is_none());
     }
 }

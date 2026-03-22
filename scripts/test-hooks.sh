@@ -155,6 +155,24 @@ test_block  "Lifecycle: git branch -D blocks (force delete)" \
 test_block  "Lifecycle: git reset --hard HEAD~3 blocks (loses commits)" \
             bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
 
+echo "--- Worktree cleanup guard ---"
+
+# Block rm -rf on worktree root directories
+test_block  "Cleanup: rm -rf worktree root blocked" \
+            bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-worktree"}}'
+
+# Allow rm -rf on subdirectories within worktrees
+test_allow  "Cleanup: rm -rf worktree subdir allowed" \
+            bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-wt/node_modules"}}'
+
+# Allow rm on individual files (no -r/-f)
+test_allow  "Cleanup: rm single file in worktree allowed" \
+            bash '{"tool_input":{"command":"rm /workspace/.claude/worktrees/test/temp.txt"}}'
+
+# Block rm -rf with trailing slash
+test_block  "Cleanup: rm -rf worktree root with trailing slash blocked" \
+            bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-worktree/"}}'
+
 echo "--- Agent lifecycle: fresh clone (no binary) ---"
 # When guard binary doesn't exist, hooks should fail-open (not brick the session)
 MISSING_GUARD="./nonexistent-guard-binary"

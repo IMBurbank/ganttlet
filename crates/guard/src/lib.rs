@@ -165,7 +165,23 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         );
     }
 
-    // Check 6: Block destructive git commands (reset --hard, clean -f, branch -D)
+    // Check 6a: Block ALL git reset --hard in /workspace (even origin/*).
+    // Must run before 6b which allows origin/* refs — that allowance is only for worktrees.
+    if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_str = cwd.to_string_lossy();
+            if cwd_str == "/workspace" || cwd_str == "/workspace/" {
+                return Some(
+                    "Do not run git reset --hard in /workspace. This modifies shared state \
+                     that other agents depend on. Only use git reset --hard in your own worktree. \
+                     See .claude/worktrees/CLAUDE.md."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    // Check 6b: Block destructive git commands (reset --hard, clean -f, branch -D)
     // Allow reset --hard to a remote ref (origin/main, origin/branch) — needed after squash merges.
     // Block reset --hard to relative refs (HEAD~N) or bare (no target) — those discard work.
     if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
@@ -208,7 +224,40 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // Check 8: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
+    // Check 8: Block rm -rf on worktree root directories — use ExitWorktree instead.
+    // Only blocks deletion of the worktree root (e.g., /workspace/.claude/worktrees/my-wt).
+    // Allows deletion of subdirectories within worktrees (e.g., .../my-wt/node_modules).
+    {
+        let wt_prefix = "/workspace/.claude/worktrees/";
+        let ts = tokens(cmd);
+        let has_rm = ts.first() == Some(&"rm") || ts.contains(&"rm");
+        let has_rf = ts.iter().any(|t| {
+            t.starts_with('-') && !t.starts_with("--") && (t.contains('r') || t.contains('f'))
+        });
+        if has_rm && has_rf {
+            let targets_wt_root = ts.iter().any(|t| {
+                if let Some(rest) = t.strip_prefix(wt_prefix) {
+                    // It's a worktree root if there's no '/' after the name
+                    // (or only a trailing slash)
+                    let trimmed = rest.trim_end_matches('/');
+                    !trimmed.is_empty() && !trimmed.contains('/')
+                } else {
+                    false
+                }
+            });
+            if targets_wt_root {
+                return Some(
+                    "Do not use rm -rf to delete worktrees. It breaks your CWD and leaves \
+                     orphaned branches. Use ExitWorktree with action: \"remove\" instead — \
+                     it safely restores CWD, deletes the directory, and removes the branch. \
+                     See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    // Check 9: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
 
     // sed -i ... /workspace/...
     if has_token(cmd, "sed") && cmd.contains("-i") && workspace_but_not_worktree(cmd) {
@@ -587,6 +636,67 @@ mod tests {
     fn bash_allows_clean_chained_no_spaces() {
         // git clean -n&&echo done — no spaces around &&
         let v = json!({"tool_input": {"command": "git clean -n&&echo done"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- rm -rf worktree guard ---
+
+    #[test]
+    fn bash_blocks_rm_rf_worktree_root() {
+        let v =
+            json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-worktree"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_rm_r_worktree_root() {
+        let v =
+            json!({"tool_input": {"command": "rm -r /workspace/.claude/worktrees/my-worktree"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_rm_rf_worktree_root_trailing_slash() {
+        let v =
+            json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-worktree/"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_rm_rf_subdir_in_worktree() {
+        // Deleting node_modules or other subdirs inside a worktree is fine
+        let v = json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-wt/node_modules"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_rm_rf_deep_path_in_worktree() {
+        let v = json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-wt/src/old/"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_rm_on_non_worktree() {
+        let v = json!({"tool_input": {"command": "rm -rf /tmp/some-dir"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_rm_file_in_worktree() {
+        // rm without -r/-f on a single file inside a worktree is fine
+        let v = json!({"tool_input": {"command": "rm /workspace/.claude/worktrees/test/temp.txt"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- /workspace CWD guard (git reset --hard) ---
+    // Note: Check 6a blocks git reset --hard in /workspace (any target, even origin/*).
+    // In the test runner, CWD is not /workspace, so these verify the allow path.
+    // The block path is verified by scripts/test-hooks.sh integration tests.
+
+    #[test]
+    fn bash_allows_git_reset_hard_origin_in_worktree() {
+        // CWD is not /workspace during tests, so reset --hard origin/main is allowed
+        let v = json!({"tool_input": {"command": "git reset --hard origin/main"}});
         assert!(check_bash(&v).is_none());
     }
 }

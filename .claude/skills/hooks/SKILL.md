@@ -146,32 +146,89 @@ The binary takes one positional argument — the check mode:
 - **Fail-closed**: Malformed JSON input and non-infrastructure IO errors. These indicate
   a logic error that should be investigated.
 
-### Check Registry
+### Check Registry — Complete Decision Table
 
 **`check_edit(input)`** — for Edit and Write tools:
-1. **Protected files** — blocks edits to paths containing `package-lock.json`, `src/wasm/scheduler/`, or `.env` (uses substring matching — adding a new pattern like `.gitignore` would also block paths containing that substring, e.g. `.gitignore-backup`)
-2. **Workspace isolation** — blocks edits to `/workspace/` that are not under `/workspace/.claude/worktrees/`
+1. **Protected files** — blocks edits to `.env`, `.env.*`, `package-lock.json`, `src/wasm/scheduler/`
+2. **Workspace isolation** — blocks edits to `/workspace/` paths that resolve (after `../` normalization) to outside `/workspace/.claude/worktrees/`
+3. **CWD enforcement** — blocks editing worktree files when CWD is `/workspace` (agent should enter the worktree first)
 
-**`check_bash(input)`** — for the Bash tool:
-1. **Push to main** — blocks `git push ... main`
-2. **Checkout/switch** — blocks `git checkout`/`git switch` (allows `-- ` file separator and `worktree` commands)
-3. **Destructive git commands** — blocks `git reset --hard`, `git clean -f`/`--force`, `git branch -D` (allows `git reset --hard origin/<ref>` for post-merge sync, `git reset --soft`, `git clean -n`, `git branch -d`)
-4. **Worktree removal** — blocks `git worktree remove` (allows `git worktree prune` — it only cleans stale references)
-5. **File modification via bash** — blocks `sed -i`, `>` redirect, and `tee` targeting `/workspace/` directly (not worktrees)
+**`check_bash(input)`** — for the Bash tool. Uses a POSIX-aligned tokenizer that distinguishes `Token::Word` (quoted/escaped text) from `Token::Operator` (unquoted shell operators). All path checks normalize `../` and resolve relative paths against CWD.
+
+#### Hard block — no override
+
+| Check | Trigger |
+|---|---|
+| Push to main | `git push origin main`, `HEAD:main`, `feature:main`, `HEAD:refs/heads/main` |
+| Reset --hard (no origin/) | `git reset --hard` without `origin/` ref |
+| Worktree remove own CWD | `git worktree remove <path-matching-CWD>` |
+| rm -rf worktree root | `rm -rf /workspace/.claude/worktrees/<name>` |
+| File writes (sed/tee) | `sed -i`, `tee` targeting protected paths |
+| All write redirects | `>` `>>` `>|` `>&` `<>` `&>` `&>>` targeting protected paths |
+| Interpreter writes | `python -c`, `node -e`, `perl -e`, `ruby -e` with `/workspace/` path AND write/exec indicator |
+
+#### CWD-dependent — blocked in `/workspace`, allowed in worktrees
+
+| Check | Trigger | Why allowed in worktrees |
+|---|---|---|
+| Checkout/switch | `git checkout main`, `git switch feature` | Agent's own workspace |
+| Reset --hard origin/ | `git reset --hard origin/main` | Squash-merge cleanup step |
+| Clean -f | `git clean -fd`, `--force` | Clean build artifacts |
+| Branch -D | `git branch -D feature` | Squash-merge cleanup (where -d fails) |
+
+#### Acknowledged — blocked until agent confirms with `I_CREATED_THIS=1` prefix
+
+| Check | Without prefix | With `I_CREATED_THIS=1` |
+|---|---|---|
+| Worktree remove agent path (`/workspace/.claude/worktrees/*`) | BLOCK — STOP warning with 3 ownership criteria | ALLOW |
+
+The 3 criteria the agent must verify before acknowledging:
+1. They created the worktree (this session or a previous one)
+2. Its PR is merged OR it was a test/scratch worktree
+3. They have verified no other agent is using it
+
+#### Always allow
+
+| Scenario | Why |
+|---|---|
+| Input redirects (`<`, `<&`) | Read-only |
+| Escaped/quoted redirects (`\>`, `">"`, `'>'`) | Literal text, not operators |
+| Redirects to worktree paths or non-workspace paths | Not protected |
+| `git clean -n`, `git branch -d`, `git branch -f` | Safe operations |
+| `git push origin feature-branch` | Feature branches are the workflow |
+| `git worktree add`, `prune`, `list` | Standard worktree lifecycle |
+| `git worktree remove /tmp/*` | Not an agent workspace |
+| Interpreter reads (`print`, `readFileSync`, `os.listdir`) | No write indicator in code |
+
+#### Open gaps (static analysis limits — all fail-open)
+
+| Gap | Why |
+|---|---|
+| Variable indirection (`> $VAR`) | Can't resolve variables |
+| `sudo -u` flag values | Can't enumerate flag semantics |
+| Symlinks | Can't resolve without filesystem access on non-existent paths |
 
 ## How to Add a New Check
 
-### Step 1: Add the check function in `lib.rs`
+### Step 1: Add the check in `lib.rs`
 
-Add a helper function or inline logic in `check_edit()` or `check_bash()`:
+Add a new check block in `check_bash()` using the Segment API:
 
 ```rust
 // In check_bash():
-// Check N: Block dangerous-command
-if cmd.contains("dangerous-command") {
-    return Some("Reason this is blocked".to_string());
+// new-check: block dangerous-command in /workspace
+for seg in &segments {
+    if seg.effective_command().map(|(_, c)| c) == Some("dangerous-cmd")
+        && seg.has_protected_path()
+    {
+        return Some("Do not run dangerous-cmd on /workspace files. Use a worktree.".to_string());
+    }
 }
 ```
+
+Use `is_protected_path()` for path checks, `is_write_redirect()` for redirect checks,
+and Segment methods (`is_git`, `has_arg`, `has_short_flag`, `has_protected_path`) for
+command pattern matching. See the Decision Table above for the four decision categories.
 
 ### Step 2: Add tests
 
@@ -304,13 +361,22 @@ cd crates/guard
 cargo test
 ```
 
-## Lessons Learned
-<!-- Managed by curation pipeline — do not edit directly -->
+## Architecture
 
-- Token-based matching (`has_token`) is essential to avoid false positives — e.g.,
-  "worktrees" contains "tee" as a substring, which would trigger the `tee` redirect check
-  without token-level matching.
-- The `has_git_subcmd()` function only checks the FIRST `git` token in the command to avoid
-  false positives from commit messages that mention git subcommands (e.g.,
-  `git commit -m "block git push to main"`).
+The guard uses a layered pipeline:
+
+1. **Tokenizer** — single-pass POSIX-aligned state machine producing `Token::Word` and `Token::Operator`. Redirect operators (`>`, `>>`, `<`, `>&`, `>|`, `<&`, `<>`, `&>`, `&>>`) are recognized at lex time. Quoted/escaped characters always produce `Word`, never `Operator`.
+2. **Segments** — split on control operators (`&&`, `||`, `|`, `;`, `&`, `\n`). Redirect operators stay inside their segment.
+3. **Predicates** — reusable classification: `is_control_operator()`, `is_write_redirect()`, `is_protected_path()` (normalizes `../`, resolves relative paths against CWD).
+4. **Checks** — pattern-match on segments using Segment methods (`effective_command`, `git_subcmd`, `has_arg`, `has_protected_path`, etc.)
+
+Recursive parsing: `bash -c`, `eval`, `$()`, and backtick arguments are parsed at depth up to 3. Non-shell interpreters (`python -c`, `node -e`, etc.) are scanned for write indicators.
+
+## Lessons Learned
+
+- Redirect operators MUST be recognized at lex time (like bash, dash, zsh, conch-parser, ShellCheck). Treating `>` as a word character and string-matching later is unsound — `\>` and `>` become indistinguishable.
+- Token type (`Word` vs `Operator`) must be carried through the entire pipeline to `Segment`. Flattening to `Vec<String>` loses the distinction.
+- CWD-dependent checks must be tested from BOTH contexts. Integration tests use a temp worktree to ensure stable results regardless of where `test-hooks.sh` runs.
+- The `I_CREATED_THIS=1` acknowledgment pattern works within existing shell semantics — it's a variable assignment that the tokenizer parses and `effective_command` skips.
+- Interpreter code scanning needs write indicators to avoid false positives on read-only operations. A bare `/workspace/` substring check blocks `print('/workspace/...')`.
 - Always check raw OS error codes for ENXIO detection — `ErrorKind::Other` is too broad.

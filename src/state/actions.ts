@@ -114,4 +114,5 @@ export const TASK_MODIFYING_ACTIONS = new Set([
   'SET_CONSTRAINT',
   'ADD_TASK',
   'DELETE_TASK',
+  'REPARENT_TASK',
 ]);

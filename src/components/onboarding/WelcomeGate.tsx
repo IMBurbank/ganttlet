@@ -7,6 +7,7 @@ import ReturnVisitorWelcome from './ReturnVisitorWelcome';
 import CollaboratorWelcome from './CollaboratorWelcome';
 import ChoosePath from './ChoosePath';
 import HeaderMismatchError from './HeaderMismatchError';
+import ErrorBanner from './ErrorBanner';
 
 const PromotionFlow = lazy(() => import('./PromotionFlow'));
 
@@ -36,10 +37,11 @@ export default function WelcomeGate({ children }: { children: React.ReactNode })
     if (state.dataSource === 'loading' && state.syncError?.type === 'header_mismatch') {
       return <HeaderMismatchError />;
     }
-    // Loading skeleton for loading state
+    // Loading skeleton for loading state — show ErrorBanner if sync error exists
     if (state.dataSource === 'loading') {
       return (
         <div className="flex flex-col h-screen bg-surface-base" data-testid="loading-skeleton">
+          {state.syncError && <ErrorBanner />}
           {/* Skeleton header */}
           <div className="h-12 border-b border-border-default bg-surface-raised animate-pulse" />
           {/* Skeleton toolbar */}

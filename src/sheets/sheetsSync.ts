@@ -136,9 +136,10 @@ async function pollOnce(): Promise<void> {
         }
       }
     }
-    // Success: reset backoff
+    // Success: reset backoff and clear any sync error
     consecutiveErrors = 0;
     currentPollInterval = BASE_POLL_INTERVAL_MS;
+    dispatch?.({ type: 'SET_SYNC_ERROR', error: null });
     schedulePoll();
   } catch (err) {
     console.error('Poll error:', err);

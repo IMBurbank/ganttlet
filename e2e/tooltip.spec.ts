@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Tooltip E2E', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    await page.getByTestId('try-demo-button').click();
     await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });
   });
 
@@ -31,15 +32,11 @@ test.describe('Tooltip E2E', () => {
     await page.waitForTimeout(500);
 
     // Assert no console errors were fired (especially no getBoundingClientRect errors)
-    const rectErrors = consoleErrors.filter((msg) =>
-      msg.includes('getBoundingClientRect'),
-    );
+    const rectErrors = consoleErrors.filter((msg) => msg.includes('getBoundingClientRect'));
     expect(rectErrors).toHaveLength(0);
 
     // Assert no uncaught page errors
-    const criticalPageErrors = pageErrors.filter((msg) =>
-      msg.includes('getBoundingClientRect'),
-    );
+    const criticalPageErrors = pageErrors.filter((msg) => msg.includes('getBoundingClientRect'));
     expect(criticalPageErrors).toHaveLength(0);
 
     // Check if a tooltip element appeared (rendered as a portal to body)

@@ -6,9 +6,19 @@ import { cascadeDependents } from '../utils/schedulerWasm';
 import { taskDuration } from '../utils/dateUtils';
 
 /**
- * Flag to prevent echoing local changes back through the observer.
+ * T1.3: Per-doc local update tracking. WeakSet so docs are GC'd when destroyed.
+ * Yjs transactions are synchronous — try/finally guarantees cleanup.
  */
-let isLocalUpdate = false;
+const localUpdateDocs = new WeakSet<Y.Doc>();
+
+function withLocalUpdate<T>(doc: Y.Doc, fn: () => T): T {
+  localUpdateDocs.add(doc);
+  try {
+    return fn();
+  } finally {
+    localUpdateDocs.delete(doc);
+  }
+}
 
 function taskToYMap(task: Task): Y.Map<unknown> {
   const ymap = new Y.Map<unknown>();
@@ -110,9 +120,9 @@ export function bindYjsToDispatch(doc: Y.Doc, dispatch: Dispatch<GanttAction>): 
   const yarray = doc.getArray<Y.Map<unknown>>('tasks');
 
   const observer = () => {
-    if (isLocalUpdate) return;
+    if (localUpdateDocs.has(doc)) return;
     const tasks = readTasksFromYjs(doc);
-    dispatch({ type: 'SET_TASKS', tasks });
+    dispatch({ type: 'SET_TASKS', tasks, source: 'yjs' });
   };
 
   yarray.observeDeep(observer);
@@ -135,17 +145,14 @@ export function hydrateYjsFromTasks(doc: Y.Doc, tasks: Task[]): void {
 export function applyTasksToYjs(doc: Y.Doc, tasks: Task[]): void {
   const yarray = doc.getArray<Y.Map<unknown>>('tasks');
 
-  isLocalUpdate = true;
-  try {
+  withLocalUpdate(doc, () => {
     doc.transact(() => {
       yarray.delete(0, yarray.length);
       for (const task of tasks) {
         yarray.push([taskToYMap(task)]);
       }
     });
-  } finally {
-    isLocalUpdate = false;
-  }
+  });
 }
 
 /**
@@ -157,8 +164,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
 
   switch (action.type) {
     case 'MOVE_TASK': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -167,34 +173,27 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             ymap.set('endDate', action.newEndDate);
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'RESIZE_TASK': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
             const ymap = yarray.get(idx) as Y.Map<unknown>;
             ymap.set('endDate', action.newEndDate);
-            // Compute duration from dates, not action payload
             const duration = taskDuration(ymap.get('startDate') as string, action.newEndDate);
             ymap.set('duration', duration);
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'UPDATE_TASK_FIELD': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -213,15 +212,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             }
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'SET_CONSTRAINT': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -234,15 +230,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             }
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'TOGGLE_EXPAND': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -251,15 +244,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             ymap.set('isExpanded', !current);
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'HIDE_TASK': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -267,30 +257,24 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             ymap.set('isHidden', true);
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'SHOW_ALL_TASKS': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           for (let i = 0; i < yarray.length; i++) {
             const ymap = yarray.get(i) as Y.Map<unknown>;
             ymap.set('isHidden', false);
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'CASCADE_DEPENDENTS': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const currentTasks = readTasksFromYjs(doc);
           const updated = cascadeDependents(currentTasks, action.taskId, action.daysDelta);
@@ -306,15 +290,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             }
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'COMPLETE_DRAG': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -341,15 +322,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             }
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'ADD_DEPENDENCY': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -366,16 +344,13 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             ymap.set('dependencies', JSON.stringify(deps));
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     // Note: fromId uniquely identifies a dep within a task's array since toId == taskId
     case 'UPDATE_DEPENDENCY': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -394,15 +369,12 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             ymap.set('dependencies', JSON.stringify(deps));
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 
     case 'REMOVE_DEPENDENCY': {
-      isLocalUpdate = true;
-      try {
+      withLocalUpdate(doc, () => {
         doc.transact(() => {
           const idx = findTaskIndex(yarray, action.taskId);
           if (idx !== -1) {
@@ -419,9 +391,7 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
             ymap.set('dependencies', JSON.stringify(deps));
           }
         });
-      } finally {
-        isLocalUpdate = false;
-      }
+      });
       break;
     }
 

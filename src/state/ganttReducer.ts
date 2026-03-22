@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import type { GanttState, Task, CascadeShift } from '../types';
-import type { GanttAction } from './actions';
+import { TASK_MODIFYING_ACTIONS, type GanttAction } from './actions';
+import { initialState } from './initialState';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { recalcSummaryDates } from '../utils/summaryUtils';
 import { taskDuration, taskEndDate, ensureBusinessDay } from '../utils/dateUtils';
@@ -36,7 +37,8 @@ export function ganttReducer(state: GanttState, action: GanttAction): GanttState
     stateForReducer = { ...state, undoStack, redoStack: [] };
   }
 
-  return ganttReducerInner(stateForReducer, action);
+  const newState = ganttReducerInner(stateForReducer, action);
+  return postProcess(newState, action);
 }
 
 function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
@@ -148,7 +150,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, isSyncing: false, syncComplete: true };
 
     case 'RESET_SYNC':
-      return { ...state, syncComplete: false };
+      return { ...state, isSyncing: false, syncComplete: false };
 
     case 'SET_CONTEXT_MENU':
       return { ...state, contextMenu: action.menu };
@@ -243,7 +245,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
     }
 
     case 'SET_TASKS':
-      return { ...state, tasks: action.tasks };
+      return { ...state, tasks: action.tasks, lastTaskSource: action.source || 'local' };
 
     case 'MERGE_EXTERNAL_TASKS': {
       const { externalTasks } = action;
@@ -257,7 +259,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         return local;
       });
 
-      return { ...state, tasks: merged };
+      return { ...state, tasks: merged, lastTaskSource: 'sheets' };
     }
 
     case 'SET_DEPENDENCY_EDITOR':
@@ -283,7 +285,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
 
       const newTask: Task = {
         id: newId,
-        name: 'New Task',
+        name: action.name || 'New Task',
         startDate: startDate,
         endDate: endDateStr,
         duration: duration,
@@ -394,6 +396,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         redoStack: [...state.redoStack, state.tasks],
         lastCascadeIds: [],
         cascadeShifts: [],
+        lastTaskSource: 'local',
       };
     }
 
@@ -407,6 +410,7 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
         undoStack: [...state.undoStack, state.tasks],
         lastCascadeIds: [],
         cascadeShifts: [],
+        lastTaskSource: 'local',
       };
     }
 
@@ -625,7 +629,40 @@ function ganttReducerInner(state: GanttState, action: GanttAction): GanttState {
       return { ...state, tasks, lastCascadeIds: changedIds, cascadeShifts: [] };
     }
 
+    case 'SET_DATA_SOURCE':
+      return { ...state, dataSource: action.dataSource, sandboxDirty: false };
+
+    case 'SET_SYNC_ERROR':
+      return { ...state, syncError: action.error };
+
+    case 'ENTER_SANDBOX':
+      return {
+        ...state,
+        dataSource: 'sandbox',
+        tasks: action.tasks,
+        changeHistory: action.changeHistory,
+      };
+
+    case 'RESET_STATE':
+      return { ...initialState };
+
     default:
       return state;
   }
+}
+
+function postProcess(newState: GanttState, action: GanttAction): GanttState {
+  // T2.4: Reset lastTaskSource to 'local' for task-modifying actions (not SET_TASKS)
+  if (TASK_MODIFYING_ACTIONS.has(action.type) && action.type !== 'SET_TASKS') {
+    newState = { ...newState, lastTaskSource: 'local' };
+  }
+  // Track sandbox dirty state
+  if (newState.dataSource === 'sandbox' && TASK_MODIFYING_ACTIONS.has(action.type)) {
+    return { ...newState, sandboxDirty: true };
+  }
+  // Auto-transition from empty to sheet on task-modifying actions
+  if (newState.dataSource === 'empty' && TASK_MODIFYING_ACTIONS.has(action.type)) {
+    return { ...newState, dataSource: 'sheet' };
+  }
+  return newState;
 }

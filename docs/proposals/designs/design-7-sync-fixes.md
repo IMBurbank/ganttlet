@@ -27,10 +27,10 @@ tests exposed them. All issues are in existing code — Phase 18 didn't introduc
 
 | ID | Requirement | File |
 |---|---|---|
-| T2.1 | hashTasks covers ALL 20 task fields, order-independent | `sheetsSync.ts` |
-| T2.2 | Poll skips when save is in-flight — no stale-read reintroduction | `sheetsSync.ts` |
+| T2.1 | hashTasks covers all persisted fields (20 SHEET_COLUMNS), order-independent | `sheetsSync.ts` |
+| T2.2 | Poll skips when save is pending (debounce window + in-flight) | `sheetsSync.ts` |
 | T2.3 | writeTimer cleared on effect cleanup — no fire-and-forget saves | `sheetsSync.ts`, `GanttContext.tsx` |
-| T2.4 | Auto-save skips Yjs-originated SET_TASKS — no write-back echo | `GanttContext.tsx` |
+| T2.4 | Auto-save skips Yjs- and poll-originated task updates — no echo write-back | `ganttReducer.ts`, `GanttContext.tsx` |
 | T2.5 | E2E signInOnPage uses state assertion, not waitForTimeout | `e2e/helpers/mock-auth.ts` |
 
 ### Tier 3 — Scale (deferred)
@@ -45,159 +45,250 @@ tests exposed them. All issues are in existing code — Phase 18 didn't introduc
 
 ### T1.1 — Clear orphaned rows on save
 
-**Current behavior:** `scheduleSave` writes `Sheet1!A1:T{N+1}` (bounded range). Rows below
+**Current behavior:** `scheduleSave` writes `Sheet1!A1:T{N+1}` (bounded PUT). Rows below
 `N+1` from a previous larger write persist. Polling reads entire `Sheet1`, reintroduces
-orphaned rows, triggers another save — positive feedback loop.
+orphaned rows via `MERGE_EXTERNAL_TASKS`, triggering another save — positive feedback loop.
 
 **Fix:** After `updateSheet`, call `clearSheet` on `Sheet1!A{N+2}:T`. Write-first ordering
 is safe: if clear fails, orphans persist but new data is intact. Next save retries the clear.
 
+Uses existing `clearSheet` from `sheetsClient.ts` (already has `retryWithBackoff`).
+Uses `values.clear` (blanks content without structural change) — correct vs `DeleteRange`
+which would shift cells.
+
 ```typescript
-// In scheduleSave, after updateSheet:
+// In scheduleSave, after updateSheet succeeds:
 const endCol = columnLetter(SHEET_COLUMNS.length);
 const dataEndRow = rows.length;  // header + tasks
 const clearRange = `Sheet1!A${dataEndRow + 1}:${endCol}`;
 await clearSheet(currentSpreadsheetId!, clearRange).catch(() => {
-  // Clear failure is non-fatal — orphans persist until next save
   console.warn('Failed to clear orphaned rows');
 });
+// Update lastWriteHash AFTER both write and clear complete
+lastWriteHash = hashTasks(tasks);
 ```
+
+**Important:** `clearSheet` uses `retryWithBackoff` (up to 5 attempts, ~60s total).
+To prevent blocking the `saveDirty` flag (T2.2) for the entire retry window, pass
+`{ maxAttempts: 1 }` to the clear call — fire-and-forget on first failure. Orphans
+persist until the next save, which is acceptable.
 
 **Cost:** One extra API call per debounced save (2s debounce). Negligible.
 
 **Tests:**
 - Unit: mock `clearSheet`, verify it's called with correct range after `updateSheet`
-- Unit: verify save succeeds even if clearSheet throws
+- Unit: verify save succeeds even if `clearSheet` throws
 - E2E: load sheet, delete a task, verify deleted task doesn't reappear on next poll
 
-### T1.2 — Cancellable loadFromSheet effect
+### T1.2 — Cancellable loadFromSheet effect + startPolling ordering
 
-**Current behavior:** `loadFromSheet()` starts as fire-and-forget in a useEffect. If the
-user navigates away or the effect re-runs (token refresh), the `.then()` dispatches
-against a potentially stale or unmounted component.
+**Current behavior:** `loadFromSheet()` is fire-and-forget in a useEffect. If the user
+navigates away or the effect re-runs (token refresh), the `.then()` dispatches against
+a stale/unmounted component. Also, `startPolling()` runs before `loadFromSheet` resolves,
+so a poll can read the sheet before `lastWriteHash` is initialized — causing a spurious
+`MERGE_EXTERNAL_TASKS` on the first poll.
 
-**Fix:** Standard React cancellation pattern.
+**Fix:** Standard React cancellation pattern + move `startPolling` into `.then()`.
 
 ```typescript
 useEffect(() => {
   let cancelled = false;
-  // ... setup ...
+  const spreadsheetId = new URLSearchParams(window.location.search).get('sheet');
+  if (!spreadsheetId || !isSignedIn()) return;
+
+  const current = stateRef.current.dataSource;
+  if (current === 'sheet' || current === 'empty') return;
+
+  dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'loading' });
+  initSync(spreadsheetId, dispatch);
+
   loadFromSheet()
     .then((tasks) => {
       if (cancelled) return;
-      // ... dispatch ...
+      if (tasks.length > 0) {
+        dispatch({ type: 'SET_TASKS', tasks });
+        dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
+        loadedSheetTasksRef.current = tasks;
+      } else {
+        dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
+      }
+      addRecentSheet({ sheetId: spreadsheetId, title: spreadsheetId, lastOpened: Date.now() });
+      // Start polling AFTER lastWriteHash is set by loadFromSheet
+      startPolling();
     })
     .catch((err) => {
       if (cancelled) return;
-      // ... dispatch error ...
+      dispatch({ type: 'RESET_SYNC' });
+      const classified = classifySyncError(err);
+      dispatch({ type: 'SET_SYNC_ERROR', error: classified });
+      if (classified.type === 'not_found' || classified.type === 'forbidden') {
+        stopPolling();
+      }
     });
-  startPolling();
+
   return () => {
     cancelled = true;
     stopPolling();
-    cancelPendingSave();
+    cancelPendingSave();  // T2.3
   };
 }, [dispatch, accessToken]);
 ```
 
+**Note:** `cancelPendingSave` (T2.3) must be implemented atomically with this fix.
+
 **Tests:**
-- Unit: mock loadFromSheet to resolve after a delay, verify dispatch is NOT called
-  when the effect cleanup runs before the promise resolves
+- Unit: mock loadFromSheet to resolve after delay, verify dispatch NOT called after cleanup
+- Unit: verify `startPolling` is NOT called before `loadFromSheet` resolves
 
 ### T1.3 — Scoped isLocalUpdate per Y.Doc
 
-**Current behavior:** Module-level `let isLocalUpdate = false` singleton. If two Y.Doc
-instances exist simultaneously (effect cleanup/reconnect race, React StrictMode),
+**Current behavior:** Module-level `let isLocalUpdate = false` singleton in `yjsBinding.ts`.
+If two Y.Doc instances exist simultaneously (effect cleanup/reconnect, React StrictMode),
 one doc's flag suppresses the other doc's observer.
 
 **Fix:** Replace singleton with `WeakSet<Y.Doc>`. Entries are added before local writes
-and deleted after. `WeakSet` = automatic GC when doc is destroyed.
+and deleted after. `WeakSet` = automatic GC when doc is destroyed. Yjs transactions are
+synchronous, so the try/finally pattern guarantees cleanup (no async escape).
+
+**IMPORTANT:** ALL handlers must be migrated, not just `applyTasksToYjs`. There are 10+
+handlers in `applyActionToYjs` that set `isLocalUpdate = true`:
+- MOVE_TASK, RESIZE_TASK, UPDATE_TASK_FIELD, SET_CONSTRAINT, TOGGLE_EXPAND,
+  HIDE_TASK, SHOW_ALL_TASKS, CASCADE_DEPENDENTS, COMPLETE_DRAG, ADD/UPDATE/REMOVE_DEPENDENCY
+
+Each must be updated to use `localUpdateDocs.add(doc)` / `localUpdateDocs.delete(doc)`.
+Best approach: extract a helper:
 
 ```typescript
 const localUpdateDocs = new WeakSet<Y.Doc>();
 
-export function applyTasksToYjs(doc: Y.Doc, tasks: Task[]): void {
+function withLocalUpdate<T>(doc: Y.Doc, fn: () => T): T {
   localUpdateDocs.add(doc);
   try {
-    // ... write to Yjs ...
+    return fn();
   } finally {
     localUpdateDocs.delete(doc);
   }
 }
 
+// Usage in every handler:
+export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
+  switch (action.type) {
+    case 'MOVE_TASK':
+      withLocalUpdate(doc, () => { /* ... */ });
+      break;
+    // ...
+  }
+}
+
+export function applyTasksToYjs(doc: Y.Doc, tasks: Task[]): void {
+  withLocalUpdate(doc, () => { /* ... */ });
+}
+
 export function bindYjsToDispatch(doc: Y.Doc, dispatch: Dispatch<GanttAction>) {
   const observer = () => {
     if (localUpdateDocs.has(doc)) return;  // skip local echo
-    // ... dispatch SET_TASKS ...
+    // ... dispatch SET_TASKS
   };
   // ...
 }
 ```
 
 **Tests:**
-- Unit: create two Y.Doc instances, apply tasks to doc A, verify doc B's observer
-  still fires (not suppressed by doc A's flag)
+- Unit: two Y.Doc instances, apply tasks to doc A, verify doc B's observer fires
+- Unit: call MOVE_TASK on doc A, verify doc B's observer fires (not suppressed)
 
-### T2.1 — Total hash via sorted full-field stringify
+### T2.1 — Hash persisted fields only, order-independent
 
-**Current behavior:** `hashTasks` hashes 10 of 20 fields. Changes to `workStream`,
-`project`, `functionalArea`, `description`, `notes`, `okrs`, `isMilestone`, `isSummary`
-are silently lost. Hash is also order-sensitive.
+**Current behavior:** `hashTasks` hashes 12 of 24 Task fields. Missing 8 persisted fields
+(`workStream`, `project`, `functionalArea`, `description`, `notes`, `okrs`, `isMilestone`,
+`isSummary`) — changes to these are silently lost. Hash is also order-sensitive.
 
-**Fix:** Hash ALL fields, sorted by ID for order-independence.
+**IMPORTANT:** Must NOT include `isExpanded` or `isHidden` — these are UI-only fields
+that `sheetsMapper.ts` hardcodes to `isExpanded: true, isHidden: false` on every read.
+Including them would cause permanent hash mismatch on every poll (local user may have
+collapsed a row → `isExpanded: false`, but poll always reads `true`).
+
+**Fix:** Hash the exact set of fields persisted to the sheet (the 20 `SHEET_COLUMNS`),
+sorted by ID for order-independence.
 
 ```typescript
 function hashTasks(tasks: Task[]): string {
+  // Sort by ID for order-independence
   const sorted = [...tasks].sort((a, b) => a.id.localeCompare(b.id));
-  return JSON.stringify(sorted);
+  // Hash only the 20 fields that round-trip through the sheet
+  return JSON.stringify(sorted.map(t => ({
+    id: t.id, name: t.name, startDate: t.startDate, endDate: t.endDate,
+    duration: t.duration, owner: t.owner, workStream: t.workStream,
+    project: t.project, functionalArea: t.functionalArea, done: t.done,
+    description: t.description, isMilestone: t.isMilestone, isSummary: t.isSummary,
+    parentId: t.parentId, childIds: t.childIds, dependencies: t.dependencies,
+    notes: t.notes, okrs: t.okrs, constraintType: t.constraintType,
+    constraintDate: t.constraintDate,
+  })));
 }
 ```
 
-This includes every field on the Task type. If a field changes, the hash changes,
-a save triggers. Same O(N) complexity, just more bytes per task in the stringify.
+**Performance:** For 500 tasks × ~400 bytes/task = ~200KB stringify. V8's `JSON.stringify`
+handles this in <1ms. Same O(N) as current hash, just more bytes. Acceptable.
 
 **Tests:**
 - Unit: verify hash changes when `description` is modified (currently doesn't)
 - Unit: verify hash is stable across different array orderings of same tasks
+- Unit: verify hash does NOT change when `isExpanded` changes
 
-### T2.2 — Save-in-flight poll guard
+### T2.2 — Save-dirty + save-in-flight poll guard
 
 **Current behavior:** `pollOnce` and `scheduleSave` can run concurrently. If a poll reads
-stale data after a save starts but before it completes, `MERGE_EXTERNAL_TASKS` reintroduces
-the pre-save state (including deleted tasks).
+stale data after a save is scheduled but before it completes, `MERGE_EXTERNAL_TASKS`
+reintroduces the pre-save state.
 
-**Fix:** Module-level `saveInFlight` flag.
+**Gap in original plan:** A simple `saveInFlight` flag only covers the ~500ms API call
+window. The 2000ms debounce window is unprotected — a poll can read stale data while
+the debounce timer is ticking.
+
+**Fix:** Track both "dirty" (debounce pending) and "in-flight" (API call active).
 
 ```typescript
-let saveInFlight = false;
+let saveDirty = false;    // set when scheduleSave is called, cleared after write+clear
+let saveInFlight = false; // set during actual API call
 
-// In scheduleSave's debounced callback:
-saveInFlight = true;
-try {
-  await updateSheet(...);
-  await clearSheet(...);
-  lastWriteHash = ...;
-} finally {
-  saveInFlight = false;
+export function scheduleSave(tasks: Task[]): void {
+  if (!currentSpreadsheetId || !isSignedIn()) return;
+  const newHash = hashTasks(tasks);
+  if (newHash === lastWriteHash) return;
+
+  saveDirty = true;  // Mark dirty immediately
+  if (writeTimer) clearTimeout(writeTimer);
+  writeTimer = setTimeout(async () => {
+    saveInFlight = true;
+    try {
+      // ... updateSheet + clearSheet ...
+      lastWriteHash = hashTasks(tasks);
+    } finally {
+      saveInFlight = false;
+      saveDirty = false;
+    }
+  }, WRITE_DEBOUNCE_MS);
 }
 
-// In pollOnce:
-if (saveInFlight) {
-  schedulePoll();  // Skip this cycle, try again later
-  return;
+async function pollOnce(): Promise<void> {
+  // Skip poll when save is pending or in-flight
+  if (saveDirty || saveInFlight) {
+    schedulePoll();
+    return;
+  }
+  // ... existing poll logic ...
 }
 ```
 
 **Tests:**
-- Unit: verify pollOnce reschedules (doesn't read sheet) when saveInFlight is true
-- Unit: verify saveInFlight resets to false even when updateSheet throws
+- Unit: verify pollOnce reschedules when `saveDirty` is true (debounce pending)
+- Unit: verify pollOnce reschedules when `saveInFlight` is true (API call active)
+- Unit: verify `saveDirty` and `saveInFlight` reset to false even when updateSheet throws
 
 ### T2.3 — cancelPendingSave on cleanup
 
-**Current behavior:** `writeTimer` is never cleared when the component unmounts.
-A pending debounced save fires after unmount, dispatching against stale state.
-
-**Fix:** Export `cancelPendingSave()` and call it in effect cleanup.
+**Fix:** Export `cancelPendingSave()` and call in effect cleanup (T1.2).
 
 ```typescript
 export function cancelPendingSave(): void {
@@ -205,83 +296,119 @@ export function cancelPendingSave(): void {
     clearTimeout(writeTimer);
     writeTimer = null;
   }
+  saveDirty = false;  // Also clear dirty flag (T2.2)
 }
 ```
 
 **Tests:**
-- Unit: verify cancelPendingSave clears the timer
-- Unit: verify no save fires after cancelPendingSave is called
+- Unit: verify cancelPendingSave clears timer and resets saveDirty
 
-### T2.4 — Skip auto-save for Yjs-originated SET_TASKS
+### T2.4 — Skip auto-save for Yjs- and poll-originated task updates
 
 **Current behavior:** When a remote Yjs change arrives, `bindYjsToDispatch` dispatches
 `SET_TASKS`. This triggers the auto-save effect, which writes back to Sheets — even though
-the originating client already saved. Creates unnecessary API calls and race conditions.
+the originating client already saved. Same issue with `MERGE_EXTERNAL_TASKS` from polling.
 
-**Fix:** Track the source of the last task update via a ref in GanttProvider.
+**IMPORTANT:** The original plan used `queueMicrotask` to reset a ref — this is WRONG.
+React 18 effects run after the commit phase (a macrotask). Microtasks drain before
+macrotasks, so the ref would already be reset by the time the auto-save effect reads it.
+
+**Fix:** Use reducer state, not a ref. Add `lastTaskSource` to GanttState. The reducer
+sets it on task-modifying actions. The auto-save effect reads it from state.
 
 ```typescript
-const taskUpdateSourceRef = useRef<'local' | 'yjs' | 'sheets'>('local');
+// In types/index.ts:
+export type TaskUpdateSource = 'local' | 'yjs' | 'sheets';
 
-// In bindYjsToDispatch callback (via a wrapper):
-taskUpdateSourceRef.current = 'yjs';
-guardedDispatch({ type: 'SET_TASKS', tasks });
-// Reset after a microtask to allow the auto-save effect to read it
-queueMicrotask(() => { taskUpdateSourceRef.current = 'local'; });
+// Add to GanttState:
+lastTaskSource: TaskUpdateSource;
 
-// In auto-save effect:
-if (taskUpdateSourceRef.current === 'yjs') return;
+// In actions.ts — extend SET_TASKS and MERGE_EXTERNAL_TASKS:
+| { type: 'SET_TASKS'; tasks: Task[]; source?: TaskUpdateSource }
+| { type: 'MERGE_EXTERNAL_TASKS'; externalTasks: Task[] }  // source always 'sheets'
+
+// In ganttReducer.ts:
+case 'SET_TASKS':
+  return { ...state, tasks: action.tasks, lastTaskSource: action.source || 'local' };
+case 'MERGE_EXTERNAL_TASKS':
+  return { ...state, tasks: merged, lastTaskSource: 'sheets' };
+// All other task-modifying actions:
+  // postProcess sets lastTaskSource: 'local' for TASK_MODIFYING_ACTIONS
+
+// In GanttContext.tsx auto-save effect:
+useEffect(() => {
+  if (state.dataSource !== 'sheet') return;
+  if (state.lastTaskSource !== 'local') return;  // skip Yjs and poll echoes
+  // ... scheduleSave ...
+}, [state.tasks, state.dataSource, state.lastTaskSource]);
 ```
 
+This is fully deterministic — no timing dependency, no ref, no microtask.
+The reducer produces the source as part of the state transition, and the effect
+reads it in the same render cycle.
+
 **Tests:**
-- Unit: verify auto-save does NOT call scheduleSave when source is 'yjs'
-- Unit: verify auto-save DOES call scheduleSave when source is 'local'
+- Unit: verify reducer sets `lastTaskSource: 'yjs'` for SET_TASKS with source='yjs'
+- Unit: verify reducer sets `lastTaskSource: 'sheets'` for MERGE_EXTERNAL_TASKS
+- Unit: verify reducer sets `lastTaskSource: 'local'` for MOVE_TASK and other actions
+- Integration: verify auto-save does NOT call scheduleSave when lastTaskSource is 'yjs'
 
 ### T2.5 — E2E signInOnPage: state assertion instead of timeout
 
-**Current behavior:** `await page.waitForTimeout(1000)` — fixed sleep.
-
 **Fix:**
 ```typescript
-await page.waitForFunction(() =>
-  !document.querySelector('[data-testid="sign-in-button"]') &&
-  !document.querySelector('[data-testid="collaborator-sign-in-button"]')
-, { timeout: 10_000 });
-```
+export async function signInOnPage(page: Page): Promise<void> {
+  await ensureClientId(page);
+  const collabBtn = page.getByTestId('collaborator-sign-in-button');
+  const firstVisitBtn = page.getByTestId('sign-in-button');
 
-**Tests:**
-- E2E: existing auth tests validate this implicitly (they'd fail if sign-in didn't complete)
+  if (await collabBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await collabBtn.click();
+  } else if (await firstVisitBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await firstVisitBtn.click();
+  }
+
+  // Wait for sign-in to complete by asserting buttons disappear
+  await page.waitForFunction(() =>
+    !document.querySelector('[data-testid="sign-in-button"]') &&
+    !document.querySelector('[data-testid="collaborator-sign-in-button"]')
+  , { timeout: 10_000 });
+}
+```
 
 ## Skill / Documentation Updates
 
 ### google-sheets-sync SKILL.md
 
-Update these sections:
-- **Sync Mechanism**: Document write+clear pattern, save-in-flight guard, total hash
-- **Gotchas #4**: Mark as RESOLVED (hash now covers all fields)
-- Add new gotcha: **Save-in-flight guard** — polls skip while saves are pending
-- **Write range**: Update from `Sheet1!A1:R{rowCount}` to `Sheet1!A1:T{rowCount}` + clear
+1. **Fix write range**: `Sheet1!A1:R{rowCount}` → `Sheet1!A1:T{rowCount}` (20 columns, not 18)
+2. **Fix constant name**: `POLL_INTERVAL_MS` → `BASE_POLL_INTERVAL_MS`
+3. **Fix gotcha #4**: field count from "10" to "RESOLVED — hash now covers all 20 persisted fields"
+4. **Add data mapping indices 18-19**: constraintType, constraintDate
+5. **Add sync mechanism details**: write+clear pattern, saveDirty/saveInFlight guards
+6. **Add gotcha #8**: MERGE_EXTERNAL_TASKS always keeps local version of existing tasks —
+   external edits to existing tasks are silently discarded. This is a known limitation.
+7. **Document polling backoff**: 30s base → doubles after 3 errors → max 300s
 
 ### e2e-testing SKILL.md
 
 Add new sections:
-- **Mock Auth Pattern**: Document `setupMockAuth` + `ensureClientId` + `signInOnPage`
-- **Cloud Auth Pattern**: Document SA key exchange via `cloud-auth.ts` + `gisInitScript`
-- **GIS Library Handling**: Document why `context.route('**/accounts.google.com/**')` is needed
-- **Test Sheet Maintenance**: Document that TEST_SHEET_ID_DEV needs valid Ganttlet headers
-  and clean data (no duplicate rows)
+- **Mock Auth Pattern**: `setupMockAuth` + `ensureClientId` + `signInOnPage`
+- **Cloud Auth Pattern**: SA key exchange via `cloud-auth.ts` + `gisInitScript`
+- **GIS Library Handling**: Why `context.route('**/accounts.google.com/**')` is needed
+- **Test Sheet Maintenance**: TEST_SHEET_ID_DEV needs valid headers, clean data (no dupes)
+- **WebSocket in Docker**: localhost may not resolve for WS; use 127.0.0.1 normalize pattern
 
 ### src/sheets/CLAUDE.md
 
-Add constraint:
-- **Saves must be total**: Every `scheduleSave` must clear orphaned rows below the data range.
-  Never write a bounded range without clearing what's below.
+Add constraints:
+- **Saves must be total**: Every save clears orphaned rows below the data range
+- **Poll skips during save**: saveDirty/saveInFlight guards prevent stale reads
 
 ### src/CLAUDE.md
 
 Add constraint:
-- **Effects must be cancellable**: Any useEffect that starts an async operation must use a
-  `cancelled` flag or `AbortController` and check it before dispatching.
+- **Effects must be cancellable**: Any useEffect starting an async operation must use a
+  `cancelled` flag and check before dispatching
 
 ## Test Plan
 
@@ -289,21 +416,27 @@ Add constraint:
 
 | Test | File | What it verifies |
 |---|---|---|
-| `scheduleSave calls clearSheet after write` | `sheets/__tests__/sheetsSync.test.ts` | T1.1 |
-| `scheduleSave succeeds when clearSheet fails` | `sheets/__tests__/sheetsSync.test.ts` | T1.1 |
-| `hashTasks changes on description edit` | `sheets/__tests__/sheetsSync.test.ts` | T2.1 |
-| `hashTasks is order-independent` | `sheets/__tests__/sheetsSync.test.ts` | T2.1 |
-| `pollOnce skips when saveInFlight` | `sheets/__tests__/sheetsSync.test.ts` | T2.2 |
-| `saveInFlight resets on error` | `sheets/__tests__/sheetsSync.test.ts` | T2.2 |
-| `cancelPendingSave clears timer` | `sheets/__tests__/sheetsSync.test.ts` | T2.3 |
-| `isLocalUpdate scoped per doc` | `collab/__tests__/yjsBinding.test.ts` | T1.3 |
+| scheduleSave calls clearSheet after write | `sheets/__tests__/sheetsSync.test.ts` | T1.1 |
+| scheduleSave succeeds when clearSheet fails | `sheets/__tests__/sheetsSync.test.ts` | T1.1 |
+| hashTasks changes on description edit | `sheets/__tests__/sheetsSync.test.ts` | T2.1 |
+| hashTasks stable across orderings | `sheets/__tests__/sheetsSync.test.ts` | T2.1 |
+| hashTasks unchanged when isExpanded changes | `sheets/__tests__/sheetsSync.test.ts` | T2.1 |
+| pollOnce skips when saveDirty | `sheets/__tests__/sheetsSync.test.ts` | T2.2 |
+| pollOnce skips when saveInFlight | `sheets/__tests__/sheetsSync.test.ts` | T2.2 |
+| saveDirty/saveInFlight reset on error | `sheets/__tests__/sheetsSync.test.ts` | T2.2 |
+| cancelPendingSave clears timer + dirty flag | `sheets/__tests__/sheetsSync.test.ts` | T2.3 |
+| isLocalUpdate scoped per doc (applyTasksToYjs) | `collab/__tests__/yjsBinding.test.ts` | T1.3 |
+| isLocalUpdate scoped per doc (MOVE_TASK) | `collab/__tests__/yjsBinding.test.ts` | T1.3 |
+| lastTaskSource set to 'yjs' for SET_TASKS | `state/__tests__/dataSource.test.ts` | T2.4 |
+| lastTaskSource set to 'sheets' for MERGE | `state/__tests__/dataSource.test.ts` | T2.4 |
+| lastTaskSource set to 'local' for edits | `state/__tests__/dataSource.test.ts` | T2.4 |
 
 ### E2E Tests (new or updated)
 
 | Test | File | What it verifies |
 |---|---|---|
-| `deleted task doesn't reappear after poll` | `e2e/onboarding-cloud.spec.ts` | T1.1 |
-| `sign-in uses state assertion not timeout` | `e2e/helpers/mock-auth.ts` | T2.5 |
+| deleted task doesn't reappear after poll | `e2e/onboarding-cloud.spec.ts` | T1.1 |
+| signInOnPage uses state assertion | `e2e/helpers/mock-auth.ts` | T2.5 |
 
 ### Existing Tests (verify still pass)
 
@@ -312,26 +445,26 @@ Add constraint:
 
 ## Implementation Order
 
-1. T1.1 (clear orphaned rows) — most critical, fixes the duplicate row bug
-2. T2.1 (total hash) — closely related, fixes the hash gap that compounds T1.1
-3. T2.2 (save-in-flight guard) — prevents poll from undoing save
-4. T1.2 (cancellable effect) — independent, straightforward React pattern
-5. T1.3 (scoped isLocalUpdate) — independent, straightforward refactor
-6. T2.3 (cancelPendingSave) — quick, depends on T1.2 for cleanup wiring
-7. T2.4 (skip Yjs auto-save) — depends on understanding bindYjsToDispatch flow
-8. T2.5 (E2E timeout fix) — independent, quick
+1. **T2.3** (cancelPendingSave) — prerequisite for T1.2
+2. **T1.1** (clear orphaned rows) — most critical data integrity fix
+3. **T2.1** (total hash) — closely related, fixes the hash gap that compounds T1.1
+4. **T2.2** (saveDirty + saveInFlight guard) — prevents poll from undoing save
+5. **T1.2** (cancellable effect + startPolling in .then) — uses T2.3's cancelPendingSave
+6. **T1.3** (scoped isLocalUpdate) — independent, straightforward refactor
+7. **T2.4** (lastTaskSource reducer flag) — independent, touches reducer + types + context
+8. **T2.5** (E2E timeout fix) — independent, quick
+9. **Skill/doc updates** — after all code changes, update SKILL.md files
 
 Each fix is self-contained and testable independently. Commit after each with
-conventional commit prefix (`fix:` for T1, `fix:` for T2).
+conventional commit prefix (`fix:` for T1, `fix:` for T2, `docs:` for skills).
 
 ## Risks
 
-- **T1.1**: The extra `clearSheet` API call adds latency (~200ms) to every save.
-  Mitigated by: saves are already debounced at 2s. 200ms added to a 2s debounce is <10%.
-- **T2.1**: Total hash is heavier (more bytes per stringify). For 100 tasks, the hash
-  goes from ~5KB to ~15KB. Still sub-millisecond for `JSON.stringify`.
-- **T2.4**: The `queueMicrotask` pattern for resetting the source ref is timing-sensitive.
-  If React batches the SET_TASKS dispatch with other state changes and the auto-save effect
-  fires in the same batch, the ref might already be reset. Mitigation: the auto-save effect
-  checks the ref synchronously during the render that follows SET_TASKS — at that point the
-  ref is still 'yjs' because queueMicrotask hasn't fired yet.
+- **T1.1**: Extra `clearSheet` API call adds ~200ms to saves. Mitigated: pass maxAttempts=1
+  to avoid retry stalling. Fire-and-forget on failure — orphans persist until next save.
+- **T2.1**: Full hash is heavier (~200KB for 500 tasks vs ~75KB before). Still <1ms for
+  JSON.stringify on V8. Acceptable.
+- **T2.2**: `saveDirty` flag is module-level singleton. Acceptable given single-sheet
+  architecture constraint. If multi-sheet support is added, this needs refactoring.
+- **T2.4**: Adding `lastTaskSource` to GanttState increases state size by one string field.
+  Negligible. The reducer approach is fully deterministic — no timing sensitivity.

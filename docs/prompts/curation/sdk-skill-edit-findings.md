@@ -4,17 +4,35 @@
 
 Curator agents need to edit `.claude/skills/*/SKILL.md` files programmatically via the Claude Agent SDK `query()` function. The Edit/Write tools are blocked for all paths under `.claude/` in SDK mode, despite documentation stating this should work.
 
+## Related Issues
+
+- [#37157](https://github.com/anthropics/claude-code/issues/37157) — `.claude/skills/` not exempt despite documentation (v2.1.81)
+- [#36396](https://github.com/anthropics/claude-code/issues/36396) — Regression since v2.1.78: `.claude/skills/` writes prompt in `bypassPermissions`
+- [#36044](https://github.com/anthropics/claude-code/issues/36044) — Feature request for opt-in full bypass; contains `PermissionRequest` hook workaround
+
+### Root Cause (from #37157)
+
+`.claude/skills` is missing from the exemption function `sXT()` in the v2.1.81 binary. The function exempts `.claude/commands` and `.claude/agents` but not `.claude/skills`:
+
+```javascript
+// v2.1.81 (decompiled):
+function sXT() {
+    return [...nCK.filter(d => d !== ".git"), ".claude/commands", ".claude/agents"]
+}
+// MISSING: ".claude/skills"
+```
+
 ## What Works
 
 | Context | Edit `.claude/skills/` | Mechanism |
 |---|---|---|
-| Interactive CLI session | ✅ | `.claude/skills/` exemption in CLI |
+| Interactive CLI session | ✅ | User clicks "allow" at the ask prompt |
 | CLI pipe mode (`-p`) + Agent tool + scoped subagent | ✅ | Scope processed by Agent tool |
-| SDK `query()` + `canUseTool` + **Bash** tool | ✅ | Bash bypasses Edit/Write hardcheck |
+| SDK `query()` + `canUseTool` + **Bash** tool | ✅ | Bash bypasses Edit/Write protected-directory check |
 
-## What Doesn't Work (All Tested)
+## What Doesn't Work in SDK `query()` Mode
 
-Every combination below was tested from a worktree with `permissions.allow: ["Edit(.claude/skills/**)", "Write(.claude/skills/**)"]` in `.claude/settings.json`.
+Every combination below was tested from a worktree with `permissions.allow: ["Edit(.claude/skills/**)", "Write(.claude/skills/**)"]` in `.claude/settings.json`. All tests confirmed with fresh session restarts where noted.
 
 ### Permission Modes
 
@@ -25,23 +43,26 @@ Every combination below was tested from a worktree with `permissions.allow: ["Ed
 | `default` | `['project']` | ❌ Blocked |
 | `acceptEdits` | `['project', 'user', 'local']` | ❌ Blocked |
 
-### Additional Options
+### SDK Options
 
 | Option | Result |
 |---|---|
 | `allowedTools: ['Edit(.claude/skills/**)']` | ❌ Blocked |
 | `allowDangerouslySkipPermissions: true` | ❌ Blocked |
-| `pathToClaudeCodeExecutable: '/home/node/.local/bin/claude'` | ❌ Blocked |
+| `pathToClaudeCodeExecutable` (system claude binary) | ❌ Blocked |
 | `agent: 'test-curator'` (with `scope.modify: [".claude/skills/**"]`) | ❌ Blocked |
 | Agent tool spawning scoped subagent from SDK top-level | ❌ Blocked |
 
 ### Hook-Based Approaches
 
-| Approach | Result |
-|---|---|
-| PreToolUse hook returning `{"permissionDecision": "allow"}` | ❌ Blocked (hook runs, allow returned, edit still blocked) |
-| `canUseTool` callback returning `{behavior: 'allow'}` | ❌ Edit blocked (but Bash allowed) |
-| `canUseTool` + `updatedPermissions` from suggestions | ❌ Blocked |
+| Approach | Hook Fires? | Edit Succeeds? | Notes |
+|---|---|---|---|
+| `PreToolUse` settings.json hook returning `permissionDecision: "allow"` (yurukusa's workaround from #37157) | ✅ Yes | ❌ No | Tested with hook on worktree settings, main settings, and both. Tested with and without session restarts. Hook fires and returns allow but the protected-directory check overrides it. |
+| `PreToolUse` programmatic SDK hook returning `permissionDecision: "allow"` | ✅ Yes | ❌ No | Same result as settings.json hook |
+| `PermissionRequest` settings.json hook returning `decision: {behavior: "allow"}` (workaround from #36044) | ❌ No | ❌ No | Hook never fires. Verified with file logging — log file stayed empty. The protected-directory check does not emit a `PermissionRequest` event in SDK subprocess mode. |
+| `PermissionRequest` programmatic SDK hook | ❌ No | ❌ No | Same — event never dispatched. `PreToolUse` programmatic hook fires for the same call, confirming programmatic hooks work for other events. |
+| `canUseTool` callback returning `{behavior: 'allow'}` | ✅ Yes (called) | ❌ No | Callback fires, returns allow, edit still denied. Confirmed the protected-directory check runs after `canUseTool`. |
+| `canUseTool` + `updatedPermissions` from suggestions | ✅ Yes | ❌ No | Suggestions include `addRules` for session — accepted without ZodError but edit still blocked |
 
 ### Plugin-Based Approaches
 
@@ -50,49 +71,42 @@ Every combination below was tested from a worktree with `permissions.allow: ["Ed
 | `skill-creator` plugin installed + `enabledPlugins` in settings.json | ❌ Plugin visible but Edit still blocked |
 | Loading skill-creator via Skill tool then editing | ❌ Blocked |
 
-### Session Management
+### Session/Settings Placement
 
-| Approach | Result |
-|---|---|
-| Fresh session (restart + resume) | ❌ Blocked |
-| Settings committed to git | ❌ Blocked |
+| Configuration | Restart? | Result |
+|---|---|---|
+| Hook in worktree `.claude/settings.json` only | Yes | ❌ Blocked |
+| Hook in worktree `.claude/settings.json` only | No | ❌ Blocked |
+| Hook in main `/workspace/.claude/settings.json` only | No | ❌ Blocked |
+| Hook in BOTH worktree + main settings | Yes | ❌ Blocked |
+| Hook in `.claude/settings.local.json` | No | ❌ Blocked |
+| `permissions.allow` committed to git | Yes | ❌ Blocked |
 
 ## Key Observations
 
-### 1. The block is in Edit/Write tool implementation, not the permission system
+### 1. The block is a protected-directory "ask" prompt, not a hard deny
 
-Evidence: `canUseTool` IS called for `.claude/` Edit calls, returns `allow`, but the edit still fails. The permission system processes and approves the request — something AFTER the permission decision blocks execution.
+Per #37157's source analysis, `.claude/` paths trigger `ruleBehavior: "ask"` (a user confirmation prompt). In CLI interactive mode, the user clicks "allow". In CLI pipe mode with `--dangerously-skip-permissions`, the ask is auto-approved. In SDK subprocess mode, there is no user to approve and the ask is treated as a denial.
 
-### 2. Bash is not subject to the same block
+### 2. `PreToolUse` `permissionDecision: "allow"` fires but doesn't override
 
-Evidence: `canUseTool` callback + `bypassPermissions` allows Bash commands that write to `.claude/skills/` paths. The hardcheck only exists in the Edit/Write tool implementations.
+The hook fires before the protected-directory check. The allow decision is processed, but the protected-directory check creates a synthetic `policySettings` rule with `ruleBehavior: "ask"` that overrides it. This is consistent with #36044's analysis: "the check short-circuits before bypass is evaluated."
 
-### 3. The CLI has an exemption the SDK doesn't
+### 3. `PermissionRequest` hooks never fire in SDK subprocess mode
 
-Evidence: Interactive CLI sessions can edit `.claude/skills/`, `.claude/agents/`, `.claude/commands/` — documented as exempt directories. The SDK's bundled `cli.js` (same version 2.1.81) doesn't implement this exemption.
+The `PermissionRequest` hook (recommended workaround in #36044) fires at the ask-prompt step in CLI mode. In SDK subprocess mode, the ask prompt is never shown — the denial is immediate. Therefore the `PermissionRequest` event is never dispatched and the hook never executes.
 
-### 4. Scope works in CLI subagents but not SDK
+### 4. Bash is not subject to the protected-directory check
 
-Evidence: `claude -p` → Agent tool → subagent with `scope.modify: [".claude/skills/**"]` → Edit succeeds. SDK `query()` → same Agent tool → same subagent → Edit blocked. The difference is the top-level session's trust model.
+Bash commands that write to `.claude/skills/` paths are not intercepted by the Edit/Write protected-directory check. The `canUseTool` callback approves the Bash command, and `bypassPermissions` allows it to execute. This is the only working SDK workaround.
 
-### 5. `permissions.allow` is loaded but not effective
+### 5. CLI vs SDK: same binary, different behavior
 
-Evidence: The SDK loads `settingSources: ['project']`, reads `.claude/settings.json`, and processes `permissions.allow`. The `canUseTool` callback confirms Edit calls reach the permission system. But the `.claude/` hardcheck overrides the allow decision.
+Both the system `claude` (v2.1.81) and the SDK's bundled `cli.js` (v2.1.81) exhibit the same blocking behavior when invoked via SDK `query()`. The difference is not the binary but the execution context — SDK subprocess mode has no mechanism to auto-approve the "ask" prompt for protected directories (except for the exempted `.claude/commands` and `.claude/agents` paths, per #37157's root cause).
 
-## Architecture Analysis
+### 6. The missing `.claude/skills` exemption is the root cause
 
-The Edit/Write check appears to be:
-
-```
-Agent calls Edit(file_path)
-  → canUseTool (if defined) → returns allow ✅
-  → PreToolUse hooks (guard) → returns pass ✅
-  → permissions.allow check → matches ✅
-  → .claude/ directory hardcheck → BLOCKS ❌
-  → (Edit execution never reached)
-```
-
-In the interactive CLI, the `.claude/` hardcheck has exemptions for `skills/`, `agents/`, `commands/`. In the SDK, these exemptions don't exist — all `.claude/` writes are blocked regardless of permissions.
+If `.claude/skills` were added to the `sXT()` exemption function (as #37157 proposes), all of the above would work. The hooks, `permissions.allow`, `canUseTool`, and permission modes are all functioning correctly — they just can't override a protected-directory ask that shouldn't be triggered in the first place.
 
 ## Working Workaround: `canUseTool` + Bash
 
@@ -125,11 +139,7 @@ The agent must be instructed to use Bash (cat/sed/heredoc) instead of Edit/Write
 - Guard hooks don't protect Bash writes to `.claude/` paths the same way as Edit/Write
 - PostToolUse verification hooks don't fire for Bash
 - Content escaping in heredocs is fragile for files containing code blocks
-- Agent instruction compliance is not guaranteed (may try Edit first)
-
-## Recommendation
-
-This appears to be a gap in the SDK where the CLI's `.claude/skills/` write exemption was not ported. The fix should be in the SDK's Edit/Write tool implementation — applying the same exemption for `.claude/skills/`, `.claude/agents/`, and `.claude/commands/` that the interactive CLI has.
+- Agent instruction compliance is not guaranteed (may try Edit first, waste turns)
 
 ## Environment
 
@@ -160,6 +170,7 @@ const stream = query({
 for await (const msg of stream) {
   if ((msg as any).type === 'result') {
     console.log((msg as any).result); // Will report permission blocked
+    console.log((msg as any).permission_denials); // Will show 1+ denial
   }
 }
 ```

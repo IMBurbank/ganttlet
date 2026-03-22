@@ -68,10 +68,10 @@ await clearSheet(currentSpreadsheetId!, clearRange).catch(() => {
 lastWriteHash = hashTasks(tasks);
 ```
 
-**Important:** `clearSheet` uses `retryWithBackoff` (up to 5 attempts, ~60s total).
-To prevent blocking the `saveDirty` flag (T2.2) for the entire retry window, pass
-`{ maxAttempts: 1 }` to the clear call — fire-and-forget on first failure. Orphans
-persist until the next save, which is acceptable.
+**Note:** `clearSheet` uses `retryWithBackoff` internally (up to 5 attempts). The
+`.catch()` wrapper makes it non-fatal regardless — if all retries fail, orphans persist
+until the next save. Under rate limiting, the retry window (~60s) keeps `saveDirty`
+(T2.2) true for that duration, which is acceptable (polls skip during saves).
 
 **Cost:** One extra API call per debounced save (2s debounce). Negligible.
 
@@ -320,10 +320,13 @@ sets it on task-modifying actions. The auto-save effect reads it from state.
 // In types/index.ts:
 export type TaskUpdateSource = 'local' | 'yjs' | 'sheets';
 
-// Add to GanttState:
-lastTaskSource: TaskUpdateSource;
+// Add to GanttState (optional — avoids breaking existing makeState helpers):
+lastTaskSource?: TaskUpdateSource;
 
-// In actions.ts — extend SET_TASKS and MERGE_EXTERNAL_TASKS:
+// In initialState.ts:
+lastTaskSource: 'local',
+
+// In actions.ts — extend SET_TASKS:
 | { type: 'SET_TASKS'; tasks: Task[]; source?: TaskUpdateSource }
 | { type: 'MERGE_EXTERNAL_TASKS'; externalTasks: Task[] }  // source always 'sheets'
 
@@ -332,16 +335,35 @@ case 'SET_TASKS':
   return { ...state, tasks: action.tasks, lastTaskSource: action.source || 'local' };
 case 'MERGE_EXTERNAL_TASKS':
   return { ...state, tasks: merged, lastTaskSource: 'sheets' };
-// All other task-modifying actions:
-  // postProcess sets lastTaskSource: 'local' for TASK_MODIFYING_ACTIONS
 
-// In GanttContext.tsx auto-save effect:
+// In postProcess — reset to 'local' for task-modifying actions:
+if (TASK_MODIFYING_ACTIONS.has(action.type) && action.type !== 'SET_TASKS') {
+  newState = { ...newState, lastTaskSource: 'local' };
+}
+
+// In GanttContext.tsx auto-save effect — do NOT add lastTaskSource to deps:
 useEffect(() => {
   if (state.dataSource !== 'sheet') return;
   if (state.lastTaskSource !== 'local') return;  // skip Yjs and poll echoes
   // ... scheduleSave ...
-}, [state.tasks, state.dataSource, state.lastTaskSource]);
+}, [state.tasks, state.dataSource]);
+// NOTE: lastTaskSource intentionally NOT in deps — it changes on TOGGLE_EXPAND
+// etc. without a tasks change, which would cause spurious saves.
 ```
+
+**IMPORTANT — SET_TASKS callsites that need `source`:**
+
+| File | Callsite | Required `source` |
+|---|---|---|
+| `src/collab/yjsBinding.ts:115` | Yjs observer dispatch | `'yjs'` |
+| `src/state/GanttContext.tsx:138` | Initial `loadFromSheet` | `'sheets'` |
+| `src/components/onboarding/ErrorBanner.tsx:39` | Retry load | `'sheets'` |
+| `src/sheets/sheetCreation.ts:74` | New project creation | omit (defaults to `'local'`) |
+| `src/state/GanttContext.tsx:92` | Drag guard re-dispatch | inherits; stripped to undefined = `'local'` ✓ |
+
+**Coordination with T1.3:** When implementing T1.3 (`bindYjsToDispatch` WeakSet change),
+the same observer must also be updated to pass `source: 'yjs'` in the SET_TASKS dispatch.
+These changes should be applied atomically.
 
 This is fully deterministic — no timing dependency, no ref, no microtask.
 The reducer produces the source as part of the state transition, and the effect
@@ -351,7 +373,9 @@ reads it in the same render cycle.
 - Unit: verify reducer sets `lastTaskSource: 'yjs'` for SET_TASKS with source='yjs'
 - Unit: verify reducer sets `lastTaskSource: 'sheets'` for MERGE_EXTERNAL_TASKS
 - Unit: verify reducer sets `lastTaskSource: 'local'` for MOVE_TASK and other actions
+- Unit: verify postProcess resets to 'local' for TASK_MODIFYING_ACTIONS
 - Integration: verify auto-save does NOT call scheduleSave when lastTaskSource is 'yjs'
+- Verify: changing lastTaskSource without changing tasks does NOT fire auto-save
 
 ### T2.5 — E2E signInOnPage: state assertion instead of timeout
 
@@ -450,10 +474,12 @@ Add constraint:
 3. **T2.1** (total hash) — closely related, fixes the hash gap that compounds T1.1
 4. **T2.2** (saveDirty + saveInFlight guard) — prevents poll from undoing save
 5. **T1.2** (cancellable effect + startPolling in .then) — uses T2.3's cancelPendingSave
-6. **T1.3** (scoped isLocalUpdate) — independent, straightforward refactor
-7. **T2.4** (lastTaskSource reducer flag) — independent, touches reducer + types + context
-8. **T2.5** (E2E timeout fix) — independent, quick
-9. **Skill/doc updates** — after all code changes, update SKILL.md files
+6. **T1.3 + T2.4** (scoped isLocalUpdate + lastTaskSource) — implement TOGETHER because
+   both touch `bindYjsToDispatch`: T1.3 changes the observer guard to WeakSet,
+   T2.4 adds `source: 'yjs'` to the dispatch. Also update all SET_TASKS callsites,
+   add lastTaskSource to GanttState/initialState, add postProcess reset.
+7. **T2.5** (E2E timeout fix) — independent, quick
+8. **Skill/doc updates** — after all code changes, update SKILL.md files
 
 Each fix is self-contained and testable independently. Commit after each with
 conventional commit prefix (`fix:` for T1, `fix:` for T2, `docs:` for skills).

@@ -739,8 +739,11 @@ impl Segment {
             // Known gap: prefix flags that take values (e.g., sudo -u root) cause the
             // value ("root") to be returned as the command. This fails-open: "root" won't
             // match any dangerous command pattern, so the guard allows the command.
-            // The alternative (skipping flag+value) is worse: sudo -n git push would skip
-            // -n AND git, returning "push" as the command — a more dangerous bypass.
+            // The alternative (enumerating value-consuming flags to skip flag+value pairs)
+            // is fragile: a wrong enumeration could skip the actual command. For example,
+            // if -u were enumerated but -C were not, "sudo -C /etc git push" would skip
+            // -C AND /etc, returning "git" correctly — but a mis-enumeration would return
+            // "push" instead, a more dangerous bypass than the current fail-open.
             if COMMAND_PREFIXES.contains(&tok) {
                 i += 1;
                 while i < self.tokens.len() {
@@ -1127,9 +1130,6 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     for seg in &segments {
         if (seg.is_git("checkout") || seg.is_git("switch"))
             && !seg.has_arg("--")
-            && !seg.has_short_flag('b')
-            && !seg.has_short_flag('B')
-            && !seg.has_short_flag('c')
             && !seg.has_token_containing("worktree")
             && !is_worktree_cwd()
         {
@@ -1211,7 +1211,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             let target_path = remove_pos.and_then(|pos| {
                 // Skip any flags (--force, etc.) after "remove" to find the path argument
                 seg.tokens[pos + 1..].iter().find_map(|t| match t {
-                    Token::Word(w) if !w.starts_with('-') && w != "I_CREATED_THIS=1" => {
+                    Token::Word(w) if !w.starts_with('-') && !is_var_assignment(w) => {
                         Some(w.as_str())
                     }
                     _ => None,

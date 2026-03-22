@@ -13,17 +13,28 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
     "github@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true
+    "code-review@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true
   },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "{ test -x ./target/release/guard && ./target/release/guard edit; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard edit; } || true" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ test -x ./target/release/guard && ./target/release/guard edit; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard edit; } || true"
+          }
+        ]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "{ test -x ./target/release/guard && ./target/release/guard bash; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard bash; } || true" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ test -x ./target/release/guard && ./target/release/guard bash; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard bash; } || true"
+          }
+        ]
       }
     ],
     "PostToolUse": [

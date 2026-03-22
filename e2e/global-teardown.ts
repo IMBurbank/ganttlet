@@ -1,6 +1,6 @@
 /**
  * global-teardown.ts — Playwright global teardown that deletes the ephemeral
- * test sheet. Keeps the sheet on test failure for debugging.
+ * test sheet. Set E2E_KEEP_SHEET=1 to skip deletion for debugging.
  */
 import type { FullConfig } from '@playwright/test';
 import { getAccessToken } from './helpers/cloud-auth';
@@ -9,7 +9,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const SHEET_ID_FILE = path.join(process.cwd(), '.e2e-sheet-id');
-const FAILED_FILE = path.join(process.cwd(), '.e2e-failed');
 const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 async function globalTeardown(_config: FullConfig) {
@@ -20,11 +19,10 @@ async function globalTeardown(_config: FullConfig) {
 
   if (!sheetId) return;
 
-  // If any test failed, keep the sheet for debugging
-  if (fs.existsSync(FAILED_FILE)) {
-    fs.unlinkSync(FAILED_FILE);
+  // Skip deletion if explicitly requested (for debugging)
+  if (process.env.E2E_KEEP_SHEET) {
     const url = `https://docs.google.com/spreadsheets/d/${sheetId}`;
-    console.log(`\n[E2E] Tests failed — keeping sheet for debugging: ${url}\n`);
+    console.log(`\n[E2E] E2E_KEEP_SHEET set — keeping sheet: ${url}\n`);
     return;
   }
 

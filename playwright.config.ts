@@ -18,10 +18,7 @@ export default defineConfig({
         globalTeardown: './e2e/global-teardown.ts',
       }
     : {}),
-  reporter: [
-    ['html'],
-    ...(useEphemeralSheet ? [['./e2e/helpers/failure-reporter.ts'] as [string]] : []),
-  ],
+  reporter: [['html']],
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:5173',
     headless: true,

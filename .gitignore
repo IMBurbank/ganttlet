@@ -58,4 +58,3 @@ test-results/
 
 # E2E ephemeral sheet lifecycle
 .e2e-sheet-id
-.e2e-failed

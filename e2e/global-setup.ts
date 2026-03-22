@@ -13,17 +13,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const SHEET_ID_FILE = path.join(process.cwd(), '.e2e-sheet-id');
-const FAILED_FILE = path.join(process.cwd(), '.e2e-failed');
 const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 async function globalSetup(_config: FullConfig) {
-  // Clean up marker files from previous runs
-  for (const f of [SHEET_ID_FILE, FAILED_FILE]) {
-    try {
-      fs.unlinkSync(f);
-    } catch {
-      /* not found */
-    }
+  // Clean up sheet ID file from previous runs
+  try {
+    fs.unlinkSync(SHEET_ID_FILE);
+  } catch {
+    /* not found */
   }
 
   // Skip if override is set or no cloud auth

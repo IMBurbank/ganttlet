@@ -4,6 +4,7 @@ import { signIn, setAuthChangeCallback, removeAuthChangeCallback } from '../../s
 import {
   loadFromSheet,
   scheduleSave,
+  startPolling,
   stopPolling,
   getSpreadsheetId,
 } from '../../sheets/sheetsSync';
@@ -41,6 +42,7 @@ export default function ErrorBanner() {
         } else {
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
         }
+        startPolling();
       })
       .catch((err) => {
         dispatch({ type: 'SET_SYNC_ERROR', error: classifySyncError(err) });

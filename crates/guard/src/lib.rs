@@ -233,32 +233,41 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     // Check 8: Block rm -rf on worktree root directories — use ExitWorktree instead.
     // Only blocks deletion of the worktree root (e.g., /workspace/.claude/worktrees/my-wt).
     // Allows deletion of subdirectories within worktrees (e.g., .../my-wt/node_modules).
+    // Scans each shell segment (split on |, &&, ||, ;) so chained commands like
+    // `cd /tmp && rm -rf /workspace/.claude/worktrees/my-wt` are caught.
+    // Only triggers when `rm` is the first token of a segment (avoids false positives
+    // from commit messages containing "rm -rf" text).
     {
         let wt_prefix = "/workspace/.claude/worktrees/";
-        let ts = tokens(cmd);
-        let has_rm = ts.first() == Some(&"rm") || ts.contains(&"rm");
-        let has_rf = ts.iter().any(|t| {
-            t.starts_with('-') && !t.starts_with("--") && (t.contains('r') || t.contains('f'))
-        });
-        if has_rm && has_rf {
-            let targets_wt_root = ts.iter().any(|t| {
-                if let Some(rest) = t.strip_prefix(wt_prefix) {
-                    // It's a worktree root if there's no '/' after the name
-                    // (or only a trailing slash)
-                    let trimmed = rest.trim_end_matches('/');
-                    !trimmed.is_empty() && !trimmed.contains('/')
-                } else {
-                    false
-                }
+        // Split command on shell operators and check each segment
+        let segments: Vec<&str> = cmd
+            .split(&['|', '&', ';'][..])
+            .filter(|s| !s.is_empty())
+            .collect();
+        for segment in &segments {
+            let seg_ts: Vec<&str> = segment.split_whitespace().collect();
+            let has_rm = seg_ts.first() == Some(&"rm");
+            let has_rf = seg_ts.iter().any(|t| {
+                t.starts_with('-') && !t.starts_with("--") && (t.contains('r') || t.contains('f'))
             });
-            if targets_wt_root {
-                return Some(
-                    "Do not use rm -rf to delete worktrees. It breaks your CWD and leaves \
-                     orphaned branches. Use ExitWorktree with action: \"remove\" instead — \
-                     it safely restores CWD, deletes the directory, and removes the branch. \
-                     See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
-                        .to_string(),
-                );
+            if has_rm && has_rf {
+                let targets_wt_root = seg_ts.iter().any(|t| {
+                    if let Some(rest) = t.strip_prefix(wt_prefix) {
+                        let trimmed = rest.trim_end_matches('/');
+                        !trimmed.is_empty() && !trimmed.contains('/')
+                    } else {
+                        false
+                    }
+                });
+                if targets_wt_root {
+                    return Some(
+                        "Do not use rm -rf to delete worktrees. It breaks your CWD and leaves \
+                         orphaned branches. Use ExitWorktree with action: \"remove\" instead — \
+                         it safely restores CWD, deletes the directory, and removes the branch. \
+                         See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
+                            .to_string(),
+                    );
+                }
             }
         }
     }
@@ -732,6 +741,71 @@ mod tests {
     fn bash_allows_git_reset_hard_origin_in_worktree() {
         // CWD is not /workspace during tests, so reset --hard origin/main is allowed
         let v = json!({"tool_input": {"command": "git reset --hard origin/main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- rm -rf false positive regression tests ---
+
+    #[test]
+    fn bash_allows_rm_f_single_file_in_worktree() {
+        // rm -f has the -f flag + worktree path, but targets a file not a root dir
+        let v =
+            json!({"tool_input": {"command": "rm -f /workspace/.claude/worktrees/my-wt/temp.txt"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_rm_rf_worktree_chained() {
+        // cd /tmp && rm -rf worktree — rm is in second segment, must still block
+        let v = json!({"tool_input": {"command": "cd /tmp && rm -rf /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_cp_r_from_worktree() {
+        // cp -r has -r flag + worktree path — must not trigger rm check
+        let v = json!({"tool_input": {"command": "cp -r /workspace/.claude/worktrees/my-wt/src /tmp/backup"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_rm_rf_worktree() {
+        // Commit message contains "rm -rf" + worktree path — must not trigger
+        let cmd = "git commit -m \"fix: guard blocks rm -rf /workspace/.claude/worktrees/\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Pipeline workflow commands ---
+
+    #[test]
+    fn bash_allows_git_branch_force_set() {
+        // git branch -f is used for squash-merge cleanup (not destructive — just moves pointer)
+        let v = json!({"tool_input": {"command": "git branch -f feature-branch origin/main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_pull() {
+        let v = json!({"tool_input": {"command": "git pull origin main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_fetch() {
+        let v = json!({"tool_input": {"command": "git fetch origin main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_merge() {
+        let v = json!({"tool_input": {"command": "git merge feature/phase19-sdk-runner-core --no-edit"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_push_delete_remote_branch() {
+        let v = json!({"tool_input": {"command": "git push origin --delete feature/old-branch"}});
         assert!(check_bash(&v).is_none());
     }
 }

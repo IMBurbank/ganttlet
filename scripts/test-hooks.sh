@@ -179,6 +179,32 @@ test_allow  "Cleanup: rm single file in worktree allowed" \
 test_block  "Cleanup: rm -rf worktree root with trailing slash blocked" \
             bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-worktree/"}}'
 
+# Allow rm -f on single files (has -f flag but not a root dir)
+test_allow  "Cleanup: rm -f single file in worktree allowed" \
+            bash '{"tool_input":{"command":"rm -f /workspace/.claude/worktrees/my-wt/temp.txt"}}'
+
+# Allow cp -r from worktree (has -r flag + worktree path but not rm)
+test_allow  "Cleanup: cp -r from worktree allowed" \
+            bash '{"tool_input":{"command":"cp -r /workspace/.claude/worktrees/my-wt/src /tmp/backup"}}'
+
+echo "--- Squash-merge cleanup commands ---"
+
+# branch -f is used to fast-forward squash-merged branches before -d
+test_allow  "Squash cleanup: git branch -f allowed" \
+            bash '{"tool_input":{"command":"git branch -f feature-branch origin/main"}}'
+
+# pull is allowed (safe fast-forward)
+test_allow  "Squash cleanup: git pull allowed" \
+            bash '{"tool_input":{"command":"git pull origin main"}}'
+
+# fetch is always allowed
+test_allow  "Squash cleanup: git fetch allowed" \
+            bash '{"tool_input":{"command":"git fetch origin main"}}'
+
+# merge is allowed (pipeline merges branches)
+test_allow  "Squash cleanup: git merge allowed" \
+            bash '{"tool_input":{"command":"git merge feature/branch --no-edit"}}'
+
 echo "--- Agent lifecycle: fresh clone (no binary) ---"
 # When guard binary doesn't exist, hooks should fail-open (not brick the session)
 MISSING_GUARD="./nonexistent-guard-binary"

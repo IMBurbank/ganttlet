@@ -29,7 +29,8 @@ pub fn block_json(reason: &str) -> String {
 const MSG_USE_WORKTREE: &str =
     "Do not modify files directly in /workspace via Bash. Use a worktree.";
 
-const MSG_WORKTREE_DOCS: &str = "See .claude/worktrees/CLAUDE.md for the full cleanup procedure.";
+const MSG_WORKTREE_DOCS: &str =
+    "See /workspace/.claude/worktrees/CLAUDE.md for the full cleanup procedure.";
 
 const MSG_USE_EXIT_WORKTREE: &str = "\
 Use ExitWorktree with action: \"remove\" to safely clean up \
@@ -666,7 +667,7 @@ pub struct Segment {
     pub tokens: Vec<Token>,
 }
 
-/// True if a token is the `git` command (handles full paths like /usr/bin/git).
+/// True if a token is the `git` command (handles full and relative paths like /usr/bin/git, ./git).
 fn is_git_command(token: &str) -> bool {
     token == "git" || token.ends_with("/git")
 }
@@ -1037,7 +1038,7 @@ fn is_workspace_cwd() -> bool {
             let s = p.to_string_lossy();
             s == "/workspace" || s == "/workspace/"
         })
-        .unwrap_or(false) // fail-open: don't block CWD-dependent checks
+        .unwrap_or(false) // fail-open: CWD unknown → not workspace → skip workspace-only blocks
 }
 
 fn is_worktree_cwd() -> bool {
@@ -1046,7 +1047,7 @@ fn is_worktree_cwd() -> bool {
             p.to_string_lossy()
                 .starts_with("/workspace/.claude/worktrees/")
         })
-        .unwrap_or(true) // fail-open: assume worktree, allow checkout/switch
+        .unwrap_or(true) // fail-open: CWD unknown → assume worktree → allow checkout/switch
 }
 
 // ============================================================
@@ -1239,14 +1240,17 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                     .unwrap_or(false);
 
                 if is_agent_path {
-                    // Allow if acknowledged with I_CREATED_THIS=1 prefix
-                    let acknowledged = seg
-                        .tokens
-                        .first()
-                        .is_some_and(|t| matches!(t, Token::Word(w) if w == "I_CREATED_THIS=1"));
+                    // Allow if acknowledged with I_CREATED_THIS=1 as a variable
+                    // assignment prefix (before the command). Handles forms like:
+                    //   I_CREATED_THIS=1 git worktree remove <path>
+                    //   ENV=x I_CREATED_THIS=1 git worktree remove <path>
+                    let cmd_pos = seg.effective_command().map(|(i, _)| i).unwrap_or(0);
+                    let acknowledged = seg.tokens[..cmd_pos]
+                        .iter()
+                        .any(|t| matches!(t, Token::Word(w) if w == "I_CREATED_THIS=1"));
                     if !acknowledged {
                         return Some(
-                            "⚠️  STOP — You are about to remove a worktree that may belong to \
+                            "STOP — You are about to remove a worktree that may belong to \
                              another agent. Read this FULLY before proceeding.\n\n\
                              NEVER remove another agent's worktree. Other agents may be \
                              actively working in sibling worktrees even if they look idle.\n\n\
@@ -4157,6 +4161,20 @@ mod tests {
         // Same target, but with I_CREATED_THIS=1 acknowledgment — allow
         let v = json!({"tool_input": {"command": "I_CREATED_THIS=1 git worktree remove /workspace/.claude/worktrees/other-agent"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_worktree_remove_agent_path_acknowledged_with_env_allow() {
+        // ENV=x prefix before acknowledgment — should still be recognized
+        let v = json!({"tool_input": {"command": "ENV=x I_CREATED_THIS=1 git worktree remove /workspace/.claude/worktrees/other-agent"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_worktree_remove_agent_path_acknowledged_trailing_block() {
+        // Acknowledgment AFTER the command — should NOT be recognized
+        let v = json!({"tool_input": {"command": "git worktree remove /workspace/.claude/worktrees/other-agent I_CREATED_THIS=1"}});
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]

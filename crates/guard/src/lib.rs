@@ -1101,6 +1101,12 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
 }
 
 /// Run all Bash checks. Returns Some(reason) to block, None to allow.
+///
+/// Flag checking convention: every flag check must cover ALL equivalent forms.
+/// Short flags (`-f`), uppercase variants (`-R`), long flags (`--force`), and
+/// long=value forms (`--in-place=.bak`) can all express the same intent.
+/// Use `has_short_flag` for short forms and `has_arg`/`has_token_starting_with`
+/// for long forms.
 pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     let cmd = input["tool_input"]["command"].as_str().unwrap_or("");
 
@@ -1293,7 +1299,10 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     for seg in &segments {
         let cmd_name = seg.effective_command().map(|(_, c)| c);
         if cmd_name == Some("sed")
-            && (seg.has_arg("-i") || seg.has_token_starting_with("-i"))
+            && (seg.has_arg("-i")
+                || seg.has_token_starting_with("-i")
+                || seg.has_arg("--in-place")
+                || seg.has_token_starting_with("--in-place"))
             && seg.has_protected_path()
         {
             return Some(MSG_USE_WORKTREE.to_string());
@@ -4497,6 +4506,21 @@ mod tests {
     fn l3_sed_worktree_allow() {
         let v = json!({"tool_input": {"command": "sed -i s/foo/bar/ /workspace/.claude/worktrees/my-wt/src/test.ts"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_sed_in_place_long_block() {
+        // --in-place is the long form of -i
+        let v =
+            json!({"tool_input": {"command": "sed --in-place s/foo/bar/ /workspace/src/test.ts"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sed_in_place_suffix_block() {
+        // --in-place=.bak is also a valid form
+        let v = json!({"tool_input": {"command": "sed --in-place=.bak s/foo/bar/ /workspace/src/test.ts"}});
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]

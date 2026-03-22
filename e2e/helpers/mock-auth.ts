@@ -5,9 +5,9 @@
  * blocks the real GIS library from loading (which would overwrite the mock),
  * and sets __ganttlet_config.googleClientId so initOAuth() proceeds.
  *
- * For cloud E2E tests that need real API access, use the gisInitScript from
- * collab-harness.ts instead (which lets the real GIS library load and only
- * intercepts initTokenClient after it's available).
+ * For cloud E2E tests that need real API access, call setupMockAuth with a
+ * real SA token — it uses gisInitScript internally to inject the token while
+ * still blocking the real GIS library.
  */
 import { BrowserContext, Page } from '@playwright/test';
 import { gisInitScript } from './collab-harness';

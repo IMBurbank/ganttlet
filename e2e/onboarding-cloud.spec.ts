@@ -47,7 +47,7 @@ test.describe('Onboarding Cloud E2E', () => {
   // ── Journey 4: Collaborator → ?sheet= → sign in → data loads ──
 
   test('collaborator signs in and sheet data loads', async ({ browser }) => {
-    test.skip(!testSheetId, 'Requires TEST_SHEET_ID_DEV');
+    test.skip(!testSheetId, 'Requires test sheet (ephemeral or TEST_SHEET_ID_DEV)');
 
     const { context, page } = await createAuthPage(browser, `/?sheet=${testSheetId}`);
 
@@ -64,7 +64,7 @@ test.describe('Onboarding Cloud E2E', () => {
   // ── Journey 8: Header with real sheet ──
 
   test('header shows sheet title and share works', async ({ browser }) => {
-    test.skip(!testSheetId, 'Requires TEST_SHEET_ID_DEV');
+    test.skip(!testSheetId, 'Requires test sheet (ephemeral or TEST_SHEET_ID_DEV)');
 
     const { context, page } = await createAuthPage(browser, `/?sheet=${testSheetId}`);
     await page.getByTestId('collaborator-sign-in-button').click();
@@ -84,7 +84,7 @@ test.describe('Onboarding Cloud E2E', () => {
   });
 
   test('disconnect returns to WelcomeGate', async ({ browser }) => {
-    test.skip(!testSheetId, 'Requires TEST_SHEET_ID_DEV');
+    test.skip(!testSheetId, 'Requires test sheet (ephemeral or TEST_SHEET_ID_DEV)');
 
     const { context, page } = await createAuthPage(browser, `/?sheet=${testSheetId}`);
     await page.getByTestId('collaborator-sign-in-button').click();
@@ -179,7 +179,7 @@ test.describe('Onboarding Cloud E2E', () => {
   // ── Journey 10: Sync status ──
 
   test('sync status shows Synced after loading real sheet', async ({ browser }) => {
-    test.skip(!testSheetId, 'Requires TEST_SHEET_ID_DEV');
+    test.skip(!testSheetId, 'Requires test sheet (ephemeral or TEST_SHEET_ID_DEV)');
 
     const { context, page } = await createAuthPage(browser, `/?sheet=${testSheetId}`);
     await page.getByTestId('collaborator-sign-in-button').click();

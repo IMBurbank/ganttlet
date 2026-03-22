@@ -52,9 +52,10 @@ export function gisInitScript(token: string): string {
 /**
  * Creates two independent browser contexts for collaboration testing.
  *
- * Cloud mode (cloudAuth provided): navigates to ?sheet=TEST_SHEET_ID&room=
- * and signs in via GIS mock with real SA tokens. Both pages load real sheet
- * data so dataSource='sheet' and Yjs connects.
+ * Cloud mode (cloudAuth provided): navigates to ?sheet={sheetId}&room=
+ * using the ephemeral sheet (or TEST_SHEET_ID_DEV override). Signs in via
+ * GIS mock with real SA tokens. Both pages load real sheet data so
+ * dataSource='sheet' and Yjs connects.
  *
  * Local mode (no cloudAuth): enters sandbox via "Try the demo" button.
  * Yjs doesn't connect in sandbox mode — collab tests skip gracefully.

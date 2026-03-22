@@ -860,11 +860,12 @@ impl Segment {
         })
     }
 
-    /// True if any Word token is a path under /workspace/ that is NOT under worktrees.
-    pub fn has_workspace_path(&self) -> bool {
-        self.tokens.iter().any(|t| {
-            matches!(t, Token::Word(w) if w.starts_with("/workspace/") && !w.starts_with("/workspace/.claude/worktrees/"))
-        })
+    /// True if any Word token resolves to a protected workspace path.
+    /// Handles both absolute and relative paths via is_protected_path().
+    pub fn has_protected_path(&self) -> bool {
+        self.tokens
+            .iter()
+            .any(|t| matches!(t, Token::Word(w) if is_protected_path(w)))
     }
 }
 
@@ -954,7 +955,59 @@ fn parse_segments_inner(cmd: &str, depth: usize) -> Vec<Segment> {
 }
 
 // ============================================================
-// Helpers kept from old code
+// Path resolution
+// ============================================================
+
+/// Normalize a path logically (without filesystem access).
+/// Resolves `.` and `..` components. Does NOT follow symlinks or
+/// check existence — the target may not exist yet (write operations).
+fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                // Pop the last Normal component (go up one level).
+                // Never pop RootDir or Prefix — can't go above filesystem root.
+                match components.last() {
+                    Some(Component::Normal(_)) => {
+                        components.pop();
+                    }
+                    _ => {}
+                }
+            }
+            Component::CurDir => {
+                // Skip . (current directory)
+            }
+            c => {
+                components.push(c);
+            }
+        }
+    }
+    components.iter().collect()
+}
+
+/// True if a path (absolute or relative) resolves to a protected location.
+/// Protected = under /workspace/ but NOT under /workspace/.claude/worktrees/.
+/// Relative paths are resolved against CWD. Fails open if CWD is unavailable.
+fn is_protected_path(path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    let resolved = if path.starts_with('/') {
+        normalize_path(std::path::Path::new(path))
+    } else {
+        match std::env::current_dir() {
+            Ok(cwd) => normalize_path(&cwd.join(path)),
+            Err(_) => return false, // fail-open
+        }
+    };
+    let s = resolved.to_string_lossy();
+    s.starts_with("/workspace/") && !s.starts_with("/workspace/.claude/worktrees/")
+}
+
+// ============================================================
+// CWD helpers
 // ============================================================
 
 fn is_workspace_cwd() -> bool {
@@ -992,9 +1045,7 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
     }
 
     // Workspace isolation
-    if file_path.starts_with("/workspace/")
-        && !file_path.starts_with("/workspace/.claude/worktrees/")
-    {
+    if is_protected_path(file_path) {
         return Some(
             "Do not edit files directly on main in /workspace. \
              Create a worktree first: git worktree add /workspace/.claude/worktrees/<name> -b <branch>"
@@ -1192,14 +1243,14 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         let cmd_name = seg.effective_command().map(|(_, c)| c);
         if cmd_name == Some("sed")
             && (seg.has_arg("-i") || seg.has_token_starting_with("-i"))
-            && seg.has_workspace_path()
+            && seg.has_protected_path()
         {
             return Some(
                 "Do not modify files directly in /workspace via Bash. Use a worktree.".to_string(),
             );
         }
         // tee
-        if cmd_name == Some("tee") && seg.has_workspace_path() {
+        if cmd_name == Some("tee") && seg.has_protected_path() {
             return Some(
                 "Do not modify files directly in /workspace via Bash. Use a worktree.".to_string(),
             );
@@ -1250,9 +1301,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             if let Token::Operator(op) = &seg.tokens[j] {
                 if op == ">" || op == ">>" || op == ">|" || op == ">&" || op == "<>" {
                     if let Some(Token::Word(path)) = seg.tokens.get(j + 1) {
-                        if path.starts_with("/workspace/")
-                            && !path.starts_with("/workspace/.claude/worktrees/")
-                        {
+                        if is_protected_path(path) {
                             return Some(
                                 "Do not modify files directly in /workspace via Bash. Use a worktree."
                                     .to_string(),
@@ -2765,34 +2814,123 @@ mod tests {
         assert!(!mk_seg(&["rm", "-rf", "/workspace/.claude/worktrees/"]).targets_worktree_root());
     }
 
-    // --- 2b.11 has_workspace_path ---
+    // --- 2b.11 has_protected_path ---
 
     #[test]
     fn l2b_workspace_path_direct() {
-        assert!(mk_seg(&["sed", "-i", "s/x/y/", "/workspace/src/file.ts"]).has_workspace_path());
+        assert!(mk_seg(&["sed", "-i", "s/x/y/", "/workspace/src/file.ts"]).has_protected_path());
     }
 
     #[test]
     fn l2b_workspace_path_worktree() {
         assert!(
             !mk_seg(&["sed", "-i", "s/x/y/", "/workspace/.claude/worktrees/wt/f"])
-                .has_workspace_path()
+                .has_protected_path()
         );
     }
 
     #[test]
     fn l2b_workspace_path_tmp() {
-        assert!(!mk_seg(&["sed", "-i", "s/x/y/", "/tmp/file.ts"]).has_workspace_path());
+        assert!(!mk_seg(&["sed", "-i", "s/x/y/", "/tmp/file.ts"]).has_protected_path());
     }
 
     #[test]
     fn l2b_workspace_path_tee() {
-        assert!(mk_seg(&["tee", "/workspace/output.txt"]).has_workspace_path());
+        assert!(mk_seg(&["tee", "/workspace/output.txt"]).has_protected_path());
     }
 
     #[test]
     fn l2b_workspace_path_tee_worktree() {
-        assert!(!mk_seg(&["tee", "/workspace/.claude/worktrees/wt/out.txt"]).has_workspace_path());
+        assert!(!mk_seg(&["tee", "/workspace/.claude/worktrees/wt/out.txt"]).has_protected_path());
+    }
+
+    // --- path resolution unit tests ---
+
+    #[test]
+    fn path_normalize_basic() {
+        assert_eq!(
+            normalize_path(std::path::Path::new("/a/b/../c")),
+            std::path::PathBuf::from("/a/c")
+        );
+    }
+
+    #[test]
+    fn path_normalize_double_dotdot() {
+        assert_eq!(
+            normalize_path(std::path::Path::new("/a/b/c/../../d")),
+            std::path::PathBuf::from("/a/d")
+        );
+    }
+
+    #[test]
+    fn path_normalize_dot() {
+        assert_eq!(
+            normalize_path(std::path::Path::new("/a/./b/./c")),
+            std::path::PathBuf::from("/a/b/c")
+        );
+    }
+
+    #[test]
+    fn path_normalize_past_root() {
+        // Can't go above root
+        assert_eq!(
+            normalize_path(std::path::Path::new("/a/../../b")),
+            std::path::PathBuf::from("/b")
+        );
+    }
+
+    #[test]
+    fn path_protected_absolute() {
+        assert!(is_protected_path("/workspace/file"));
+        assert!(is_protected_path("/workspace/src/test.ts"));
+        assert!(!is_protected_path("/workspace/.claude/worktrees/wt/file"));
+        assert!(!is_protected_path("/tmp/file"));
+        assert!(!is_protected_path(""));
+    }
+
+    #[test]
+    fn path_protected_dotdot_absolute() {
+        // /workspace/.claude/worktrees/wt/../../file → /workspace/.claude/file → protected
+        assert!(is_protected_path(
+            "/workspace/.claude/worktrees/wt/../../file"
+        ));
+        // /workspace/.claude/worktrees/wt/./file → not protected (stays in worktree)
+        assert!(!is_protected_path("/workspace/.claude/worktrees/wt/./file"));
+    }
+
+    #[test]
+    fn path_protected_relative() {
+        // This test depends on CWD. If CWD is under /workspace/.claude/worktrees/,
+        // a relative path like ../../ could escape to /workspace/.
+        // We test with absolute paths containing .. since CWD varies.
+        assert!(is_protected_path(
+            "/workspace/.claude/worktrees/wt/../../../CLAUDE.md"
+        ));
+    }
+
+    #[test]
+    fn l2b_protected_path_with_dotdot() {
+        // sed -i targeting a path that escapes via ..
+        assert!(mk_seg(&[
+            "sed",
+            "-i",
+            "s/x/y/",
+            "/workspace/.claude/worktrees/wt/../../../file"
+        ])
+        .has_protected_path());
+    }
+
+    #[test]
+    fn l3_redirect_dotdot_escape_block() {
+        // Redirect that escapes worktree via ..
+        let v = json!({"tool_input": {"command": "echo hello > /workspace/.claude/worktrees/wt/../../../file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sed_dotdot_escape_block() {
+        let v = json!({"tool_input": {"command": "sed -i 's/x/y/' /workspace/.claude/worktrees/wt/../../../file"}});
+        assert!(check_bash(&v).is_some());
     }
 
     // ================================================================

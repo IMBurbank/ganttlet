@@ -36,7 +36,7 @@ It does NOT apply to CI/workflow agents.
   4. `ExitWorktree` with `action: "remove"` (deletes directory + local branch + restores CWD)
   5. `git pull origin main` (update main with the merged changes)
   - **Why not `rm -rf`**: Deleting your own CWD breaks the Bash tool — no subsequent commands can run. `ExitWorktree` handles this safely by restoring CWD first.
-  - **Why not `git worktree remove`**: The guard binary blocks it — use `ExitWorktree` instead.
+  - **Why not `git worktree remove`**: The guard blocks removing your own CWD (breaks Bash) and warns when targeting another agent's worktree. For your own orphaned worktrees (PR merged, no other agent using it), you can acknowledge with: `I_CREATED_THIS=1 git worktree remove <path>`. When in doubt, use `ExitWorktree` or ask the user.
   - **Why no `--delete-branch` on merge**: `gh pr merge --squash --delete-branch` tries to delete the local branch while the worktree still holds it, causing an error. Always merge without `--delete-branch`.
   - **Why `reset --hard` before exit**: Squash merges create a new commit with no parent link to the branch. Git's `branch -d` checks ancestry, so it refuses. `reset --hard origin/main` moves the branch pointer to the merge commit, making `branch -d` work. (`branch -f` can't be used here — git refuses to force-update the currently checked-out branch.)
   - **NEVER `cd /workspace`**: Only the admin works from `/workspace`. Agents must stay in their worktree.

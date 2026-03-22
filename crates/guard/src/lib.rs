@@ -115,48 +115,54 @@ fn script_interpreter_flag(token: &str) -> Option<&'static str> {
         .map(|(_, flag)| *flag)
 }
 
-/// True if a code string contains indicators of write or exec operations.
-/// Used to narrow interpreter code scanning — we only block when a /workspace/
-/// path appears alongside a write-like pattern, avoiding false positives on
-/// read-only operations (print, listdir, open for read).
-fn has_write_indicator(code: &str) -> bool {
+/// Substrings that indicate write or exec operations in interpreter code.
+/// Organized by category. If any pattern appears in the code string alongside
+/// a /workspace/ path, the command is blocked. Read-only operations (print,
+/// listdir, open for read) don't match any of these.
+const WRITE_INDICATORS: &[&str] = &[
     // Shell-out patterns (any language)
-    code.contains("system(")
-        || code.contains("exec(")
-        || code.contains("popen(")
-        || code.contains("subprocess")
-        || code.contains("execSync")
-        || code.contains("spawnSync")
-        || code.contains("child_process")
-        // Python write patterns
-        || code.contains("\"w\"")
-        || code.contains("'w'")
-        || code.contains("\"w+\"")
-        || code.contains("'w+'")
-        || code.contains("\"a\"")
-        || code.contains("'a'")
-        || code.contains("\"a+\"")
-        || code.contains("'a+'")
-        || code.contains("rmtree")
-        || code.contains("unlink(")
-        || code.contains("os.remove(")
-        || code.contains("os.rename(")
-        || code.contains("shutil.")
-        // Node.js write patterns
-        || code.contains("writeFile")
-        || code.contains("appendFile")
-        || code.contains("createWriteStream")
-        || code.contains("mkdirSync")
-        || code.contains("rmdirSync")
-        || code.contains("unlinkSync")
-        || code.contains("renameSync")
-        // Perl write patterns
-        || code.contains("unlink(")
-        || code.contains("rename(")
-        // Ruby write patterns
-        || code.contains("File.write")
-        || code.contains("File.delete")
-        || code.contains("FileUtils")
+    "system(",
+    "exec(",
+    "popen(",
+    "subprocess",
+    "child_process",
+    "execSync",
+    "spawnSync",
+    // File mode patterns (Python open() mode argument)
+    "\"w\"",
+    "'w'",
+    "\"w+\"",
+    "'w+'",
+    "\"a\"",
+    "'a'",
+    "\"a+\"",
+    "'a+'",
+    // Python write/delete
+    "shutil.",
+    "rmtree",
+    "os.remove(",
+    "os.rename(",
+    // Node.js write/delete
+    "writeFile",
+    "appendFile",
+    "createWriteStream",
+    "mkdirSync",
+    "rmdirSync",
+    "unlinkSync",
+    "renameSync",
+    // Perl/Ruby/cross-language write/delete
+    "unlink(",
+    "rename(",
+    "File.write",
+    "File.delete",
+    "FileUtils",
+];
+
+/// True if a code string contains any write or exec indicator.
+fn has_write_indicator(code: &str) -> bool {
+    WRITE_INDICATORS
+        .iter()
+        .any(|pattern| code.contains(pattern))
 }
 
 /// Git global flags that consume the NEXT token as a value.
@@ -178,9 +184,21 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
     let mut in_word = false;
     let mut i = 0;
 
-    // Track last emitted token type for newline continuation
-    // None = start, Some(op) = last emitted operator string
-    let mut last_emitted_op: Option<String> = None;
+    // Track last emitted operator for newline continuation detection.
+    // Only used to check "|", "&&", "||" — no allocation needed.
+    let mut last_emitted_op: Option<&'static str> = None;
+
+    // Emit an operator token and update the continuation tracker.
+    macro_rules! emit_op {
+        ($op_str:expr) => {{
+            if in_word {
+                tokens.push(Token::Word(std::mem::take(&mut word)));
+                in_word = false;
+            }
+            last_emitted_op = Some($op_str);
+            tokens.push(Token::Operator($op_str.to_string()));
+        }};
+    }
 
     // Heredoc state: delimiter is captured, then we wait for \n to enter body
     let mut heredoc_delimiter: Option<String> = None;
@@ -262,14 +280,10 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
                 continue;
             }
             // After |, &&, || → continuation (skip newline)
-            let is_continuation = match &last_emitted_op {
-                Some(op) => op == "|" || op == "&&" || op == "||",
-                None => false,
-            };
+            let is_continuation = matches!(last_emitted_op, Some("|" | "&&" | "||"));
             if !is_continuation {
-                let op = "\n".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                last_emitted_op = Some("\n");
+                tokens.push(Token::Operator("\n".to_string()));
             }
             i += 1;
             continue;
@@ -437,29 +451,17 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
         // Must be checked BEFORE & and | to prevent >& and >| from being
         // consumed by the & and | handlers respectively.
         if ch == '>' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
             if i + 1 < len && chars[i + 1] == '>' {
-                let op = ">>".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!(">>");
                 i += 2;
             } else if i + 1 < len && chars[i + 1] == '&' {
-                let op = ">&".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!(">&");
                 i += 2;
             } else if i + 1 < len && chars[i + 1] == '|' {
-                let op = ">|".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!(">|");
                 i += 2;
             } else {
-                let op = ">".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!(">");
                 i += 1;
             }
             continue;
@@ -468,88 +470,49 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
         // Control operators: &&, ||, |, ;, &, (, )
         // Also &> and &>> (bash: redirect stdout+stderr)
         if ch == '&' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
             if i + 1 < len && chars[i + 1] == '&' {
-                let op = "&&".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!("&&");
                 i += 2;
             } else if i + 1 < len && chars[i + 1] == '>' {
-                // &> or &>> (bash extension: redirect both stdout and stderr)
                 if i + 2 < len && chars[i + 2] == '>' {
-                    let op = "&>>".to_string();
-                    last_emitted_op = Some(op.clone());
-                    tokens.push(Token::Operator(op));
+                    emit_op!("&>>");
                     i += 3;
                 } else {
-                    let op = "&>".to_string();
-                    last_emitted_op = Some(op.clone());
-                    tokens.push(Token::Operator(op));
+                    emit_op!("&>");
                     i += 2;
                 }
             } else {
-                let op = "&".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!("&");
                 i += 1;
             }
             continue;
         }
 
         if ch == '|' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
             if i + 1 < len && chars[i + 1] == '|' {
-                let op = "||".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!("||");
                 i += 2;
             } else {
-                let op = "|".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!("|");
                 i += 1;
             }
             continue;
         }
 
         if ch == ';' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
-            let op = ";".to_string();
-            last_emitted_op = Some(op.clone());
-            tokens.push(Token::Operator(op));
+            emit_op!(";");
             i += 1;
             continue;
         }
 
         if ch == '(' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
-            let op = "(".to_string();
-            last_emitted_op = Some(op.clone());
-            tokens.push(Token::Operator(op));
+            emit_op!("(");
             i += 1;
             continue;
         }
 
         if ch == ')' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
-            let op = ")".to_string();
-            last_emitted_op = Some(op.clone());
-            tokens.push(Token::Operator(op));
+            emit_op!(")");
             i += 1;
             continue;
         }
@@ -610,24 +573,14 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
         // The heredoc handler above consumed << and continue'd, so if we reach
         // here with '<', it's a single < (possibly followed by & or >).
         if ch == '<' {
-            if in_word {
-                tokens.push(Token::Word(std::mem::take(&mut word)));
-                in_word = false;
-            }
             if i + 1 < len && chars[i + 1] == '&' {
-                let op = "<&".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!("<&");
                 i += 2;
             } else if i + 1 < len && chars[i + 1] == '>' {
-                let op = "<>".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!("<>");
                 i += 2;
             } else {
-                let op = "<".to_string();
-                last_emitted_op = Some(op.clone());
-                tokens.push(Token::Operator(op));
+                emit_op!("<");
                 i += 1;
             }
             continue;
@@ -924,12 +877,18 @@ impl Segment {
             .any(|t| matches!(t, Token::Word(w) if w.contains(substring)))
     }
 
-    /// True if any Word token is a worktree ROOT directory path.
+    /// True if any Word token resolves to a worktree ROOT directory path.
+    /// Uses resolve_path() to normalize ../ and relative paths.
     pub fn targets_worktree_root(&self) -> bool {
         let prefix = "/workspace/.claude/worktrees/";
         self.tokens.iter().any(|t| {
             if let Token::Word(w) = t {
-                if let Some(rest) = w.strip_prefix(prefix) {
+                let resolved = resolve_path(w);
+                let s = resolved
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if let Some(rest) = s.strip_prefix(prefix) {
                     let trimmed = rest.trim_end_matches('/');
                     !trimmed.is_empty() && !trimmed.contains('/')
                 } else {
@@ -1392,10 +1351,10 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     }
 
     // Redirect check: type-safe via Token::Operator.
-    // All write-capable redirect operators are blocked:
+    // All write-capable redirect operators are blocked (per is_write_redirect):
     //   >  (truncate), >> (append), >| (clobber),
     //   >& (dup — with path target, acts as > + 2>&1),
-    //   <> (read-write open).
+    //   <> (read-write open), &> (bash: stdout+stderr), &>> (bash: append both).
     // Not blocked: < (input only), <& (fd dup, no path write).
     // Quoted/escaped > produces Word(">") and is naturally excluded.
     // No-space redirects (echo>/workspace/file) are properly tokenized as
@@ -4421,6 +4380,13 @@ mod tests {
     fn l3_cp_r_allow() {
         let v = json!({"tool_input": {"command": "cp -r /workspace/.claude/worktrees/my-wt/src /tmp/backup"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_rm_rf_dotdot_escape_block() {
+        // ../worktrees/my-wt resolves to the worktree root after normalization
+        let v = json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/../worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]

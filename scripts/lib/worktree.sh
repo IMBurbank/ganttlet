@@ -36,11 +36,15 @@ delete_merged_branch() {
 
   if [[ -z "$tree_diff" ]]; then
     # Same tree content — squash merged. Fast-forward branch ref then delete.
-    git branch -f "$branch" "$target" 2>/dev/null
+    if ! git branch -f "$branch" "$target" 2>/dev/null; then
+      warn "Branch ${branch} is merged but branch -f failed (may be checked out in a worktree)"
+      return 1
+    fi
     if git branch -d "$branch" 2>/dev/null; then
       return 0
     fi
-    warn "Branch ${branch} content is merged but branch -d still failed (may be checked out elsewhere)"
+    # Rollback: branch -f succeeded but -d failed — should not happen, but be safe
+    warn "Branch ${branch} content is merged but branch -d failed after fast-forward"
     return 1
   fi
 

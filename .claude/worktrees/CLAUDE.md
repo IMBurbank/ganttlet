@@ -31,12 +31,12 @@ It does NOT apply to CI/workflow agents.
   2. `git push origin --delete <branch>` (delete remote branch — do this before exit)
   3. Handle squash-merged branches: `ExitWorktree` may refuse to remove branches after a
      squash merge (git doesn't recognize them as merged). Fix by fast-forwarding first:
-     `git fetch origin main && git branch -f <branch> origin/main`
-     This makes `git branch -d` recognize the branch as merged. Then proceed to step 4.
+     `git fetch origin main && git reset --hard origin/main`
+     This moves your branch to the merge commit so git recognizes it as merged.
   4. `ExitWorktree` with `action: "remove"` (deletes directory + local branch + restores CWD)
   5. `git pull origin main` (update main with the merged changes)
   - **Why not `rm -rf`**: Deleting your own CWD breaks the Bash tool — no subsequent commands can run. `ExitWorktree` handles this safely by restoring CWD first.
   - **Why not `git worktree remove`**: The guard binary blocks it — use `ExitWorktree` instead.
   - **Why no `--delete-branch` on merge**: `gh pr merge --squash --delete-branch` tries to delete the local branch while the worktree still holds it, causing an error. Always merge without `--delete-branch`.
-  - **Why `branch -f` before exit**: Squash merges create a new commit with no parent link to the branch. Git's `branch -d` checks ancestry, so it refuses. `branch -f origin/main` moves the branch pointer to the merge commit, making `branch -d` work.
+  - **Why `reset --hard` before exit**: Squash merges create a new commit with no parent link to the branch. Git's `branch -d` checks ancestry, so it refuses. `reset --hard origin/main` moves the branch pointer to the merge commit, making `branch -d` work. (`branch -f` can't be used here — git refuses to force-update the currently checked-out branch.)
   - **NEVER `cd /workspace`**: Only the admin works from `/workspace`. Agents must stay in their worktree.

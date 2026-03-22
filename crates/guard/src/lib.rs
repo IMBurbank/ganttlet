@@ -447,73 +447,29 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
             continue;
         }
 
-        // Redirect operators: > >> >& >|
-        // Must be checked BEFORE & and | to prevent >& and >| from being
-        // consumed by the & and | handlers respectively.
-        if ch == '>' {
-            if i + 1 < len && chars[i + 1] == '>' {
-                emit_op!(">>");
-                i += 2;
-            } else if i + 1 < len && chars[i + 1] == '&' {
-                emit_op!(">&");
-                i += 2;
-            } else if i + 1 < len && chars[i + 1] == '|' {
-                emit_op!(">|");
-                i += 2;
-            } else {
-                emit_op!(">");
-                i += 1;
-            }
-            continue;
-        }
-
-        // Control operators: &&, ||, |, ;, &, (, )
-        // Also &> and &>> (bash: redirect stdout+stderr)
-        if ch == '&' {
-            if i + 1 < len && chars[i + 1] == '&' {
-                emit_op!("&&");
-                i += 2;
-            } else if i + 1 < len && chars[i + 1] == '>' {
-                if i + 2 < len && chars[i + 2] == '>' {
-                    emit_op!("&>>");
-                    i += 3;
-                } else {
-                    emit_op!("&>");
-                    i += 2;
-                }
-            } else {
-                emit_op!("&");
-                i += 1;
-            }
-            continue;
-        }
-
-        if ch == '|' {
-            if i + 1 < len && chars[i + 1] == '|' {
-                emit_op!("||");
-                i += 2;
-            } else {
-                emit_op!("|");
-                i += 1;
-            }
-            continue;
-        }
-
-        if ch == ';' {
-            emit_op!(";");
-            i += 1;
-            continue;
-        }
-
-        if ch == '(' {
-            emit_op!("(");
-            i += 1;
-            continue;
-        }
-
-        if ch == ')' {
-            emit_op!(")");
-            i += 1;
+        // Operator matching: greedy longest-first, table-driven.
+        // Ordered longest-first so ">>" matches before ">", "&&" before "&", etc.
+        // This is the same algorithm bash uses (shellmeta + peek-ahead).
+        //
+        // NOT in this table (require special handling):
+        //   <<  — heredoc (consumes delimiter + body)
+        //   <   — must come AFTER heredoc check (< vs << ambiguity)
+        //   <&  — must come AFTER heredoc check
+        //   <>  — must come AFTER heredoc check
+        //   \n  — newline continuation logic
+        const SIMPLE_OPS: &[&str] = &[
+            "&>>", "&&", "&>", ">>", ">&", ">|", "||", ">", "&", "|", ";", "(", ")",
+        ];
+        if let Some(op) = SIMPLE_OPS.iter().find(|op| {
+            let ob = op.as_bytes();
+            i + ob.len() <= len
+                && ob
+                    .iter()
+                    .enumerate()
+                    .all(|(j, &b)| chars[i + j] == b as char)
+        }) {
+            emit_op!(op);
+            i += op.len();
             continue;
         }
 

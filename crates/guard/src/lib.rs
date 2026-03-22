@@ -4864,6 +4864,134 @@ mod tests {
         assert!(check_bash(&v).is_some());
     }
 
+    // --- Node.js write patterns ---
+
+    #[test]
+    fn l3_node_writefile_workspace_block() {
+        let v = json!({"tool_input": {"command": "node -e \"require('fs').writeFileSync('/workspace/file', 'x')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_node_appendfile_workspace_block() {
+        let v = json!({"tool_input": {"command": "node -e \"require('fs').appendFileSync('/workspace/file', 'x')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_node_writestream_workspace_block() {
+        let v = json!({"tool_input": {"command": "node -e \"require('fs').createWriteStream('/workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_node_unlink_workspace_block() {
+        let v = json!({"tool_input": {"command": "node -e \"require('fs').unlinkSync('/workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_node_exec_workspace_block() {
+        let v = json!({"tool_input": {"command": "node -e \"require('child_process').execSync('rm /workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_node_readfile_workspace_allow() {
+        let v = json!({"tool_input": {"command": "node -e \"console.log(require('fs').readFileSync('/workspace/file', 'utf8'))\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_node_stat_workspace_allow() {
+        let v = json!({"tool_input": {"command": "node -e \"console.log(require('fs').statSync('/workspace/file'))\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_node_readdir_workspace_allow() {
+        let v = json!({"tool_input": {"command": "node -e \"console.log(require('fs').readdirSync('/workspace/src/'))\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Perl write patterns ---
+
+    #[test]
+    fn l3_perl_unlink_workspace_block() {
+        let v = json!({"tool_input": {"command": "perl -e \"unlink('/workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_perl_rename_workspace_block() {
+        let v = json!({"tool_input": {"command": "perl -e \"rename('/workspace/old', '/workspace/new')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_perl_read_workspace_allow() {
+        let v =
+            json!({"tool_input": {"command": "perl -e \"open(F, '/workspace/file'); print <F>\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Ruby write patterns ---
+
+    #[test]
+    fn l3_ruby_filewrite_workspace_block() {
+        let v =
+            json!({"tool_input": {"command": "ruby -e \"File.write('/workspace/file', 'x')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_ruby_filedelete_workspace_block() {
+        let v = json!({"tool_input": {"command": "ruby -e \"File.delete('/workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_ruby_fileutils_workspace_block() {
+        let v = json!({"tool_input": {"command": "ruby -e \"require 'fileutils'; FileUtils.rm_rf('/workspace/src/')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_ruby_system_workspace_block() {
+        let v = json!({"tool_input": {"command": "ruby -e \"system('echo > /workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_ruby_read_workspace_allow() {
+        let v = json!({"tool_input": {"command": "ruby -e \"puts File.read('/workspace/file')\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Cross-interpreter edge cases ---
+
+    #[test]
+    fn l3_interpreter_worktree_write_allow() {
+        // Write to worktree path — always allowed
+        let v = json!({"tool_input": {"command": "python3 -c \"open('/workspace/.claude/worktrees/wt/file', 'w').write('x')\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_interpreter_no_flag_allow() {
+        // python3 with no -c flag — running a script file, not inline code
+        let v = json!({"tool_input": {"command": "python3 /workspace/scripts/test.py"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_interpreter_flag_not_first() {
+        // python3 -u -c "code" — -c is not the first flag, should still be caught
+        let v =
+            json!({"tool_input": {"command": "python3 -u -c \"open('/workspace/file', 'w')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
     // --- Brace groups (BLOCK) ---
 
     #[test]

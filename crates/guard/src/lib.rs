@@ -61,8 +61,26 @@ fn git_subcmd_pos(ts: &[&str], subcmd: &str) -> Option<usize> {
 }
 
 /// True if `cmd` has a top-level "git <subcmd>" invocation.
+/// Checks each shell segment (split on |, &&, ||, ;) and only matches
+/// when `git` is the first token of a segment. This prevents false positives
+/// from commands like `gh pr merge --body "git reset --hard"` where git
+/// appears inside a quoted argument, not as the actual command.
 fn has_git_subcmd(cmd: &str, subcmd: &str) -> bool {
-    git_subcmd_pos(&tokens(cmd), subcmd).is_some()
+    let segments: Vec<&str> = cmd
+        .split(&['|', '&', ';'][..])
+        .filter(|s| !s.is_empty())
+        .collect();
+    for segment in &segments {
+        let ts: Vec<&str> = segment.split_whitespace().collect();
+        if ts.first() == Some(&"git") {
+            if let Some(sub) = ts.get(1) {
+                if *sub == subcmd {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// True if `s` contains `word` as a whitespace-delimited token.
@@ -809,6 +827,52 @@ mod tests {
     #[test]
     fn bash_allows_git_push_delete_remote_branch() {
         let v = json!({"tool_input": {"command": "git push origin --delete feature/old-branch"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- has_git_subcmd segment-aware false positive tests ---
+
+    #[test]
+    fn bash_allows_gh_pr_merge_with_git_in_body() {
+        // gh pr merge --body "git reset --hard" — git is in quoted text, not a command
+        let cmd = "gh pr merge 72 --squash --body \"block git reset --hard in /workspace\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_gh_command_mentioning_git_push_main() {
+        // gh command with "git push main" in an argument
+        let cmd = "gh pr comment 1 --body \"guard blocks git push to main\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_echo_mentioning_git_checkout() {
+        let cmd = "echo \"use git checkout to switch branches\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_reset_hard_in_chained_command() {
+        // cd /tmp && git reset --hard HEAD~3 — git IS the first token of second segment
+        let v = json!({"tool_input": {"command": "cd /tmp && git reset --hard HEAD~3"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_git_push_main_in_chained_command() {
+        let v = json!({"tool_input": {"command": "echo starting && git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_grep_with_git_pattern() {
+        // grep for "git push" — git is not the first token of any segment
+        let cmd = "grep -r \"git push\" scripts/";
+        let v = json!({"tool_input": {"command": cmd}});
         assert!(check_bash(&v).is_none());
     }
 }

@@ -387,7 +387,7 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
         }
 
         // Control operators: &&, ||, |, ;, &, (, )
-        // Also << for heredoc detection, < <& <> for input redirects
+        // Also &> and &>> (bash: redirect stdout+stderr)
         if ch == '&' {
             if in_word {
                 tokens.push(Token::Word(std::mem::take(&mut word)));
@@ -398,6 +398,19 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
                 last_emitted_op = Some(op.clone());
                 tokens.push(Token::Operator(op));
                 i += 2;
+            } else if i + 1 < len && chars[i + 1] == '>' {
+                // &> or &>> (bash extension: redirect both stdout and stderr)
+                if i + 2 < len && chars[i + 2] == '>' {
+                    let op = "&>>".to_string();
+                    last_emitted_op = Some(op.clone());
+                    tokens.push(Token::Operator(op));
+                    i += 3;
+                } else {
+                    let op = "&>".to_string();
+                    last_emitted_op = Some(op.clone());
+                    tokens.push(Token::Operator(op));
+                    i += 2;
+                }
             } else {
                 let op = "&".to_string();
                 last_emitted_op = Some(op.clone());
@@ -679,7 +692,7 @@ fn is_control_operator(op: &str) -> bool {
 /// True if an operator can write to a file.
 /// Used by the redirect check to block writes to protected paths.
 fn is_write_redirect(op: &str) -> bool {
-    matches!(op, ">" | ">>" | ">|" | ">&" | "<>")
+    matches!(op, ">" | ">>" | ">|" | ">&" | "<>" | "&>" | "&>>")
 }
 
 impl Segment {
@@ -2033,6 +2046,33 @@ mod tests {
         assert_eq!(
             tok("echo >&2 hello"),
             vec![w("echo"), op(">&"), w("2"), w("hello")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_ampersand_gt() {
+        // &> redirects both stdout and stderr (bash extension)
+        assert_eq!(
+            tok("echo hello &> /tmp/file"),
+            vec![w("echo"), w("hello"), op("&>"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_ampersand_gt_append() {
+        // &>> appends both stdout and stderr
+        assert_eq!(
+            tok("echo hello &>> /tmp/file"),
+            vec![w("echo"), w("hello"), op("&>>"), w("/tmp/file")]
+        );
+    }
+
+    #[test]
+    fn l1_redirect_ampersand_gt_nospace() {
+        // echo&>/tmp/file
+        assert_eq!(
+            tok("echo&>/tmp/file"),
+            vec![w("echo"), op("&>"), w("/tmp/file")]
         );
     }
 
@@ -4256,6 +4296,34 @@ mod tests {
     }
 
     #[test]
+    fn l3_redirect_ampersand_gt_block() {
+        // &> redirects both stdout and stderr — write operation
+        let v = json!({"tool_input": {"command": "echo hello &> /workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_ampersand_gt_append_block() {
+        // &>> appends both stdout and stderr — write operation
+        let v = json!({"tool_input": {"command": "echo hello &>> /workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_ampersand_gt_worktree_allow() {
+        // &> to worktree path — allow
+        let v = json!({"tool_input": {"command": "echo &> /workspace/.claude/worktrees/wt/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_ampersand_gt_tmp_allow() {
+        // &> to /tmp — allow
+        let v = json!({"tool_input": {"command": "echo &> /tmp/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
     fn l3_redirect_quoted_word_nospace_block() {
         // "echo">/workspace/file — echo is quoted but > is unquoted operator
         let v = json!({"tool_input": {"command": "\"echo\">/workspace/file"}});
@@ -4355,6 +4423,8 @@ mod tests {
         assert!(is_write_redirect(">|"));
         assert!(is_write_redirect(">&"));
         assert!(is_write_redirect("<>"));
+        assert!(is_write_redirect("&>"));
+        assert!(is_write_redirect("&>>"));
         assert!(!is_write_redirect("<"));
         assert!(!is_write_redirect("<&"));
         assert!(!is_write_redirect("&&"));

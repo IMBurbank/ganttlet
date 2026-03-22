@@ -1083,14 +1083,38 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     // worktree-remove
     for seg in &segments {
         if seg.is_git("worktree") && seg.has_arg("remove") {
-            return Some(
-                "Do not use git worktree remove directly. \
-                 Use ExitWorktree with action: \"remove\" to safely clean up \
-                 your own worktree (restores CWD, deletes directory and branch). \
-                 Never remove other agents' worktrees. \
-                 See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
-                    .to_string(),
-            );
+            // Check if the target worktree is the agent's own CWD.
+            // Removing your own CWD breaks all subsequent Bash calls.
+            // Removing a DIFFERENT worktree is safe for the caller but risks
+            // destroying another agent's in-progress work.
+            let target_is_cwd = if let Ok(cwd) = std::env::current_dir() {
+                let cwd_str = cwd.to_string_lossy();
+                seg.tokens.iter().any(|t| {
+                    if let Token::Word(w) = t {
+                        // Normalize trailing slashes for comparison
+                        let w_trimmed = w.trim_end_matches('/');
+                        let cwd_trimmed = cwd_str.trim_end_matches('/');
+                        w_trimmed == cwd_trimmed
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                true // fail-safe: can't determine CWD, assume self-removal
+            };
+
+            if target_is_cwd {
+                return Some(
+                    "Do not use git worktree remove on your own CWD — it will break \
+                     all subsequent Bash calls. Use ExitWorktree with action: \"remove\" \
+                     to safely clean up (restores CWD, deletes directory and branch). \
+                     See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
+                        .to_string(),
+                );
+            }
+            // Removing a different worktree: allow it. This enables cleanup of
+            // orphaned worktrees from previous sessions or worktrees created by
+            // launch-phase.sh. The agent's own CWD is safe since we checked above.
         }
     }
 
@@ -3064,22 +3088,45 @@ mod tests {
     }
 
     // --- 3.7 worktree-remove ---
+    // Removing a DIFFERENT worktree (not CWD) is allowed — enables cleanup of
+    // orphaned worktrees from previous sessions or launch-phase.sh.
+    // Removing your OWN CWD worktree is blocked (breaks Bash).
 
     #[test]
-    fn l3_worktree_remove() {
+    fn l3_worktree_remove_other_allow() {
+        // Target /tmp/wt is not our CWD — allow
         let v = json!({"tool_input": {"command": "git worktree remove /tmp/wt"}});
-        assert!(check_bash(&v).is_some());
+        assert!(check_bash(&v).is_none());
     }
 
     #[test]
-    fn l3_worktree_remove_chained() {
+    fn l3_worktree_remove_other_chained_allow() {
         let v = json!({"tool_input": {"command": "echo hi && git worktree remove /tmp/wt"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_worktree_remove_other_sudo_allow() {
+        let v = json!({"tool_input": {"command": "sudo git worktree remove /tmp/wt"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_worktree_remove_own_cwd_block() {
+        // If the target path matches CWD, block — removing your own CWD breaks Bash
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_str = cwd.to_string_lossy().to_string();
+        let cmd = format!("git worktree remove {}", cwd_str);
+        let v = json!({"tool_input": {"command": cmd}});
         assert!(check_bash(&v).is_some());
     }
 
     #[test]
-    fn l3_worktree_remove_sudo() {
-        let v = json!({"tool_input": {"command": "sudo git worktree remove /tmp/wt"}});
+    fn l3_worktree_remove_own_cwd_trailing_slash_block() {
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_str = format!("{}/", cwd.to_string_lossy());
+        let cmd = format!("git worktree remove {}", cwd_str);
+        let v = json!({"tool_input": {"command": cmd}});
         assert!(check_bash(&v).is_some());
     }
 
@@ -3350,9 +3397,10 @@ mod tests {
     }
 
     #[test]
-    fn l3_subst_worktree_remove() {
+    fn l3_subst_worktree_remove_other_allow() {
+        // Target /tmp/wt is not CWD — allow even inside $()
         let v = json!({"tool_input": {"command": "echo $(git worktree remove /tmp/wt)"}});
-        assert!(check_bash(&v).is_some());
+        assert!(check_bash(&v).is_none());
     }
 
     #[test]

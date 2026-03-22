@@ -642,7 +642,7 @@ fn find_matching_close_paren(chars: &[char], start: usize) -> Option<(String, us
 
 #[derive(Debug, Clone)]
 pub struct Segment {
-    pub tokens: Vec<String>,
+    pub tokens: Vec<Token>,
 }
 
 /// True if a token is the `git` command (handles full paths like /usr/bin/git).
@@ -668,12 +668,35 @@ fn is_var_assignment(token: &str) -> bool {
     }
 }
 
+/// True if an operator separates commands (splits segments).
+/// Redirect operators (>, >>, <, etc.) are NOT control operators —
+/// they stay inside the segment with the command they modify.
+fn is_control_operator(op: &str) -> bool {
+    matches!(op, "&&" | "||" | "|" | ";" | "&" | "\n" | "(" | ")")
+}
+
 impl Segment {
-    /// Find the effective command, skipping variable assignments and known prefixes.
+    /// Get the string value of token at index, only if it's a Word.
+    fn word_str(&self, i: usize) -> Option<&str> {
+        match self.tokens.get(i)? {
+            Token::Word(w) => Some(w.as_str()),
+            Token::Operator(_) => None,
+        }
+    }
+
+    /// Find the effective command, skipping variable assignments, known prefixes,
+    /// and redirect operators.
     pub fn effective_command(&self) -> Option<(usize, &str)> {
         let mut i = 0;
         while i < self.tokens.len() {
-            let tok = &self.tokens[i];
+            // Skip redirect operators — they're not commands
+            let tok = match &self.tokens[i] {
+                Token::Word(w) => w.as_str(),
+                Token::Operator(_) => {
+                    i += 1;
+                    continue;
+                }
+            };
 
             // Skip variable assignments
             if is_var_assignment(tok) {
@@ -698,14 +721,21 @@ impl Segment {
             // match any dangerous command pattern, so the guard allows the command.
             // The alternative (skipping flag+value) is worse: sudo -n git push would skip
             // -n AND git, returning "push" as the command — a more dangerous bypass.
-            if COMMAND_PREFIXES.contains(&tok.as_str()) {
+            if COMMAND_PREFIXES.contains(&tok) {
                 i += 1;
                 while i < self.tokens.len() {
-                    let t = &self.tokens[i];
-                    if t.starts_with('-') || is_var_assignment(t) {
-                        i += 1;
-                    } else {
-                        break;
+                    match &self.tokens[i] {
+                        Token::Operator(_) => {
+                            i += 1;
+                            continue;
+                        }
+                        Token::Word(t) => {
+                            if t.starts_with('-') || is_var_assignment(t) {
+                                i += 1;
+                            } else {
+                                break;
+                            }
+                        }
                     }
                 }
                 continue;
@@ -716,7 +746,7 @@ impl Segment {
         None
     }
 
-    /// Find the git subcommand, skipping global git flags.
+    /// Find the git subcommand, skipping global git flags and redirect operators.
     pub fn git_subcmd(&self) -> Option<(usize, &str)> {
         let (cmd_pos, cmd) = self.effective_command()?;
         if !is_git_command(cmd) {
@@ -725,7 +755,13 @@ impl Segment {
 
         let mut i = cmd_pos + 1;
         while i < self.tokens.len() {
-            let tok = &self.tokens[i];
+            let tok = match &self.tokens[i] {
+                Token::Word(w) => w.as_str(),
+                Token::Operator(_) => {
+                    i += 1;
+                    continue;
+                }
+            };
             // --flag=value form
             if tok.contains('=')
                 && GIT_VALUE_FLAGS
@@ -736,7 +772,7 @@ impl Segment {
                 continue;
             }
             // --flag value form (two tokens)
-            if GIT_VALUE_FLAGS.contains(&tok.as_str()) {
+            if GIT_VALUE_FLAGS.contains(&tok) {
                 i += 2; // skip flag + value
                 continue;
             }
@@ -755,20 +791,8 @@ impl Segment {
         self.git_subcmd().map(|(_, s)| s == subcmd).unwrap_or(false)
     }
 
-    /// True if any token AFTER the subcommand (for git) or command exactly equals `val`.
+    /// True if any Word token AFTER the subcommand (for git) or command exactly equals `val`.
     pub fn has_arg(&self, val: &str) -> bool {
-        let start = if let Some((pos, _)) = self.git_subcmd() {
-            pos + 1
-        } else if let Some((pos, _)) = self.effective_command() {
-            pos + 1
-        } else {
-            return false;
-        };
-        self.tokens[start..].iter().any(|t| t == val)
-    }
-
-    /// True if any token AFTER the subcommand/command is a short flag containing `ch`.
-    pub fn has_short_flag(&self, ch: char) -> bool {
         let start = if let Some((pos, _)) = self.git_subcmd() {
             pos + 1
         } else if let Some((pos, _)) = self.effective_command() {
@@ -778,36 +802,58 @@ impl Segment {
         };
         self.tokens[start..]
             .iter()
-            .any(|t| t.starts_with('-') && !t.starts_with("--") && t.contains(ch))
+            .any(|t| matches!(t, Token::Word(w) if w == val))
     }
 
-    /// True if any token starts with `prefix`.
+    /// True if any Word token AFTER the subcommand/command is a short flag containing `ch`.
+    pub fn has_short_flag(&self, ch: char) -> bool {
+        let start = if let Some((pos, _)) = self.git_subcmd() {
+            pos + 1
+        } else if let Some((pos, _)) = self.effective_command() {
+            pos + 1
+        } else {
+            return false;
+        };
+        self.tokens[start..].iter().any(|t| {
+            matches!(t, Token::Word(w) if w.starts_with('-') && !w.starts_with("--") && w.contains(ch))
+        })
+    }
+
+    /// True if any Word token starts with `prefix`.
     pub fn has_token_starting_with(&self, prefix: &str) -> bool {
-        self.tokens.iter().any(|t| t.starts_with(prefix))
+        self.tokens
+            .iter()
+            .any(|t| matches!(t, Token::Word(w) if w.starts_with(prefix)))
     }
 
-    /// True if any token contains `substring`.
+    /// True if any Word token contains `substring`.
     pub fn has_token_containing(&self, substring: &str) -> bool {
-        self.tokens.iter().any(|t| t.contains(substring))
+        self.tokens
+            .iter()
+            .any(|t| matches!(t, Token::Word(w) if w.contains(substring)))
     }
 
-    /// True if any token is a worktree ROOT directory path.
+    /// True if any Word token is a worktree ROOT directory path.
     pub fn targets_worktree_root(&self) -> bool {
         let prefix = "/workspace/.claude/worktrees/";
         self.tokens.iter().any(|t| {
-            if let Some(rest) = t.strip_prefix(prefix) {
-                let trimmed = rest.trim_end_matches('/');
-                !trimmed.is_empty() && !trimmed.contains('/')
+            if let Token::Word(w) = t {
+                if let Some(rest) = w.strip_prefix(prefix) {
+                    let trimmed = rest.trim_end_matches('/');
+                    !trimmed.is_empty() && !trimmed.contains('/')
+                } else {
+                    false
+                }
             } else {
                 false
             }
         })
     }
 
-    /// True if any token is a path under /workspace/ that is NOT under worktrees.
+    /// True if any Word token is a path under /workspace/ that is NOT under worktrees.
     pub fn has_workspace_path(&self) -> bool {
         self.tokens.iter().any(|t| {
-            t.starts_with("/workspace/") && !t.starts_with("/workspace/.claude/worktrees/")
+            matches!(t, Token::Word(w) if w.starts_with("/workspace/") && !w.starts_with("/workspace/.claude/worktrees/"))
         })
     }
 }
@@ -823,19 +869,25 @@ fn parse_segments_inner(cmd: &str, depth: usize) -> Vec<Segment> {
     let (tokens, inner_segment_groups) = tokenize_inner(cmd, depth);
 
     let mut segments: Vec<Segment> = Vec::new();
-    let mut current: Vec<String> = Vec::new();
+    let mut current: Vec<Token> = Vec::new();
 
     for tok in &tokens {
         match tok {
-            Token::Operator(_) => {
-                if !current.is_empty() {
-                    segments.push(Segment {
-                        tokens: std::mem::take(&mut current),
-                    });
+            Token::Operator(op) => {
+                if is_control_operator(op) {
+                    // Control operators split segments
+                    if !current.is_empty() {
+                        segments.push(Segment {
+                            tokens: std::mem::take(&mut current),
+                        });
+                    }
+                } else {
+                    // Redirect operators stay in the segment
+                    current.push(tok.clone());
                 }
             }
-            Token::Word(w) => {
-                current.push(w.clone());
+            Token::Word(_) => {
+                current.push(tok.clone());
             }
         }
     }
@@ -857,20 +909,25 @@ fn parse_segments_inner(cmd: &str, depth: usize) -> Vec<Segment> {
         for seg in &segments {
             if let Some((cmd_pos, cmd)) = seg.effective_command() {
                 if is_shell_command(cmd) {
-                    // Look for -c flag and its argument
-                    if let Some(c_pos) = seg.tokens[cmd_pos + 1..].iter().position(|t| t == "-c") {
+                    // Look for -c flag and its argument (Word tokens only)
+                    if let Some(c_pos) = seg.tokens[cmd_pos + 1..]
+                        .iter()
+                        .position(|t| matches!(t, Token::Word(w) if w == "-c"))
+                    {
                         let arg_pos = cmd_pos + 1 + c_pos + 1;
-                        if arg_pos < seg.tokens.len() {
-                            let inner = &seg.tokens[arg_pos];
+                        if let Some(Token::Word(inner)) = seg.tokens.get(arg_pos) {
                             let inner_segs = parse_segments_inner(inner, depth + 1);
                             extra_segments.extend(inner_segs);
                         }
                     }
                 } else if cmd == "eval" {
-                    // eval concatenates all args and executes as a command
+                    // eval concatenates all Word args and executes as a command
                     let args: Vec<&str> = seg.tokens[cmd_pos + 1..]
                         .iter()
-                        .map(|s| s.as_str())
+                        .filter_map(|t| match t {
+                            Token::Word(w) => Some(w.as_str()),
+                            Token::Operator(_) => None,
+                        })
                         .collect();
                     if !args.is_empty() {
                         let inner = args.join(" ");
@@ -1081,46 +1138,24 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // Redirect check: > /workspace/... — tokenizer-based.
-    // Handles two forms:
-    // 1. Spaced: echo hello > /workspace/file → tokens [echo, hello, >, /workspace/file]
-    // 2. No-space: echo hello>/workspace/file → token [echo, hello>/workspace/file]
-    // Both are quote-aware and heredoc-aware via the tokenizer.
+    // Redirect check: type-safe via Token::Operator.
+    // Only Operator(">") and Operator(">|") are write redirects.
+    // Quoted/escaped > produces Word(">") and is naturally excluded.
+    // No-space redirects (echo>/workspace/file) are properly tokenized as
+    // [Word("echo"), Operator(">"), Word("/workspace/file")].
     for seg in &segments {
         for j in 0..seg.tokens.len() {
-            let tok = &seg.tokens[j];
-            // Form 1: ">" as standalone token, next token is the path
-            if tok == ">" && j + 1 < seg.tokens.len() {
-                let next = &seg.tokens[j + 1];
-                if next.starts_with("/workspace/")
-                    && !next.starts_with("/workspace/.claude/worktrees/")
-                {
-                    return Some(
-                        "Do not modify files directly in /workspace via Bash. Use a worktree."
-                            .to_string(),
-                    );
-                }
-            }
-            // Form 2: "cmd>/workspace/..." embedded in a token (no space)
-            // In shell, echo>/workspace/file is a redirect. The tokenizer treats
-            // > as a word char, so the whole thing is one token.
-            // Guard against false positives from quoted content containing >/workspace/
-            // (e.g., JSON strings): only match when the prefix before > is a simple
-            // shell word (alphanumeric, short) — not structured text with { " : etc.
-            if let Some(pos) = tok.find(">/workspace/") {
-                let is_append = pos > 0 && tok.as_bytes()[pos - 1] == b'>';
-                let prefix = &tok[..pos];
-                let is_simple_redirect = prefix.is_empty()
-                    || prefix
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-');
-                if !is_append && is_simple_redirect {
-                    let path = &tok[pos + 1..];
-                    if !path.starts_with("/workspace/.claude/worktrees/") {
-                        return Some(
-                            "Do not modify files directly in /workspace via Bash. Use a worktree."
-                                .to_string(),
-                        );
+            if let Token::Operator(op) = &seg.tokens[j] {
+                if op == ">" || op == ">|" {
+                    if let Some(Token::Word(path)) = seg.tokens.get(j + 1) {
+                        if path.starts_with("/workspace/")
+                            && !path.starts_with("/workspace/.claude/worktrees/")
+                        {
+                            return Some(
+                                "Do not modify files directly in /workspace via Bash. Use a worktree."
+                                    .to_string(),
+                            );
+                        }
                     }
                 }
             }
@@ -2058,10 +2093,19 @@ mod tests {
     // Layer 2: Segment Tests
     // ================================================================
 
+    /// Extract Word token strings from segments (filters out Operator tokens).
     fn segs(cmd: &str) -> Vec<Vec<String>> {
         parse_segments(cmd)
             .iter()
-            .map(|s| s.tokens.clone())
+            .map(|s| {
+                s.tokens
+                    .iter()
+                    .filter_map(|t| match t {
+                        Token::Word(w) => Some(w.clone()),
+                        Token::Operator(_) => None,
+                    })
+                    .collect()
+            })
             .collect()
     }
 
@@ -2144,11 +2188,52 @@ mod tests {
         assert!(segments.iter().any(|s| s.is_git("push")));
     }
 
+    // --- 2.5 Redirect operators stay in segments ---
+
+    #[test]
+    fn l2_redirect_stays_in_segment() {
+        let segments = parse_segments("echo > /tmp/file");
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].tokens.len(), 3); // Word, Operator, Word
+    }
+
+    #[test]
+    fn l2_redirect_with_control() {
+        let segments = parse_segments("echo > /tmp && cat < /other");
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].tokens.len(), 3); // echo, >, /tmp
+        assert_eq!(segments[1].tokens.len(), 3); // cat, <, /other
+    }
+
+    #[test]
+    fn l2_redirect_nospace_segment() {
+        let segments = parse_segments("echo>/tmp/file");
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].tokens.len(), 3); // echo, >, /tmp/file
+    }
+
+    #[test]
+    fn l2_redirect_multiple_in_segment() {
+        let segments = parse_segments("cmd > /tmp/out 2>&1");
+        assert_eq!(segments.len(), 1);
+        // cmd, >, /tmp/out, 2, >&, 1
+        assert_eq!(segments[0].tokens.len(), 6);
+    }
+
+    #[test]
+    fn l2_redirect_does_not_affect_word_segs() {
+        // segs() filters out operators, so redirect operators don't appear
+        assert_eq!(
+            segs("echo > /tmp/file && cat"),
+            vec![vec!["echo", "/tmp/file"], vec!["cat"]]
+        );
+    }
+
     // --- 2b.1 effective_command ---
 
     fn ec(tokens: &[&str]) -> Option<(usize, String)> {
         let seg = Segment {
-            tokens: tokens.iter().map(|s| s.to_string()).collect(),
+            tokens: tokens.iter().map(|s| Token::Word(s.to_string())).collect(),
         };
         seg.effective_command().map(|(i, s)| (i, s.to_string()))
     }
@@ -2240,7 +2325,7 @@ mod tests {
 
     fn gs(tokens: &[&str]) -> Option<(usize, String)> {
         let seg = Segment {
-            tokens: tokens.iter().map(|s| s.to_string()).collect(),
+            tokens: tokens.iter().map(|s| Token::Word(s.to_string())).collect(),
         };
         seg.git_subcmd().map(|(i, s)| (i, s.to_string()))
     }
@@ -2341,7 +2426,7 @@ mod tests {
 
     fn mk_seg(tokens: &[&str]) -> Segment {
         Segment {
-            tokens: tokens.iter().map(|s| s.to_string()).collect(),
+            tokens: tokens.iter().map(|s| Token::Word(s.to_string())).collect(),
         }
     }
 
@@ -3776,13 +3861,124 @@ mod tests {
     }
 
     #[test]
-    fn l3_redirect_escaped_gt_blocks() {
-        // \> is escaped in bash (not a redirect), but tokenizer strips the
-        // backslash producing a bare ">" token. The check sees ">" + path and blocks.
-        // Accepted: echo \> /workspace/file is not an agent pattern, and this
-        // false positive is in the safe direction (blocks, doesn't bypass).
+    fn l3_redirect_escaped_gt_allow() {
+        // \> is escaped in bash — NOT a redirect. The tokenizer produces
+        // Word(">") (not Operator(">")), so the type-safe check correctly
+        // allows it. This was a false positive before the redirect operator refactor.
         let v = json!({"tool_input": {"command": "echo \\> /workspace/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_clobber_block() {
+        // >| is a write redirect (clobber) — should block
+        let v = json!({"tool_input": {"command": "echo >| /workspace/file"}});
         assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_fd_dup_allow() {
+        // >&2 is fd duplication, not a path redirect
+        let v = json!({"tool_input": {"command": "echo >&2"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_input_allow() {
+        // < reads from a file, doesn't write — allow
+        let v = json!({"tool_input": {"command": "cat < /workspace/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_quoted_word_nospace_block() {
+        // "echo">/workspace/file — echo is quoted but > is unquoted operator
+        let v = json!({"tool_input": {"command": "\"echo\">/workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_double_quoted_gt_nospace_allow() {
+        // echo">"path — the > is inside quotes, not an operator
+        let v = json!({"tool_input": {"command": "echo\">\"path"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Bash ground truth: redirect classification ---
+    // These tests verify our tokenizer matches bash behavior for every
+    // edge case discovered during the first-principles audit.
+
+    #[test]
+    fn l1_bash_gt_spaced_redirect_is_operator() {
+        // Bash: echo hello > /tmp/file → redirect
+        let tokens = tok("echo hello > /tmp/file");
+        assert!(tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_nospace_splits() {
+        // Bash: echo>/tmp/file → [echo] [>] [/tmp/file]
+        let tokens = tok("echo>/tmp/file");
+        assert_eq!(tokens, vec![w("echo"), op(">"), w("/tmp/file")]);
+    }
+
+    #[test]
+    fn l1_bash_gt_escaped_is_word() {
+        // Bash: echo \> /tmp/file → prints "> /tmp/file", no redirect
+        let tokens = tok("echo \\> /tmp/file");
+        assert!(tokens.contains(&w(">")));
+        assert!(!tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_dquoted_is_word() {
+        // Bash: echo ">" /tmp/file → prints "> /tmp/file", no redirect
+        let tokens = tok("echo \">\" /tmp/file");
+        assert!(tokens.contains(&w(">")));
+        assert!(!tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_squoted_is_word() {
+        // Bash: echo '>' /tmp/file → no redirect
+        let tokens = tok("echo '>' /tmp/file");
+        assert!(tokens.contains(&w(">")));
+        assert!(!tokens.contains(&op(">")));
+    }
+
+    #[test]
+    fn l1_bash_gt_fd_redirect_splits() {
+        // Bash: echo 2>/dev/null → fd 2 redirect
+        let tokens = tok("echo 2>/dev/null");
+        assert_eq!(tokens, vec![w("echo"), w("2"), op(">"), w("/dev/null")]);
+    }
+
+    #[test]
+    fn l1_bash_gt_fd_escaped_no_split() {
+        // Bash: echo 2\>/dev/null → prints "2>/dev/null"
+        let tokens = tok("echo 2\\>/dev/null");
+        assert_eq!(tokens, vec![w("echo"), w("2>/dev/null")]);
+    }
+
+    #[test]
+    fn l1_bash_gt_clobber_is_operator() {
+        // Bash: echo >| /tmp/file → clobber redirect
+        let tokens = tok("echo >| /tmp/file");
+        assert!(tokens.contains(&op(">|")));
+    }
+
+    #[test]
+    fn l1_bash_gt_dup_is_operator() {
+        // Bash: echo >&2 → fd dup redirect
+        let tokens = tok("echo >&2");
+        assert!(tokens.contains(&op(">&")));
+    }
+
+    #[test]
+    fn l1_bash_gt_quoted_cmd_nospace() {
+        // Bash: "echo">/tmp/file → echo is command, > is redirect
+        let tokens = tok("\"echo\">/tmp/file");
+        assert_eq!(tokens, vec![w("echo"), op(">"), w("/tmp/file")]);
     }
 
     // --- Heredoc: strict delimiter matching ---

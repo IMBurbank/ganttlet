@@ -168,16 +168,15 @@ ${PR_TEST_PLAN}"
   ok "=== PR created and code review triggered ==="
 }
 
-# Clean up all branches after a squash merge is confirmed.
-# Call this after `gh pr merge --squash` has completed.
-# Handles the squash-merge orphan problem: git branch -d refuses because
-# squash commits have no parent link to the original branch.
+# Clean up all branches after a squash merge.
+# Caller must verify the PR is merged before invoking (step 1 of cleanup order).
+# delete_merged_branch() provides a safety net: it compares tree content and
+# refuses to delete branches with genuinely unmerged changes.
 #
 # Usage: post_merge_cleanup
 post_merge_cleanup() {
   log "=== Post-merge branch cleanup ==="
 
-  # Verify the PR was actually merged
   local pr_branch="$MERGE_TARGET"
   git fetch origin main --quiet 2>/dev/null || true
 

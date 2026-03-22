@@ -23,9 +23,11 @@ delete_merged_branch() {
     return 0  # already gone
   fi
 
-  # Compare tree content (files), not commit history
+  # Compare tree content (files), not commit history.
+  # Two-dot diff: what does branch have that target doesn't?
+  # (Three-dot would compare from merge-base, which is wrong when target has advanced.)
   local tree_diff
-  tree_diff=$(git diff "${target}...${branch}" --stat 2>/dev/null || echo "ERROR")
+  tree_diff=$(git diff "${target}..${branch}" --stat 2>/dev/null || echo "ERROR")
 
   if [[ "$tree_diff" == "ERROR" ]]; then
     warn "Could not compare ${branch} to ${target} — skipping deletion"
@@ -35,8 +37,11 @@ delete_merged_branch() {
   if [[ -z "$tree_diff" ]]; then
     # Same tree content — squash merged. Fast-forward branch ref then delete.
     git branch -f "$branch" "$target" 2>/dev/null
-    git branch -d "$branch" 2>/dev/null
-    return 0
+    if git branch -d "$branch" 2>/dev/null; then
+      return 0
+    fi
+    warn "Branch ${branch} content is merged but branch -d still failed (may be checked out elsewhere)"
+    return 1
   fi
 
   # Genuinely unmerged — refuse

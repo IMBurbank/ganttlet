@@ -90,7 +90,12 @@ test_block  "Fail-closed on bad JSON"         bash 'not-json'
 echo "--- Destructive git command guard (bash mode) ---"
 test_block  "Block git reset --hard HEAD~3"     bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
 test_block  "Block git reset --hard (bare)"     bash '{"tool_input":{"command":"git reset --hard"}}'
-test_allow  "Allow git reset --hard origin/main" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+# Check 6a is CWD-dependent: reset --hard origin/* blocked in /workspace, allowed in worktrees.
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Allow git reset --hard origin/main (worktree CWD)" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+else
+  test_block  "Block git reset --hard origin/main (/workspace CWD)" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+fi
 test_allow  "Allow git reset --soft"            bash '{"tool_input":{"command":"git reset --soft HEAD~1"}}'
 test_allow  "Allow git reset (no flag)"         bash '{"tool_input":{"command":"git reset HEAD~1"}}'
 test_block  "Block git clean -fd"               bash '{"tool_input":{"command":"git clean -fd"}}'
@@ -138,8 +143,14 @@ done
 echo "--- Agent lifecycle: post-merge cleanup ---"
 
 # After a squash merge, agents need to sync their worktree with origin/main
-test_allow  "Lifecycle: git reset --hard origin/main (post-merge sync)" \
-            bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+# Check 6a blocks this in /workspace but allows in worktrees
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Lifecycle: git reset --hard origin/main (post-merge sync)" \
+              bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+else
+  test_block  "Lifecycle: git reset --hard origin/main blocked in /workspace" \
+              bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+fi
 
 # After removing a worktree directory, agents run prune to clean git references
 test_allow  "Lifecycle: git worktree prune (clean stale refs)" \

@@ -100,15 +100,18 @@ const SEED_TASKS: string[][] = [
 ];
 
 export async function createTestSheet(token: string, title: string): Promise<string> {
-  const res = await fetch(SHEETS_API, {
+  // Use Drive API to create — SAs in consumer GCP projects can create files
+  // via Drive API with drive.file scope, but Sheets API spreadsheets.create
+  // may return 403 for SAs without a Drive "home" (non-Workspace projects).
+  const res = await fetch(DRIVE_API, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      properties: { title },
-      sheets: [{ properties: { title: 'Sheet1' } }],
+      name: title,
+      mimeType: 'application/vnd.google-apps.spreadsheet',
     }),
   });
   if (!res.ok) {
@@ -116,7 +119,7 @@ export async function createTestSheet(token: string, title: string): Promise<str
     throw new Error(`Failed to create sheet (${res.status}): ${text}`);
   }
   const data = await res.json();
-  return data.spreadsheetId;
+  return data.id;
 }
 
 export async function seedTestData(token: string, sheetId: string): Promise<void> {

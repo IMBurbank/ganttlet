@@ -22,6 +22,17 @@ run_guard() {
   printf '%s' "$json" | "$GUARD" "$mode" 2>/dev/null || true
 }
 
+# Resolve the main workspace root (parent of .git common dir).
+# In a worktree this is /workspace; in the main checkout it's the repo root.
+WORKSPACE_ROOT="$(dirname "$(git rev-parse --git-common-dir)")"
+run_guard_workspace() {
+  local mode="$1"
+  local json="$2"
+  local abs_guard
+  abs_guard="$(pwd)/$GUARD"
+  printf '%s' "$json" | (cd "$WORKSPACE_ROOT" && "$abs_guard" "$mode" 2>/dev/null) || true
+}
+
 test_block() {
   local desc="$1" mode="$2" json="$3"
   local out
@@ -31,6 +42,19 @@ test_block() {
     PASS=$((PASS + 1))
   else
     printf '  FAIL: %s (expected block, got: %s)\n' "$desc" "$out"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+test_block_workspace() {
+  local desc="$1" mode="$2" json="$3"
+  local out
+  out=$(run_guard_workspace "$mode" "$json")
+  if printf '%s' "$out" | grep -q '"decision":"block"'; then
+    printf '  PASS: %s\n' "$desc"
+    PASS=$((PASS + 1))
+  else
+    printf '  FAIL: %s (expected block from /workspace, got: %s)\n' "$desc" "$out"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -101,13 +125,17 @@ else
 fi
 test_allow  "Allow git reset --soft"            bash '{"tool_input":{"command":"git reset --soft HEAD~1"}}'
 test_allow  "Allow git reset (no flag)"         bash '{"tool_input":{"command":"git reset HEAD~1"}}'
-test_block  "Block git clean -fd"               bash '{"tool_input":{"command":"git clean -fd"}}'
-test_block  "Block git clean --force"           bash '{"tool_input":{"command":"git clean --force"}}'
-test_allow  "Allow git clean -n (dry run)"      bash '{"tool_input":{"command":"git clean -n"}}'
-test_block  "Block git branch -D"               bash '{"tool_input":{"command":"git branch -D feature-branch"}}'
-test_allow  "Allow git branch -d (safe delete)" bash '{"tool_input":{"command":"git branch -d feature-branch"}}'
-test_allow  "Allow git branch piped to grep -D" bash '{"tool_input":{"command":"git branch -a | grep -D 3 pattern"}}'
-test_block  "Block git clean -xfd (combined)"   bash '{"tool_input":{"command":"git clean -xfd"}}'
+# clean -f and branch -D are CWD-dependent: blocked in /workspace, allowed in worktrees.
+# Use test_block_workspace to test with CWD=/workspace regardless of where tests run.
+test_block_workspace  "Block git clean -fd (/workspace)"       bash '{"tool_input":{"command":"git clean -fd"}}'
+test_block_workspace  "Block git clean --force (/workspace)"   bash '{"tool_input":{"command":"git clean --force"}}'
+test_allow  "Allow git clean -n (dry run)"                     bash '{"tool_input":{"command":"git clean -n"}}'
+test_allow  "Allow git clean -fd (worktree)"                   bash '{"tool_input":{"command":"git clean -fd"}}'
+test_block_workspace  "Block git branch -D (/workspace)"       bash '{"tool_input":{"command":"git branch -D feature-branch"}}'
+test_allow  "Allow git branch -D (worktree)"                   bash '{"tool_input":{"command":"git branch -D feature-branch"}}'
+test_allow  "Allow git branch -d (safe delete)"                bash '{"tool_input":{"command":"git branch -d feature-branch"}}'
+test_allow  "Allow git branch piped to grep -D"                bash '{"tool_input":{"command":"git branch -a | grep -D 3 pattern"}}'
+test_block_workspace  "Block git clean -xfd (/workspace)"      bash '{"tool_input":{"command":"git clean -xfd"}}'
 
 # --- Bash: worktree removal guard ---
 echo "--- Worktree removal guard (bash mode) ---"
@@ -170,9 +198,9 @@ test_allow  "Lifecycle: git branch -d merged-branch (safe delete)" \
 test_allow  "Lifecycle: git push origin --delete branch" \
             bash '{"tool_input":{"command":"git push origin --delete feature/my-merged-branch"}}'
 
-# But agents must NOT force-delete unmerged branches
-test_block  "Lifecycle: git branch -D blocks (force delete)" \
-            bash '{"tool_input":{"command":"git branch -D feature/unmerged-work"}}'
+# branch -D blocked in /workspace, allowed in worktrees (squash-merge cleanup)
+test_block_workspace "Lifecycle: git branch -D blocked in /workspace" \
+                     bash '{"tool_input":{"command":"git branch -D feature/unmerged-work"}}'
 
 # And must NOT reset to relative refs (loses commits)
 test_block  "Lifecycle: git reset --hard HEAD~3 blocks (loses commits)" \

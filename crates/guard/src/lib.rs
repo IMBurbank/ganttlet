@@ -46,7 +46,19 @@ pub fn tokenize(cmd: &str) -> (Vec<Token>, Vec<Vec<Segment>>) {
 const MAX_SUBST_DEPTH: usize = 3;
 
 /// Known command prefixes that wrap another command.
-const COMMAND_PREFIXES: &[&str] = &["sudo", "env", "command", "nice", "nohup", "time"];
+/// `exec` replaces the process with the command — semantically a prefix.
+const COMMAND_PREFIXES: &[&str] = &["sudo", "env", "command", "nice", "nohup", "time", "exec"];
+
+/// Shell interpreters whose -c argument should be recursively parsed.
+const SHELL_COMMANDS: &[&str] = &["bash", "sh", "dash", "zsh", "ksh"];
+
+/// True if a token is a shell interpreter (handles full paths like /bin/bash).
+fn is_shell_command(token: &str) -> bool {
+    SHELL_COMMANDS.contains(&token)
+        || SHELL_COMMANDS
+            .iter()
+            .any(|s| token.ends_with(&format!("/{}", s)))
+}
 
 /// Git global flags that consume the NEXT token as a value.
 const GIT_VALUE_FLAGS: &[&str] = &[
@@ -613,6 +625,14 @@ impl Segment {
                 continue;
             }
 
+            // Skip brace group opener. In POSIX, { is a reserved word that
+            // groups commands but doesn't change what command executes.
+            // { git push; } → the effective command is git, not {.
+            if tok == "{" || tok == "}" {
+                i += 1;
+                continue;
+            }
+
             // Skip known command prefixes and their flag-like arguments.
             // After a prefix, skip tokens starting with - (flags) and assignments (=).
             // The first non-flag, non-assignment token is the command.
@@ -770,6 +790,41 @@ fn parse_segments_inner(cmd: &str, depth: usize) -> Vec<Segment> {
     // Add segments from command substitutions
     for group in inner_segment_groups {
         segments.extend(group);
+    }
+
+    // Recursively parse shell -c arguments and eval arguments.
+    // bash -c "git push origin main" → the string arg is a shell command.
+    // eval "git push origin main" → the arg is a shell command.
+    // This extends the same recursive parsing used for $() and backticks.
+    if depth < MAX_SUBST_DEPTH {
+        let mut extra_segments: Vec<Segment> = Vec::new();
+        for seg in &segments {
+            if let Some((cmd_pos, cmd)) = seg.effective_command() {
+                if is_shell_command(cmd) {
+                    // Look for -c flag and its argument
+                    if let Some(c_pos) = seg.tokens[cmd_pos + 1..].iter().position(|t| t == "-c") {
+                        let arg_pos = cmd_pos + 1 + c_pos + 1;
+                        if arg_pos < seg.tokens.len() {
+                            let inner = &seg.tokens[arg_pos];
+                            let inner_segs = parse_segments_inner(inner, depth + 1);
+                            extra_segments.extend(inner_segs);
+                        }
+                    }
+                } else if cmd == "eval" {
+                    // eval concatenates all args and executes as a command
+                    let args: Vec<&str> = seg.tokens[cmd_pos + 1..]
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect();
+                    if !args.is_empty() {
+                        let inner = args.join(" ");
+                        let inner_segs = parse_segments_inner(&inner, depth + 1);
+                        extra_segments.extend(inner_segs);
+                    }
+                }
+            }
+        }
+        segments.extend(extra_segments);
     }
 
     segments
@@ -970,16 +1025,16 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         }
     }
 
-    // Redirect check: > /workspace/... — now tokenizer-based.
-    // The tokenizer treats > as a Word token (not an operator). Check if any
-    // segment has a ">" token followed by a workspace path token.
-    // This is automatically quote-aware and heredoc-aware because the tokenizer
-    // strips quoted content and heredoc bodies before producing tokens.
+    // Redirect check: > /workspace/... — tokenizer-based.
+    // Handles two forms:
+    // 1. Spaced: echo hello > /workspace/file → tokens [echo, hello, >, /workspace/file]
+    // 2. No-space: echo hello>/workspace/file → token [echo, hello>/workspace/file]
+    // Both are quote-aware and heredoc-aware via the tokenizer.
     for seg in &segments {
-        for j in 0..seg.tokens.len().saturating_sub(1) {
+        for j in 0..seg.tokens.len() {
             let tok = &seg.tokens[j];
-            // Match ">" but not ">>" (append is allowed)
-            if tok == ">" {
+            // Form 1: ">" as standalone token, next token is the path
+            if tok == ">" && j + 1 < seg.tokens.len() {
                 let next = &seg.tokens[j + 1];
                 if next.starts_with("/workspace/")
                     && !next.starts_with("/workspace/.claude/worktrees/")
@@ -988,6 +1043,29 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                         "Do not modify files directly in /workspace via Bash. Use a worktree."
                             .to_string(),
                     );
+                }
+            }
+            // Form 2: "cmd>/workspace/..." embedded in a token (no space)
+            // In shell, echo>/workspace/file is a redirect. The tokenizer treats
+            // > as a word char, so the whole thing is one token.
+            // Guard against false positives from quoted content containing >/workspace/
+            // (e.g., JSON strings): only match when the prefix before > is a simple
+            // shell word (alphanumeric, short) — not structured text with { " : etc.
+            if let Some(pos) = tok.find(">/workspace/") {
+                let is_append = pos > 0 && tok.as_bytes()[pos - 1] == b'>';
+                let prefix = &tok[..pos];
+                let is_simple_redirect = prefix.is_empty()
+                    || prefix
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-');
+                if !is_append && is_simple_redirect {
+                    let path = &tok[pos + 1..];
+                    if !path.starts_with("/workspace/.claude/worktrees/") {
+                        return Some(
+                            "Do not modify files directly in /workspace via Bash. Use a worktree."
+                                .to_string(),
+                        );
+                    }
                 }
             }
         }
@@ -3602,11 +3680,10 @@ mod tests {
     // --- Brace group known gap ---
 
     #[test]
-    fn l3_brace_group_known_gap() {
-        // { git push origin main; } — brace group not handled (known gap)
+    fn l3_brace_group_blocked() {
+        // { git push origin main; } — brace group: { is skipped, git is found
         let v = json!({"tool_input": {"command": "{ git push origin main; }"}});
-        // effective_command returns "{" which doesn't match git → fail-open
-        assert!(check_bash(&v).is_none());
+        assert!(check_bash(&v).is_some());
     }
 
     // --- is_var_assignment edge cases ---
@@ -3672,19 +3749,166 @@ mod tests {
         assert!(check_bash(&v).is_none());
     }
 
-    // --- Redirect: > not immediately followed by workspace path ---
+    // --- No-space redirects (BLOCK) ---
 
     #[test]
-    fn l3_redirect_gt_nospace_workspace() {
-        // >/workspace/file (no space) — tokenizer produces ">/workspace/file" as one word
-        // This is NOT detected by the token-based check (single token, not > + path)
-        // but this is the correct behavior: >/workspace is unusual syntax and the
-        // tokenizer's word grouping reflects shell behavior
-        let v = json!({"tool_input": {"command": "echo hello >/workspace/file"}});
-        // The tokenizer produces [echo, hello, >/workspace/file] — one token
-        // This won't match the ">" + next-token pattern, so it's allowed.
-        // In practice, agents always use spaces: > /workspace/file
-        // If this becomes a real bypass vector, we can check tokens starting with ">"
-        let _ = check_bash(&v); // document behavior, don't assert specific result
+    fn l3_redirect_nospace_block() {
+        let v = json!({"tool_input": {"command": "echo hello>/workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_nospace_cat_block() {
+        let v = json!({"tool_input": {"command": "cat>/workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_nospace_git_status_block() {
+        let v = json!({"tool_input": {"command": "git status>/workspace/log.txt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_nospace_append_allow() {
+        // >> is append, allowed
+        let v = json!({"tool_input": {"command": "echo hello>>/workspace/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_nospace_worktree_allow() {
+        let v =
+            json!({"tool_input": {"command": "echo hello>/workspace/.claude/worktrees/wt/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_nospace_in_json_allow() {
+        // >/workspace/ inside a JSON string (from quoting) is NOT a redirect
+        let cmd = r#"echo '{"command":"echo>/workspace/file"}'"#;
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_fd_nospace_block() {
+        // fd redirect: 2>/workspace/file
+        let v = json!({"tool_input": {"command": "cmd 2>/workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    // --- bash -c / sh -c / eval (BLOCK) ---
+
+    #[test]
+    fn l3_bash_c_push_block() {
+        let v = json!({"tool_input": {"command": "bash -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sh_c_push_block() {
+        let v = json!({"tool_input": {"command": "sh -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_bash_c_clean_block() {
+        let v = json!({"tool_input": {"command": "bash -c \"echo hi && git clean -fd\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sh_c_branch_d_block() {
+        let v = json!({"tool_input": {"command": "sh -c \"git branch -D mybranch\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_fullpath_bash_c_block() {
+        let v = json!({"tool_input": {"command": "/bin/bash -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_bash_c_multi_cmd_block() {
+        let v = json!({"tool_input": {"command": "bash -c \"echo hi; git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_eval_push_block() {
+        let v = json!({"tool_input": {"command": "eval \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_eval_reset_block() {
+        let v = json!({"tool_input": {"command": "eval git reset --hard HEAD~3"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_bash_c_safe_allow() {
+        let v = json!({"tool_input": {"command": "bash -c \"echo hello\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_bash_c_push_feature_allow() {
+        let v = json!({"tool_input": {"command": "bash -c \"git push origin feature\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_sudo_bash_c_push_block() {
+        let v = json!({"tool_input": {"command": "sudo bash -c \"git push origin main\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    // --- exec (BLOCK) ---
+
+    #[test]
+    fn l3_exec_push_block() {
+        let v = json!({"tool_input": {"command": "exec git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_exec_clean_block() {
+        let v = json!({"tool_input": {"command": "exec git clean -fd"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_exec_safe_allow() {
+        let v = json!({"tool_input": {"command": "exec git status"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Brace groups (BLOCK) ---
+
+    #[test]
+    fn l3_brace_clean_block() {
+        let v = json!({"tool_input": {"command": "{ git clean -fd; }"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_brace_clean_and_block() {
+        let v = json!({"tool_input": {"command": "{ git clean -fd && echo done; }"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_brace_safe_allow() {
+        let v = json!({"tool_input": {"command": "{ echo hello; }"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_nested_brace_block() {
+        let v = json!({"tool_input": {"command": "{ { git push origin main; }; }"}});
+        assert!(check_bash(&v).is_some());
     }
 }

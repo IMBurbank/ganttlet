@@ -20,7 +20,8 @@ async function globalSetup(_config: FullConfig) {
   const writerKey = process.env.GCP_SA_KEY_WRITER1_DEV;
   if (!writerKey) return;
 
-  console.log(`[E2E] Resetting test sheet to seed state: ${sheetId}`);
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}`;
+  console.log(`[E2E] Resetting test sheet to seed state: ${url}`);
   const token = await getAccessToken(writerKey);
   await resetTestSheet(token, sheetId);
   console.log('[E2E] Sheet reset complete — 3 seed tasks written');

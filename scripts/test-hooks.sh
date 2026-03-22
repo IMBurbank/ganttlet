@@ -60,10 +60,13 @@ test_block  "Fail-closed on empty input" edit ''
 echo "--- Workspace isolation guard (edit mode) ---"
 test_block  "Block edit to /workspace/src/foo.ts"           edit '{"tool_input":{"file_path":"/workspace/src/foo.ts"}}'
 # Check 3 (CWD enforcement) only blocks when CWD is /workspace.
-# This test runs from wherever test-hooks.sh is invoked — from a worktree
-# the edit is allowed (agent editing its own worktree), from /workspace
-# it would be blocked (agent should have entered worktree first).
-test_allow  "Allow edit to worktree file"                   edit '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/foo.ts"}}'
+# From a worktree: allowed (agent editing its own worktree).
+# From /workspace: blocked (agent should have entered worktree first).
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Allow edit to worktree file (worktree CWD)"  edit '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/foo.ts"}}'
+else
+  test_block  "Block edit to worktree file (/workspace CWD)" edit '{"tool_input":{"file_path":"/workspace/.claude/worktrees/test/src/foo.ts"}}'
+fi
 test_allow  "Allow edit to file outside /workspace/"        edit '{"tool_input":{"file_path":"/home/user/project/src/App.tsx"}}'
 
 # --- Bash: push-to-main guard ---
@@ -73,9 +76,15 @@ test_allow  "Allow git push origin feature"   bash '{"tool_input":{"command":"gi
 test_block  "Fail-closed on bad JSON"         bash 'not-json'
 
 # --- Bash: checkout/switch guard ---
+# Check 5 is CWD-dependent: blocked in /workspace, allowed in worktrees.
 echo "--- Checkout/switch guard (bash mode) ---"
-test_block  "Block git checkout main"         bash '{"tool_input":{"command":"git checkout main"}}'
-test_block  "Block git switch feature"        bash '{"tool_input":{"command":"git switch feature"}}'
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Allow git checkout in worktree"  bash '{"tool_input":{"command":"git checkout main"}}'
+  test_allow  "Allow git switch in worktree"    bash '{"tool_input":{"command":"git switch feature"}}'
+else
+  test_block  "Block git checkout main"         bash '{"tool_input":{"command":"git checkout main"}}'
+  test_block  "Block git switch feature"        bash '{"tool_input":{"command":"git switch feature"}}'
+fi
 test_allow  "Allow git worktree add"          bash '{"tool_input":{"command":"git worktree add /tmp/test -b branch"}}'
 test_allow  "Allow git checkout -- file"      bash '{"tool_input":{"command":"git checkout -- src/file.ts"}}'
 test_block  "Fail-closed on bad JSON"         bash 'not-json'
@@ -84,7 +93,12 @@ test_block  "Fail-closed on bad JSON"         bash 'not-json'
 echo "--- Destructive git command guard (bash mode) ---"
 test_block  "Block git reset --hard HEAD~3"     bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
 test_block  "Block git reset --hard (bare)"     bash '{"tool_input":{"command":"git reset --hard"}}'
-test_allow  "Allow git reset --hard origin/main" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+# Check 6a is CWD-dependent: reset --hard origin/* blocked in /workspace, allowed in worktrees.
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Allow git reset --hard origin/main (worktree CWD)" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+else
+  test_block  "Block git reset --hard origin/main (/workspace CWD)" bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+fi
 test_allow  "Allow git reset --soft"            bash '{"tool_input":{"command":"git reset --soft HEAD~1"}}'
 test_allow  "Allow git reset (no flag)"         bash '{"tool_input":{"command":"git reset HEAD~1"}}'
 test_block  "Block git clean -fd"               bash '{"tool_input":{"command":"git clean -fd"}}'
@@ -132,8 +146,14 @@ done
 echo "--- Agent lifecycle: post-merge cleanup ---"
 
 # After a squash merge, agents need to sync their worktree with origin/main
-test_allow  "Lifecycle: git reset --hard origin/main (post-merge sync)" \
-            bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+# Check 6a blocks this in /workspace but allows in worktrees
+if [[ "$(pwd)" == /workspace/.claude/worktrees/* ]]; then
+  test_allow  "Lifecycle: git reset --hard origin/main (post-merge sync)" \
+              bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+else
+  test_block  "Lifecycle: git reset --hard origin/main blocked in /workspace" \
+              bash '{"tool_input":{"command":"git reset --hard origin/main"}}'
+fi
 
 # After removing a worktree directory, agents run prune to clean git references
 test_allow  "Lifecycle: git worktree prune (clean stale refs)" \
@@ -154,6 +174,50 @@ test_block  "Lifecycle: git branch -D blocks (force delete)" \
 # And must NOT reset to relative refs (loses commits)
 test_block  "Lifecycle: git reset --hard HEAD~3 blocks (loses commits)" \
             bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'
+
+echo "--- Worktree cleanup guard ---"
+
+# Block rm -rf on worktree root directories
+test_block  "Cleanup: rm -rf worktree root blocked" \
+            bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-worktree"}}'
+
+# Allow rm -rf on subdirectories within worktrees
+test_allow  "Cleanup: rm -rf worktree subdir allowed" \
+            bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-wt/node_modules"}}'
+
+# Allow rm on individual files (no -r/-f)
+test_allow  "Cleanup: rm single file in worktree allowed" \
+            bash '{"tool_input":{"command":"rm /workspace/.claude/worktrees/test/temp.txt"}}'
+
+# Block rm -rf with trailing slash
+test_block  "Cleanup: rm -rf worktree root with trailing slash blocked" \
+            bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-worktree/"}}'
+
+# Allow rm -f on single files (has -f flag but not a root dir)
+test_allow  "Cleanup: rm -f single file in worktree allowed" \
+            bash '{"tool_input":{"command":"rm -f /workspace/.claude/worktrees/my-wt/temp.txt"}}'
+
+# Allow cp -r from worktree (has -r flag + worktree path but not rm)
+test_allow  "Cleanup: cp -r from worktree allowed" \
+            bash '{"tool_input":{"command":"cp -r /workspace/.claude/worktrees/my-wt/src /tmp/backup"}}'
+
+echo "--- Squash-merge cleanup commands ---"
+
+# branch -f is used to fast-forward squash-merged branches before -d
+test_allow  "Squash cleanup: git branch -f allowed" \
+            bash '{"tool_input":{"command":"git branch -f feature-branch origin/main"}}'
+
+# pull is allowed (safe fast-forward)
+test_allow  "Squash cleanup: git pull allowed" \
+            bash '{"tool_input":{"command":"git pull origin main"}}'
+
+# fetch is always allowed
+test_allow  "Squash cleanup: git fetch allowed" \
+            bash '{"tool_input":{"command":"git fetch origin main"}}'
+
+# merge is allowed (pipeline merges branches)
+test_allow  "Squash cleanup: git merge allowed" \
+            bash '{"tool_input":{"command":"git merge feature/branch --no-edit"}}'
 
 echo "--- Agent lifecycle: fresh clone (no binary) ---"
 # When guard binary doesn't exist, hooks should fail-open (not brick the session)

@@ -13,6 +13,7 @@ description: "Use when modifying launch-phase.sh, creating phase prompts, debugg
 - **Retry-on-crash**: Agents that crash are restarted automatically
 - **Validation**: Post-merge validation agent runs fix-and-retry cycles
 - **Cleanup command**: `./scripts/launch-phase.sh <config> cleanup` removes all phase worktrees/branches
+- **Post-merge cleanup**: `./scripts/launch-phase.sh <config> post-merge-cleanup` deletes local+remote branches after squash merge (handles the squash-merge orphan problem where `git branch -d` refuses)
 
 See `docs/multi-agent-guide.md` for full command reference and usage examples.
 
@@ -103,6 +104,16 @@ directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 - **Merge/validate/PR**: Still use `launch-phase.sh merge N` / `validate` / `create-pr`. Only agent launching is replaced.
 
 See `docs/plans/tmux-supervisor.md` for the full design and test results.
+
+## SDK Agent Runner
+When `SDK_RUNNER=1` is set, `run_agent()` uses the TypeScript SDK runner (`scripts/sdk/agent-runner.ts`) instead of `claude -p`.
+
+- **Policy registry**: `default` (single attempt) and `reviewer` (3-attempt fallback: sonnet 30 turns → resume 5 turns → haiku fresh 5 turns)
+- **Naming convention**: Group IDs ending in `-accuracy`, `-structure`, `-scope`, `-history`, `-adversarial` auto-select `--policy reviewer`, `--agent skill-reviewer`, and the correct `--output-file`
+- **`--agent` flag**: Loads agent definitions from `.claude/agents/*.md` via `settingSources: ['project']`
+- **Differs from `claude -p`**: Programmatic permissions via `allowedTools`, attempt-based fallback with output validation, cumulative budget tracking across attempts
+
+See `docs/multi-agent-guide.md` § SDK Agent Runner for full CLI flags and details.
 
 ## Context Conservation
 <!-- Moved from root CLAUDE.md -->

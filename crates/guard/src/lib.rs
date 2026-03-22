@@ -61,8 +61,26 @@ fn git_subcmd_pos(ts: &[&str], subcmd: &str) -> Option<usize> {
 }
 
 /// True if `cmd` has a top-level "git <subcmd>" invocation.
+/// Checks each shell segment (split on |, &&, ||, ;) and only matches
+/// when `git` is the first token of a segment. This prevents false positives
+/// from commands like `gh pr merge --body "git reset --hard"` where git
+/// appears inside a quoted argument, not as the actual command.
 fn has_git_subcmd(cmd: &str, subcmd: &str) -> bool {
-    git_subcmd_pos(&tokens(cmd), subcmd).is_some()
+    let segments: Vec<&str> = cmd
+        .split(&['|', '&', ';'][..])
+        .filter(|s| !s.is_empty())
+        .collect();
+    for segment in &segments {
+        let ts: Vec<&str> = segment.split_whitespace().collect();
+        if ts.first() == Some(&"git") {
+            if let Some(sub) = ts.get(1) {
+                if *sub == subcmd {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// True if `s` contains `word` as a whitespace-delimited token.
@@ -153,19 +171,42 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
         return Some("Cannot push directly to main. Use a feature branch and PR.".to_string());
     }
 
-    // Check 5: Block git checkout/switch (unless -- file separator or worktree command)
+    // Check 5: Block git checkout/switch in /workspace (unless -- file separator or worktree command).
+    // Allowed in worktrees — agents may need to switch branches in their own isolated worktree.
     if (has_git_subcmd(cmd, "checkout") || has_git_subcmd(cmd, "switch"))
         && !cmd.contains("-- ")
         && !cmd.contains("worktree")
     {
-        return Some(
-            "Do not use git checkout/switch in /workspace. \
-             Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>"
-                .to_string(),
-        );
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_str = cwd.to_string_lossy();
+            if !cwd_str.starts_with("/workspace/.claude/worktrees/") {
+                return Some(
+                    "Do not use git checkout/switch in /workspace. \
+                     Use a worktree: git worktree add /workspace/.claude/worktrees/<name> -b <branch>"
+                        .to_string(),
+                );
+            }
+        }
     }
 
-    // Check 6: Block destructive git commands (reset --hard, clean -f, branch -D)
+    // Check 6a: Block ALL git reset --hard in /workspace (even origin/*).
+    // Must run before 6b which allows origin/* refs — that allowance is only for worktrees.
+    if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_str = cwd.to_string_lossy();
+            if cwd_str == "/workspace" || cwd_str == "/workspace/" {
+                return Some(
+                    "Do not run git reset --hard in /workspace — it modifies shared state \
+                     that other agents depend on. If you need to sync after a squash merge, \
+                     run git reset --hard origin/<branch> in your own worktree instead. \
+                     See .claude/worktrees/CLAUDE.md."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    // Check 6b: Block destructive git commands (reset --hard, clean -f, branch -D)
     // Allow reset --hard to a remote ref (origin/main, origin/branch) — needed after squash merges.
     // Block reset --hard to relative refs (HEAD~N) or bare (no target) — those discard work.
     if has_git_subcmd(cmd, "reset") && has_token(cmd, "--hard") {
@@ -200,15 +241,59 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     for i in 0..ts.len().saturating_sub(2) {
         if ts[i] == "git" && ts[i + 1] == "worktree" && ts[i + 2] == "remove" {
             return Some(
-                "Worktree removal blocked. Only remove worktrees you created, \
-                 and only after your PR is merged. \
-                 Never remove or prune other agents' worktrees."
+                "Do not use git worktree remove directly. \
+                 Use ExitWorktree with action: \"remove\" to safely clean up \
+                 your own worktree (restores CWD, deletes directory and branch). \
+                 Never remove other agents' worktrees. \
+                 See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
                     .to_string(),
             );
         }
     }
 
-    // Check 8: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
+    // Check 8: Block rm -rf on worktree root directories — use ExitWorktree instead.
+    // Only blocks deletion of the worktree root (e.g., /workspace/.claude/worktrees/my-wt).
+    // Allows deletion of subdirectories within worktrees (e.g., .../my-wt/node_modules).
+    // Scans each shell segment (split on |, &&, ||, ;) so chained commands like
+    // `cd /tmp && rm -rf /workspace/.claude/worktrees/my-wt` are caught.
+    // Only triggers when `rm` is the first token of a segment (avoids false positives
+    // from commit messages containing "rm -rf" text).
+    {
+        let wt_prefix = "/workspace/.claude/worktrees/";
+        // Split command on shell operators and check each segment
+        let segments: Vec<&str> = cmd
+            .split(&['|', '&', ';'][..])
+            .filter(|s| !s.is_empty())
+            .collect();
+        for segment in &segments {
+            let seg_ts: Vec<&str> = segment.split_whitespace().collect();
+            let has_rm = seg_ts.first() == Some(&"rm");
+            let has_rf = seg_ts.iter().any(|t| {
+                t.starts_with('-') && !t.starts_with("--") && (t.contains('r') || t.contains('f'))
+            });
+            if has_rm && has_rf {
+                let targets_wt_root = seg_ts.iter().any(|t| {
+                    if let Some(rest) = t.strip_prefix(wt_prefix) {
+                        let trimmed = rest.trim_end_matches('/');
+                        !trimmed.is_empty() && !trimmed.contains('/')
+                    } else {
+                        false
+                    }
+                });
+                if targets_wt_root {
+                    return Some(
+                        "Do not use rm -rf to delete worktrees. It breaks your CWD and leaves \
+                         orphaned branches. Use ExitWorktree with action: \"remove\" instead — \
+                         it safely restores CWD, deletes the directory, and removes the branch. \
+                         See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    // Check 9: Block sed -i / > / tee targeting /workspace/ directly (not a worktree)
 
     // sed -i ... /workspace/...
     if has_token(cmd, "sed") && cmd.contains("-i") && workspace_but_not_worktree(cmd) {
@@ -368,17 +453,46 @@ mod tests {
     }
 
     // --- check_bash: checkout/switch guard ---
+    // Note: Check 5 is CWD-dependent. Checkout/switch are blocked in /workspace
+    // but allowed in worktrees. When tests run from a worktree, these are allowed.
+    // The block path is verified by scripts/test-hooks.sh integration tests.
 
     #[test]
-    fn bash_blocks_git_checkout() {
+    fn bash_allows_git_checkout_in_worktree() {
+        // When CWD is a worktree (as in test runner), checkout is allowed
         let v = json!({"tool_input": {"command": "git checkout main"}});
-        assert!(check_bash(&v).is_some());
+        // Allowed because CWD is under /workspace/.claude/worktrees/
+        let result = check_bash(&v);
+        let cwd = std::env::current_dir().unwrap();
+        let in_worktree = cwd
+            .to_string_lossy()
+            .starts_with("/workspace/.claude/worktrees/");
+        if in_worktree {
+            assert!(result.is_none(), "checkout should be allowed in worktree");
+        } else {
+            assert!(
+                result.is_some(),
+                "checkout should be blocked outside worktree"
+            );
+        }
     }
 
     #[test]
-    fn bash_blocks_git_switch() {
+    fn bash_allows_git_switch_in_worktree() {
         let v = json!({"tool_input": {"command": "git switch feature"}});
-        assert!(check_bash(&v).is_some());
+        let result = check_bash(&v);
+        let cwd = std::env::current_dir().unwrap();
+        let in_worktree = cwd
+            .to_string_lossy()
+            .starts_with("/workspace/.claude/worktrees/");
+        if in_worktree {
+            assert!(result.is_none(), "switch should be allowed in worktree");
+        } else {
+            assert!(
+                result.is_some(),
+                "switch should be blocked outside worktree"
+            );
+        }
     }
 
     #[test]
@@ -587,6 +701,178 @@ mod tests {
     fn bash_allows_clean_chained_no_spaces() {
         // git clean -n&&echo done — no spaces around &&
         let v = json!({"tool_input": {"command": "git clean -n&&echo done"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- rm -rf worktree guard ---
+
+    #[test]
+    fn bash_blocks_rm_rf_worktree_root() {
+        let v =
+            json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-worktree"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_rm_r_worktree_root() {
+        let v =
+            json!({"tool_input": {"command": "rm -r /workspace/.claude/worktrees/my-worktree"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_rm_rf_worktree_root_trailing_slash() {
+        let v =
+            json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-worktree/"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_rm_rf_subdir_in_worktree() {
+        // Deleting node_modules or other subdirs inside a worktree is fine
+        let v = json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-wt/node_modules"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_rm_rf_deep_path_in_worktree() {
+        let v = json!({"tool_input": {"command": "rm -rf /workspace/.claude/worktrees/my-wt/src/old/"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_rm_on_non_worktree() {
+        let v = json!({"tool_input": {"command": "rm -rf /tmp/some-dir"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_rm_file_in_worktree() {
+        // rm without -r/-f on a single file inside a worktree is fine
+        let v = json!({"tool_input": {"command": "rm /workspace/.claude/worktrees/test/temp.txt"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- /workspace CWD guard (git reset --hard) ---
+    // Note: Check 6a blocks git reset --hard in /workspace (any target, even origin/*).
+    // In the test runner, CWD is not /workspace, so these verify the allow path.
+    // The block path is verified by scripts/test-hooks.sh integration tests.
+
+    #[test]
+    fn bash_allows_git_reset_hard_origin_in_worktree() {
+        // CWD is not /workspace during tests, so reset --hard origin/main is allowed
+        let v = json!({"tool_input": {"command": "git reset --hard origin/main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- rm -rf false positive regression tests ---
+
+    #[test]
+    fn bash_allows_rm_f_single_file_in_worktree() {
+        // rm -f has the -f flag + worktree path, but targets a file not a root dir
+        let v =
+            json!({"tool_input": {"command": "rm -f /workspace/.claude/worktrees/my-wt/temp.txt"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_rm_rf_worktree_chained() {
+        // cd /tmp && rm -rf worktree — rm is in second segment, must still block
+        let v = json!({"tool_input": {"command": "cd /tmp && rm -rf /workspace/.claude/worktrees/my-wt"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_cp_r_from_worktree() {
+        // cp -r has -r flag + worktree path — must not trigger rm check
+        let v = json!({"tool_input": {"command": "cp -r /workspace/.claude/worktrees/my-wt/src /tmp/backup"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_commit_referencing_rm_rf_worktree() {
+        // Commit message contains "rm -rf" + worktree path — must not trigger
+        let cmd = "git commit -m \"fix: guard blocks rm -rf /workspace/.claude/worktrees/\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Pipeline workflow commands ---
+
+    #[test]
+    fn bash_allows_git_branch_force_set() {
+        // git branch -f is used for squash-merge cleanup (not destructive — just moves pointer)
+        let v = json!({"tool_input": {"command": "git branch -f feature-branch origin/main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_pull() {
+        let v = json!({"tool_input": {"command": "git pull origin main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_fetch() {
+        let v = json!({"tool_input": {"command": "git fetch origin main"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_merge() {
+        let v = json!({"tool_input": {"command": "git merge feature/phase19-sdk-runner-core --no-edit"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_git_push_delete_remote_branch() {
+        let v = json!({"tool_input": {"command": "git push origin --delete feature/old-branch"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- has_git_subcmd segment-aware false positive tests ---
+
+    #[test]
+    fn bash_allows_gh_pr_merge_with_git_in_body() {
+        // gh pr merge --body "git reset --hard" — git is in quoted text, not a command
+        let cmd = "gh pr merge 72 --squash --body \"block git reset --hard in /workspace\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_gh_command_mentioning_git_push_main() {
+        // gh command with "git push main" in an argument
+        let cmd = "gh pr comment 1 --body \"guard blocks git push to main\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_allows_echo_mentioning_git_checkout() {
+        let cmd = "echo \"use git checkout to switch branches\"";
+        let v = json!({"tool_input": {"command": cmd}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn bash_blocks_git_reset_hard_in_chained_command() {
+        // cd /tmp && git reset --hard HEAD~3 — git IS the first token of second segment
+        let v = json!({"tool_input": {"command": "cd /tmp && git reset --hard HEAD~3"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_blocks_git_push_main_in_chained_command() {
+        let v = json!({"tool_input": {"command": "echo starting && git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn bash_allows_grep_with_git_pattern() {
+        // grep for "git push" — git is not the first token of any segment
+        let cmd = "grep -r \"git push\" scripts/";
+        let v = json!({"tool_input": {"command": cmd}});
         assert!(check_bash(&v).is_none());
     }
 }

@@ -72,8 +72,84 @@ EOF
 run_agent() {
   local group="$1"
   local workdir="$2"
-  local prompt_file="${workdir}/${PROMPTS_DIR}/${group}.md"
+
   local logfile="${LOG_DIR}/${group}.log"
+
+  if [[ "${SDK_RUNNER:-}" == "1" ]]; then
+
+    # ── Shared locals ────────────────────────────────────────────────
+    local max_turns="${MAX_TURNS:-$DEFAULT_MAX_TURNS}"
+    local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
+    local prompt_file=""
+    local exit_code=0
+    local start_seconds=$SECONDS
+
+    # ── Prompt vars as array (safe for values with spaces) ───────────
+    local -a prompt_vars=("SKILL=${group}")
+    [[ -n "${LOG_DIR:-}" ]] && prompt_vars+=("LOG_DIR=${LOG_DIR}")
+
+    # ── Reviewer angle detection ─────────────────────────────────────
+    local -r _REVIEW_ANGLES="accuracy|structure|scope|history|adversarial"
+    if [[ "$group" =~ ^(.+)-(${_REVIEW_ANGLES})$ ]]; then
+      local skill="${BASH_REMATCH[1]}"
+      local angle="${BASH_REMATCH[2]}"
+      : "${SDK_POLICY:=reviewer}"
+      : "${SDK_AGENT:=skill-reviewer}"
+      : "${SDK_OUTPUT_FILE:=${LOG_DIR}/reviews/${skill}/${angle}.md}"
+      prompt_vars=("SKILL=${skill}" "ANGLE=${angle}")
+      [[ -n "${LOG_DIR:-}" ]] && prompt_vars+=("LOG_DIR=${LOG_DIR}")
+      : "${prompt_file:=docs/prompts/curation/reviewer-template.md}"
+    fi
+
+    # ── Build CLI args ───────────────────────────────────────────────
+    local policy="${SDK_POLICY:-default}"
+    local -a extra_args=()
+    [[ -n "${SDK_OUTPUT_FILE:-}" ]] && extra_args+=(--output-file "$SDK_OUTPUT_FILE")
+    [[ -n "${SDK_AGENT:-}" ]] && extra_args+=(--agent "$SDK_AGENT")
+
+    for var in "${prompt_vars[@]}"; do
+      extra_args+=(--prompt-var "$var")
+    done
+
+    : "${prompt_file:=${PROMPTS_DIR}/${group}.md}"
+
+    # ── Invoke runner ────────────────────────────────────────────────
+    log "Starting ${group} in ${workdir} via SDK runner (log: ${logfile})"
+    set +e
+    local result
+    result=$(npx tsx scripts/sdk/agent-runner.ts \
+      --group "$group" \
+      --workdir "$workdir" \
+      --prompt "$prompt_file" \
+      --log "$logfile" \
+      --phase "${PHASE:-unknown}" \
+      --policy "$policy" \
+      ${max_turns:+--max-turns "${max_turns}"} \
+      ${max_budget:+--max-budget "${max_budget}"} \
+      ${MAX_RETRIES:+--max-crash-retries "${MAX_RETRIES}"} \
+      ${MODEL:+--model "${MODEL}"} \
+      "${extra_args[@]}" \
+      2>>"$logfile")
+    exit_code=$?
+    set -e
+
+    # SDK runner handles its own detailed metrics via TypeScript (scripts/sdk/metrics.ts).
+    # Also log to bash-level agent-metrics.jsonl for uniform orchestrator-level tracking.
+    local duration=$(( SECONDS - start_seconds ))
+    log_agent_metrics "$group" "$duration" "0" "$exit_code"
+
+    if [[ $exit_code -eq 0 ]]; then
+      ok "${group}: completed successfully"
+      log "${group}: result: ${result}"
+      return 0
+    else
+      err "${group}: failed. Result: ${result}"
+      return 1
+    fi
+
+  else
+
+  local prompt_file="${workdir}/${PROMPTS_DIR}/${group}.md"
   local start_seconds=$SECONDS
   local retry_count=0
 
@@ -129,6 +205,8 @@ run_agent() {
 
   err "${group}: failed after ${MAX_RETRIES} attempts. Check ${logfile}"
   return 1
+
+  fi  # SDK_RUNNER
 }
 
 # Monitor an agent process for stall detection.

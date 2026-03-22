@@ -1,0 +1,214 @@
+# Phase 19: SDK Agent Runner + Curation Pipeline Restructure
+# Plan: docs/plans/sdk-agent-runner.md (5 rounds of code review)
+# Prerequisite: none (no file overlap with phase 18)
+
+phase: 19
+status: pending
+context: >
+  Replace the bash `claude -p` agent runner with a TypeScript SDK runner using
+  @anthropic-ai/claude-agent-sdk. Open policy registry with attempt-based fallback.
+  Restructure curation pipeline: reviewers as first-class agents (40 in Stage 1),
+  curators read reports from disk (8 in Stage 2).
+
+stages:
+  - name: "Stage 1: SDK Runner Core + Curation Restructure + Docs (3 parallel agents)"
+    description: >
+      Three parallel agents with zero file overlap:
+      (A) TypeScript SDK runner — all scripts/sdk/** modules + unit tests,
+      (B) Curation pipeline restructure — curator.md, YAML, reviewer-template, skill docs,
+      (C) Orchestration docs + config.sh LOG_DIR override.
+    groups:
+      - id: groupA
+        name: "SDK Runner Core"
+        depends_on: []
+        scope:
+          create:
+            - scripts/sdk/types.ts
+            - scripts/sdk/policy-registry.ts
+            - scripts/sdk/attempt-machine.ts
+            - scripts/sdk/agent-runner.ts
+            - scripts/sdk/prompts.ts
+            - scripts/sdk/metrics.ts
+            - scripts/sdk/policies/default.ts
+            - scripts/sdk/policies/reviewer.ts
+            - scripts/sdk/__tests__/attempt-machine.test.ts
+            - scripts/sdk/__tests__/agent-runner.test.ts
+            - scripts/sdk/__tests__/policy-registry.test.ts
+            - scripts/sdk/__tests__/reviewer-policy.test.ts
+            - scripts/sdk/__tests__/cli.test.ts
+            - scripts/sdk/__tests__/prompts.test.ts
+            - scripts/sdk/__tests__/metrics.test.ts
+            - scripts/sdk/__tests__/retry-context.test.ts
+            - scripts/sdk/__tests__/fixtures/valid-accuracy-report.md
+            - scripts/sdk/__tests__/fixtures/valid-scope-report.md
+            - scripts/sdk/__tests__/fixtures/malformed-report.md
+            - scripts/sdk/__tests__/fixtures/no-report-output.md
+            - tsconfig.sdk.json
+          modify:
+            - package.json
+            - package-lock.json
+          read_only:
+            - .claude/agents/skill-reviewer.md
+            - docs/plans/sdk-agent-runner.md
+        tasks:
+          - id: A1
+            summary: "Install deps, create tsconfig.sdk.json, directory structure"
+            exit_criteria: "npx tsc -p tsconfig.sdk.json passes, npm install succeeds"
+            complexity: small
+          - id: A2
+            summary: "Core types — AgentResult, FailureMode, AttemptResultType, AttemptConfig, PolicyDefinition, RunnerOptions, AgentMetrics"
+            exit_criteria: "All interfaces exported, no any types"
+            complexity: small
+          - id: A3
+            summary: "Policy registry — createPolicyRegistry factory + module singleton"
+            exit_criteria: "Import compiles, getPolicy returns copy"
+            complexity: small
+          - id: A4
+            summary: "Default + reviewer policies with exported PolicyDefinition objects"
+            exit_criteria: "Both policies resolve, reviewer has 3 attempts + outputValidation"
+            complexity: medium
+          - id: A5
+            summary: "Prompts utility — stripFrontmatter + substituteVars (split/join, no regex)"
+            exit_criteria: "Does not match ${...} or $(...) bash syntax"
+            complexity: small
+          - id: A6
+            summary: "Metrics — JSONL append, LOG_METRICS_DIR env var"
+            exit_criteria: "Respects LOG_METRICS_DIR, all AgentMetrics fields present"
+            complexity: small
+          - id: A7
+            summary: "Attempt state machine — nextAction() pure function"
+            exit_criteria: "Pure function, no imports beyond types.ts"
+            complexity: medium
+          - id: A8
+            summary: "Agent runner — runAgent + parseCliArgs + buildRetryContext + CLI entry"
+            exit_criteria: "--help prints usage, parseCliArgs throws on missing flags"
+            complexity: large
+          - id: A9
+            summary: "All unit tests (T1-T9) — 8 test files + 4 fixtures"
+            exit_criteria: "npm test discovers 9 files, all pass, zero vi.mock"
+            complexity: large
+
+      - id: groupB
+        name: "Curation Pipeline Restructure"
+        depends_on: []
+        scope:
+          create:
+            - docs/prompts/curation/reviewer-template.md
+          modify:
+            - docs/prompts/curation/curator.md
+            - docs/prompts/curation/skill-curation.yaml
+            - .claude/skills/curation/SKILL.md
+          read_only:
+            - .claude/agents/skill-reviewer.md
+            - docs/plans/sdk-agent-runner.md
+            - docs/prompts/curation/threshold.txt
+        tasks:
+          - id: B1
+            summary: "Read current curator.md, skill-curation.yaml, curation SKILL.md"
+            complexity: small
+          - id: B2
+            summary: "Create reviewer-template.md — {SKILL} and {ANGLE} only"
+            exit_criteria: "No {LOG_DIR}, {FEEDBACK_PATHS}, or {OTHER_SKILLS}"
+            complexity: small
+          - id: B3
+            summary: "Two-stage YAML — 40 reviewer groups + 8 curator groups"
+            exit_criteria: "yq stages length → 2, stage 1 = 40, stage 2 = 8"
+            complexity: medium
+          - id: B4
+            summary: "Curator reads from disk, no Agent tool for reviewers"
+            exit_criteria: "No subagent_type: skill-reviewer references"
+            complexity: medium
+          - id: B5
+            summary: "Update curation SKILL.md — two-stage pipeline flow"
+            exit_criteria: "Pipeline diagram updated, reviewer-template.md listed"
+            complexity: small
+
+      - id: groupC
+        name: "Orchestration Docs + Config"
+        depends_on: []
+        scope:
+          modify:
+            - docs/multi-agent-guide.md
+            - .claude/skills/multi-agent-orchestration/SKILL.md
+            - scripts/lib/config.sh
+            - scripts/generate-retry-config.sh
+          read_only:
+            - scripts/lib/agent.sh
+            - docs/plans/sdk-agent-runner.md
+        tasks:
+          - id: C1
+            summary: "Read current docs and config files"
+            complexity: small
+          - id: C2
+            summary: "Add SDK Agent Runner section to multi-agent-guide.md"
+            exit_criteria: "Section present with CLI flags, naming convention, coexistence note"
+            complexity: small
+          - id: C3
+            summary: "Add SDK runner subsection to orchestration SKILL.md"
+            exit_criteria: "References guide for details"
+            complexity: small
+          - id: C4
+            summary: "LOG_DIR env var override in config.sh"
+            exit_criteria: "LOG_DIR=/tmp/test is respected, bash -n passes"
+            complexity: small
+          - id: C5
+            summary: "LOG_DIR override + echo in generate-retry-config.sh"
+            exit_criteria: "bash -n passes, prints original LOG_DIR"
+            complexity: small
+
+  - name: "Stage 2: Bash Integration + Verification (depends on Stage 1)"
+    description: >
+      Single agent integrates the merged SDK runner into agent.sh behind
+      SDK_RUNNER=1, updates stage.sh preflight, adds SDK check to full-verify.sh,
+      and creates the bash↔TypeScript integration test.
+    groups:
+      - id: groupD
+        name: "Bash Integration + Verification"
+        depends_on: [groupA, groupB, groupC]
+        scope:
+          create:
+            - scripts/sdk/__tests__/integration.test.ts
+          modify:
+            - scripts/lib/agent.sh
+            - scripts/lib/stage.sh
+            - scripts/full-verify.sh
+          read_only:
+            - scripts/sdk/agent-runner.ts
+            - scripts/sdk/types.ts
+            - scripts/lib/config.sh
+            - scripts/lib/watch.sh
+            - scripts/launch-phase.sh
+            - docs/plans/sdk-agent-runner.md
+        tasks:
+          - id: D1
+            summary: "Read agent.sh, stage.sh, merged SDK runner code"
+            complexity: small
+          - id: D2
+            summary: "Add SDK_RUNNER=1 code path with naming convention + prompt_vars array"
+            exit_criteria: "bash -n passes, existing claude -p path unchanged"
+            complexity: medium
+          - id: D3
+            summary: "Update preflight_check to skip prompt check when SDK_RUNNER=1"
+            exit_criteria: "bash -n passes, preflight passes without per-group files"
+            complexity: small
+          - id: D4
+            summary: "Add SDK type check to full-verify.sh"
+            exit_criteria: "full-verify.sh output includes SDK type check"
+            complexity: small
+          - id: D5
+            summary: "Integration test — naming convention, LOG_DIR, arg passing"
+            exit_criteria: "npm test discovers and passes integration.test.ts"
+            complexity: medium
+          - id: D6
+            summary: "Run full-verify.sh end-to-end"
+            exit_criteria: "All checks pass including SDK type check"
+            complexity: small
+
+validation:
+  - ./scripts/full-verify.sh
+  - npx tsc -p tsconfig.sdk.json --noEmit
+  - npm test
+  - npx tsx scripts/sdk/agent-runner.ts --help
+  - bash -n scripts/lib/agent.sh
+  - bash -n scripts/lib/stage.sh
+  - "yq '.stages | length' docs/prompts/curation/skill-curation.yaml"

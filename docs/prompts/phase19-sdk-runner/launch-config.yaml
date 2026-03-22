@@ -1,0 +1,50 @@
+# Phase 19: SDK Agent Runner + Curation Pipeline Restructure
+# Plan: docs/plans/sdk-agent-runner.md (5 rounds of code review)
+# Task plan: docs/tasks/phase19.yaml
+
+phase: phase19-sdk-runner
+merge_target: feature/phase19-sdk-runner
+
+stages:
+  - name: "Stage 1: SDK Runner Core + Curation Restructure + Docs (3 parallel agents)"
+    groups:
+      - id: groupA
+        branch: feature/phase19-sdk-runner-core
+        merge_message: "Merge feature/phase19-sdk-runner-core: TypeScript SDK agent runner — types, registry, state machine, runner, policies, prompts, metrics + unit tests"
+      - id: groupB
+        branch: feature/phase19-curation-restructure
+        merge_message: "Merge feature/phase19-curation-restructure: two-stage curation pipeline — reviewer template, 40+8 YAML config, curator reads from disk"
+      - id: groupC
+        branch: feature/phase19-docs-config
+        merge_message: "Merge feature/phase19-docs-config: SDK runner docs in multi-agent guide + orchestration skill, LOG_DIR env override"
+
+  - name: "Stage 2: Bash Integration + Verification (single agent, depends on Stage 1)"
+    groups:
+      - id: groupD
+        branch: feature/phase19-bash-integration
+        merge_message: "Merge feature/phase19-bash-integration: SDK_RUNNER=1 in agent.sh, preflight update, full-verify SDK check, integration tests"
+
+pr:
+  title: "feat: SDK agent runner + curation pipeline restructure"
+  summary: |
+    ## Summary
+    - TypeScript SDK agent runner replaces `claude -p` behind `SDK_RUNNER=1`
+    - Open policy registry: `default` (single-attempt) and `reviewer` (3-attempt fallback)
+    - Reviewer policy: sonnet 30 turns → resume wrap-up 5 turns → haiku synthesize 5 turns
+    - Output validation with fix-output flow (resume session with correction prompt)
+    - Cumulative budget tracking, structured JSONL metrics, crash retry with context
+    - Curation pipeline restructured: 40 reviewers (stage 1) → 8 curators (stage 2)
+    - Curators read reviewer reports from disk (`{LOG_DIR}/reviews/{SKILL}/`)
+
+    Plan: docs/plans/sdk-agent-runner.md
+  test_plan: |
+    - [ ] `npx tsc -p tsconfig.sdk.json --noEmit` — SDK types pass
+    - [ ] `npx tsc --noEmit` — frontend types unaffected
+    - [ ] `npm test` — 9 new test files in scripts/sdk/__tests__/ all pass
+    - [ ] `./scripts/full-verify.sh` — full pass including SDK type check
+    - [ ] `npx tsx scripts/sdk/agent-runner.ts --help` — prints usage
+    - [ ] `bash -n scripts/lib/agent.sh` — no syntax errors
+    - [ ] `bash -n scripts/lib/stage.sh` — no syntax errors
+    - [ ] Existing `claude -p` code path unchanged when SDK_RUNNER unset
+    - [ ] `yq '.stages | length' docs/prompts/curation/skill-curation.yaml` → 2
+    - [ ] Stage 1: 40 reviewer groups, Stage 2: 8 curator groups

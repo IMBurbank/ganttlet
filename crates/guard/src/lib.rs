@@ -23,6 +23,41 @@ pub fn block_json(reason: &str) -> String {
 }
 
 // ============================================================
+// Block reason messages — single source of truth
+// ============================================================
+
+const MSG_USE_WORKTREE: &str =
+    "Do not modify files directly in /workspace via Bash. Use a worktree.";
+
+const MSG_WORKTREE_DOCS: &str = "See .claude/worktrees/CLAUDE.md for the full cleanup procedure.";
+
+const MSG_USE_EXIT_WORKTREE: &str = "\
+Use ExitWorktree with action: \"remove\" to safely clean up \
+(restores CWD, deletes directory and branch).";
+
+fn msg_workspace_edit_block() -> String {
+    format!(
+        "Do not edit files directly in /workspace — it must stay on main. \
+         Create a worktree first: git worktree add /workspace/.claude/worktrees/<name> -b <branch>. \
+         {MSG_WORKTREE_DOCS}"
+    )
+}
+
+fn msg_worktree_remove_cwd_block() -> String {
+    format!(
+        "Do not use git worktree remove on your own CWD — it will break \
+         all subsequent Bash calls. {MSG_USE_EXIT_WORKTREE} {MSG_WORKTREE_DOCS}"
+    )
+}
+
+fn msg_rm_worktree_block() -> String {
+    format!(
+        "Do not use rm -rf to delete worktrees. It breaks your CWD and leaves \
+         orphaned branches. {MSG_USE_EXIT_WORKTREE} {MSG_WORKTREE_DOCS}"
+    )
+}
+
+// ============================================================
 // Tokenizer: single-pass POSIX-aligned shell command tokenizer
 // ============================================================
 
@@ -1106,12 +1141,7 @@ pub fn check_edit(input: &serde_json::Value) -> Option<String> {
 
     // Workspace isolation
     if is_protected_path(file_path) {
-        return Some(
-            "Do not edit files directly in /workspace — it must stay on main. \
-             Create a worktree first: git worktree add /workspace/.claude/worktrees/<name> -b <branch>. \
-             See .claude/worktrees/CLAUDE.md for the full worktree workflow."
-                .to_string(),
-        );
+        return Some(msg_workspace_edit_block());
     }
 
     // CWD enforcement for worktree files
@@ -1262,13 +1292,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                 };
 
                 if is_own_cwd {
-                    return Some(
-                        "Do not use git worktree remove on your own CWD — it will break \
-                         all subsequent Bash calls. Use ExitWorktree with action: \"remove\" \
-                         to safely clean up (restores CWD, deletes directory and branch). \
-                         See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
-                            .to_string(),
-                    );
+                    return Some(msg_worktree_remove_cwd_block());
                 }
 
                 // Tier 2: target is under agent worktrees dir — block with warning
@@ -1316,13 +1340,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             && (seg.has_short_flag('r') || seg.has_short_flag('R') || seg.has_short_flag('f'))
             && seg.targets_worktree_root()
         {
-            return Some(
-                "Do not use rm -rf to delete worktrees. It breaks your CWD and leaves \
-                 orphaned branches. Use ExitWorktree with action: \"remove\" instead — \
-                 it safely restores CWD, deletes the directory, and removes the branch. \
-                 See .claude/worktrees/CLAUDE.md for the full cleanup procedure."
-                    .to_string(),
-            );
+            return Some(msg_rm_worktree_block());
         }
     }
 
@@ -1333,15 +1351,11 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             && (seg.has_arg("-i") || seg.has_token_starting_with("-i"))
             && seg.has_protected_path()
         {
-            return Some(
-                "Do not modify files directly in /workspace via Bash. Use a worktree.".to_string(),
-            );
+            return Some(MSG_USE_WORKTREE.to_string());
         }
         // tee
         if cmd_name == Some("tee") && seg.has_protected_path() {
-            return Some(
-                "Do not modify files directly in /workspace via Bash. Use a worktree.".to_string(),
-            );
+            return Some(MSG_USE_WORKTREE.to_string());
         }
     }
 
@@ -1392,10 +1406,7 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                 if is_write_redirect(op) {
                     if let Some(Token::Word(path)) = seg.tokens.get(j + 1) {
                         if is_protected_path(path) {
-                            return Some(
-                                "Do not modify files directly in /workspace via Bash. Use a worktree."
-                                    .to_string(),
-                            );
+                            return Some(MSG_USE_WORKTREE.to_string());
                         }
                     }
                 }

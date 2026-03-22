@@ -41,6 +41,41 @@ then starts the binary and waits for port 4000 before running tests.
 - Chromium browser binary pre-installed
 - Relay server source (`server/`) volume-mounted for build cache persistence
 
+## Mock Auth Pattern
+E2E tests use a synthetic Google Identity Services (GIS) mock for auth:
+
+- **`setupMockAuth(context, token)`**: Call on a BrowserContext before creating pages.
+  Injects synthetic `google.accounts.oauth2` via `addInitScript` and blocks the real GIS
+  library via `context.route('**/accounts.google.com/**', route.abort())`.
+- **`ensureClientId(page)`**: Sets `window.__ganttlet_config.googleClientId` after `page.goto()`.
+  Needed because some environments clear `__ganttlet_config` between init script and page load.
+- **`signInOnPage(page)`**: Clicks the sign-in button (collaborator or first-visit) and waits
+  for buttons to disappear via `waitForFunction` (not timeout).
+
+For cloud E2E tests that need real Sheets API access, use `gisInitScript` from
+`e2e/helpers/collab-harness.ts` with a real service account token from `cloud-auth.ts`.
+
+## Cloud Auth Pattern
+- Service account key at `GOOGLE_SA_KEY_JSON` env var (or file path)
+- `getCloudAuthToken()` in `e2e/helpers/cloud-auth.ts` exchanges JWT for access token
+- `TEST_SHEET_ID_DEV` env var points to a test sheet with valid Ganttlet headers
+- Cloud tests use `setupMockAuth(context, realToken)` — blocks GIS popup but uses real token
+
+## GIS Library Handling
+The real GIS library from `accounts.google.com` overwrites the synthetic mock injected by
+`addInitScript`. Always block it with `context.route('**/accounts.google.com/**', route.abort())`.
+Without this, the mock's `requestAccessToken` callback is replaced and sign-in silently fails.
+
+## Test Sheet Maintenance
+- `TEST_SHEET_ID_DEV` must have valid headers (all 20 `SHEET_COLUMNS` in row 1)
+- Keep data minimal (3-5 tasks) — large sheets cause duplicate-row feedback loops
+- Service account needs Editor access to the test sheet
+
+## WebSocket in Docker
+Headless Chromium in Docker may not resolve `localhost` for WebSocket connections.
+`yjsProvider.ts` normalizes `localhost` to `127.0.0.1` for safety. When debugging
+WS issues, verify the room ID is included in the URL (`/ws/{roomId}`, not just `/ws`).
+
 ## Weekend Invariants
 - No task should start or end on a weekend in UI-created tasks.
 - E2E tests should verify: after creating a task on a weekend, start snaps to Monday.

@@ -13,6 +13,23 @@ These issues predate Phase 18 but were invisible because the app never connected
 real Google Sheets in E2E tests before. Phase 18's onboarding flow + cloud-auth E2E
 tests exposed them. All issues are in existing code — Phase 18 didn't introduce them.
 
+## Already Implemented (from code review rounds 1-3)
+
+The following fixes were applied during Phase 18 code review and are already in the codebase:
+
+| Fix | Commit | Status |
+|---|---|---|
+| RESET_SYNC clears `isSyncing: false` | `d251b74` | Done |
+| `accessToken` in sheets sync effect deps + guard for sheet/empty | `28de6e6` | Done |
+| Online/offline effect uses `stateRef` (no listener churn) | `28de6e6` | Done |
+| `removeRecentSheet` wired in ErrorBanner on 404 | `28de6e6` | Done |
+| EmptyState passes task name to ADD_TASK | `28de6e6` | Done |
+| REPARENT_TASK added to TASK_MODIFYING_ACTIONS | `4107583` | Done |
+| pollOnce success clears syncError via SET_SYNC_ERROR(null) | `4107583` | Done |
+| WelcomeGate renders ErrorBanner above loading skeleton on error | `4107583` | Done |
+| WebSocket URL normalizes localhost→127.0.0.1 | `0e77747` | Done |
+| Yjs effect uses getAccessToken() fallback | `0e77747` | Done |
+
 ## Requirements
 
 ### Tier 1 — Data Integrity (must fix before merge)
@@ -469,15 +486,23 @@ Add constraint:
 
 ## Implementation Order
 
+### Remaining implementation (7 steps)
+
+Items already done (from code review rounds) are listed in "Already Implemented" above.
+The following items are NOT yet implemented:
+
 1. **T2.3** (cancelPendingSave) — prerequisite for T1.2
 2. **T1.1** (clear orphaned rows) — most critical data integrity fix
 3. **T2.1** (total hash) — closely related, fixes the hash gap that compounds T1.1
-4. **T2.2** (saveDirty + saveInFlight guard) — prevents poll from undoing save
+4. **T2.2** (saveDirty + saveInFlight guard) — prevents poll from undoing save.
+   Note: pollOnce success already clears syncError (done in round 3).
 5. **T1.2** (cancellable effect + startPolling in .then) — uses T2.3's cancelPendingSave
 6. **T1.3 + T2.4** (scoped isLocalUpdate + lastTaskSource) — implement TOGETHER because
    both touch `bindYjsToDispatch`: T1.3 changes the observer guard to WeakSet,
    T2.4 adds `source: 'yjs'` to the dispatch. Also update all SET_TASKS callsites,
    add lastTaskSource to GanttState/initialState, add postProcess reset.
+   Note: REPARENT_TASK is already in TASK_MODIFYING_ACTIONS (done in round 3) —
+   no need to add it during T2.4 postProcess implementation.
 7. **T2.5** (E2E timeout fix) — independent, quick
 8. **Skill/doc updates** — after all code changes, update SKILL.md files
 

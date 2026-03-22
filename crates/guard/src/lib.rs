@@ -1112,9 +1112,30 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
                         .to_string(),
                 );
             }
-            // Removing a different worktree: allow it. This enables cleanup of
-            // orphaned worktrees from previous sessions or worktrees created by
-            // launch-phase.sh. The agent's own CWD is safe since we checked above.
+
+            // Check if target is under the worktrees directory — if so, it could
+            // be another agent's active workspace. Block with strong warning.
+            let targets_worktree_dir = seg.tokens.iter().any(
+                |t| matches!(t, Token::Word(w) if w.starts_with("/workspace/.claude/worktrees/")),
+            );
+            if targets_worktree_dir {
+                return Some(
+                    "⚠️  STOP — You are about to remove a worktree that may belong to \
+                     another agent. Read this FULLY before proceeding.\n\n\
+                     NEVER remove another agent's worktree. Other agents may be \
+                     actively working in sibling worktrees even if they look idle.\n\n\
+                     You may ONLY remove a worktree if ALL of these are true:\n\
+                     1. YOU created it (in this session or a previous one)\n\
+                     2. Its PR is merged OR it was a test/scratch worktree\n\
+                     3. You have verified no other agent is using it\n\n\
+                     If this is your own orphaned worktree, ask the user to remove it, \
+                     or use: git -C /workspace worktree remove <path>"
+                        .to_string(),
+                );
+            }
+
+            // Target is not under /workspace/.claude/worktrees/ (e.g. /tmp/wt) —
+            // not an agent worktree, safe to remove.
         }
     }
 
@@ -3088,27 +3109,42 @@ mod tests {
     }
 
     // --- 3.7 worktree-remove ---
-    // Removing a DIFFERENT worktree (not CWD) is allowed — enables cleanup of
-    // orphaned worktrees from previous sessions or launch-phase.sh.
-    // Removing your OWN CWD worktree is blocked (breaks Bash).
+    // Three tiers:
+    // 1. Own CWD → hard block (breaks Bash)
+    // 2. Agent worktree path (/workspace/.claude/worktrees/*) → block with warning
+    //    (could be another agent's active work)
+    // 3. Non-worktree path (e.g. /tmp/wt) → allow (not an agent workspace)
 
     #[test]
-    fn l3_worktree_remove_other_allow() {
-        // Target /tmp/wt is not our CWD — allow
+    fn l3_worktree_remove_non_agent_path_allow() {
+        // Target /tmp/wt is not under worktrees dir — allow
         let v = json!({"tool_input": {"command": "git worktree remove /tmp/wt"}});
         assert!(check_bash(&v).is_none());
     }
 
     #[test]
-    fn l3_worktree_remove_other_chained_allow() {
+    fn l3_worktree_remove_non_agent_chained_allow() {
         let v = json!({"tool_input": {"command": "echo hi && git worktree remove /tmp/wt"}});
         assert!(check_bash(&v).is_none());
     }
 
     #[test]
-    fn l3_worktree_remove_other_sudo_allow() {
+    fn l3_worktree_remove_non_agent_sudo_allow() {
         let v = json!({"tool_input": {"command": "sudo git worktree remove /tmp/wt"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_worktree_remove_agent_path_block() {
+        // Target is under /workspace/.claude/worktrees/ — block with warning
+        let v = json!({"tool_input": {"command": "git worktree remove /workspace/.claude/worktrees/other-agent"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_worktree_remove_agent_path_chained_block() {
+        let v = json!({"tool_input": {"command": "echo hi && git worktree remove /workspace/.claude/worktrees/stale-wt"}});
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]

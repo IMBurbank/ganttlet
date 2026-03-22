@@ -111,12 +111,12 @@ test_block  "Block git clean -xfd (combined)"   bash '{"tool_input":{"command":"
 
 # --- Bash: worktree removal guard ---
 echo "--- Worktree removal guard (bash mode) ---"
-test_allow  "Allow worktree remove (other)"   bash '{"tool_input":{"command":"git worktree remove /tmp/test"}}'
-# Removing your own CWD worktree is blocked (would break Bash)
+test_allow  "Allow worktree remove (non-agent path)" bash '{"tool_input":{"command":"git worktree remove /tmp/test"}}'
+test_block  "Block worktree remove (agent path)"     bash '{"tool_input":{"command":"git worktree remove /workspace/.claude/worktrees/some-agent"}}'
 CWD_PATH="$(pwd)"
-test_block  "Block worktree remove (own CWD)" bash "{\"tool_input\":{\"command\":\"git worktree remove ${CWD_PATH}\"}}"
-test_allow  "Allow git worktree prune"        bash '{"tool_input":{"command":"git worktree prune"}}'
-test_allow  "Allow git worktree add"          bash '{"tool_input":{"command":"git worktree add /tmp/test"}}'
+test_block  "Block worktree remove (own CWD)"        bash "{\"tool_input\":{\"command\":\"git worktree remove ${CWD_PATH}\"}}"
+test_allow  "Allow git worktree prune"               bash '{"tool_input":{"command":"git worktree prune"}}'
+test_allow  "Allow git worktree add"                 bash '{"tool_input":{"command":"git worktree add /tmp/test"}}'
 test_block  "Fail-closed on bad JSON"         bash 'not-json'
 
 # --- Bash: file-modification guard ---

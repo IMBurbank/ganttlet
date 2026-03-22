@@ -94,7 +94,7 @@ The hook fires before the protected-directory check. The allow decision is proce
 
 ### 3. `PermissionRequest` hooks never fire in SDK subprocess mode
 
-The `PermissionRequest` hook (recommended workaround in #36044) fires at the ask-prompt step in CLI mode. In SDK subprocess mode, the ask prompt is never shown — the denial is immediate. Therefore the `PermissionRequest` event is never dispatched and the hook never executes.
+The `PermissionRequest` hook (recommended workaround in #36044) fires at the ask-prompt step in CLI mode. In SDK subprocess mode, the permission decision function (`aHY`) returns `{behavior: "ask"}` at step 6 (the `checkPermissions` early return for protected directories), bypassing the code path where `PermissionRequest` would be dispatched via `nHY`/`bw6`. The SDK subprocess then treats the unresolved `ask` as a denial since there is no user to approve. The hook never fires because the dispatch point is never reached — not because the event type is unsupported.
 
 ### 4. Bash is not subject to the protected-directory check
 

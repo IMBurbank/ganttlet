@@ -245,7 +245,8 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_COLLAB_CONNECTED', connected: false });
       dispatch({ type: 'SET_COLLAB_USERS', users: [] });
     };
-  }, [accessToken, state.dataSource]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, state.dataSource, guardedDispatch]);
 
   // Full Yjs sync after undo/redo (replaces entire task array)
   useEffect(() => {

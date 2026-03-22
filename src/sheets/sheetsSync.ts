@@ -1,4 +1,4 @@
-import { readSheet, updateSheet } from './sheetsClient';
+import { readSheet, updateSheet, clearSheet } from './sheetsClient';
 import { tasksToRows, rowsToTasks, validateHeaders, SHEET_COLUMNS } from './sheetsMapper';
 import { isSignedIn } from './oauth';
 import { classifySyncError } from './syncErrors';
@@ -31,20 +31,34 @@ let dispatch: SyncCallback | null = null;
 let currentSpreadsheetId: string | null = null;
 let consecutiveErrors = 0;
 let currentPollInterval = BASE_POLL_INTERVAL_MS;
+let saveDirty = false;
+let saveInFlight = false;
 
 function hashTasks(tasks: Task[]): string {
+  // Sort by ID for order-independence. Hash only the 20 SHEET_COLUMNS fields
+  // that round-trip through the sheet. EXCLUDE isExpanded/isHidden (UI-only,
+  // sheetsMapper hardcodes them on every read).
+  const sorted = [...tasks].sort((a, b) => a.id.localeCompare(b.id));
   return JSON.stringify(
-    tasks.map((t) => ({
+    sorted.map((t) => ({
       id: t.id,
       name: t.name,
       startDate: t.startDate,
       endDate: t.endDate,
       duration: t.duration,
       owner: t.owner,
+      workStream: t.workStream,
+      project: t.project,
+      functionalArea: t.functionalArea,
       done: t.done,
-      dependencies: t.dependencies,
+      description: t.description,
+      isMilestone: t.isMilestone,
+      isSummary: t.isSummary,
       parentId: t.parentId,
       childIds: t.childIds,
+      dependencies: t.dependencies,
+      notes: t.notes,
+      okrs: t.okrs,
       constraintType: t.constraintType,
       constraintDate: t.constraintDate,
     }))
@@ -87,22 +101,47 @@ export function scheduleSave(tasks: Task[]): void {
   const newHash = hashTasks(tasks);
   if (newHash === lastWriteHash) return;
 
+  saveDirty = true;
   if (writeTimer) clearTimeout(writeTimer);
   writeTimer = setTimeout(async () => {
+    saveInFlight = true;
     try {
       dispatch?.({ type: 'START_SYNC' });
       const rows = tasksToRows(tasks);
       const endCol = columnLetter(SHEET_COLUMNS.length);
       const range = `${DATA_RANGE}!A1:${endCol}${rows.length}`;
       await updateSheet(currentSpreadsheetId!, range, rows);
+
+      // T1.1: Clear orphaned rows below written data
+      const dataEndRow = rows.length;
+      const clearRange = `Sheet1!A${dataEndRow + 1}:${endCol}`;
+      await clearSheet(currentSpreadsheetId!, clearRange).catch(() => {
+        console.warn('Failed to clear orphaned rows');
+      });
+
       lastWriteHash = hashTasks(tasks);
       dispatch?.({ type: 'COMPLETE_SYNC' });
       setTimeout(() => dispatch?.({ type: 'RESET_SYNC' }), 2000);
     } catch (err) {
       console.error('Failed to save to sheet:', err);
       dispatch?.({ type: 'RESET_SYNC' });
+    } finally {
+      saveInFlight = false;
+      saveDirty = false;
     }
   }, WRITE_DEBOUNCE_MS);
+}
+
+export function cancelPendingSave(): void {
+  if (writeTimer) {
+    clearTimeout(writeTimer);
+    writeTimer = null;
+  }
+  saveDirty = false;
+}
+
+export function isSavePending(): boolean {
+  return saveDirty || saveInFlight;
 }
 
 function schedulePoll(): void {
@@ -112,6 +151,11 @@ function schedulePoll(): void {
 async function pollOnce(): Promise<void> {
   pollTimer = null;
   if (!currentSpreadsheetId || !isSignedIn()) {
+    schedulePoll();
+    return;
+  }
+  // T2.2: Skip poll when save is pending or in-flight
+  if (saveDirty || saveInFlight) {
     schedulePoll();
     return;
   }

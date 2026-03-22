@@ -53,8 +53,9 @@ fn msg_worktree_remove_cwd_block() -> String {
 
 fn msg_rm_worktree_block() -> String {
     format!(
-        "Do not use rm -rf to delete worktrees. It breaks your CWD and leaves \
-         orphaned branches. {MSG_USE_EXIT_WORKTREE} {MSG_WORKTREE_DOCS}"
+        "Do not use rm with -r, -R, --recursive, -f, or --force on worktree roots. \
+         Recursive deletion breaks your CWD and leaves orphaned branches. \
+         {MSG_USE_EXIT_WORKTREE} {MSG_WORKTREE_DOCS}"
     )
 }
 

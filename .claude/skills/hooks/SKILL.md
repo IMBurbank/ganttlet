@@ -162,7 +162,7 @@ The binary takes one positional argument — the check mode:
 | Push to main | `git push origin main`, `HEAD:main`, `feature:main`, `HEAD:refs/heads/main` |
 | Reset --hard (no origin/) | `git reset --hard` without `origin/` ref |
 | Worktree remove own CWD | `git worktree remove <path-matching-CWD>` |
-| rm -rf worktree root | `rm -rf /workspace/.claude/worktrees/<name>` |
+| rm worktree root | `rm` with `-r`, `-R`, `--recursive`, `-f`, or `--force` on `/workspace/.claude/worktrees/<name>` |
 | File writes (sed/tee) | `sed -i`, `tee` targeting protected paths |
 | All write redirects | `>` `>>` `>|` `>&` `<>` `&>` `&>>` targeting protected paths |
 | Interpreter writes | `python -c`, `node -e`, `perl -e`, `ruby -e` with `/workspace/` path AND write/exec indicator |

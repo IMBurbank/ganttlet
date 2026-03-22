@@ -337,9 +337,9 @@ impl<'a> Tokenizer<'a> {
     /// Ordered longest-first so ">>" matches before ">", "&&" before "&", etc.
     /// This is the same algorithm bash uses (shellmeta + peek-ahead).
     ///
-    /// Includes `<<` redirect variants (`<>`, `<&`, `<`) AFTER heredoc has been
-    /// checked (heredoc check runs before this method is called, so `<<` is never
-    /// in the remaining input when we reach here for a `<` character).
+    /// Includes `<` redirect variants (`<>`, `<&`, `<`) because heredoc (`<<`)
+    /// is checked before this method is called — `<<` is never in the remaining
+    /// input when we reach here for a `<` character.
     fn match_simple_op(&mut self) -> bool {
         const SIMPLE_OPS: &[&str] = &[
             "&>>", "&&", "&>", ">>", ">&", ">|", "||", ">", "&", "|", ";", "(", ")", "<>", "<&",
@@ -1412,10 +1412,6 @@ mod tests {
     // L2 Segments:  splitting + method coverage
     // L3 Checks:    per-check × dimensions above
     //
-    // ================================================================
-    // Layer 1: Tokenizer Tests
-    // ================================================================
-
     // ================================================================
     // Layer 1: Tokenizer Tests
     // ================================================================

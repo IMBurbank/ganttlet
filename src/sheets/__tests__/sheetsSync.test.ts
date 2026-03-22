@@ -192,15 +192,15 @@ describe('T1.1 — clear orphaned rows after save', () => {
 
   it('save succeeds even if clearSheet throws', async () => {
     (clearSheet as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('clear failed'));
-    const dispatchFn = vi.fn();
-    initSync('spreadsheet-id-123', dispatchFn);
+    const mockDispatch = vi.fn();
+    initSync('spreadsheet-id-123', mockDispatch as any);
 
     scheduleSave([makeTask({ id: 'orphan-robust', name: 'Robust Save' })]);
     await vi.runAllTimersAsync();
 
     expect(updateSheet).toHaveBeenCalledTimes(1);
     // COMPLETE_SYNC should still fire even though clearSheet failed
-    expect(dispatchFn).toHaveBeenCalledWith({ type: 'COMPLETE_SYNC' });
+    expect(mockDispatch).toHaveBeenCalledWith({ type: 'COMPLETE_SYNC' });
   });
 });
 
@@ -284,13 +284,10 @@ describe('T2.1 — hashTasks covers all persisted fields', () => {
 });
 
 describe('T2.2 — saveDirty + saveInFlight poll guard', () => {
-  let dispatchFn: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    dispatchFn = vi.fn();
-    initSync('spreadsheet-id-123', dispatchFn);
+    initSync('spreadsheet-id-123', vi.fn() as any);
   });
 
   afterEach(() => {

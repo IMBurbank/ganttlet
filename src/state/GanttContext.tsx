@@ -18,6 +18,7 @@ import {
   scheduleSave,
   startPolling,
   stopPolling,
+  cancelPendingSave,
   getSpreadsheetId,
 } from '../sheets/sheetsSync';
 import { classifySyncError } from '../sheets/syncErrors';
@@ -120,8 +121,9 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Sheets sync integration
+  // Sheets sync integration — T1.2: cancellable effect + startPolling after load
   useEffect(() => {
+    let cancelled = false;
     const spreadsheetId = new URLSearchParams(window.location.search).get('sheet');
     if (!spreadsheetId || !isSignedIn()) return;
 
@@ -134,16 +136,20 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
 
     loadFromSheet()
       .then((tasks) => {
+        if (cancelled) return;
         if (tasks.length > 0) {
-          dispatch({ type: 'SET_TASKS', tasks });
+          dispatch({ type: 'SET_TASKS', tasks, source: 'sheets' });
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
           loadedSheetTasksRef.current = tasks;
         } else {
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
         }
         addRecentSheet({ sheetId: spreadsheetId, title: spreadsheetId, lastOpened: Date.now() });
+        // Start polling AFTER lastWriteHash is set by loadFromSheet
+        startPolling();
       })
       .catch((err) => {
+        if (cancelled) return;
         dispatch({ type: 'RESET_SYNC' });
         const classified = classifySyncError(err);
         dispatch({ type: 'SET_SYNC_ERROR', error: classified });
@@ -153,9 +159,11 @@ export function GanttProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
-    startPolling();
-
-    return () => stopPolling();
+    return () => {
+      cancelled = true;
+      stopPolling();
+      cancelPendingSave();
+    };
   }, [dispatch, accessToken]);
 
   // Auto-save on task changes

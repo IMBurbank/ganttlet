@@ -11,6 +11,7 @@ import type {
   DataSource,
   SyncError,
   ChangeRecord,
+  TaskUpdateSource,
 } from '../types';
 
 export type GanttAction =
@@ -60,7 +61,7 @@ export type GanttAction =
   | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string }
   | { type: 'SET_DEPENDENCY_EDITOR'; editor: { taskId: string; highlightFromId?: string } | null }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
-  | { type: 'SET_TASKS'; tasks: Task[] }
+  | { type: 'SET_TASKS'; tasks: Task[]; source?: TaskUpdateSource }
   | { type: 'MERGE_EXTERNAL_TASKS'; externalTasks: Task[] }
   | { type: 'ADD_TASK'; parentId: string | null; afterTaskId: string | null; name?: string }
   | { type: 'DELETE_TASK'; taskId: string }

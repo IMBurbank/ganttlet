@@ -95,6 +95,8 @@ export interface CascadeShift {
 
 export type DataSource = 'sandbox' | 'loading' | 'sheet' | 'empty';
 
+export type TaskUpdateSource = 'local' | 'yjs' | 'sheets';
+
 export interface SyncError {
   type: 'auth' | 'not_found' | 'forbidden' | 'rate_limit' | 'network' | 'header_mismatch';
   message: string;
@@ -133,4 +135,5 @@ export interface GanttState {
   dataSource: DataSource | undefined;
   syncError: SyncError | null;
   sandboxDirty: boolean;
+  lastTaskSource?: TaskUpdateSource;
 }

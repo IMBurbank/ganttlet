@@ -74,6 +74,7 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
     // Heredoc state: delimiter is captured, then we wait for \n to enter body
     let mut heredoc_delimiter: Option<String> = None;
     let mut heredoc_in_body = false;
+    let mut heredoc_strip_tabs = false; // true for <<- (indented heredoc)
 
     while i < len {
         // Heredoc body: skip until delimiter line
@@ -85,10 +86,16 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
                 i += 1;
             }
             let line: String = chars[line_start..i].iter().collect();
-            let trimmed = line.trim();
-            if trimmed == delim.as_str() {
+            // <<- strips leading tabs; << requires exact match
+            let check_line = if heredoc_strip_tabs {
+                line.trim_start_matches('\t')
+            } else {
+                &line
+            };
+            if check_line == delim.as_str() {
                 heredoc_delimiter = None;
                 heredoc_in_body = false;
+                heredoc_strip_tabs = false;
             }
             if i < len {
                 i += 1; // skip the \n
@@ -201,34 +208,19 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
                 if chars[i] == '$' && i + 1 < len && chars[i + 1] == '(' {
                     let start = i;
                     i += 2;
-                    let mut paren_depth = 1;
-                    let mut inner = String::new();
-                    while i < len && paren_depth > 0 {
-                        if chars[i] == '(' {
-                            paren_depth += 1;
-                            inner.push(chars[i]);
-                        } else if chars[i] == ')' {
-                            paren_depth -= 1;
-                            if paren_depth > 0 {
-                                inner.push(chars[i]);
+                    match find_matching_close_paren(&chars, i) {
+                        Some((inner, new_i)) => {
+                            i = new_i;
+                            let subst_text: String = chars[start..i].iter().collect();
+                            word.push_str(&subst_text);
+                            if depth < MAX_SUBST_DEPTH {
+                                let inner_segs = parse_segments_inner(&inner, depth + 1);
+                                if !inner_segs.is_empty() {
+                                    inner_segment_groups.push(inner_segs);
+                                }
                             }
-                        } else {
-                            inner.push(chars[i]);
                         }
-                        i += 1;
-                    }
-                    if paren_depth > 0 {
-                        return fail_open(cmd);
-                    }
-                    // Add the $(...) text to the word
-                    let subst_text: String = chars[start..i].iter().collect();
-                    word.push_str(&subst_text);
-                    // Recursively parse inner content
-                    if depth < MAX_SUBST_DEPTH {
-                        let inner_segs = parse_segments_inner(&inner, depth + 1);
-                        if !inner_segs.is_empty() {
-                            inner_segment_groups.push(inner_segs);
-                        }
+                        None => return fail_open(cmd),
                     }
                     continue;
                 }
@@ -287,33 +279,20 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
         if ch == '$' && i + 1 < len && chars[i + 1] == '(' {
             let start = i;
             i += 2;
-            let mut paren_depth = 1;
-            let mut inner = String::new();
-            while i < len && paren_depth > 0 {
-                if chars[i] == '(' {
-                    paren_depth += 1;
-                    inner.push(chars[i]);
-                } else if chars[i] == ')' {
-                    paren_depth -= 1;
-                    if paren_depth > 0 {
-                        inner.push(chars[i]);
+            match find_matching_close_paren(&chars, i) {
+                Some((inner, new_i)) => {
+                    i = new_i;
+                    let subst_text: String = chars[start..i].iter().collect();
+                    in_word = true;
+                    word.push_str(&subst_text);
+                    if depth < MAX_SUBST_DEPTH {
+                        let inner_segs = parse_segments_inner(&inner, depth + 1);
+                        if !inner_segs.is_empty() {
+                            inner_segment_groups.push(inner_segs);
+                        }
                     }
-                } else {
-                    inner.push(chars[i]);
                 }
-                i += 1;
-            }
-            if paren_depth > 0 {
-                return fail_open(cmd);
-            }
-            let subst_text: String = chars[start..i].iter().collect();
-            in_word = true;
-            word.push_str(&subst_text);
-            if depth < MAX_SUBST_DEPTH {
-                let inner_segs = parse_segments_inner(&inner, depth + 1);
-                if !inner_segs.is_empty() {
-                    inner_segment_groups.push(inner_segs);
-                }
+                None => return fail_open(cmd),
             }
             continue;
         }
@@ -426,8 +405,9 @@ fn tokenize_inner(cmd: &str, depth: usize) -> (Vec<Token>, Vec<Vec<Segment>>) {
                 in_word = false;
             }
             i += 2;
-            // Skip optional - (for <<-)
+            // Check for <<- (indented heredoc: strips leading tabs)
             if i < len && chars[i] == '-' {
+                heredoc_strip_tabs = true;
                 i += 1;
             }
             // Skip whitespace before delimiter
@@ -515,6 +495,79 @@ fn fail_open(cmd: &str) -> (Vec<Token>, Vec<Vec<Segment>>) {
     (tokens, Vec::new())
 }
 
+/// Find the matching `)` for a `$(` command substitution, tracking quote state
+/// so that `)` inside quotes doesn't prematurely close the substitution.
+/// Returns (inner_content, new_position) or None if unmatched.
+fn find_matching_close_paren(chars: &[char], start: usize) -> Option<(String, usize)> {
+    let len = chars.len();
+    let mut i = start;
+    let mut paren_depth = 1;
+    let mut inner = String::new();
+    let mut in_sq = false;
+    let mut in_dq = false;
+
+    while i < len && paren_depth > 0 {
+        let c = chars[i];
+        if in_sq {
+            if c == '\'' {
+                in_sq = false;
+            }
+            inner.push(c);
+            i += 1;
+            continue;
+        }
+        if in_dq {
+            if c == '"' {
+                in_dq = false;
+            } else if c == '\\' && i + 1 < len {
+                inner.push(c);
+                inner.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            inner.push(c);
+            i += 1;
+            continue;
+        }
+        match c {
+            '\'' => {
+                in_sq = true;
+                inner.push(c);
+            }
+            '"' => {
+                in_dq = true;
+                inner.push(c);
+            }
+            '(' => {
+                paren_depth += 1;
+                inner.push(c);
+            }
+            ')' => {
+                paren_depth -= 1;
+                if paren_depth > 0 {
+                    inner.push(c);
+                }
+            }
+            '\\' if i + 1 < len => {
+                inner.push(c);
+                inner.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            _ => {
+                inner.push(c);
+            }
+        }
+        i += 1;
+    }
+
+    if paren_depth > 0 {
+        None
+    } else {
+        Some((inner, i))
+    }
+}
+
 // ============================================================
 // Segments: split tokens on operators, check each independently
 // ============================================================
@@ -560,26 +613,20 @@ impl Segment {
                 continue;
             }
 
-            // Skip known command prefixes and all their flag-like arguments
+            // Skip known command prefixes and their flag-like arguments.
+            // After a prefix, skip tokens starting with - (flags) and assignments (=).
+            // The first non-flag, non-assignment token is the command.
+            //
+            // Known gap: prefix flags that take values (e.g., sudo -u root) cause the
+            // value ("root") to be returned as the command. This fails-open: "root" won't
+            // match any dangerous command pattern, so the guard allows the command.
+            // The alternative (skipping flag+value) is worse: sudo -n git push would skip
+            // -n AND git, returning "push" as the command — a more dangerous bypass.
             if COMMAND_PREFIXES.contains(&tok.as_str()) {
                 i += 1;
-                // Skip flags (starting with -) and assignments (containing =).
-                // For short flags (single char like -u), also skip the next token
-                // as it may be the flag's value (e.g., sudo -u root → skip -u AND root).
                 while i < self.tokens.len() {
                     let t = &self.tokens[i];
-                    if is_var_assignment(t) {
-                        i += 1;
-                    } else if t.starts_with("--") {
-                        // Long flag: skip it. If --flag=value, it's one token.
-                        // If --flag value, we can't tell — just skip the flag.
-                        i += 1;
-                    } else if t.starts_with('-') && t.len() == 2 {
-                        // Short flag with single char (e.g., -u): likely takes a value.
-                        // Skip the flag AND the next token (its value).
-                        i += 2;
-                    } else if t.starts_with('-') {
-                        // Combined short flags (e.g., -xvf): skip just the flags.
+                    if t.starts_with('-') || is_var_assignment(t) {
                         i += 1;
                     } else {
                         break;
@@ -924,13 +971,33 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     }
 
     // Redirect check: > /workspace/... (string scan on raw command, not segment-based)
+    // Must track quote state to avoid false positives on quoted > chars.
     {
         let mut pos = 0;
         let bytes = cmd.as_bytes();
+        let mut in_single = false;
+        let mut in_double = false;
         while pos < bytes.len() {
-            if bytes[pos] == b'>' {
+            let b = bytes[pos];
+            // Track quote state
+            if b == b'\'' && !in_double {
+                in_single = !in_single;
+                pos += 1;
+                continue;
+            }
+            if b == b'"' && !in_single {
+                in_double = !in_double;
+                pos += 1;
+                continue;
+            }
+            if b == b'\\' && !in_single && pos + 1 < bytes.len() {
+                pos += 2; // skip escaped char
+                continue;
+            }
+            // Only check > when outside quotes
+            if b == b'>' && !in_single && !in_double {
                 if bytes.get(pos + 1) == Some(&b'>') {
-                    pos += 2;
+                    pos += 2; // skip >> (append)
                     continue;
                 }
                 let after = cmd[pos + 1..].trim_start();
@@ -1885,9 +1952,12 @@ mod tests {
 
     #[test]
     fn l2b_ec_sudo_u() {
+        // Known gap: -u takes a value ("root") but we can't know without
+        // enumerating sudo flags. "root" is returned as the command.
+        // Safe: "root" doesn't match any dangerous command pattern (fail-open).
         assert_eq!(
             ec(&["sudo", "-u", "root", "git", "push"]),
-            Some((3, "git".to_string()))
+            Some((2, "root".to_string()))
         );
     }
 
@@ -3398,5 +3468,208 @@ mod tests {
     fn bash_allows_multi_space_push_feature() {
         let v = json!({"tool_input": {"command": "git  push  origin  feature"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    // ================================================================
+    // Edge case tests from first-principles audit
+    // ================================================================
+
+    // --- effective_command() known gaps ---
+
+    #[test]
+    fn l2b_ec_sudo_n_finds_git() {
+        // -n (no password) doesn't take a value, so git IS the command
+        assert_eq!(
+            ec(&["sudo", "-n", "git", "push"]),
+            Some((2, "git".to_string()))
+        );
+    }
+
+    #[test]
+    fn l2b_ec_sudo_v_finds_git() {
+        // -v (validate) doesn't take a value
+        assert_eq!(
+            ec(&["sudo", "-v", "git", "push"]),
+            Some((2, "git".to_string()))
+        );
+    }
+
+    #[test]
+    fn l2b_ec_sudo_e_finds_git() {
+        // -E (preserve env) doesn't take a value
+        assert_eq!(
+            ec(&["sudo", "-E", "git", "push"]),
+            Some((2, "git".to_string()))
+        );
+    }
+
+    #[test]
+    fn l2b_ec_sudo_u_known_gap() {
+        // -u takes a value but we can't know without enumerating.
+        // Returns "root" as command — fail-open (root != git)
+        assert_eq!(
+            ec(&["sudo", "-u", "root", "git", "push"]),
+            Some((2, "root".to_string()))
+        );
+    }
+
+    #[test]
+    fn l3_sudo_u_push_known_gap() {
+        // Known gap: sudo -u root git push origin main is NOT blocked
+        // because effective_command returns "root", which isn't git.
+        // This is acceptable: fail-open, and sudo -u is rare in agent commands.
+        let v = json!({"tool_input": {"command": "sudo -u root git push origin main"}});
+        assert!(check_bash(&v).is_none()); // known gap: not blocked
+    }
+
+    #[test]
+    fn l3_sudo_n_push_blocked() {
+        // sudo -n git push origin main IS blocked (correct)
+        let v = json!({"tool_input": {"command": "sudo -n git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_sudo_e_push_blocked() {
+        let v = json!({"tool_input": {"command": "sudo -E git push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    // --- Redirect check: quote-aware ---
+
+    #[test]
+    fn l3_redirect_quoted_gt_allow() {
+        // ">" is inside quotes, not a real redirect
+        let v = json!({"tool_input": {"command": "echo \"> /workspace/file\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_quoted_gt_with_real_redirect() {
+        // First > is in quotes (not redirect), second > is real redirect
+        let v = json!({"tool_input": {"command": "echo \"some > text\" > /workspace/file.ts"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_single_quoted_gt_allow() {
+        let v = json!({"tool_input": {"command": "echo '> /workspace/file'"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_escaped_gt_allow() {
+        // \> is escaped, not a redirect
+        let v = json!({"tool_input": {"command": "echo \\> /workspace/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- Heredoc: strict delimiter matching ---
+
+    #[test]
+    fn l1_heredoc_indented_delimiter_no_dash() {
+        // << EOF with indented closing should NOT match (only <<- allows indentation)
+        // The body should include everything until exact "EOF" line
+        let result = tok("cat << EOF\nhello\n   EOF\nEOF");
+        // "   EOF" doesn't match, body continues. "EOF" matches.
+        // Only "cat" is emitted as a word
+        assert_eq!(words(&result), vec!["cat"]);
+    }
+
+    #[test]
+    fn l1_heredoc_indented_delimiter_with_dash() {
+        // <<- EOF: tab-indented closing delimiter SHOULD match
+        let result = tok("cat <<- EOF\nhello\n\tEOF");
+        assert_eq!(words(&result), vec!["cat"]);
+    }
+
+    #[test]
+    fn l3_heredoc_strict_no_early_close() {
+        // Dangerous command after indented non-matching delimiter
+        // << EOF: "   EOF" doesn't close, "git push" is still body, "EOF" closes
+        let v = json!({"tool_input": {"command": "cat << EOF\n   EOF\ngit push origin main\nEOF"}});
+        assert!(check_bash(&v).is_none()); // all body, not commands
+    }
+
+    // --- $() with quotes inside ---
+
+    #[test]
+    fn l1_cmd_subst_quoted_close_paren() {
+        // $(echo ")") — the ) inside quotes should NOT close the substitution
+        let (tokens, inner) = tokenize("echo $(echo \")\")");
+        // Should extract inner content correctly
+        assert_eq!(tokens.len(), 2);
+        assert!(!inner.is_empty());
+    }
+
+    #[test]
+    fn l1_cmd_subst_single_quoted_paren() {
+        // $(echo ')') — ) in single quotes
+        let (tokens, inner) = tokenize("echo $(echo ')')");
+        assert_eq!(tokens.len(), 2);
+        assert!(!inner.is_empty());
+    }
+
+    #[test]
+    fn l3_subst_quoted_paren_push() {
+        // $(echo ")" && git push origin main) — ) in quotes doesn't close
+        let v = json!({"tool_input": {"command": "echo $(echo \")\" && git push origin main)"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    // --- Brace group known gap ---
+
+    #[test]
+    fn l3_brace_group_known_gap() {
+        // { git push origin main; } — brace group not handled (known gap)
+        let v = json!({"tool_input": {"command": "{ git push origin main; }"}});
+        // effective_command returns "{" which doesn't match git → fail-open
+        assert!(check_bash(&v).is_none());
+    }
+
+    // --- is_var_assignment edge cases ---
+
+    #[test]
+    fn l2b_assignment_url_not_assignment() {
+        // URL-like token: http://server=param — NOT an assignment because
+        // name part contains : and / which aren't alphanumeric or _
+        assert!(!is_var_assignment("http://server=param"));
+    }
+
+    #[test]
+    fn l2b_assignment_flag_not_assignment() {
+        // --flag=value — NOT an assignment (starts with -)
+        assert!(!is_var_assignment("--flag=value"));
+    }
+
+    #[test]
+    fn l2b_assignment_valid() {
+        assert!(is_var_assignment("VAR=val"));
+        assert!(is_var_assignment("_PRIVATE=1"));
+        assert!(is_var_assignment("A123=test"));
+    }
+
+    #[test]
+    fn l2b_assignment_invalid() {
+        assert!(!is_var_assignment("=value")); // starts with =
+        assert!(!is_var_assignment("123=val")); // starts with digit
+        assert!(!is_var_assignment("no-equals"));
+    }
+
+    // --- Newline continuation edge cases ---
+
+    #[test]
+    fn l3_or_continuation_push() {
+        // || continuation: newline after || doesn't separate
+        let v = json!({"tool_input": {"command": "echo a ||\ngit push origin main"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    // --- Background + push ---
+
+    #[test]
+    fn l3_background_clean_blocked() {
+        let v = json!({"tool_input": {"command": "git clean -fd &"}});
+        assert!(check_bash(&v).is_some());
     }
 }

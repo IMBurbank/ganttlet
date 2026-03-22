@@ -7,22 +7,37 @@ Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phas
 
 ## Active Phase
 
-- **Phase 16**: Date Calculation Bug Fixes — Inclusive Convention — [`docs/tasks/phase16.yaml`](tasks/phase16.yaml)
-
-## Planned
-
-- **Phase 18**: Onboarding UX — State Machine, Welcome Flows & Sheet Management — [`docs/tasks/phase18.yaml`](tasks/phase18.yaml)
-  - Prerequisite: Issue #62 (write range fix)
-  - PRD: [`docs/proposals/onboarding-prd.md`](proposals/onboarding-prd.md)
-  - Designs: [`docs/proposals/designs/design-{1..6}.md`](proposals/designs/)
+(none)
 
 ## Completed
+
+- **Phase 18**: Onboarding UX — State Machine, Welcome Flows & Sheet Management — PR #70 + PR #75 — DONE
+  - Design-7 sync fixes (T1.1–T2.5, T3.1–T3.2) all implemented
+  - 35 E2E tests, 584 unit tests passing
+
+- **Phase 16**: Date Calculation Bug Fixes — Inclusive Convention — [`docs/tasks/phase16.yaml`](tasks/phase16.yaml) — DONE
 
 - **Phase 15**: Scheduling Engine — Constraints, Dependencies & Conflict Detection — [`docs/tasks/phase15.yaml`](tasks/phase15.yaml) — DONE
 
 - **Phase 14**: Drag Interaction Reliability & Sync Integrity — [`docs/tasks/phase14.yaml`](tasks/phase14.yaml) — DONE
 
 ## Backlog (unstructured)
+
+### Performance & Scale (from Phase 18 audit)
+
+**Rendering (high priority at 200+ tasks):**
+- [ ] Add `React.memo` to TaskBar, SummaryBar, MilestoneMarker — currently every state update re-renders all visible tasks (~50-100ms at 100 tasks, 500ms+ at 500)
+- [ ] Virtualize task rows — only render tasks visible in the viewport (react-window or similar)
+- [ ] Profile and optimize `recalcSummaryDates` for deep hierarchies — O(N²) worst-case when all tasks are in a single chain
+
+**Sync layer (medium priority at 500+ tasks):**
+- [ ] Incremental Yjs sync — `applyTasksToYjs` does full delete+rebuild (2200 mutations for 100 tasks). Diff and apply only changed tasks instead
+- [ ] Incremental poll merge — poll reads entire Sheet1 (30KB at 100 tasks, scales linearly). Consider range-based reads or change detection
+- [ ] Server-push via SSE or Yjs relay — replace 30s polling with push notifications for changes. Current polling is adequate for <50 concurrent users but doesn't scale to 100+
+
+**API efficiency (low priority):**
+- [ ] Batch updateSheet + clearSheet into a single `spreadsheets.values.batchUpdate` call (saves one round-trip per save)
+- [ ] Add ETag/If-None-Match to polling — skip full response when sheet hasn't changed
 
 ### Resource Assignment & Leveling
 - [ ] Define resource data model (id, name, capacity, calendar)

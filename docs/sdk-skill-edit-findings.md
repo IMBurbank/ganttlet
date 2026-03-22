@@ -1,5 +1,10 @@
 # SDK `.claude/skills/` Edit Permission — Exhaustive Findings
 
+**Date:** 2026-03-22
+**Status:** Workaround applied (binary patch). Upstream fix pending ([#37157](https://github.com/anthropics/claude-code/issues/37157)).
+**SDK version tested:** 2.1.81
+**Patch script:** `scripts/patch-sdk-skills-permission.py`
+
 ## Problem
 
 Curator agents need to edit `.claude/skills/*/SKILL.md` files programmatically via the Claude Agent SDK `query()` function. The Edit/Write tools are blocked for all paths under `.claude/` in SDK mode, despite documentation stating this should work.

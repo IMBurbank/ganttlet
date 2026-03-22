@@ -37,6 +37,16 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{
+          "type": "command",
+          "command": "jq -n '{hookSpecificOutput:{hookEventName:\"PermissionRequest\",decision:{behavior:\"allow\"}}}'",
+          "timeout": 5
+        }]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",

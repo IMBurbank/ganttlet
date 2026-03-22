@@ -11,6 +11,11 @@ permissions:
   statuses: write
   contents: read
 
+# Serialize E2E runs to prevent concurrent access to the shared CI test sheet
+concurrency:
+  group: e2e-tests
+  cancel-in-progress: false
+
 jobs:
   # Check if an agent already attested E2E for this commit
   check-attestation:
@@ -88,7 +93,7 @@ jobs:
           GCP_SA_KEY_WRITER1_DEV: ${{ secrets.GCP_SA_KEY_WRITER1_DEV }}
           GCP_SA_KEY_WRITER2_DEV: ${{ secrets.GCP_SA_KEY_WRITER2_DEV }}
           GCP_SA_KEY_READER1_DEV: ${{ secrets.GCP_SA_KEY_READER1_DEV }}
-          # TEST_SHEET_ID_DEV intentionally omitted — ephemeral sheets created per-run
+          TEST_SHEET_ID_CI: ${{ secrets.TEST_SHEET_ID_CI }}
           PLAYWRIGHT_HTML_REPORT: playwright-report
 
       - name: Upload test results

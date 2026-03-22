@@ -1,19 +1,12 @@
 /**
- * get-sheet-id.ts — Read the ephemeral test sheet ID created by global-setup,
- * or fall back to the TEST_SHEET_ID_DEV override for local development.
+ * get-sheet-id.ts — Get the test sheet ID for E2E tests.
+ *
+ * Two-sheet strategy:
+ * - TEST_SHEET_ID_DEV: local development (set by developer)
+ * - TEST_SHEET_ID_CI: CI environment (set in GitHub Actions workflow)
+ *
+ * Returns the first one that's set, or undefined if neither is available.
  */
-import * as fs from 'fs';
-import * as path from 'path';
-
-const SHEET_ID_FILE = path.join(process.cwd(), '.e2e-sheet-id');
-
 export function getTestSheetId(): string | undefined {
-  // Explicit override takes precedence (local dev workflow)
-  if (process.env.TEST_SHEET_ID_DEV) return process.env.TEST_SHEET_ID_DEV;
-  try {
-    const id = fs.readFileSync(SHEET_ID_FILE, 'utf-8').trim();
-    return id || undefined;
-  } catch {
-    return undefined;
-  }
+  return process.env.TEST_SHEET_ID_DEV || process.env.TEST_SHEET_ID_CI || undefined;
 }

@@ -60,20 +60,17 @@ For cloud E2E tests that need real Sheets API access, use `gisInitScript` from
 - `getAccessToken(keyJson, extraScopes?)` in `e2e/helpers/cloud-auth.ts` exchanges JWT for token
 - Cloud tests use `setupMockAuth(context, realToken)` — blocks GIS popup but uses real token
 
-## Ephemeral Test Sheets
-Each CI E2E run creates a fresh Google Sheet via `e2e/global-setup.ts`:
-- Creates sheet with `drive.file` scope (Writer1 SA), seeds 3 tasks (HEADER_ROW + e2e-1/2/3)
-- Shares with Writer2 (writer) and Reader1 (reader) via Drive API permissions
-- Writes sheet ID to `.e2e-sheet-id` (read by test files via `getTestSheetId()`)
-- On success: `e2e/global-teardown.ts` deletes the sheet via Drive API
-- On failure: keeps sheet for debugging, logs URL to stdout
-- `TEST_SHEET_ID_DEV` env var overrides ephemeral creation (for local dev)
-- Prerequisite: Writer1 SA needs `drive.file` OAuth scope in GCP
+## Test Sheet Strategy
+Two pre-provisioned sheets, no runtime creation:
+- **CI**: `TEST_SHEET_ID_CI` secret in GitHub Actions. Reset to seed state by `e2e/global-setup.ts` before each run. Concurrent CI runs serialized via workflow `concurrency` key.
+- **Local dev**: `TEST_SHEET_ID_DEV` env var. Never touched by CI.
+
+`e2e/global-setup.ts` clears the sheet and writes HEADER_ROW + 3 seed tasks at the start
+of every run. No Drive API create/delete needed — only `spreadsheets` scope.
 
 Key files:
-- `e2e/helpers/sheet-lifecycle.ts` — create, seed, share, delete
-- `e2e/helpers/get-sheet-id.ts` — reads ephemeral ID or override
-- `e2e/helpers/failure-reporter.ts` — writes `.e2e-failed` marker on test failure
+- `e2e/helpers/sheet-lifecycle.ts` — `resetTestSheet()` clears + seeds
+- `e2e/helpers/get-sheet-id.ts` — returns `TEST_SHEET_ID_DEV || TEST_SHEET_ID_CI`
 
 ## GIS Library Handling
 The real GIS library from `accounts.google.com` overwrites the synthetic mock injected by

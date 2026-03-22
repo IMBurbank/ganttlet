@@ -55,6 +55,3 @@ tsconfig.tsbuildinfo
 # Logs & test artifacts
 logs/
 test-results/
-
-# E2E ephemeral sheet lifecycle
-.e2e-sheet-id

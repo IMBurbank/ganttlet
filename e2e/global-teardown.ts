@@ -1,41 +1,15 @@
 /**
- * global-teardown.ts — Playwright global teardown that deletes the ephemeral
- * test sheet. Set E2E_KEEP_SHEET=1 to skip deletion for debugging.
+ * global-teardown.ts — Post-test cleanup for E2E.
+ *
+ * Currently a no-op placeholder. The test sheet is reset at the START of
+ * each run (global-setup), not cleaned up at the end. This ensures the
+ * sheet is inspectable after failed runs for debugging.
  */
 import type { FullConfig } from '@playwright/test';
-import { getAccessToken } from './helpers/cloud-auth';
-import { deleteSheet } from './helpers/sheet-lifecycle';
-import * as fs from 'fs';
-import * as path from 'path';
-
-const SHEET_ID_FILE = path.join(process.cwd(), '.e2e-sheet-id');
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
 async function globalTeardown(_config: FullConfig) {
-  if (!fs.existsSync(SHEET_ID_FILE)) return;
-
-  const sheetId = fs.readFileSync(SHEET_ID_FILE, 'utf-8').trim();
-  fs.unlinkSync(SHEET_ID_FILE);
-
-  if (!sheetId) return;
-
-  // Skip deletion if explicitly requested (for debugging)
-  if (process.env.E2E_KEEP_SHEET) {
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}`;
-    console.log(`\n[E2E] E2E_KEEP_SHEET set — keeping sheet: ${url}\n`);
-    return;
-  }
-
-  const writerKey = process.env.GCP_SA_KEY_WRITER1_DEV;
-  if (!writerKey) return;
-
-  try {
-    const token = await getAccessToken(writerKey, [DRIVE_SCOPE]);
-    await deleteSheet(token, sheetId);
-    console.log(`\n[E2E] Deleted ephemeral test sheet: ${sheetId}\n`);
-  } catch (err) {
-    console.warn(`[E2E] Failed to delete sheet ${sheetId}:`, err);
-  }
+  // Intentionally empty — sheet state is reset in global-setup, not here.
+  // This keeps the sheet inspectable after failures.
 }
 
 export default globalTeardown;

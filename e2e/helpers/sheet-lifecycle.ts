@@ -1,10 +1,10 @@
 /**
- * sheet-lifecycle.ts — Create, seed, share, and delete ephemeral Google Sheets
- * for E2E test isolation. All raw fetch() — no Google SDK.
+ * sheet-lifecycle.ts — Reset a pre-provisioned test sheet to known seed state.
+ * Used by global-setup to ensure E2E tests start with clean, predictable data.
+ * All raw fetch() — no Google SDK.
  */
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
-const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 
 const HEADER_ROW = [
   'id',
@@ -99,37 +99,27 @@ const SEED_TASKS: string[][] = [
   ],
 ];
 
-export async function createTestSheet(token: string, title: string): Promise<string> {
-  // Use Drive API to create — SAs in consumer GCP projects can create files
-  // via Drive API with drive.file scope, but Sheets API spreadsheets.create
-  // may return 403 for SAs without a Drive "home" (non-Workspace projects).
-  const res = await fetch(DRIVE_API, {
+/**
+ * Reset a test sheet to known seed state: clear all data, write header + 3 tasks.
+ * Uses only the spreadsheets scope (no Drive API needed).
+ */
+export async function resetTestSheet(token: string, sheetId: string): Promise<void> {
+  // Clear entire sheet
+  const clearUrl = `${SHEETS_API}/${sheetId}/values/Sheet1:clear`;
+  const clearRes = await fetch(clearUrl, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: title,
-      mimeType: 'application/vnd.google-apps.spreadsheet',
-    }),
+    headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to create sheet (${res.status}): ${text}`);
+  if (!clearRes.ok) {
+    const text = await clearRes.text();
+    throw new Error(`Failed to clear sheet (${clearRes.status}): ${text}`);
   }
-  const data = await res.json();
-  if (!data.id) {
-    throw new Error(`Sheet created but no id in response: ${JSON.stringify(data)}`);
-  }
-  return data.id;
-}
 
-export async function seedTestData(token: string, sheetId: string): Promise<void> {
+  // Write header + seed tasks
   const values = [HEADER_ROW, ...SEED_TASKS];
   const range = `Sheet1!A1:T${values.length}`;
-  const url = `${SHEETS_API}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
-  const res = await fetch(url, {
+  const writeUrl = `${SHEETS_API}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
+  const writeRes = await fetch(writeUrl, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -137,45 +127,8 @@ export async function seedTestData(token: string, sheetId: string): Promise<void
     },
     body: JSON.stringify({ values }),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to seed sheet (${res.status}): ${text}`);
-  }
-}
-
-export async function shareSheet(
-  token: string,
-  sheetId: string,
-  email: string,
-  role: 'writer' | 'reader'
-): Promise<void> {
-  const url = `${DRIVE_API}/${sheetId}/permissions`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      type: 'user',
-      role,
-      emailAddress: email,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to share sheet with ${email} (${res.status}): ${text}`);
-  }
-}
-
-export async function deleteSheet(token: string, sheetId: string): Promise<void> {
-  const url = `${DRIVE_API}/${sheetId}`;
-  const res = await fetch(url, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok && res.status !== 404) {
-    const text = await res.text();
-    throw new Error(`Failed to delete sheet (${res.status}): ${text}`);
+  if (!writeRes.ok) {
+    const text = await writeRes.text();
+    throw new Error(`Failed to seed sheet (${writeRes.status}): ${text}`);
   }
 }

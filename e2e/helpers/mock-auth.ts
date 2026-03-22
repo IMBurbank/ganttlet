@@ -58,6 +58,11 @@ export async function signInOnPage(page: Page): Promise<void> {
     await firstVisitBtn.click();
   }
 
-  // Wait for sign-in to complete — app should leave welcome screens
-  await page.waitForTimeout(1000);
+  // Wait for sign-in to complete by asserting buttons disappear
+  await page.waitForFunction(
+    () =>
+      !document.querySelector('[data-testid="sign-in-button"]') &&
+      !document.querySelector('[data-testid="collaborator-sign-in-button"]'),
+    { timeout: 10_000 }
+  );
 }

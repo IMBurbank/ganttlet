@@ -52,12 +52,30 @@ const COMMAND_PREFIXES: &[&str] = &["sudo", "env", "command", "nice", "nohup", "
 /// Shell interpreters whose -c argument should be recursively parsed.
 const SHELL_COMMANDS: &[&str] = &["bash", "sh", "dash", "zsh", "ksh"];
 
+/// Non-shell interpreters whose code argument should be scanned for
+/// dangerous patterns (workspace paths, git commands).
+const SCRIPT_INTERPRETERS: &[&str] = &["python", "python3", "node", "ruby", "perl"];
+
+/// The flag that introduces an inline code argument for each interpreter.
+const SCRIPT_INLINE_FLAGS: &[&str] = &["-c", "-c", "-e", "-e", "-e"];
+
 /// True if a token is a shell interpreter (handles full paths like /bin/bash).
 fn is_shell_command(token: &str) -> bool {
     SHELL_COMMANDS.contains(&token)
         || SHELL_COMMANDS
             .iter()
             .any(|s| token.ends_with(&format!("/{}", s)))
+}
+
+/// True if a token is a non-shell script interpreter. Returns the flag
+/// that introduces inline code (e.g., "-c" for python, "-e" for node).
+fn script_interpreter_flag(token: &str) -> Option<&'static str> {
+    let base = token.rsplit('/').next().unwrap_or(token);
+    SCRIPT_INTERPRETERS
+        .iter()
+        .zip(SCRIPT_INLINE_FLAGS.iter())
+        .find(|(name, _)| *name == &base)
+        .map(|(_, flag)| *flag)
 }
 
 /// Git global flags that consume the NEXT token as a value.
@@ -1185,6 +1203,36 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
             return Some(
                 "Do not modify files directly in /workspace via Bash. Use a worktree.".to_string(),
             );
+        }
+    }
+
+    // interpreter-workspace: scan code arguments to python/node/perl/ruby
+    // for workspace paths. We can't parse these languages, but we can detect
+    // hardcoded /workspace/ paths in inline code — agents have no legitimate
+    // reason to embed absolute workspace paths in interpreter code.
+    for seg in &segments {
+        if let Some((cmd_pos, cmd)) = seg.effective_command() {
+            if let Some(flag) = script_interpreter_flag(cmd) {
+                // Find the inline code flag and its argument
+                if let Some(f_pos) = seg.tokens[cmd_pos + 1..]
+                    .iter()
+                    .position(|t| matches!(t, Token::Word(w) if w == flag))
+                {
+                    let arg_pos = cmd_pos + 1 + f_pos + 1;
+                    if let Some(Token::Word(code)) = seg.tokens.get(arg_pos) {
+                        if code.contains("/workspace/")
+                            && !code.contains("/workspace/.claude/worktrees/")
+                        {
+                            return Some(
+                                "Do not use interpreter code to access /workspace/ directly. \
+                                 Use a worktree. Detected /workspace/ path in inline code \
+                                 argument to a script interpreter."
+                                    .to_string(),
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -4382,6 +4430,59 @@ mod tests {
     fn l3_exec_safe_allow() {
         let v = json!({"tool_input": {"command": "exec git status"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    // --- Interpreter workspace scanning ---
+
+    #[test]
+    fn l3_python_workspace_block() {
+        let v = json!({"tool_input": {"command": "python3 -c \"open('/workspace/file', 'w').write('x')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_python_system_workspace_block() {
+        let v = json!({"tool_input": {"command": "python3 -c \"import os; os.system('echo > /workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_node_workspace_block() {
+        let v = json!({"tool_input": {"command": "node -e \"require('fs').writeFileSync('/workspace/file', 'x')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_perl_workspace_block() {
+        let v = json!({"tool_input": {"command": "perl -e \"system('echo > /workspace/file')\""}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_python_worktree_allow() {
+        // Worktree paths are allowed
+        let v = json!({"tool_input": {"command": "python3 -c \"open('/workspace/.claude/worktrees/wt/file', 'w')\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_python_safe_allow() {
+        // No /workspace/ path — allow
+        let v = json!({"tool_input": {"command": "python3 -c \"print('hello')\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_node_safe_allow() {
+        let v = json!({"tool_input": {"command": "node -e \"console.log('hello')\""}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_python_fullpath_block() {
+        // Full path to interpreter
+        let v = json!({"tool_input": {"command": "/usr/bin/python3 -c \"open('/workspace/file', 'w')\""}});
+        assert!(check_bash(&v).is_some());
     }
 
     // --- Brace groups (BLOCK) ---

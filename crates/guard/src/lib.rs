@@ -1176,14 +1176,14 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     }
 
     // Redirect check: type-safe via Token::Operator.
-    // Only Operator(">") and Operator(">|") are write redirects.
+    // All write redirect operators are blocked: > (truncate), >> (append), >| (clobber).
     // Quoted/escaped > produces Word(">") and is naturally excluded.
     // No-space redirects (echo>/workspace/file) are properly tokenized as
     // [Word("echo"), Operator(">"), Word("/workspace/file")].
     for seg in &segments {
         for j in 0..seg.tokens.len() {
             if let Token::Operator(op) = &seg.tokens[j] {
-                if op == ">" || op == ">|" {
+                if op == ">" || op == ">>" || op == ">|" {
                     if let Some(Token::Word(path)) = seg.tokens.get(j + 1) {
                         if path.starts_with("/workspace/")
                             && !path.starts_with("/workspace/.claude/worktrees/")
@@ -3311,9 +3311,10 @@ mod tests {
     }
 
     #[test]
-    fn l3_append_workspace_allow() {
+    fn l3_append_workspace_block() {
+        // >> is a write operation (append) — block same as >
         let v = json!({"tool_input": {"command": "echo hello >> /workspace/file.txt"}});
-        assert!(check_bash(&v).is_none());
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]
@@ -4203,10 +4204,10 @@ mod tests {
     }
 
     #[test]
-    fn l3_redirect_nospace_append_allow() {
-        // >> is append, allowed
+    fn l3_redirect_nospace_append_block() {
+        // >> is a write operation (append) — block same as >
         let v = json!({"tool_input": {"command": "echo hello>>/workspace/file"}});
-        assert!(check_bash(&v).is_none());
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]

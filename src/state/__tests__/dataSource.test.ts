@@ -275,5 +275,32 @@ describe('dataSource reducer actions', () => {
       const result = ganttReducer(state, { type: 'REDO' });
       expect(result.lastTaskSource).toBe('local');
     });
+
+    it('Yjs SET_TASKS followed by TOGGLE_EXPAND: lastTaskSource stays local (postProcess)', () => {
+      // Simulates: remote Yjs change arrives, then user expands a row
+      let state = makeState({
+        dataSource: 'sheet',
+        tasks: [makeTask({ id: 'a', isExpanded: false })],
+      });
+      // Yjs update
+      state = ganttReducer(state, { type: 'SET_TASKS', tasks: state.tasks, source: 'yjs' });
+      expect(state.lastTaskSource).toBe('yjs');
+      // User expands — postProcess resets to 'local'
+      state = ganttReducer(state, { type: 'TOGGLE_EXPAND', taskId: 'a' });
+      expect(state.lastTaskSource).toBe('local');
+    });
+
+    it('TOGGLE_EXPAND alone changes lastTaskSource to local but tasks also change (no spurious skip)', () => {
+      // TOGGLE_EXPAND is in TASK_MODIFYING_ACTIONS — it changes tasks AND resets lastTaskSource
+      // This means auto-save would fire (tasks changed, lastTaskSource='local')
+      const state = makeState({
+        dataSource: 'sheet',
+        lastTaskSource: 'yjs',
+        tasks: [makeTask({ id: 'a', isExpanded: false })],
+      });
+      const result = ganttReducer(state, { type: 'TOGGLE_EXPAND', taskId: 'a' });
+      expect(result.lastTaskSource).toBe('local');
+      expect(result.tasks[0].isExpanded).toBe(true);
+    });
   });
 });

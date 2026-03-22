@@ -319,6 +319,36 @@ describe('T2.2 — saveDirty + saveInFlight poll guard', () => {
     (updateSheet as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   });
 
+  it('pollOnce skips when saveInFlight (API call active)', async () => {
+    // Make updateSheet hang so saveInFlight stays true, then advance past debounce
+    let resolveUpdate!: () => void;
+    (updateSheet as ReturnType<typeof vi.fn>).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveUpdate = resolve;
+        })
+    );
+
+    scheduleSave([makeTask({ id: 'inflight-1', name: 'In Flight' })]);
+
+    // Advance past debounce (2s) to start the API call (saveInFlight=true)
+    await vi.advanceTimersByTimeAsync(2100);
+    // At this point, saveDirty is still true and saveInFlight is true (API in progress)
+
+    startPolling();
+    await vi.advanceTimersByTimeAsync(30000);
+
+    // readSheet should NOT have been called
+    expect(readSheet).not.toHaveBeenCalled();
+
+    // Resolve the update to clean up
+    resolveUpdate();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Restore default mock
+    (updateSheet as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+  });
+
   it('saveDirty and saveInFlight reset to false even when updateSheet throws', async () => {
     (updateSheet as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('API error'));
 

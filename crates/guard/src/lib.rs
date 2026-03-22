@@ -1176,14 +1176,18 @@ pub fn check_bash(input: &serde_json::Value) -> Option<String> {
     }
 
     // Redirect check: type-safe via Token::Operator.
-    // All write redirect operators are blocked: > (truncate), >> (append), >| (clobber).
+    // All write-capable redirect operators are blocked:
+    //   >  (truncate), >> (append), >| (clobber),
+    //   >& (dup — with path target, acts as > + 2>&1),
+    //   <> (read-write open).
+    // Not blocked: < (input only), <& (fd dup, no path write).
     // Quoted/escaped > produces Word(">") and is naturally excluded.
     // No-space redirects (echo>/workspace/file) are properly tokenized as
     // [Word("echo"), Operator(">"), Word("/workspace/file")].
     for seg in &segments {
         for j in 0..seg.tokens.len() {
             if let Token::Operator(op) = &seg.tokens[j] {
-                if op == ">" || op == ">>" || op == ">|" {
+                if op == ">" || op == ">>" || op == ">|" || op == ">&" || op == "<>" {
                     if let Some(Token::Word(path)) = seg.tokens.get(j + 1) {
                         if path.starts_with("/workspace/")
                             && !path.starts_with("/workspace/.claude/worktrees/")
@@ -3954,16 +3958,38 @@ mod tests {
     }
 
     #[test]
-    fn l3_redirect_fd_dup_allow() {
-        // >&2 is fd duplication, not a path redirect
+    fn l3_redirect_fd_dup_number_allow() {
+        // >&2 targets an fd number, not a path — allow
         let v = json!({"tool_input": {"command": "echo >&2"}});
         assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_fd_dup_path_block() {
+        // >&/workspace/file — in bash, >& with a non-digit target acts as
+        // > file 2>&1 (writes both stdout and stderr to the file)
+        let v = json!({"tool_input": {"command": "echo >&/workspace/file"}});
+        assert!(check_bash(&v).is_some());
+    }
+
+    #[test]
+    fn l3_redirect_readwrite_block() {
+        // <> opens the file for both reading AND writing
+        let v = json!({"tool_input": {"command": "cmd <> /workspace/file"}});
+        assert!(check_bash(&v).is_some());
     }
 
     #[test]
     fn l3_redirect_input_allow() {
         // < reads from a file, doesn't write — allow
         let v = json!({"tool_input": {"command": "cat < /workspace/file"}});
+        assert!(check_bash(&v).is_none());
+    }
+
+    #[test]
+    fn l3_redirect_input_fd_dup_allow() {
+        // <& is fd dup for input, no write — allow
+        let v = json!({"tool_input": {"command": "cmd <&3"}});
         assert!(check_bash(&v).is_none());
     }
 

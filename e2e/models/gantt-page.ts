@@ -67,7 +67,7 @@ export class DepEditorModel {
 
   /** Get the type dropdown for the nth dependency row (0-indexed). */
   typeSelect(index: number): Locator {
-    return this.container.getByTestId('dep-type-select').nth(index);
+    return this.container.getByLabel('Dependency type').nth(index);
   }
 
   /** Change the dependency type for the nth row. */

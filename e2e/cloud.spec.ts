@@ -13,12 +13,10 @@ test.describe('Cloud E2E @cloud', () => {
     const { page } = await createCloudPage('/');
 
     await test.step('sign in', async () => {
-      await page.getByTestId('sign-in-button').click();
+      await page.getByRole('button', { name: 'Sign in with Google' }).click();
     });
 
-    await expect(
-      page.getByTestId('choose-path-title').or(page.getByTestId('return-visitor-title'))
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 });
   });
 
   test('collaborator signs in and sheet data loads', async ({ sheetPage: gantt }) => {
@@ -60,7 +58,7 @@ test.describe('Cloud E2E @cloud', () => {
   test('non-existent sheet shows error state', async ({ createCloudPage }) => {
     const { page } = await createCloudPage('/?sheet=NONEXISTENT_SHEET_12345');
 
-    await page.getByTestId('collaborator-sign-in-button').click();
+    await page.getByRole('button', { name: 'Sign in with Google' }).click();
 
     await expect(
       page.getByTestId('loading-skeleton').or(page.getByTestId('error-banner'))
@@ -82,7 +80,7 @@ test.describe('Cloud E2E @cloud', () => {
     await test.step('open promotion modal and sign in', async () => {
       await page.getByTestId('save-to-sheet-button').click();
       await expect(page.getByTestId('promotion-modal')).toBeVisible({ timeout: 5_000 });
-      await page.getByTestId('sign-in-button').click();
+      await page.getByRole('button', { name: 'Sign in with Google' }).click();
     });
 
     await test.step('verify destination picker', async () => {

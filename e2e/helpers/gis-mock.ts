@@ -79,18 +79,12 @@ export async function ensureClientId(page: Page): Promise<void> {
 export async function signInOnPage(page: Page): Promise<void> {
   await ensureClientId(page);
 
-  const collabBtn = page.getByTestId('collaborator-sign-in-button');
-  const firstVisitBtn = page.getByTestId('sign-in-button');
+  // Both FirstVisitWelcome and CollaboratorWelcome have a "Sign in with Google" button.
+  // Only one is visible at a time — click whichever is showing.
+  const signInBtn = page.getByRole('button', { name: 'Sign in with Google' });
+  await signInBtn.first().waitFor({ timeout: 5_000 });
+  await signInBtn.first().click();
 
-  if (await collabBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await collabBtn.click();
-  } else if (await firstVisitBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await firstVisitBtn.click();
-  }
-
-  // Wait for sign-in to complete — both buttons disappear
-  await page
-    .getByTestId('sign-in-button')
-    .or(page.getByTestId('collaborator-sign-in-button'))
-    .waitFor({ state: 'hidden', timeout: 10_000 });
+  // Wait for sign-in to complete — button disappears
+  await signInBtn.first().waitFor({ state: 'hidden', timeout: 10_000 });
 }

@@ -76,8 +76,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const page = await mockAuthContext.newPage();
     await page.goto('/');
     await ensureClientId(page);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await page.getByTestId('choose-path-title').waitFor({ timeout: 10_000 }); // ChoosePath title has no heading role
+    await page.getByRole('button', { name: 'Sign in with Google' }).click();
+    await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 10_000 });
     await use(page);
   },
 
@@ -116,7 +116,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const page = await context.newPage();
       await page.goto(`/?sheet=${sheetId}`);
       await ensureClientId(page);
-      await page.getByTestId('collaborator-sign-in-button').click();
+      await page.getByRole('button', { name: 'Sign in with Google' }).click();
       const gantt = new GanttPage(page);
       await gantt.waitForTaskBars(60_000);
       await use(gantt);
@@ -150,7 +150,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
       for (const page of [pageA, pageB]) {
         await ensureClientId(page);
-        await page.getByTestId('collaborator-sign-in-button').click();
+        await page.getByRole('button', { name: 'Sign in with Google' }).click();
       }
 
       const ganttA = new GanttPage(pageA);

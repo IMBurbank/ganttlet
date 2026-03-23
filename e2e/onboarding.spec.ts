@@ -6,7 +6,7 @@ test.describe('Journey 1: First visit → demo → sandbox', () => {
     await page.goto('/');
     await expect(page.getByTestId('first-visit-title')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('try-demo-button')).toBeVisible();
-    await expect(page.getByTestId('sign-in-button')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
   });
 
   test('Try the demo enters sandbox mode @smoke', async ({ page }) => {
@@ -78,8 +78,8 @@ test.describe('Journey 3: Return visitor → recent sheets', () => {
       );
     });
 
-    await page.getByTestId('sign-in-button').click();
-    await expect(page.getByTestId('choose-path-title')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Sign in with Google' }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('recent-projects')).toBeVisible();
     await expect(page.getByText('Q2 Planning', { exact: true })).toBeVisible();
     await expect(page.getByText('Sprint Board', { exact: true })).toBeVisible();
@@ -167,7 +167,7 @@ test.describe('Error states', () => {
     await test.step('navigate to sheet and sign in', async () => {
       await page.goto('/?sheet=mock-header-test');
       await ensureClientId(page);
-      await page.getByTestId('collaborator-sign-in-button').click();
+      await page.getByRole('button', { name: 'Sign in with Google' }).click();
     });
 
     await test.step('verify header mismatch error screen', async () => {
@@ -198,7 +198,7 @@ test.describe('Error states', () => {
     await test.step('navigate to sheet and sign in', async () => {
       await page.goto('/?sheet=nonexistent-mock-sheet');
       await ensureClientId(page);
-      await page.getByTestId('collaborator-sign-in-button').click();
+      await page.getByRole('button', { name: 'Sign in with Google' }).click();
     });
 
     await test.step('verify error banner with open-another button', async () => {

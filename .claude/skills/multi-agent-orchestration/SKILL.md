@@ -9,82 +9,27 @@ description: "Use when modifying launch-phase.sh, creating phase prompts, debugg
 - **Stages**: Sequential groups of parallel agents (stage1 → merge1 → stage2 → merge2 → ...)
 - **Merge gating**: Each stage's branches must merge cleanly before the next stage starts
 - **Per-branch verification**: After each branch merge, tsc/vitest/cargo test run in parallel
-- **Stage timeouts**: `MAX_STAGE_DURATION` (default 1800s) kills stalled agents
-- **Retry-on-crash**: Agents that crash are restarted automatically
+- **Stage timeouts**: `MAX_STAGE_DURATION` (default 1800s) kills stalled agents via `kill_tree` (terminates entire process tree, not just the parent PID)
+- **Retry-on-failure**: Agents that fail (crash, timeout, budget exceeded) are restarted automatically. In SDK mode, the policy's attempt config controls retry behavior; in legacy mode, the bash retry loop handles it.
 - **Validation**: Post-merge validation agent runs fix-and-retry cycles
 - **Cleanup command**: `./scripts/launch-phase.sh <config> cleanup` removes all phase worktrees/branches
 - **Post-merge cleanup**: `./scripts/launch-phase.sh <config> post-merge-cleanup` deletes local+remote branches after squash merge (handles the squash-merge orphan problem where `git branch -d` refuses)
+- **SIGPIPE danger**: Never pipe `launch-phase.sh` output through `head` or `less` — the reader closing early sends SIGPIPE to the writer, killing the entire orchestration process and orphaning all child agents. Use `tee` or redirect to a file instead.
 
 See `docs/multi-agent-guide.md` for full command reference and usage examples.
 
-## Supervisor Mode
+## Supervisor Modes
+
+### Script-Based Supervisor (`launch-supervisor.sh`)
 A Claude agent can orchestrate the full pipeline autonomously using `scripts/launch-supervisor.sh`.
 - The supervisor runs interactively and calls `launch-phase.sh` subcommands step-by-step
 - It monitors output/logs, makes retry decisions, and handles the code review loop
 - Usage: `./scripts/launch-supervisor.sh docs/prompts/phase15/launch-config.yaml`
+- `--tmux` flag: runs the supervisor inside a tmux session (default: foreground terminal)
 - Prompt: `docs/prompts/supervisor.md` (shared across phases)
-- No tmux needed for the supervisor itself — it runs in the foreground terminal
 - Worker agents spawned by `launch-phase.sh stage N` still run in parallel as usual
 
-## Prompt File Structure
-Prompts live in `docs/prompts/<phaseN>/` (one file per group). Each prompt must:
-- Use YAML frontmatter for structured metadata (scope, tasks, dependencies)
-- List the exact files the agent may modify (zero overlap between groups)
-- Instruct the agent to skip plan mode and execute without confirmation
-- Include retry context so restarted agents resume where they left off
-
-Phase launch configuration is defined in `docs/prompts/<phaseN>/launch-config.yaml`
-(stages, groups, branches, merge messages) rather than hardcoded in `launch-phase.sh`.
-
-## Worktree Isolation (Critical)
-Each agent MUST run in its own git worktree. `/workspace` stays on `main` always.
-For full worktree procedures (cleanup, PR merge, lifecycle): see `.claude/worktrees/CLAUDE.md`.
-- **Agent worktrees**: `setup_worktree()` creates per-group worktrees at `/workspace/.claude/worktrees/<phase>-<group>`
-- **Merge worktree**: `setup_merge_worktree()` creates a long-lived worktree at `/workspace/.claude/worktrees/<phase>-merge` for all merge/validate/PR operations. It persists across stages and is cleaned up after PR creation.
-- Manually-launched agents must create their own: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
-- NEVER `git checkout` or `git switch` in `/workspace` — this breaks every other agent sharing the filesystem
-- All git operations (commit, push, diff) must happen inside the worktree directory
-- Common failure: agent does `git checkout feature-branch` in `/workspace`, another agent commits to the wrong branch
-- **Cleanup is mandatory**: when work is complete (PR merged, or task done), remove the worktree. Stale worktrees prevent branch deletion and waste disk. The merge worktree is cleaned up automatically by `create-pr`; agent worktrees are cleaned up by `do_merge()`. For manual cleanup: use `ExitWorktree` with `action: "remove"` (deletes directory + branch + restores CWD). See `.claude/worktrees/CLAUDE.md` for full procedure.
-
-## WATCH Mode
-`WATCH=1` runs agents in tmux windows with visible output.
-- Retry loop and log capture via `tee`
-- Attach: `tmux attach -t <phase>-agents`
-- Navigate: `Ctrl-B N`/`P`, detach: `Ctrl-B D`
-
-## Claude CLI Reference
-- `--prompt-file` does NOT exist — never use it
-- `--print` is NOT a valid flag — use `-p`
-- `-p` (pipe/print mode): auto-exits after completion, sparse text output
-- Interactive mode (no `-p`): full TUI, does NOT auto-exit — stalls pipelines
-- `--dangerously-skip-permissions`: required for automated runs
-- Other flags: `-c` (continue), `-r` (resume), `--system-prompt`, `--model`, `--max-budget-usd`
-
-## Prompt Boilerplate Patterns
-Every group prompt should include in its Error Handling section:
-- The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `taskEndDate`/`taskDuration` shell functions (or `bizday` CLI) for dates, `python3 -c` for general arithmetic. Example: `taskEndDate 2026-03-11 10` → `2026-03-24`.
-- Progress tracking in pipe-delimited format: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`
-
-## Subagent Delegation in Orchestrated Agents
-Orchestrated agents (spawned by `launch-phase.sh`) are full Claude Code sessions and **can use the Agent tool** to delegate to subagents defined in `.claude/agents/`. The agent definitions are visible from worktrees because worktrees share the repo's file content.
-
-### Available subagents
-- **codebase-explorer** (haiku, 20 turns): Delegate initial file investigation before editing. Preserves the orchestrated agent's context window. Read-only — cannot modify files.
-- **rust-scheduler** (sonnet, 40 turns): Delegate Rust scheduling engine work in `crates/scheduler/`. Can read, edit, write, and run cargo tests.
-- **verify-and-diagnose** (sonnet, 30 turns): Delegate verification (tsc, vitest, cargo test, lint-agent-paths). Returns a structured pass/fail report. Default is verify-only; include "fix" in the prompt for verify-and-fix mode.
-
-### When to delegate
-- **Exploration**: Use `codebase-explorer` before editing unfamiliar code. Saves ~40K tokens of context vs reading files directly.
-- **Verification**: Use `verify-and-diagnose` instead of running tsc/vitest/cargo inline. Gets structured diagnosis without polluting the agent's context with raw test output.
-- **Rust work**: Use `rust-scheduler` when the group's tasks include scheduling engine changes.
-
-### Constraints
-- Subagents have `disallowedTools: Agent` — they cannot spawn further subagents (no recursion).
-- Subagent turns/tokens count against the parent agent's `--max-budget-usd`. If a group prompt will use subagents heavily, increase the budget: `DEFAULT_MAX_BUDGET=15 ./scripts/launch-phase.sh <config> stage N`
-- Subagents inherit the worktree's working directory. All relative paths in structure maps resolve correctly.
-
-## Tmux-Native Supervisor
+### Tmux-Native Supervisor
 A supervisor agent running inside tmux can launch, monitor, and control agent windows
 directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 - `tmux_create_session <name>` — create the session
@@ -105,27 +50,85 @@ directly using `scripts/lib/tmux-supervisor.sh`. Source the library, then call:
 
 See `docs/plans/tmux-supervisor.md` for the full design and test results.
 
+## WATCH Mode
+`WATCH=1` runs agents in tmux windows with visible output.
+- Retry loop and log capture via `tee`
+- Attach: `tmux attach -t <phase>-agents-<run_suffix>` (suffix is printed in launch log; use `tmux ls` to find it)
+- Navigate: `Ctrl-B N`/`P`, detach: `Ctrl-B D`
+
+## Prompt Authoring
+Prompts live in `docs/prompts/<phaseN>/` (one file per group). Each prompt must:
+- Use YAML frontmatter for structured metadata (scope, tasks, dependencies)
+- List the exact files the agent may modify (zero overlap between groups)
+- Instruct the agent to skip plan mode and execute without confirmation
+- Include retry context so restarted agents resume where they left off
+
+Phase launch configuration is defined in `docs/prompts/<phaseN>/launch-config.yaml`
+(stages, groups, branches, merge messages) rather than hardcoded in `launch-phase.sh`.
+
+Every group prompt's Error Handling section should include:
+- The calculation rule from CLAUDE.md: agents must NEVER do mental math or date arithmetic — use `taskEndDate`/`taskDuration` shell functions (or `bizday` CLI) for dates, `python3 -c` for general arithmetic. Example: `taskEndDate 2026-03-11 10` → `2026-03-24`.
+- Progress tracking in pipe-delimited format: `TASK_ID | STATUS | ISO_TIMESTAMP | MESSAGE`
+
+## Worktree Isolation (Critical)
+Each agent MUST run in its own git worktree. `/workspace` stays on `main` always.
+For full worktree procedures (cleanup, PR merge, lifecycle): see `.claude/worktrees/CLAUDE.md`.
+- **Agent worktrees**: `setup_worktree()` creates per-group worktrees at `${WORKTREE_BASE}/${branch//\//-}` (branch name with slashes replaced by dashes, including run suffix). Use `git worktree list` to find actual paths.
+- **Merge worktree**: `setup_merge_worktree()` creates a long-lived worktree at `${WORKTREE_BASE}/${PHASE}-merge-${run_suffix}`. It persists across stages and is cleaned up after PR creation.
+- Manually-launched agents must create their own: `git worktree add /workspace/.claude/worktrees/<name> -b <branch>`
+- NEVER `git checkout` or `git switch` in `/workspace` — this breaks every other agent sharing the filesystem
+- All git operations (commit, push, diff) must happen inside the worktree directory
+- Common failure: agent does `git checkout feature-branch` in `/workspace`, another agent commits to the wrong branch
+- **Cleanup is mandatory**: when work is complete (PR merged, or task done), remove the worktree. Stale worktrees prevent branch deletion and waste disk. The merge worktree is cleaned up automatically by `create-pr`; agent worktrees are cleaned up by `do_merge()`. For manual cleanup: use `ExitWorktree` with `action: "remove"` (deletes directory + branch + restores CWD). See `.claude/worktrees/CLAUDE.md` for full procedure.
+
+## Claude CLI Reference
+- `--prompt-file` does NOT exist — never use it
+- Both `-p` and `--print` work (long-form alias); auto-exits after completion, sparse text output
+- Interactive mode (no `-p`): full TUI, does NOT auto-exit — stalls pipelines
+- `--dangerously-skip-permissions`: required for automated runs
+- Other flags: `-c` (continue), `-r` (resume), `--system-prompt`, `--model`, `--max-budget-usd`
+
+## Subagent Delegation in Orchestrated Agents
+Orchestrated agents (spawned by `launch-phase.sh`) are full Claude Code sessions and **can use the Agent tool** to delegate to subagents defined in `.claude/agents/`. The agent definitions are visible from worktrees because worktrees share the repo's file content.
+
+### Available subagents
+- **codebase-explorer** (haiku, 20 turns): Delegate initial file investigation before editing. Preserves the orchestrated agent's context window. Read-only — cannot modify files.
+- **rust-scheduler** (sonnet, 40 turns): Delegate Rust scheduling engine work in `crates/scheduler/`. Can read, edit, write, and run cargo tests.
+- **verify-and-diagnose** (sonnet, 30 turns): Delegate verification (tsc, vitest, cargo test, lint-agent-paths). Returns a structured pass/fail report. Default is verify-only; include "fix" in the prompt for verify-and-fix mode.
+- **plan-reviewer** (haiku, 20 turns): Review phase prompts pre-launch for scope overlap, dependencies, and missing acceptance criteria. Read-only.
+- **skill-reviewer** (sonnet, 35 turns): Review a skill file from an assigned angle, producing a structured findings report. Read-only.
+
+### When to delegate
+- **Exploration**: Use `codebase-explorer` before editing unfamiliar code. Saves ~40K tokens of context vs reading files directly.
+- **Verification**: Use `verify-and-diagnose` instead of running tsc/vitest/cargo inline. Gets structured diagnosis without polluting the agent's context with raw test output.
+- **Rust work**: Use `rust-scheduler` when the group's tasks include scheduling engine changes.
+- **Pre-launch review**: Use `plan-reviewer` to validate phase prompt scope before launching agents.
+
+### Constraints
+- All subagents disallow `Agent` — no recursive spawning. Read-only agents (`codebase-explorer`, `plan-reviewer`, `skill-reviewer`) also disallow `Write, Edit`.
+- Subagent turns/tokens count against the parent agent's `--max-budget-usd`. If a group prompt will use subagents heavily, increase the budget: `DEFAULT_MAX_BUDGET=15 ./scripts/launch-phase.sh <config> stage N`
+- Subagents inherit the worktree's working directory. All relative paths in structure maps resolve correctly.
+
 ## SDK Agent Runner
 When `SDK_RUNNER=1` is set, `run_agent()` uses the TypeScript SDK runner (`scripts/sdk/agent-runner.ts`) instead of `claude -p`.
 
-- **Policy registry**: `default` (single attempt) and `reviewer` (3-attempt fallback: sonnet 30 turns → resume 5 turns → haiku fresh 5 turns)
-- **Naming convention**: Group IDs ending in `-accuracy`, `-structure`, `-scope`, `-history`, `-adversarial` auto-select `--policy reviewer`, `--agent skill-reviewer`, and the correct `--output-file`
-- **`--agent` flag**: Loads agent definitions from `.claude/agents/*.md` via `settingSources: ['project']`
+- **Policy registry**: `default` (single attempt), `reviewer` (3-attempt fallback: sonnet 30 turns → resume 5 turns → haiku fresh 5 turns), and `curator` (2-attempt with output validation requiring `CURATION_RESULT` marker)
+- **Naming convention**: Group IDs ending in `-accuracy`, `-structure`, `-scope`, `-history`, `-adversarial` auto-select `--policy reviewer`, `--agent skill-reviewer`, and the correct `--output-file`. Non-reviewer groups in the `skill-curation` phase auto-select `--policy curator`.
+- **Read-only groups**: Groups without a `branch` field in the YAML config share the orchestrator's CWD instead of getting individual worktrees. Merge stages skip branchless groups automatically.
+- **`--agent` flag**: Specifies which agent definition to load from `.claude/agents/*.md`; note that `settingSources: ['project']` is always active regardless of whether this flag is used
 - **Differs from `claude -p`**: Programmatic permissions via `allowedTools`, attempt-based fallback with output validation, cumulative budget tracking across attempts
 
 See `docs/multi-agent-guide.md` § SDK Agent Runner for full CLI flags and details.
 
 ## Context Conservation
-<!-- Moved from root CLAUDE.md -->
 - Commit early and often — progress survives crashes and context loss.
-- On restart, read `.agent-status.json` (fall back to `claude-progress.txt`) and check `git log --oneline -10`.
+- **On restart**: read `.agent-status.json` first (fall back to `claude-progress.txt` if it exists), then check `git log --oneline -10`. Skip completed tasks. Do NOT redo work that's already committed.
 - Use subagents (Agent tool) for expensive file investigation to preserve main context.
 - Load `.claude/skills/` on demand — only read skills relevant to the current task.
 - If context is getting large, summarize findings and commit before continuing.
 - **Maintain agent structure maps**: If you add, rename, or delete directories, update the project structure map in `.claude/agents/codebase-explorer.md` to match. Do this before context compaction, not at the end of a session. Run `./scripts/lint-agent-paths.sh` to verify.
 
 ## Progress Tracking Format
-<!-- Moved from root CLAUDE.md — curator cleanup pending in step 12 -->
 
 Agents maintain `.agent-status.json` in the worktree root. Update it after each major task.
 
@@ -151,18 +154,11 @@ Agents maintain `.agent-status.json` in the worktree root. Update it after each 
 node -e "const fs=require('fs'),f='.agent-status.json',d=JSON.parse(fs.readFileSync(f,'utf8'));d.tasks['A1']={status:'done',tests_passing:3,tests_failing:0};d.last_updated=new Date().toISOString();fs.writeFileSync(f,JSON.stringify(d,null,2))"
 ```
 
-On restart, read `.agent-status.json` (fall back to `claude-progress.txt` if it exists) and `git log --oneline -10` first. Skip completed tasks.
-
 For bash patterns (pipe exit codes, heredoc quoting, PIPESTATUS): see shell-scripting skill.
 
 ## Lessons Learned
-<!-- Managed by curation pipeline — do not edit directly -->
 - **Claude output modes matter**: `-p` produces sparse text-only output (no thinking blocks, no tool-use panels). Interactive mode (no `-p`) produces full rich TUI but does NOT auto-exit — claude waits for more input. Solution: WATCH mode runs claude interactively in tmux, and the prompt instructs claude to exit when done.
 - **WATCH mode requires tmux**: Script must check `command -v tmux` and fail fast. Without this guard, tmux commands silently fail and the polling loop hangs forever.
-- **`PIPESTATUS[1]`** is required to capture claude's exit code through a `tee` pipe (`$?` gives tee's exit code).
-- **Heredoc quoting**: WATCH mode wrapper scripts must use single-quoted heredoc (`<<'DELIM'`) with sed placeholder substitution to avoid premature variable expansion.
-- **`setup_worktree()` stdout isolation**: Returns path via stdout — all other output must go to `>/dev/null` or `>&2`, otherwise downstream `cd` commands break.
-- **`script -q -c` is fragile**: Prefer `tee -a` for simultaneous terminal + file capture.
 - **Validation log parsing**: Must exclude the `COMMAND=` header line to avoid false positive failure detection from prompt template strings.
 - **Container dependencies**: tmux must be in the Dockerfile's `apt-get install` line. If missing, WATCH mode is completely broken with no useful error.
 - **`CLAUDECODE` env var blocks nested sessions**: When `launch-phase.sh` is run from a supervisor agent (Claude Code), child `claude` processes refuse to start. Fixed by `unset CLAUDECODE` at the top of `launch-phase.sh`.
@@ -170,7 +166,6 @@ For bash patterns (pipe exit codes, heredoc quoting, PIPESTATUS): see shell-scri
 - **Per-branch verification**: Verifying after ALL branches are merged makes failures harder to diagnose (compound errors). `do_merge()` now runs `run_parallel_verification()` after each branch, catching breakage before the next branch is merged on top.
 - **Parallel verification is faster**: Running tsc, vitest, and cargo test with `&` + `wait` instead of sequentially saves significant time during merge verification.
 - **Code review rounds should be capped**: Without a cap, the review-fix-review loop can cycle indefinitely. The supervisor prompt caps at 3 rounds; beyond that, add `needs-human-review` label.
-- **SIGPIPE kills pipelines**: Never pipe `launch-phase.sh` output through `head` or `less`. The reader closing early sends SIGPIPE to the writer, killing the entire orchestration process silently. Use `tee` or redirect to a file instead.
 - **YAML frontmatter `---` parsed as CLI flags**: When passing prompt content as a CLI positional argument (`claude ... "$(cat prompt.md)"`), YAML frontmatter `---` lines are parsed as unknown options. Fix: use pipe mode (`cat prompt.md | claude -p -`) which passes content via stdin.
 - **Validation must use pipe mode**: Validation agents in WATCH mode were running interactively (no `-p`), which allowed agents to push processes to background and evade idle detection. Fixed: validation now uses `cat | claude -p - | tee` with `PIPESTATUS[1]` for exit code capture.
 - **Wall-clock timeout prevents runaway validation**: `VALIDATE_TIMEOUT` (default 600s) kills validation attempts that exceed the time limit, regardless of whether the agent appears active.

@@ -5,14 +5,26 @@ description: "Use when writing or debugging E2E tests, working with the relay se
 
 # E2E Testing Guide
 
+## Architecture
+
+Four-layer architecture (see `e2e/CLAUDE.md` for full rules):
+
+1. **Infrastructure** (`e2e/helpers/`) — Context setup, token exchange. No page interactions.
+2. **Models** (`e2e/models/`) — Single source of truth for all locators and interactions.
+   - `BasePage` — shared locators (auth, onboarding, header, errors), `signIn()`, `gotoAuthenticated()`
+   - `GanttPage extends BasePage` — SVG locators, chart interactions, `PopoverModel`, `DepEditorModel`
+3. **Fixtures** (`e2e/fixtures.ts`) — Instantiate models, manage lifecycle. Use model methods.
+4. **Specs** (`e2e/*.spec.ts`) — Use model properties only. No raw locators.
+
 ## Playwright Setup
 - Tests live in `e2e/`
 - Config: `playwright.config.ts`
 - Browser: Chromium (pre-installed in Docker container)
 
 ## Relay Server & Collab Tests
-Collaboration tests (`e2e/collab.spec.ts`) require the relay server — without it, they
-silently skip via `test.skip()`.
+Collaboration tests (`e2e/collab.spec.ts`) require the relay server. The `collabPair` fixture
+checks connectivity internally and auto-skips if the relay is unavailable — no per-test
+skip guards needed.
 
 **How the relay starts:** Setting `E2E_RELAY=1` tells `playwright.config.ts` to add the relay
 as a second `webServer`. Playwright runs `cargo build --release` in `server/` (cached by Cargo)
@@ -25,35 +37,19 @@ then starts the binary and waits for port 4000 before running tests.
 
 **Never use bare `npm run e2e` as final check** — collab tests skip silently.
 
-## Collab Test Patterns
-- Cross-tab sync: open two browser contexts, edit in one, verify in the other
-- Presence indicators: verify avatar/cursor appears for connected users
-- Tests use `test.skip()` guard for relay availability
-
-## CI Pipeline
-- `e2e.yml` GitHub Actions workflow runs on pushes to main, PRs, and manual dispatch
-- Sets `E2E_RELAY=1` and builds relay binary before Playwright
-- Rust build artifacts cached via `actions/cache` (~5s on cache hit vs ~90s cold)
-- Report + traces uploaded only on failure
-
-## Docker Requirements
-- Dockerfile includes Playwright's Chromium system libraries
-- Chromium browser binary pre-installed
-- Relay server source (`server/`) volume-mounted for build cache persistence
-
 ## Mock Auth Pattern
 E2E tests use a synthetic Google Identity Services (GIS) mock for auth:
 
-- **`setupMockAuth(context, token)`**: Call on a BrowserContext before creating pages.
-  Injects synthetic `google.accounts.oauth2` via `addInitScript` and blocks the real GIS
-  library via `context.route('**/accounts.google.com/**', route.abort())`.
-- **`ensureClientId(page)`**: Sets `window.__ganttlet_config.googleClientId` after `page.goto()`.
-  Needed because some environments clear `__ganttlet_config` between init script and page load.
-- **`signInOnPage(page)`**: Clicks the sign-in button (collaborator or first-visit) and waits
-  for buttons to disappear via `waitForFunction` (not timeout).
+- **`setupMockAuth(context, token)`** in `e2e/helpers/gis-mock.ts`: Call on a BrowserContext
+  before creating pages. Injects synthetic `google.accounts.oauth2` via `addInitScript` and
+  blocks the real GIS library via `context.route()`. This is pure infrastructure — no page
+  interactions.
+- **`BasePage.gotoAuthenticated(path)`** in `e2e/models/base-page.ts`: Navigates and re-sets
+  the client ID (some environments clear `__ganttlet_config` between init script and page load).
+- **`BasePage.signIn()`**: Clicks "Sign in with Google" button and waits for it to disappear.
+  Works across all welcome screens (polymorphic — uses `.first()`).
 
-For cloud E2E tests that need real Sheets API access, use `setupMockAuth` from
-`e2e/helpers/gis-mock.ts` with a real service account token from `service-account.ts`.
+For cloud E2E tests that need real Sheets API access, pass a real SA token to `setupMockAuth`.
 
 ## Cloud Auth Pattern
 - SA keys: `GCP_SA_KEY_WRITER1_DEV`, `GCP_SA_KEY_WRITER2_DEV`, `GCP_SA_KEY_READER1_DEV`

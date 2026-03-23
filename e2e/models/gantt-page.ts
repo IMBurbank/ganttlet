@@ -1,14 +1,14 @@
 /**
  * gantt-page.ts — Page model for Gantt chart interactions.
  *
- * Wraps a Playwright Page with domain verbs so tests read like user stories:
+ * Extends BasePage with SVG-specific locators and multi-step interaction methods.
+ * Tests read like user stories:
  *   await gantt.editTaskName(0, 'New Name')
  *   const popover = await gantt.openPopover(0)
  *   await popover.setConstraint('SNET', '2026-06-01')
- *
- * Uses getByRole/getByLabel for standard elements, getByTestId for SVG.
  */
 import { type Locator, type Page, expect } from '@playwright/test';
+import { BasePage } from './base-page';
 
 // ─── PopoverModel ────────────────────────────────────────────────────────────
 
@@ -85,86 +85,73 @@ export class DepEditorModel {
 // ─── GanttPage ───────────────────────────────────────────────────────────────
 
 /**
- * Page model for Gantt chart interactions.
- *
- * Provides locator properties for querying elements and multi-step methods
- * that encapsulate common interaction patterns (edit, open popover, etc.).
+ * Gantt chart page model. Extends BasePage with SVG locators and
+ * multi-step chart interactions.
  */
-export class GanttPage {
-  constructor(public readonly page: Page) {}
+export class GanttPage extends BasePage {
+  // ── SVG locators (getByTestId correct — no ARIA roles for SVG) ──
 
-  // ── Locators ──
-
-  /** All task bar SVG elements (both regular tasks and milestones). */
   get taskBars(): Locator {
     return this.page.getByTestId(/^task-bar-/);
   }
 
-  /** A specific task bar by 0-based index. */
   taskBar(index: number): Locator {
     return this.taskBars.nth(index);
   }
 
-  /** A specific task bar by task ID. */
   taskBarById(taskId: string): Locator {
     return this.page.getByTestId(`task-bar-${taskId}`);
   }
 
-  /** All editable cell spans ("Double-click to edit"). */
   get editableCells(): Locator {
     return this.page.getByTitle('Double-click to edit');
   }
 
-  /** The inline edit input (visible when a cell is being edited). */
   get inlineEditInput(): Locator {
     return this.page.getByTestId('inline-edit-input');
   }
 
-  /** All dependency arrow SVG groups. */
   get dependencyArrows(): Locator {
     return this.page.getByTestId('dependency-arrow');
   }
 
-  /** All conflict indicator groups (red ! circles). */
   get conflictIndicators(): Locator {
     return this.page.getByTestId('conflict-indicator');
   }
 
-  /** All conflict outline rects (dashed red borders). */
   get conflictOutlines(): Locator {
     return this.page.getByTestId('conflict-outline');
   }
 
-  /** All presence indicator dots. */
   get presenceIndicators(): Locator {
     return this.page.getByTestId('presence-indicator');
   }
 
+  get tooltip(): Locator {
+    return this.page.getByTestId('tooltip');
+  }
+
   // ── Multi-step methods ──
 
-  /** Wait for at least one task bar to appear. */
   async waitForTaskBars(timeout = 15_000): Promise<void> {
     await this.taskBars.first().waitFor({ timeout });
   }
 
-  /**
-   * Edit a task name by double-clicking the nth editable cell.
-   * Handles: dblclick → wait for input → fill → blur to save.
-   */
+  /** Enter sandbox and wait for task bars to load. */
+  async enterSandboxAndWait(timeout = 15_000): Promise<void> {
+    await this.tryDemoButton.click();
+    await this.waitForTaskBars(timeout);
+  }
+
   async editTaskName(index: number, newName: string): Promise<void> {
     const cell = this.editableCells.nth(index);
     await cell.dblclick();
     await this.inlineEditInput.waitFor({ timeout: 5_000 });
     await this.inlineEditInput.fill(newName);
-    // Blur to save — click the header
-    await this.page.locator('header').click();
+    await this.header.click();
     await expect(this.inlineEditInput).toBeHidden();
   }
 
-  /**
-   * Open the task bar popover by double-clicking the nth task bar.
-   * Returns a PopoverModel for further interaction.
-   */
   async openPopover(index: number): Promise<PopoverModel> {
     const bar = this.taskBar(index);
     await bar.dispatchEvent('dblclick');
@@ -173,10 +160,6 @@ export class GanttPage {
     return popover;
   }
 
-  /**
-   * Open the dependency editor modal by clicking a dependency button.
-   * @param buttonText - The text shown on the predecessors cell button (e.g. "pe-1+2").
-   */
   async openDepEditor(buttonText: string | RegExp): Promise<DepEditorModel> {
     const btn = this.page.getByRole('button', { name: buttonText });
     await btn.click();
@@ -185,12 +168,10 @@ export class GanttPage {
     return editor;
   }
 
-  /** Toggle critical path highlighting. */
   async toggleCriticalPath(): Promise<void> {
     await this.page.getByRole('button', { name: 'Critical Path' }).click();
   }
 
-  /** Open the scope dropdown and select an item by name. */
   async selectScope(name: string): Promise<void> {
     await this.page.getByRole('button', { name: 'Scope' }).click();
     await this.page.getByRole('button', { name }).click();

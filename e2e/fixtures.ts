@@ -1,17 +1,19 @@
 /**
  * fixtures.ts — Composable Playwright fixtures for Ganttlet E2E tests.
  *
- * Fixture hierarchy:
- *   Worker-scoped: cloudTokenA, cloudTokenB (expensive SA token exchange)
- *   Test-scoped:   sandboxPage, mockAuthContext, signedInPage, sheetPage, collabPair
+ * Fixtures instantiate page models and handle lifecycle (context creation,
+ * teardown). All page interactions go through models — no raw locators here.
  *
- * All test-scoped fixtures auto-cleanup via the use() callback pattern.
- * Tests never need try/finally or manual cleanup() calls.
+ * Hierarchy:
+ *   Worker-scoped: cloudTokenA, cloudTokenB
+ *   Test-scoped:   sandboxPage, basePage, mockAuthContext, signedInPage,
+ *                  createCloudPage, sheetPage, collabPair
  */
-import { test as base, type BrowserContext, type Page } from '@playwright/test';
+import { test as base, type BrowserContext } from '@playwright/test';
 import { getAccessToken } from './helpers/service-account';
-import { setupMockAuth, ensureClientId } from './helpers/gis-mock';
+import { setupMockAuth } from './helpers/gis-mock';
 import { getTestSheetId } from './helpers/get-sheet-id';
+import { BasePage } from './models/base-page';
 import { GanttPage } from './models/gantt-page';
 
 // ─── Type declarations ───────────────────────────────────────────────────────
@@ -21,12 +23,13 @@ type WorkerFixtures = {
   cloudTokenB: string | undefined;
 };
 
-type CloudPageResult = { context: BrowserContext; page: Page };
+type CloudPageResult = { context: BrowserContext; page: BasePage };
 
 type TestFixtures = {
+  basePage: BasePage;
   sandboxPage: GanttPage;
   mockAuthContext: BrowserContext;
-  signedInPage: Page;
+  signedInPage: BasePage;
   createCloudPage: (url: string) => Promise<CloudPageResult>;
   sheetPage: GanttPage;
   collabPair: { pageA: GanttPage; pageB: GanttPage };
@@ -54,16 +57,20 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     { scope: 'worker' },
   ],
 
-  // sandboxPage: enters demo mode, waits for task bars, returns GanttPage
+  // basePage: wraps page with BasePage model (no navigation)
+  basePage: async ({ page }, use) => {
+    await use(new BasePage(page));
+  },
+
+  // sandboxPage: GanttPage in sandbox mode with task bars loaded
   sandboxPage: async ({ page }, use) => {
-    await page.goto('/');
-    await page.getByTestId('try-demo-button').click();
     const gantt = new GanttPage(page);
-    await gantt.waitForTaskBars();
+    await gantt.goto('/');
+    await gantt.enterSandboxAndWait();
     await use(gantt);
   },
 
-  // mockAuthContext: BrowserContext with fake GIS mock (no real token)
+  // mockAuthContext: BrowserContext with fake GIS mock
   mockAuthContext: async ({ browser }, use) => {
     const context = await browser.newContext();
     await setupMockAuth(context);
@@ -71,17 +78,17 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await context.close();
   },
 
-  // signedInPage: signed in via mock auth, at ChoosePath screen (raw Page)
+  // signedInPage: BasePage signed in at ChoosePath
   signedInPage: async ({ mockAuthContext }, use) => {
-    const page = await mockAuthContext.newPage();
-    await page.goto('/');
-    await ensureClientId(page);
-    await page.getByRole('button', { name: 'Sign in with Google' }).click();
-    await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 10_000 });
-    await use(page);
+    const rawPage = await mockAuthContext.newPage();
+    const app = new BasePage(rawPage);
+    await app.gotoAuthenticated('/');
+    await app.signIn();
+    await app.choosePathHeading.waitFor({ timeout: 10_000 });
+    await use(app);
   },
 
-  // createCloudPage: factory for pages with real SA token auth at any URL
+  // createCloudPage: factory returning BasePage with real SA token auth
   createCloudPage: async ({ browser, cloudTokenA }, use) => {
     if (!cloudTokenA) throw new Error('createCloudPage requires GCP_SA_KEY_WRITER1_DEV');
     const contexts: BrowserContext[] = [];
@@ -90,21 +97,19 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const context = await browser.newContext();
       contexts.push(context);
       await setupMockAuth(context, cloudTokenA);
-      const page = await context.newPage();
-      await page.goto(url);
-      await ensureClientId(page);
-      return { context, page };
+      const rawPage = await context.newPage();
+      const app = new BasePage(rawPage);
+      await app.gotoAuthenticated(url);
+      return { context, page: app };
     };
 
     await use(factory);
-
-    // Auto-cleanup all contexts created by the factory
     for (const ctx of contexts) {
       await ctx.close().catch(() => {});
     }
   },
 
-  // sheetPage: connected to real test sheet, data loaded, returns GanttPage
+  // sheetPage: GanttPage connected to real test sheet, data loaded
   sheetPage: async ({ browser, cloudTokenA }, use) => {
     if (!cloudTokenA) throw new Error('sheetPage requires GCP_SA_KEY_WRITER1_DEV');
     const sheetId = getTestSheetId();
@@ -113,11 +118,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const context = await browser.newContext();
     try {
       await setupMockAuth(context, cloudTokenA);
-      const page = await context.newPage();
-      await page.goto(`/?sheet=${sheetId}`);
-      await ensureClientId(page);
-      await page.getByRole('button', { name: 'Sign in with Google' }).click();
-      const gantt = new GanttPage(page);
+      const rawPage = await context.newPage();
+      const gantt = new GanttPage(rawPage);
+      await gantt.gotoAuthenticated(`/?sheet=${sheetId}`);
+      await gantt.signIn();
       await gantt.waitForTaskBars(60_000);
       await use(gantt);
     } finally {
@@ -125,7 +129,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     }
   },
 
-  // collabPair: two pages connected to same sheet via Yjs, both with task bars
+  // collabPair: two GanttPages connected to same sheet via Yjs
   collabPair: async ({ browser, cloudTokenA, cloudTokenB }, use) => {
     if (!cloudTokenA || !cloudTokenB) {
       throw new Error('collabPair requires two SA keys');
@@ -146,19 +150,19 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
       const pageA = await contextA.newPage();
       const pageB = await contextB.newPage();
-      await Promise.all([pageA.goto(url), pageB.goto(url)]);
-
-      for (const page of [pageA, pageB]) {
-        await ensureClientId(page);
-        await page.getByRole('button', { name: 'Sign in with Google' }).click();
-      }
 
       const ganttA = new GanttPage(pageA);
       const ganttB = new GanttPage(pageB);
 
+      // Navigate and sign in on both pages
+      await Promise.all([ganttA.gotoAuthenticated(url), ganttB.gotoAuthenticated(url)]);
+      for (const gantt of [ganttA, ganttB]) {
+        await gantt.signIn();
+      }
+
       await Promise.all([ganttA.waitForTaskBars(60_000), ganttB.waitForTaskBars(60_000)]);
 
-      // Wait for collab connections (generous timeout for large sheets)
+      // Wait for collab connections
       await Promise.all([
         pageA
           .locator('[data-collab-status="connected"]')

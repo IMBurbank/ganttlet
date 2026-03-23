@@ -10,13 +10,9 @@ test.describe('Cloud E2E @cloud', () => {
   test.skip(!hasCloudAuth, 'Requires GCP_SA_KEY_WRITER1_DEV');
 
   test('signed-in user sees ChoosePath', async ({ createCloudPage }) => {
-    const { page } = await createCloudPage('/');
-
-    await test.step('sign in', async () => {
-      await page.getByRole('button', { name: 'Sign in with Google' }).click();
-    });
-
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 });
+    const { page: app } = await createCloudPage('/');
+    await app.signIn();
+    await expect(app.choosePathHeading).toBeVisible({ timeout: 10_000 });
   });
 
   test('collaborator signs in and sheet data loads', async ({ sheetPage: gantt }) => {
@@ -24,80 +20,69 @@ test.describe('Cloud E2E @cloud', () => {
   });
 
   test('header shows sheet title and share works', async ({ sheetPage: gantt }) => {
-    await expect(gantt.page.getByTestId('sheet-title')).toBeVisible({ timeout: 30_000 });
-    await expect(gantt.page.getByTestId('share-button')).toBeVisible();
+    await expect(gantt.sheetTitle).toBeVisible({ timeout: 30_000 });
+    await expect(gantt.shareButton).toBeVisible();
 
     await test.step('click share button', async () => {
-      await gantt.page.getByTestId('share-button').click();
+      await gantt.shareButton.click();
       await expect(gantt.taskBars.first()).toBeVisible();
     });
   });
 
   test('disconnect returns to WelcomeGate', async ({ sheetPage: gantt }) => {
     await test.step('open dropdown and disconnect', async () => {
-      await gantt.page.getByTestId('sheet-dropdown-trigger').click();
-      await expect(gantt.page.getByTestId('sheet-dropdown-menu')).toBeVisible({ timeout: 5_000 });
-      await gantt.page.getByTestId('menu-disconnect').click();
+      await gantt.sheetDropdownTrigger.click();
+      await expect(gantt.sheetDropdownMenu).toBeVisible({ timeout: 5_000 });
+      await gantt.menuDisconnect.click();
     });
 
     await test.step('confirm disconnect', async () => {
-      await expect(gantt.page.getByTestId('disconnect-confirm')).toBeVisible({ timeout: 5_000 });
-      await gantt.page.getByTestId('disconnect-confirm-btn').click();
+      await expect(gantt.disconnectConfirm).toBeVisible({ timeout: 5_000 });
+      await gantt.disconnectConfirmBtn.click();
     });
 
     await test.step('verify return to WelcomeGate', async () => {
-      await expect(
-        gantt.page
-          .getByTestId('choose-path-title')
-          .or(gantt.page.getByTestId('return-visitor-title'))
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(gantt.choosePathHeading).toBeVisible({ timeout: 10_000 });
       expect(gantt.page.url()).not.toContain('sheet=');
     });
   });
 
   test('non-existent sheet shows error state', async ({ createCloudPage }) => {
-    const { page } = await createCloudPage('/?sheet=NONEXISTENT_SHEET_12345');
-
-    await page.getByRole('button', { name: 'Sign in with Google' }).click();
-
-    await expect(
-      page.getByTestId('loading-skeleton').or(page.getByTestId('error-banner'))
-    ).toBeVisible({ timeout: 60_000 });
+    const { page: app } = await createCloudPage('/?sheet=NONEXISTENT_SHEET_12345');
+    await app.signIn();
+    await expect(app.loadingSkeleton.or(app.errorBanner)).toBeVisible({ timeout: 60_000 });
   });
 
   test('promotion flow @slow', async ({ createCloudPage }) => {
-    const { page } = await createCloudPage('/');
+    const { page: app } = await createCloudPage('/');
 
     await test.step('enter sandbox', async () => {
-      await page.getByTestId('try-demo-button').click();
-      await page
+      await app.tryDemoButton.click();
+      await app.page
         .getByTestId(/^task-bar-/)
         .first()
         .waitFor({ timeout: 15_000 });
-      await expect(page.getByTestId('sandbox-banner')).toBeVisible();
+      await expect(app.sandboxBanner).toBeVisible();
     });
 
     await test.step('open promotion modal and sign in', async () => {
-      await page.getByTestId('save-to-sheet-button').click();
-      await expect(page.getByTestId('promotion-modal')).toBeVisible({ timeout: 5_000 });
-      await page.getByRole('button', { name: 'Sign in with Google' }).click();
+      await app.saveToSheetButton.click();
+      await expect(app.promotionModal).toBeVisible({ timeout: 5_000 });
+      await app.signIn();
     });
 
     await test.step('verify destination picker', async () => {
-      await expect(page.getByTestId('create-new-sheet-button')).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByTestId('save-to-existing-button')).toBeVisible();
+      await expect(app.createNewSheetButton).toBeVisible({ timeout: 10_000 });
+      await expect(app.saveToExistingButton).toBeVisible();
     });
 
     await test.step('attempt create sheet', async () => {
-      await page.getByTestId('create-new-sheet-button').click();
+      await app.createNewSheetButton.click();
 
       await expect(async () => {
-        const urlHasSheet = page.url().includes('sheet=');
-        const hasError = await page
-          .getByTestId('promotion-error')
-          .isVisible()
-          .catch(() => false);
-        const hasTryAgain = await page
+        const urlHasSheet = app.page.url().includes('sheet=');
+        const hasError = await app.promotionError.isVisible().catch(() => false);
+        const hasTryAgain = await app.page
           .getByText('Try again', { exact: true })
           .isVisible()
           .catch(() => false);
@@ -107,7 +92,7 @@ test.describe('Cloud E2E @cloud', () => {
   });
 
   test('sync status shows Synced after loading', async ({ sheetPage: gantt }) => {
-    await expect(gantt.page.getByTestId('sync-status')).toBeVisible({ timeout: 10_000 });
-    await expect(gantt.page.getByTestId('sync-status')).toContainText('Synced');
+    await expect(gantt.syncStatus).toBeVisible({ timeout: 10_000 });
+    await expect(gantt.syncStatus).toContainText('Synced');
   });
 });

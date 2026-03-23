@@ -1,199 +1,137 @@
-import { test, expect } from '@playwright/test';
-import { createCollabPair, CloudAuthOptions } from './helpers/collab-harness';
-import { getAccessToken } from './helpers/cloud-auth';
-import { getTestSheetId } from './helpers/get-sheet-id';
+/**
+ * Collaboration E2E tests — require two SA keys + test sheet + relay.
+ * Tests real-time multi-user sync via Yjs.
+ */
+import { test, expect } from './fixtures';
 
-// Cloud collab needs SA keys + a test sheet (ephemeral or override) so both
-// pages can load a real sheet (dataSource='sheet') and connect via Yjs.
-async function getCloudAuth(): Promise<CloudAuthOptions | undefined> {
-  const keyA = process.env.GCP_SA_KEY_WRITER1_DEV;
-  const keyB = process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV;
-  if (!keyA || !keyB || !getTestSheetId()) return undefined;
-  const [tokenA, tokenB] = await Promise.all([getAccessToken(keyA), getAccessToken(keyB)]);
-  return { tokenA, tokenB };
-}
+const hasCloudAuth =
+  !!process.env.GCP_SA_KEY_WRITER1_DEV &&
+  !!(process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV);
 
-import { isCollabAvailable } from './helpers/collab-harness';
-
-test.describe('Collaboration E2E', () => {
-  // Collab tests load two pages with real sheet data — needs extra time for large sheets
+test.describe('Collaboration E2E @collab', () => {
   test.setTimeout(180_000);
+  test.skip(!hasCloudAuth, 'Requires two SA keys for collab');
 
-  test('presence indicators appear for connected users', async ({ browser }) => {
-    const cloudAuth = await getCloudAuth();
-    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
-
-    try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
-
-      // Both pages are connected and have exchanged awareness.
-      // Verify that a presence indicator (pulse-dot on avatar) is visible
-      // in pageB, showing that pageA's user is present.
-      await expect(pageB.locator('.pulse-dot').first()).toBeVisible({ timeout: 15_000 });
-    } finally {
-      await cleanup();
+  test('presence indicators appear for connected users @slow', async ({ collabPair }) => {
+    const collabReady = await collabPair.pageA.page
+      .locator('[data-collab-status="connected"]')
+      .isVisible()
+      .catch(() => false);
+    if (!collabReady) {
+      test.skip(true, 'Collab relay not available');
+      return;
     }
+
+    await expect(collabPair.pageB.presenceIndicators.first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test('task edit in one tab propagates to the other', async ({ browser }) => {
-    const cloudAuth = await getCloudAuth();
-    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
-
-    try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
-
-      // In pageA, double-click a task name to edit it
-      const nameCell = pageA.getByTitle('Double-click to edit').first();
-      await nameCell.dblclick();
-
-      const input = pageA.locator('input.inline-edit-input');
-      await input.waitFor({ timeout: 15_000 });
-
-      const newName = 'Collab E2E Sync Test';
-      await input.fill(newName);
-
-      // Blur to save
-      await pageA.locator('header').click();
-
-      // In pageB, verify the new task name appears
-      await expect(
-        pageB.getByTitle('Double-click to edit').filter({ hasText: newName })
-      ).toBeVisible({ timeout: 15_000 });
-    } finally {
-      await cleanup();
+  test('task edit in one tab propagates to the other @slow', async ({ collabPair }) => {
+    const collabReady = await collabPair.pageA.page
+      .locator('[data-collab-status="connected"]')
+      .isVisible()
+      .catch(() => false);
+    if (!collabReady) {
+      test.skip(true, 'Collab relay not available');
+      return;
     }
+
+    const newName = 'Collab E2E Sync Test';
+
+    await test.step('edit task name on page A', async () => {
+      await collabPair.pageA.editTaskName(0, newName);
+    });
+
+    await test.step('verify propagation to page B', async () => {
+      await expect(collabPair.pageB.editableCells.filter({ hasText: newName })).toBeVisible({
+        timeout: 15_000,
+      });
+    });
   });
 
-  test('constraint change in one tab propagates to the other', async ({ browser }) => {
-    const cloudAuth = await getCloudAuth();
-    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
+  test('constraint change in one tab propagates @slow', async ({ collabPair }) => {
+    const collabReady = await collabPair.pageA.page
+      .locator('[data-collab-status="connected"]')
+      .isVisible()
+      .catch(() => false);
+    if (!collabReady) {
+      test.skip(true, 'Collab relay not available');
+      return;
+    }
 
-    try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
+    await test.step('set SNET constraint on page A', async () => {
+      const popover = await collabPair.pageA.openPopover(0);
+      await popover.setConstraint('SNET', '2026-07-01');
+      await popover.close();
+    });
 
-      // In pageA, double-click a task bar to open the popover
-      const taskBar = pageA.locator('.task-bar').first();
-      await taskBar.dispatchEvent('dblclick');
-
-      const popover = pageA.locator('.fade-in');
-      await popover.waitFor({ timeout: 15_000 });
-
-      // Change constraint to SNET
-      const constraintSelect = popover.locator('select').last();
-      await constraintSelect.selectOption('SNET');
-
-      // Set a constraint date
-      const dateInput = popover.locator('input[type="date"]').last();
-      await dateInput.fill('2026-07-01');
-
-      // Close popover
-      await pageA.keyboard.press('Escape');
-
-      // Wait for CRDT sync — poll until pageB reflects the constraint change
-      const taskBarB = pageB.locator('.task-bar').first();
-
+    await test.step('verify constraint synced to page B', async () => {
       await expect(async () => {
-        await taskBarB.dispatchEvent('dblclick');
-        const pop = pageB.locator('.fade-in');
-        await pop.waitFor({ timeout: 3_000 });
-        const sel = pop.locator('select').last();
-        await expect(sel).toHaveValue('SNET', { timeout: 1_000 });
+        const popoverB = await collabPair.pageB.openPopover(0);
+        await expect(popoverB.constraintType).toHaveValue('SNET', { timeout: 1_000 });
       }).toPass({ timeout: 15_000 });
+    });
 
-      // Verify task bars still render after cascade
-      const taskBarsB = pageB.locator('.task-bar');
-      expect(await taskBarsB.count()).toBeGreaterThan(0);
-    } finally {
-      await cleanup();
-    }
+    await test.step('verify task bars still render', async () => {
+      expect(await collabPair.pageB.taskBars.count()).toBeGreaterThan(0);
+    });
   });
 
-  test('conflict indicator visible to collaborators', async ({ browser }) => {
-    const cloudAuth = await getCloudAuth();
-    const { pageA, pageB, cleanup } = await createCollabPair(browser, cloudAuth);
-
-    try {
-      const collabReady = await isCollabAvailable(pageA);
-      if (!collabReady) {
-        test.skip();
-        return;
-      }
-
-      // In pageA, double-click the first task bar to open the popover
-      const taskBar = pageA.locator('.task-bar').first();
-      await taskBar.dispatchEvent('dblclick');
-
-      const popover = pageA.locator('.fade-in');
-      await popover.waitFor({ timeout: 15_000 });
-
-      // Set MSO constraint with a date far in the past to force a conflict
-      const constraintSelect = popover.locator('select').last();
-      await constraintSelect.selectOption('MSO');
-
-      const dateInput = popover.locator('input[type="date"]').last();
-      await dateInput.fill('2020-01-01');
-
-      // Close popover
-      await pageA.keyboard.press('Escape');
-
-      // Wait for WASM conflict detection + CRDT sync
-      await pageA.waitForTimeout(3000);
-
-      // In pageB, verify conflict indicator is visible
-      const conflictRects = pageB.locator('rect[stroke="#ef4444"]');
-      const conflictCircles = pageB.locator('circle[fill="#ef4444"]');
-
-      const rectCount = await conflictRects.count();
-      const circleCount = await conflictCircles.count();
-      expect(rectCount + circleCount).toBeGreaterThan(0);
-    } finally {
-      await cleanup();
+  test('conflict indicator visible to collaborators @slow', async ({ collabPair }) => {
+    const collabReady = await collabPair.pageA.page
+      .locator('[data-collab-status="connected"]')
+      .isVisible()
+      .catch(() => false);
+    if (!collabReady) {
+      test.skip(true, 'Collab relay not available');
+      return;
     }
+
+    await test.step('set MSO with past date on page A', async () => {
+      const popover = await collabPair.pageA.openPopover(0);
+      await popover.setConstraint('MSO', '2020-01-01');
+      await popover.close();
+    });
+
+    await test.step('verify conflict indicator on page B', async () => {
+      await expect(async () => {
+        const indicators = await collabPair.pageB.conflictIndicators.count();
+        const outlines = await collabPair.pageB.conflictOutlines.count();
+        expect(indicators + outlines).toBeGreaterThan(0);
+      }).toPass({ timeout: 15_000 });
+    });
   });
 
-  test('single-user mode works without relay', async ({ page }) => {
+  test('single-user mode works without relay @smoke', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
-      }
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
     await page.goto('/');
     await page.getByTestId('try-demo-button').click();
+    await page
+      .getByTestId(/^task-bar-/)
+      .first()
+      .waitFor({ timeout: 15_000 });
 
-    await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });
-    expect(await page.locator('.task-bar').count()).toBeGreaterThan(0);
+    await test.step('edit task in single-user mode', async () => {
+      const nameCell = page.getByTitle('Double-click to edit').first();
+      await nameCell.dblclick();
+      const input = page.getByTestId('inline-edit-input');
+      await input.waitFor({ timeout: 15_000 });
+      await input.fill('Single User Edit');
+      await page.locator('header').click();
 
-    const nameCell = page.getByTitle('Double-click to edit').first();
-    await nameCell.dblclick();
+      await expect(
+        page.getByTitle('Double-click to edit').filter({ hasText: 'Single User Edit' })
+      ).toBeVisible({ timeout: 15_000 });
+    });
 
-    const input = page.locator('input.inline-edit-input');
-    await input.waitFor({ timeout: 15_000 });
-
-    const testName = 'Single User Edit';
-    await input.fill(testName);
-    await page.locator('header').click();
-
-    await expect(page.getByTitle('Double-click to edit').filter({ hasText: testName })).toBeVisible(
-      { timeout: 15_000 }
-    );
-
-    const unexpectedErrors = consoleErrors.filter(
-      (msg) => !msg.includes('WebSocket') && !msg.includes('ws://')
-    );
-    expect(unexpectedErrors).toHaveLength(0);
+    await test.step('verify no unexpected errors', async () => {
+      const unexpectedErrors = consoleErrors.filter(
+        (msg) => !msg.includes('WebSocket') && !msg.includes('ws://')
+      );
+      expect(unexpectedErrors).toHaveLength(0);
+    });
   });
 });

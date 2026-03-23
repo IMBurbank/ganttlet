@@ -6,7 +6,6 @@
  * getByTestId only for SVG elements, structural containers, and icon-only buttons.
  */
 import { type Locator, type Page } from '@playwright/test';
-import { ensureClientId } from '../helpers/gis-mock';
 
 export class BasePage {
   constructor(public readonly page: Page) {}
@@ -20,7 +19,11 @@ export class BasePage {
   /** Navigate with mock auth client ID fix (call after setupMockAuth). */
   async gotoAuthenticated(path = '/'): Promise<void> {
     await this.page.goto(path);
-    await ensureClientId(this.page);
+    // Re-set client ID after navigation — some environments clear __ganttlet_config
+    await this.page.evaluate(() => {
+      (window as any).__ganttlet_config = (window as any).__ganttlet_config || {};
+      (window as any).__ganttlet_config.googleClientId = 'fake-e2e-client-id';
+    });
   }
 
   // ── Auth ──
@@ -37,11 +40,13 @@ export class BasePage {
   // ── Onboarding screens ──
 
   get firstVisitTitle(): Locator {
+    // getByTestId needed — "Ganttlet" heading also exists in the app header,
+    // so getByRole('heading', { name: 'Ganttlet' }) matches multiple elements
     return this.page.getByTestId('first-visit-title');
   }
 
   get collaboratorTitle(): Locator {
-    return this.page.getByTestId('collaborator-title');
+    return this.page.getByRole('heading', { name: /invited to collaborate/ });
   }
 
   get choosePathHeading(): Locator {
@@ -119,7 +124,7 @@ export class BasePage {
   }
 
   get shareButton(): Locator {
-    return this.page.getByTestId('share-button'); // icon + text — testid avoids matching SVG internals
+    return this.page.getByRole('button', { name: 'Share' });
   }
 
   get sheetDropdownTrigger(): Locator {

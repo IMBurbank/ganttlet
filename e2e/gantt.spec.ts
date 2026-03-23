@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { DepEditorModel } from './models/gantt-page';
 
 test.describe('Gantt Chart @gantt', () => {
   test('cell editing works @smoke', async ({ sandboxPage: gantt }) => {
@@ -46,9 +47,8 @@ test.describe('Gantt Chart @gantt', () => {
     await gantt.toggleCriticalPath();
 
     await test.step('open scope and select workstream', async () => {
-      const scopeButton = gantt.page.getByRole('button', { name: 'Scope' }); // via page — selectScope() already encapsulates this
-      if ((await scopeButton.count()) > 0) {
-        await scopeButton.click();
+      if ((await gantt.scopeButton.count()) > 0) {
+        await gantt.scopeButton.click();
       }
 
       const workstreamItems = gantt.page
@@ -162,7 +162,7 @@ test.describe('Gantt Chart @gantt', () => {
       // strict mode if multiple buttons match (pe-2 may also depend on pe-1).
       const depBtn = gantt.page.getByRole('button').filter({ hasText: /pe-1/ }).first();
       await depBtn.click();
-      const depEditor = new (await import('./models/gantt-page')).DepEditorModel(gantt.page);
+      const depEditor = new DepEditorModel(gantt.page);
       await depEditor.container.waitFor({ timeout: 5_000 });
       await depEditor.setType(0, 'FS');
       await depEditor.close();
@@ -336,20 +336,15 @@ test.describe('Gantt Chart @gantt', () => {
   });
 
   test('redo restores undone constraint change', async ({ sandboxPage: gantt }) => {
-    await test.step('set constraint and undo', async () => {
+    await test.step('set SNET constraint', async () => {
       const popover = await gantt.openPopover(0);
       await popover.setConstraint('SNET', '2026-06-01');
       await popover.close();
-
-      await gantt.undoButton.click();
     });
 
     await test.step('undo until ASAP', async () => {
-      const undoBtn = gantt.undoButton;
-      await expect(undoBtn).toBeEnabled({ timeout: 5_000 });
-
       await expect(async () => {
-        await undoBtn.click();
+        await gantt.undoButton.click();
         const pop = await gantt.openPopover(0);
         const val = await pop.constraintType.inputValue();
         await pop.close();
@@ -358,11 +353,8 @@ test.describe('Gantt Chart @gantt', () => {
     });
 
     await test.step('redo until SNET restored', async () => {
-      const redoBtn = gantt.redoButton;
-      await expect(redoBtn).toBeEnabled({ timeout: 5_000 });
-
       await expect(async () => {
-        await redoBtn.click();
+        await gantt.redoButton.click();
         const pop = await gantt.openPopover(0);
         const val = await pop.constraintType.inputValue();
         await pop.close();

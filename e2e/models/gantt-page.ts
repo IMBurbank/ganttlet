@@ -140,6 +140,10 @@ export class GanttPage extends BasePage {
     return this.page.getByRole('button', { name: 'Redo' });
   }
 
+  get scopeButton(): Locator {
+    return this.page.getByRole('button', { name: 'Scope' });
+  }
+
   // ── Multi-step methods ──
 
   async waitForTaskBars(timeout = 15_000): Promise<void> {

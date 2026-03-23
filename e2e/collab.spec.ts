@@ -7,6 +7,7 @@
  * No per-test skip guards needed.
  */
 import { test, expect } from './fixtures';
+import { PopoverModel } from './models/gantt-page';
 const hasCloudAuth =
   !!process.env.GCP_SA_KEY_WRITER1_DEV &&
   !!(process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV);
@@ -41,16 +42,15 @@ test.describe('Collaboration E2E @collab', () => {
     });
 
     await test.step('verify constraint synced to page B', async () => {
-      // Poll by opening/closing the popover until the synced value appears.
-      // Uses raw locators instead of PopoverModel because the model's close()
-      // asserts toBeHidden which would throw inside the toPass retry loop.
-      const pageB = collabPair.pageB.page;
+      // Poll: open popover, check value, close (without PopoverModel.close()
+      // assertion which would throw inside toPass). Use model properties for
+      // locator centralization but manage open/close manually.
       await expect(async () => {
         await collabPair.pageB.taskBar(0).dispatchEvent('dblclick');
-        const popover = pageB.getByTestId('task-popover');
-        await popover.waitFor({ timeout: 3_000 });
-        const val = await popover.getByLabel('Constraint', { exact: true }).inputValue();
-        await pageB.keyboard.press('Escape');
+        const popover = new PopoverModel(collabPair.pageB.page);
+        await popover.container.waitFor({ timeout: 3_000 });
+        const val = await popover.constraintType.inputValue();
+        await collabPair.pageB.page.keyboard.press('Escape');
         expect(val).toBe('SNET');
       }).toPass({ timeout: 15_000 });
     });

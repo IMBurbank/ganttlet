@@ -7,7 +7,7 @@
  * Page interactions (sign-in, navigation) live in the model layer (BasePage),
  * not here. This file is pure infrastructure — context setup only.
  */
-import { BrowserContext, Page } from '@playwright/test';
+import { BrowserContext } from '@playwright/test';
 
 /**
  * Returns a JS string for addInitScript that creates a synthetic
@@ -57,14 +57,4 @@ export async function setupMockAuth(
   await context.route('**/accounts.google.com/**', (route) => route.abort());
 }
 
-/**
- * Set the fake client ID after page load. The addInitScript sets it before
- * load, but some environments may clear window.__ganttlet_config.
- * Called by BasePage.gotoAuthenticated() — not directly by tests.
- */
-export async function ensureClientId(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    (window as any).__ganttlet_config = (window as any).__ganttlet_config || {};
-    (window as any).__ganttlet_config.googleClientId = 'fake-e2e-client-id';
-  });
-}
+// ensureClientId logic inlined into BasePage.gotoAuthenticated() — no export needed.

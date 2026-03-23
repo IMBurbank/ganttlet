@@ -77,8 +77,8 @@ function parseConfig(configPath: string): {
 Responsibilities:
 - Parse YAML, validate required fields (`id` and `prompt` are required)
 - Detect cycles in dependency graph
-- Validate all `dependsOn` refs exist
-- Desugar `stages:` into explicit `dependsOn`
+- Validate all `depends_on` refs exist (converted to `dependsOn` in TypeScript output)
+- Desugar `stages:` into explicit `depends_on`
 - Expand `group_templates:` into individual GroupSpecs
 - Auto-insert verify nodes for groups with `verify != 'none'`
 
@@ -277,7 +277,7 @@ interface PipelineState {
 - Atomic writes: write to `.tmp`, rename (POSIX atomic — readers never see partial JSON)
 - State file path deterministic from config + baseRef: `{logDir}/pipeline-state.json`
 
-**Resume:** `--resume` derives path from config phase + current HEAD (or `--base-ref`). Loads `RunIdentity` FROM the file. `running` → `ready`. `success` → skipped. `skipped` → re-evaluated. Stale worktrees cleaned before retry. Session IDs preserved.
+**Resume:** `--resume` derives path from config phase + current HEAD (or `--base-ref`). Loads `RunIdentity` FROM the file. `running` → `ready` (crash recovery). `success` nodes are left as-is (not re-executed). `skipped` → `blocked` (re-evaluated — the failed dependency may succeed on retry). Stale worktrees cleaned before retry. Session IDs preserved.
 
 ### 8. Observer (pluggable)
 
@@ -434,9 +434,11 @@ if (mergeWorktree) await gitOps.removeMergeWorktree(mergeWorktree);
 **After the loop — PR creation:**
 
 ```typescript
-// Rebase on latest main before PR (CLAUDE.md: "branch must pass against current HEAD")
-await gitOps.rebaseOnMain(mergeWorktree);
-await gitOps.verify(mergeWorktree, { tsc: true, vitest: true, cargo: true });
+if (mergeWorktree) {
+  // Rebase on latest main before PR (CLAUDE.md: "branch must pass against current HEAD")
+  await gitOps.rebaseOnMain(mergeWorktree);
+  await gitOps.verify(mergeWorktree, { tsc: true, vitest: true, cargo: true });
+}
 
 const prResult = await createPR(run, state, gitOps);
 observer.onPipelineComplete(state);

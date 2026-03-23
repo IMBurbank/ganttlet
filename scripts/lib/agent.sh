@@ -221,7 +221,8 @@ monitor_agent() {
   local workdir="$2"
   local group="$3"
   local timeout_minutes="${STALL_TIMEOUT:-30}"
-  local logfile="${LOG_DIR}/${group}.log"
+  # Watch all log files for this group (base + per-attempt logs from SDK runner)
+  local log_pattern="${LOG_DIR}/${group}*.log"
   local last_size=0
   local last_activity
   last_activity=$(date +%s)
@@ -229,8 +230,11 @@ monitor_agent() {
   while kill -0 "$agent_pid" 2>/dev/null; do
     sleep 60
 
+    # Sum sizes of all matching log files (base + attempt logs)
     local current_size=0
-    [[ -f "$logfile" ]] && current_size=$(stat -c %s "$logfile" 2>/dev/null || echo 0)
+    for f in $log_pattern; do
+      [[ -f "$f" ]] && current_size=$((current_size + $(stat -c %s "$f" 2>/dev/null || echo 0)))
+    done
 
     if [[ "$current_size" != "$last_size" ]]; then
       last_size=$current_size

@@ -130,7 +130,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   },
 
   // collabPair: two GanttPages connected to same sheet via Yjs
-  collabPair: async ({ browser, cloudTokenA, cloudTokenB }, use) => {
+  collabPair: async ({ browser, cloudTokenA, cloudTokenB }, use, testInfo) => {
     if (!cloudTokenA || !cloudTokenB) {
       throw new Error('collabPair requires two SA keys');
     }
@@ -162,11 +162,16 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
       await Promise.all([ganttA.waitForTaskBars(60_000), ganttB.waitForTaskBars(60_000)]);
 
-      // Wait for collab connections (via model locator)
+      // Wait for collab connections — skip test if relay not available
       await Promise.all([
         ganttA.collabStatus.waitFor({ timeout: 45_000 }).catch(() => {}),
         ganttB.collabStatus.waitFor({ timeout: 45_000 }).catch(() => {}),
       ]);
+
+      const collabReady = await ganttA.collabStatus.isVisible().catch(() => false);
+      if (!collabReady) {
+        testInfo.skip(true, 'Collab relay not available');
+      }
 
       await use({ pageA: ganttA, pageB: ganttB });
     } finally {

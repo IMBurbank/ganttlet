@@ -1,9 +1,12 @@
 /**
  * Collaboration E2E tests — require two SA keys + test sheet + relay.
  * Tests real-time multi-user sync via Yjs.
+ *
+ * The collabPair fixture handles collab connectivity checks internally —
+ * if the relay is not available, it skips the test automatically.
+ * No per-test skip guards needed.
  */
 import { test, expect } from './fixtures';
-
 const hasCloudAuth =
   !!process.env.GCP_SA_KEY_WRITER1_DEV &&
   !!(process.env.GCP_SA_KEY_WRITER2_DEV || process.env.GCP_SA_KEY_READER1_DEV);
@@ -13,22 +16,10 @@ test.describe('Collaboration E2E @collab', () => {
   test.skip(!hasCloudAuth, 'Requires two SA keys for collab');
 
   test('presence indicators appear for connected users @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
-    if (!collabReady) {
-      test.skip(true, 'Collab relay not available');
-      return;
-    }
-
     await expect(collabPair.pageB.presenceIndicators.first()).toBeVisible({ timeout: 15_000 });
   });
 
   test('task edit in one tab propagates to the other @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
-    if (!collabReady) {
-      test.skip(true, 'Collab relay not available');
-      return;
-    }
-
     const newName = 'Collab E2E Sync Test';
 
     await test.step('edit task name on page A', async () => {
@@ -43,12 +34,6 @@ test.describe('Collaboration E2E @collab', () => {
   });
 
   test('constraint change in one tab propagates @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
-    if (!collabReady) {
-      test.skip(true, 'Collab relay not available');
-      return;
-    }
-
     await test.step('set SNET constraint on page A', async () => {
       const popover = await collabPair.pageA.openPopover(0);
       await popover.setConstraint('SNET', '2026-07-01');
@@ -76,12 +61,6 @@ test.describe('Collaboration E2E @collab', () => {
   });
 
   test('conflict indicator visible to collaborators @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
-    if (!collabReady) {
-      test.skip(true, 'Collab relay not available');
-      return;
-    }
-
     await test.step('set MSO with past date on page A', async () => {
       const popover = await collabPair.pageA.openPopover(0);
       await popover.setConstraint('MSO', '2020-01-01');
@@ -100,30 +79,17 @@ test.describe('Collaboration E2E @collab', () => {
 
 // Outside the cloud-auth-gated describe — runs in all environments
 test.describe('Single-user resilience', () => {
-  test('single-user mode works without relay @smoke', async ({ page }) => {
+  test('single-user mode works without relay @smoke', async ({ sandboxPage: gantt }) => {
     const consoleErrors: string[] = [];
-    page.on('console', (msg) => {
+    gantt.page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
-    await page.goto('/');
-    await page.getByTestId('try-demo-button').click();
-    await page
-      .getByTestId(/^task-bar-/)
-      .first()
-      .waitFor({ timeout: 15_000 });
-
     await test.step('edit task in single-user mode', async () => {
-      const nameCell = page.getByTitle('Double-click to edit').first();
-      await nameCell.dblclick();
-      const input = page.getByTestId('inline-edit-input');
-      await input.waitFor({ timeout: 15_000 });
-      await input.fill('Single User Edit');
-      await page.locator('header').click();
-
-      await expect(
-        page.getByTitle('Double-click to edit').filter({ hasText: 'Single User Edit' })
-      ).toBeVisible({ timeout: 15_000 });
+      await gantt.editTaskName(0, 'Single User Edit');
+      await expect(gantt.editableCells.filter({ hasText: 'Single User Edit' })).toBeVisible({
+        timeout: 15_000,
+      });
     });
 
     await test.step('verify no unexpected errors', async () => {

@@ -98,6 +98,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
           maxBudgetUsd: fixRemainingBudget,
           model: policy.attempts[action.attemptIndex].model,
           agent: options.agent,
+          logFile: options.logFile,
         });
         outputFixAttempted = true; // Only mark after fix call completes
         cumulativeCostUsd += fixResult.costUsd;
@@ -174,6 +175,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         effort: attemptConfig.effort,
         maxBudgetUsd: remainingBudget,
         agent: options.agent,
+        logFile: options.logFile,
       });
 
       cumulativeCostUsd += callResult.costUsd;
@@ -290,6 +292,7 @@ interface CallQueryOpts {
   effort?: 'low' | 'medium' | 'high' | 'max';
   maxBudgetUsd?: number;
   agent?: string;
+  logFile?: string;
 }
 
 interface CallQueryResult {
@@ -310,6 +313,19 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
     persistSession: opts.persistSession,
     maxTurns: opts.maxTurns,
     model: opts.model,
+    includePartialMessages: true,
+    // Auto-approve permission prompts (needed for .claude/skills/ edits
+    // until upstream fixes #37157). Also approves Bash commands targeting
+    // .claude/ paths when bypassPermissions mode is active.
+    canUseTool: async (
+      _toolName: string,
+      _input: Record<string, unknown>,
+      options: Record<string, unknown>
+    ) => ({
+      behavior: 'allow' as const,
+      toolUseID: (options as { toolUseID?: string }).toolUseID,
+      updatedPermissions: (options as { suggestions?: unknown[] }).suggestions ?? [],
+    }),
   };
 
   if (opts.effort) queryOpts.effort = opts.effort;
@@ -332,6 +348,28 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
     const msg = message as Record<string, unknown>;
     if (msg.type === 'system' && msg.subtype === 'init' && !sessionId) {
       sessionId = msg.session_id as string;
+    }
+    // Log stream events to the log file for monitoring/debugging
+    if (opts.logFile) {
+      if (msg.type === 'assistant') {
+        const content = (
+          msg as { message?: { content?: Array<{ type: string; name?: string; text?: string }> } }
+        ).message?.content;
+        if (content) {
+          for (const block of content) {
+            if (block.type === 'tool_use') {
+              fs.appendFileSync(opts.logFile, `[tool] ${block.name}\n`);
+            } else if (block.type === 'text' && block.text) {
+              fs.appendFileSync(opts.logFile, `[text] ${block.text.substring(0, 200)}\n`);
+            }
+          }
+        }
+      } else if (msg.type === 'tool_use_summary') {
+        fs.appendFileSync(
+          opts.logFile,
+          `[summary] ${(msg as { summary?: string }).summary?.substring(0, 200)}\n`
+        );
+      }
     }
     if (msg.type === 'result') {
       gotResult = true;
@@ -526,6 +564,7 @@ if (
 
     await import('./policies/default.js');
     await import('./policies/reviewer.js');
+    await import('./policies/curator.js');
 
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
     const opts = parseCliArgs(process.argv.slice(2));

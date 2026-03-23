@@ -101,6 +101,11 @@ run_agent() {
       : "${prompt_file:=docs/prompts/curation/reviewer-template.md}"
     fi
 
+    # ── Curator detection (non-reviewer groups in skill-curation phase) ──
+    if [[ -z "${SDK_POLICY:-}" && "${PHASE:-}" == "skill-curation" ]]; then
+      : "${SDK_POLICY:=curator}"
+    fi
+
     # ── Build CLI args ───────────────────────────────────────────────
     local policy="${SDK_POLICY:-default}"
     local -a extra_args=()

@@ -60,6 +60,20 @@ preflight_check() {
     fi
   fi
 
+  # Ensure WASM artifacts exist in the invoker's worktree.
+  # Worktrees are created from git (WASM is gitignored), so they won't have
+  # build artifacts. Copy from the main repo if missing.
+  local launch_dir="${_LAUNCH_DIR:-.}"
+  if [[ ! -d "${launch_dir}/src/wasm/scheduler" ]]; then
+    local main_repo
+    main_repo="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
+    if [[ -d "${main_repo}/src/wasm/scheduler" ]]; then
+      log "Copying WASM artifacts from main repo to orchestrator worktree"
+      mkdir -p "${launch_dir}/src/wasm"
+      cp -r "${main_repo}/src/wasm/scheduler" "${launch_dir}/src/wasm/scheduler"
+    fi
+  fi
+
   # Only check WASM build if Rust source files differ from main
   if git diff main --name-only 2>/dev/null | grep -q '^crates/'; then
     log "Rust files changed — checking WASM build..."

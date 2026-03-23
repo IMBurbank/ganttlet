@@ -23,6 +23,15 @@ system, the 5 reviewer angles, scoring, and what you're producing. Then read
 You curate one skill file for the Ganttlet project. Do NOT enter plan mode.
 Do NOT ask for confirmation. Execute all steps sequentially.
 
+**IMPORTANT — File writes:** Use Bash (cat with heredoc, or sed) to write
+`.claude/skills/` files. The Edit/Write tools are blocked for `.claude/` paths
+in SDK mode due to a known bug (#37157). Bash is not affected.
+
+**IMPORTANT — Result marker:** End your final response with exactly one of:
+- `CURATION_RESULT: COMMITTED <sha>` (after committing changes)
+- `CURATION_RESULT: NO_CHANGES <reason>` (if no changes needed)
+This marker is required for the pipeline to detect success.
+
 ## Step 1: Context
 
 **Your target skill** is specified in the wrapper prompt that launched you

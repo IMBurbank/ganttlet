@@ -5,12 +5,16 @@ It does NOT apply to CI/workflow agents.
 
 ## PR and Merge Workflow
 1. Create a PR on your branch after all work is complete and validated.
-2. Rebase on `origin/main` and re-run `./scripts/full-verify.sh` — the branch must pass against current HEAD.
+2. Rebase on `origin/main` using `./scripts/worktree-rebase.sh` (not `git rebase` — see below). Re-run `./scripts/full-verify.sh` — the branch must pass against current HEAD.
 3. Push and create the PR with `gh pr create`.
 4. Trigger code review: use the `/code-review` skill with the PR number.
 5. Fix every issue the review finds, commit, and re-trigger review. Loop until clean.
-6. Once there are no issues, post a comment on the PR summarizing what changed and your reasoning for the approach.
-7. Merge to main: `gh pr merge --squash` (do NOT use `--delete-branch` — it fails when the worktree still holds the branch).
+6. Trigger E2E: `gh workflow run e2e.yml --ref <branch> -f force=true`. The `-f force=true` flag forces a full run even if a previous attestation exists. E2E must pass before merge.
+7. Once review is clean and E2E passes, post a comment summarizing what changed and your reasoning.
+8. Merge to main: `gh pr merge --squash` (do NOT use `--delete-branch` — it fails when the worktree still holds the branch).
+
+### Rebasing worktrees
+`git rebase` with many commits on worktrees is unreliable — it enters interactive mode and pauses. Use `./scripts/worktree-rebase.sh` instead. It uses `reset --hard origin/main` + sequential cherry-pick, which works regardless of commit count. On conflict, it stops and tells you which commit failed and how to continue.
 
 ## Parallel Agent Awareness
 - Other agents may be running concurrently in sibling worktrees.

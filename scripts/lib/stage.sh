@@ -93,6 +93,17 @@ preflight_check() {
   ok "Preflight check passed"
 }
 
+# Kill a process and all its descendants.
+kill_tree() {
+  local pid=$1 signal=${2:-TERM}
+  local children
+  children=$(ps -o pid= --ppid "$pid" 2>/dev/null | tr -d ' ') || true
+  for child in $children; do
+    kill_tree "$child" "$signal"
+  done
+  kill -"$signal" "$pid" 2>/dev/null || true
+}
+
 # Run a parallel stage in pipe mode (background processes).
 # Usage: run_parallel_stage "Stage 1" groups_array branches_array
 run_parallel_stage() {
@@ -160,11 +171,11 @@ run_parallel_stage() {
       sleep "$MAX_STAGE_DURATION"
       warn "=== ${stage_label}: stage timeout (${MAX_STAGE_DURATION}s) reached — killing agents ==="
       for pid in "${pids[@]}"; do
-        kill -TERM "$pid" 2>/dev/null || true
+        kill_tree "$pid" TERM
       done
       sleep 5
       for pid in "${pids[@]}"; do
-        kill -9 "$pid" 2>/dev/null || true
+        kill_tree "$pid" KILL
       done
     ) &
     timeout_pid=$!

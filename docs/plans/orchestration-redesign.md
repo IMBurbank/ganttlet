@@ -628,7 +628,7 @@ return state;
 
 **Key design decisions:**
 - `Promise.race` — re-evaluate scheduler after EACH completion (core DAG advantage)
-- Merge is infrastructure: serialized via `mergeLock`, happens before agent execution,
+- Merge is infrastructure: serialized via `mergeLock`, happens before node execution,
   not as a scheduled node. Fix agents spawn on conflict within `mergeIfNeeded`.
 - Verify IS a scheduled node: configurable per-group, can fail independently
 - Merge worktree created lazily (not wasted for all-read-only DAGs)
@@ -636,6 +636,23 @@ return state;
 - `status = 'running'` set before try — crash recovery resets to `ready`
 - Prompt paths resolved relative to `run.launchDir`, never `process.cwd()`
 - `kill_tree` + SIGINT/SIGTERM handler for process cleanup
+
+**Parallelism limits:** The scheduler emits all ready nodes. The pipeline runner
+enforces concurrency via a semaphore — only `maxParallel` nodes execute at once
+(default: 5). This is a resource constraint, not a dependency — same category as
+merge serialization. The scheduler stays pure.
+
+```yaml
+# Config-level control:
+max_parallel: 5          # default, good for API rate limits
+# Or per-execution:
+npx tsx pipeline-runner.ts config.yaml --max-parallel 10
+```
+
+Implementation: the runner skips launching new nodes when `running.size >= maxParallel`.
+The `Promise.race` loop naturally picks up newly-ready nodes as slots free up.
+This bounds API concurrency, prevents rate limiting, and keeps the system responsive
+(fewer concurrent agents = more tokens/s per agent).
 
 **Preflight (before the main loop):**
 ```typescript

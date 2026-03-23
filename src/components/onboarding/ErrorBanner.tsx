@@ -4,6 +4,7 @@ import { signIn, setAuthChangeCallback, removeAuthChangeCallback } from '../../s
 import {
   loadFromSheet,
   scheduleSave,
+  startPolling,
   stopPolling,
   getSpreadsheetId,
 } from '../../sheets/sheetsSync';
@@ -41,6 +42,9 @@ export default function ErrorBanner() {
         } else {
           dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
         }
+        // Resume polling — loadFromSheet sets lastWriteHash when tasks exist;
+        // empty sheets poll safely (incomingTasks.length === 0 guard in pollOnce)
+        startPolling();
       })
       .catch((err) => {
         dispatch({ type: 'SET_SYNC_ERROR', error: classifySyncError(err) });

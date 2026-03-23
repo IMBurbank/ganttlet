@@ -1,6 +1,8 @@
 /**
- * cloud-auth.ts — Exchange a GCP service account JSON key for a Google access token.
- * Used by E2E tests running against live Cloud Run deployments.
+ * service-account.ts — Exchange a GCP service account JSON key for a Google access token.
+ *
+ * Server-side concern: crypto + HTTP token exchange.
+ * No browser/Playwright dependencies.
  */
 import { createSign } from 'crypto';
 
@@ -18,20 +20,22 @@ function base64url(data: string | Buffer): string {
  * Exchange a service account JSON key for a Google access token.
  * Uses JWT assertion grant — no gcloud or client libraries needed.
  */
-export async function getAccessToken(keyJson: string): Promise<string> {
+export async function getAccessToken(keyJson: string, extraScopes?: string[]): Promise<string> {
   const key: ServiceAccountKey = JSON.parse(keyJson);
   const now = Math.floor(Date.now() / 1000);
 
   const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const scopes = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.metadata.readonly',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    ...(extraScopes || []),
+  ];
   const claims = base64url(
     JSON.stringify({
       iss: key.client_email,
-      scope: [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.metadata.readonly',
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile',
-      ].join(' '),
+      scope: scopes.join(' '),
       aud: 'https://oauth2.googleapis.com/token',
       iat: now,
       exp: now + 3600,

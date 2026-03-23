@@ -46,25 +46,35 @@ export default function Toolbar() {
   const legendEntries = getPaletteEntries(state.colorBy);
 
   const projectNames = useMemo(
-    () => [...new Set(state.tasks.map(t => t.project).filter(Boolean))],
+    () => [...new Set(state.tasks.map((t) => t.project).filter(Boolean))],
     [state.tasks]
   );
   const workstreamNames = useMemo(
-    () => state.tasks.filter(t => t.isSummary && t.parentId !== null).map(t => t.name),
+    () => state.tasks.filter((t) => t.isSummary && t.parentId !== null).map((t) => t.name),
     [state.tasks]
   );
   return (
     <div className="flex items-center gap-2 px-4 h-10 bg-surface-raised/50 border-b border-border-subtle shrink-0 text-xs">
       {/* Search */}
       <div className="relative">
-        <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        <svg
+          className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        >
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
         <input
           type="text"
           placeholder="Search tasks..."
           value={state.searchQuery}
-          onChange={e => dispatch({ type: 'SET_SEARCH', query: e.target.value })}
+          onChange={(e) => dispatch({ type: 'SET_SEARCH', query: e.target.value })}
           className="w-44 pl-7 pr-2 py-1 bg-surface-overlay border border-border-default rounded text-text-secondary text-xs placeholder-text-muted focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors"
         />
         {state.searchQuery && (
@@ -72,7 +82,17 @@ export default function Toolbar() {
             onClick={() => dispatch({ type: 'SET_SEARCH', query: '' })}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         )}
       </div>
@@ -82,7 +102,7 @@ export default function Toolbar() {
       {/* Zoom */}
       <span className="text-text-muted">Zoom:</span>
       <div className="flex bg-surface-overlay rounded overflow-hidden border border-border-default">
-        {zoomOptions.map(opt => (
+        {zoomOptions.map((opt) => (
           <button
             key={opt.value}
             onClick={() => dispatch({ type: 'SET_ZOOM', zoomLevel: opt.value })}
@@ -118,11 +138,15 @@ export default function Toolbar() {
         <span className="text-text-muted mr-1">Color:</span>
         <select
           value={state.colorBy}
-          onChange={e => dispatch({ type: 'SET_COLOR_BY', colorBy: e.target.value as ColorByField })}
+          onChange={(e) =>
+            dispatch({ type: 'SET_COLOR_BY', colorBy: e.target.value as ColorByField })
+          }
           className="bg-surface-overlay border border-border-default rounded px-2 py-0.5 text-text-secondary text-xs focus:outline-none focus:border-blue-500 cursor-pointer"
         >
-          {colorByOptions.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          {colorByOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
           ))}
         </select>
         <button
@@ -130,13 +154,24 @@ export default function Toolbar() {
           className="ml-1 text-text-muted hover:text-text-secondary"
           title="Show legend"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
           </svg>
         </button>
         {showColorLegend && (
           <div className="absolute top-full left-0 mt-1 bg-surface-overlay border border-border-default rounded-lg shadow-xl p-2 z-40 min-w-[150px] fade-in">
-            {legendEntries.map(entry => (
+            {legendEntries.map((entry) => (
               <div key={entry.label} className="flex items-center gap-2 py-0.5">
                 <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: entry.color }} />
                 <span className="text-text-secondary text-xs">{entry.label}</span>
@@ -154,15 +189,26 @@ export default function Toolbar() {
           onClick={() => setShowColumnMenu(!showColumnMenu)}
           className="flex items-center gap-1 px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
             <path d="M12 3h7a2 2 0 012 2v14a2 2 0 01-2 2h-7m0-18H5a2 2 0 00-2 2v14a2 2 0 002 2h7m0-18v18" />
           </svg>
           Columns
         </button>
         {showColumnMenu && (
           <div className="absolute top-full left-0 mt-1 bg-surface-overlay border border-border-default rounded-lg shadow-xl p-2 z-40 min-w-[160px] fade-in">
-            {state.columns.map(col => (
-              <label key={col.key} className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-surface-sunken/50 px-1 rounded">
+            {state.columns.map((col) => (
+              <label
+                key={col.key}
+                className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-surface-sunken/50 px-1 rounded"
+              >
                 <input
                   type="checkbox"
                   checked={col.visible}
@@ -231,8 +277,11 @@ export default function Toolbar() {
             onClick={() => setShowCpScopeMenu(!showCpScopeMenu)}
             className="px-1.5 py-0.5 rounded-r bg-red-600/30 text-red-400 border border-l-0 border-red-500/40 hover:bg-red-600/50 transition-colors"
             title="Scope"
+            aria-label="Scope"
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7 10l5 5 5-5z" />
+            </svg>
           </button>
         )}
         {showCpScopeMenu && state.showCriticalPath && (
@@ -240,13 +289,21 @@ export default function Toolbar() {
             {projectNames.length > 0 && (
               <>
                 <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Projects</div>
-                {projectNames.map(name => (
+                {projectNames.map((name) => (
                   <button
                     key={name}
-                    onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'project', name } }); setShowCpScopeMenu(false); }}
+                    onClick={() => {
+                      dispatch({
+                        type: 'SET_CRITICAL_PATH_SCOPE',
+                        scope: { type: 'project', name },
+                      });
+                      setShowCpScopeMenu(false);
+                    }}
                     className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                      state.criticalPathScope.type === 'project' && state.criticalPathScope.name === name
-                        ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+                      state.criticalPathScope.type === 'project' &&
+                      state.criticalPathScope.name === name
+                        ? 'bg-red-600/20 text-red-400'
+                        : 'text-text-secondary hover:bg-surface-sunken'
                     }`}
                   >
                     {name}
@@ -257,13 +314,21 @@ export default function Toolbar() {
             {workstreamNames.length > 0 && (
               <>
                 <div className="text-text-muted text-[10px] uppercase px-2 pt-1">Workstreams</div>
-                {workstreamNames.map(name => (
+                {workstreamNames.map((name) => (
                   <button
                     key={name}
-                    onClick={() => { dispatch({ type: 'SET_CRITICAL_PATH_SCOPE', scope: { type: 'workstream', name } }); setShowCpScopeMenu(false); }}
+                    onClick={() => {
+                      dispatch({
+                        type: 'SET_CRITICAL_PATH_SCOPE',
+                        scope: { type: 'workstream', name },
+                      });
+                      setShowCpScopeMenu(false);
+                    }}
                     className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                      state.criticalPathScope.type === 'workstream' && state.criticalPathScope.name === name
-                        ? 'bg-red-600/20 text-red-400' : 'text-text-secondary hover:bg-surface-sunken'
+                      state.criticalPathScope.type === 'workstream' &&
+                      state.criticalPathScope.name === name
+                        ? 'bg-red-600/20 text-red-400'
+                        : 'text-text-secondary hover:bg-surface-sunken'
                     }`}
                   >
                     {name}
@@ -300,7 +365,7 @@ export default function Toolbar() {
       <div className="flex-1" />
 
       {/* Show all hidden */}
-      {state.tasks.some(t => t.isHidden) && (
+      {state.tasks.some((t) => t.isHidden) && (
         <button
           onClick={() => dispatch({ type: 'SHOW_ALL_TASKS' })}
           className="px-2 py-0.5 text-amber-400 hover:text-amber-300 hover:bg-surface-overlay rounded transition-colors"

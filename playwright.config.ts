@@ -10,6 +10,10 @@ export default defineConfig({
   timeout: hasCloudAuth ? 60_000 : 30_000,
   expect: { timeout: hasCloudAuth ? 20_000 : 10_000 },
   retries: 1,
+  // Reset test sheet to seed state before tests (when cloud auth + sheet ID available)
+  globalSetup: hasCloudAuth ? './e2e/global-setup.ts' : undefined,
+  globalTeardown: hasCloudAuth ? './e2e/global-teardown.ts' : undefined,
+  reporter: [['html']],
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:5173',
     headless: true,

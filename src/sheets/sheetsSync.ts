@@ -114,7 +114,7 @@ export function scheduleSave(tasks: Task[]): void {
 
       // T1.1: Clear orphaned rows below written data
       const dataEndRow = rows.length;
-      const clearRange = `Sheet1!A${dataEndRow + 1}:${endCol}`;
+      const clearRange = `${DATA_RANGE}!A${dataEndRow + 1}:${endCol}`;
       await clearSheet(currentSpreadsheetId!, clearRange).catch(() => {
         console.warn('Failed to clear orphaned rows');
       });
@@ -124,6 +124,8 @@ export function scheduleSave(tasks: Task[]): void {
       setTimeout(() => dispatch?.({ type: 'RESET_SYNC' }), 2000);
     } catch (err) {
       console.error('Failed to save to sheet:', err);
+      const syncError = classifySyncError(err);
+      dispatch?.({ type: 'SET_SYNC_ERROR', error: syncError });
       dispatch?.({ type: 'RESET_SYNC' });
     } finally {
       saveInFlight = false;
@@ -161,6 +163,12 @@ async function pollOnce(): Promise<void> {
   }
   try {
     const rows = await readSheet(currentSpreadsheetId, DATA_RANGE);
+
+    // Validate headers on every poll — catch mid-session header edits
+    if (rows.length > 0 && !validateHeaders(rows[0])) {
+      throw new Error('HEADER_MISMATCH');
+    }
+
     const incomingTasks = rowsToTasks(rows);
     // Don't overwrite local data with an empty sheet — the sheet may not
     // have been populated yet (first deploy, API just enabled, etc.)
@@ -192,8 +200,12 @@ async function pollOnce(): Promise<void> {
     // Classify the error for dispatch
     const syncError = classifySyncError(err);
 
-    // Hard stop on not_found or forbidden — do not reschedule
-    if (syncError.type === 'not_found' || syncError.type === 'forbidden') {
+    // Hard stop on not_found, forbidden, or header_mismatch — do not reschedule
+    if (
+      syncError.type === 'not_found' ||
+      syncError.type === 'forbidden' ||
+      syncError.type === 'header_mismatch'
+    ) {
       dispatch?.({ type: 'SET_SYNC_ERROR', error: syncError });
       return;
     }

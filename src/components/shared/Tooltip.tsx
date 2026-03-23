@@ -32,6 +32,7 @@ export default function Tooltip({ content, children, delay = 400, svg = false }:
     ? createPortal(
         <div
           className="fixed z-50 px-3 py-2 text-xs bg-surface-overlay text-text-primary rounded-lg shadow-xl border border-border-default max-w-xs pointer-events-none fade-in"
+          data-testid="tooltip"
           style={{
             left: pos.x,
             top: pos.y,
@@ -40,16 +41,13 @@ export default function Tooltip({ content, children, delay = 400, svg = false }:
         >
           {content}
         </div>,
-        document.body,
+        document.body
       )
     : null;
 
   if (svg) {
     return (
-      <g
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-      >
+      <g onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
         {children}
         {tooltipPopup}
       </g>
@@ -57,11 +55,7 @@ export default function Tooltip({ content, children, delay = 400, svg = false }:
   }
 
   return (
-    <div
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      className="inline-flex"
-    >
+    <div onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} className="inline-flex">
       {children}
       {tooltipPopup}
     </div>

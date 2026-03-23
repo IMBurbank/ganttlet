@@ -1,330 +1,359 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
+test.describe('Gantt Chart @gantt', () => {
+  test('cell editing works @smoke', async ({ sandboxPage: gantt }) => {
+    const cell = gantt.editableCells.first();
+    await cell.waitFor();
+    const originalText = await cell.textContent();
 
-test.describe('Ganttlet E2E', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    // Enter sandbox mode via the real user flow
-    await page.getByTestId('try-demo-button').click();
-    // Wait for the app to fully render (task bars appear in the SVG)
-    await page.locator('.task-bar').first().waitFor({ timeout: 15_000 });
+    await test.step('edit task name', async () => {
+      await gantt.editTaskName(0, 'E2E Test Task Name');
+    });
+
+    await test.step('verify edit persisted', async () => {
+      await expect(gantt.editableCells.filter({ hasText: 'E2E Test Task Name' })).toBeVisible();
+    });
+
+    await test.step('restore original name', async () => {
+      if (originalText) {
+        await gantt.editTaskName(0, originalText.trim());
+      }
+    });
   });
 
-  test('cell editing works', async ({ page }) => {
-    // Find a task name cell with "Double-click to edit" title
-    const nameCell = page.getByTitle('Double-click to edit').first();
-    await nameCell.waitFor();
+  test('critical path highlights task bars', async ({ sandboxPage: gantt }) => {
+    await test.step('toggle critical path on', async () => {
+      await gantt.toggleCriticalPath();
+    });
 
-    // Read the original text
-    const originalText = await nameCell.textContent();
+    await test.step('scope to Q2 Product Launch', async () => {
+      await gantt.selectScope('Q2 Product Launch');
+    });
 
-    // Double-click to enter edit mode
-    await nameCell.dblclick();
+    await test.step('verify critical task bars appear', async () => {
+      await expect(gantt.criticalTaskBars.first()).toBeVisible({ timeout: 5_000 });
+    });
 
-    // Wait for the inline edit input to appear
-    const input = page.locator('input.inline-edit-input');
-    await input.waitFor({ timeout: 5_000 });
+    await test.step('verify button active state', async () => {
+      await expect(gantt.criticalPathButton).toHaveClass(/bg-red-600/);
+    });
 
-    // Clear and type a new name
-    const newName = 'E2E Test Task Name';
-    await input.fill(newName);
-
-    // Blur to save (click somewhere else)
-    await page.locator('header').click();
-
-    // Verify the new name appears and the input is gone
-    await expect(input).toBeHidden();
-    await expect(
-      page.getByTitle('Double-click to edit').filter({ hasText: newName })
-    ).toBeVisible();
-
-    // Restore original name to avoid side effects
-    if (originalText) {
-      const editedCell = page.getByTitle('Double-click to edit').filter({ hasText: newName });
-      await editedCell.dblclick();
-      const restoreInput = page.locator('input.inline-edit-input');
-      await restoreInput.waitFor({ timeout: 5_000 });
-      await restoreInput.fill(originalText.trim());
-      await page.locator('header').click();
-    }
+    // Restore
+    await gantt.toggleCriticalPath();
   });
 
-  test('critical path highlights task bars', async ({ page }) => {
-    // Toggle critical path on
-    const cpButton = page.getByRole('button', { name: 'Critical Path' });
-    await cpButton.click();
+  test('workstream scope does not crash', async ({ sandboxPage: gantt }) => {
+    await gantt.toggleCriticalPath();
 
-    // Open scope dropdown and select the project to scope computation
-    const scopeButton = page.locator('button[title="Scope"]');
-    await scopeButton.click();
+    await test.step('open scope and select workstream', async () => {
+      if ((await gantt.scopeButton.count()) > 0) {
+        await gantt.scopeButton.click();
+      }
 
-    // Select "Q2 Product Launch" project from the scope menu
-    await page.getByRole('button', { name: 'Q2 Product Launch' }).click();
+      const workstreamItems = gantt.page
+        .getByRole('button')
+        .filter({ hasText: /^(Platform Engineering|UX Redesign|Go-to-Market)/ });
 
-    // Wait for WASM computation and re-render
-    // Critical elements (task bars or milestones) get fill="#ef4444"
-    // Use page.evaluate since SVG elements may be off-viewport
-    await page.waitForFunction(
-      () => {
-        return document.querySelectorAll('.task-bar[fill="#ef4444"]').length > 0;
-      },
-      { timeout: 5_000 }
-    );
+      if ((await workstreamItems.count()) > 0) {
+        await workstreamItems.first().click();
+      }
+    });
 
-    const count = await page.evaluate(
-      () => document.querySelectorAll('.task-bar[fill="#ef4444"]').length
-    );
-    expect(count).toBeGreaterThanOrEqual(1);
+    await test.step('verify app still responsive', async () => {
+      await expect(gantt.taskBars.first()).toBeVisible({ timeout: 5_000 });
+      const title = await gantt.page.title();
+      expect(title).toBeTruthy();
+    });
 
-    // Verify the button is visually in its active state (red styling)
-    await expect(cpButton).toHaveClass(/bg-red-600/);
-
-    // Toggle off to restore state
-    await cpButton.click();
+    await gantt.toggleCriticalPath();
   });
 
-  test('workstream scope does not crash', async ({ page }) => {
-    // Enable critical path first
-    const cpButton = page.getByRole('button', { name: 'Critical Path' });
-    await cpButton.click();
-    await page.waitForTimeout(500);
-
-    // Open the scope dropdown (the small arrow next to Critical Path)
-    // The scope button is adjacent to the Critical Path button
-    const scopeButton = page.locator('button[title="Scope"]');
-
-    // If scope button doesn't have a title, look for the dropdown arrow near Critical Path
-    if ((await scopeButton.count()) === 0) {
-      // Fallback: click the dropdown arrow in the critical path section
-      const cpSection = cpButton.locator('..');
-      const dropdownArrow = cpSection.locator('button').last();
-      await dropdownArrow.click();
-    } else {
-      await scopeButton.click();
-    }
-
-    await page.waitForTimeout(500);
-
-    // Look for workstream items in the dropdown menu
-    // The scope menu has sections: PROJECTS, WORKSTREAMS, MILESTONES
-    const workstreamItems = page
-      .locator('button')
-      .filter({ hasText: /^(Platform Engineering|UX Redesign|Go-to-Market)/ });
-
-    if ((await workstreamItems.count()) > 0) {
-      // Click the first workstream to scope to it
-      await workstreamItems.first().click();
-      await page.waitForTimeout(1_000);
-    }
-
-    // Verify the app is still responsive — page should have task bars
-    // (not an error screen)
-    await expect(page.locator('.task-bar').first()).toBeVisible({ timeout: 5_000 });
-
-    // Verify no crash: check document.title is still present (page didn't blank out)
-    const title = await page.title();
-    expect(title).toBeTruthy();
-
-    // Toggle off critical path to restore state
-    await cpButton.click();
-  });
-
-  test('dependency arrows are connected', async ({ page }) => {
-    // Check that dependency arrow SVG groups exist
-    const arrows = page.locator('g.dependency-arrow');
-    const arrowCount = await arrows.count();
+  test('dependency arrows are connected', async ({ sandboxPage: gantt }) => {
+    const arrowCount = await gantt.dependencyArrows.count();
     expect(arrowCount).toBeGreaterThan(0);
 
-    // Verify the dep-stroke paths have actual path data (not empty or degenerate)
-    const firstStroke = arrows.first().locator('.dep-stroke');
-    const pathD = await firstStroke.getAttribute('d');
-    expect(pathD).toBeTruthy();
+    await test.step('verify stroke path data', async () => {
+      const firstStroke = gantt.dependencyArrows.first().getByTestId('dep-stroke');
+      const pathD = await firstStroke.getAttribute('d');
+      expect(pathD).toBeTruthy();
+      expect(pathD).toMatch(/[MC]/);
+      const coords = pathD!.match(/[\d.]+/g)?.map(Number) ?? [];
+      expect(coords.some((c) => c > 1)).toBe(true);
+    });
 
-    // The path should have reasonable coordinates (not all zeros)
-    // A valid Bézier path has M (moveto) and C (curveto) with non-zero coords
-    expect(pathD).toMatch(/[MC]/);
-    // Ensure there are coordinates that aren't all zero
-    const coords = pathD!.match(/[\d.]+/g)?.map(Number) ?? [];
-    const hasNonZero = coords.some((c) => c > 1);
-    expect(hasNonZero).toBe(true);
-
-    // Check that arrowheads exist too
-    const firstHead = arrows.first().locator('.dep-head');
-    const headD = await firstHead.getAttribute('d');
-    expect(headD).toBeTruthy();
+    await test.step('verify arrowhead exists', async () => {
+      const firstHead = gantt.dependencyArrows.first().getByTestId('dep-head');
+      const headD = await firstHead.getAttribute('d');
+      expect(headD).toBeTruthy();
+    });
   });
 
-  test('constraint set via popover cascades to dependent tasks', async ({ page }) => {
-    // Open a task bar popover by double-clicking
-    const taskBar = page.locator('.task-bar').first();
-    await taskBar.dispatchEvent('dblclick');
+  test('constraint set via popover cascades to dependent tasks', async ({ sandboxPage: gantt }) => {
+    const popover = await gantt.openPopover(0);
 
-    // Wait for popover to appear
-    const popover = page.locator('.fade-in');
-    await popover.waitFor({ timeout: 5_000 });
+    await test.step('set SNET constraint with date', async () => {
+      await popover.setConstraint('SNET', '2026-06-01');
+    });
 
-    // Find the constraint dropdown and change to SNET
-    const constraintSelect = popover.locator('select').last();
-    await constraintSelect.selectOption('SNET');
+    await test.step('close and verify app stable', async () => {
+      await popover.close();
+      await expect(gantt.taskBars.first()).toBeVisible({ timeout: 5_000 });
+    });
 
-    // Set a constraint date (a date in the future)
-    const dateInput = popover.locator('input[type="date"]').last();
-    await dateInput.fill('2026-06-01');
-
-    // Close the popover by pressing Escape
-    await page.keyboard.press('Escape');
-
-    // Wait for WASM recalculation
-    await page.waitForTimeout(500);
-
-    // Verify the app didn't crash — task bars still visible
-    await expect(page.locator('.task-bar').first()).toBeVisible({ timeout: 5_000 });
-
-    // Verify constraint was applied: reopen the same task and check the value
-    await taskBar.dispatchEvent('dblclick');
-    const reopenedPopover = page.locator('.fade-in');
-    await reopenedPopover.waitFor({ timeout: 5_000 });
-    const updatedSelect = reopenedPopover.locator('select').last();
-    await expect(updatedSelect).toHaveValue('SNET');
+    await test.step('reopen and verify constraint persisted', async () => {
+      const reopened = await gantt.openPopover(0);
+      await expect(reopened.constraintType).toHaveValue('SNET');
+    });
   });
 
-  test('dependency arrow heads render as triangles', async ({ page }) => {
-    // Verify dependency arrows exist
-    const arrows = page.locator('g.dependency-arrow');
-    const arrowCount = await arrows.count();
+  test('dependency arrow heads render as triangles', async ({ sandboxPage: gantt }) => {
+    const arrowCount = await gantt.dependencyArrows.count();
     expect(arrowCount).toBeGreaterThan(0);
 
-    // Check each arrow's structure: must have dep-stroke and dep-head paths
     for (let i = 0; i < Math.min(arrowCount, 5); i++) {
-      const arrow = arrows.nth(i);
-      const stroke = arrow.locator('.dep-stroke');
-      const head = arrow.locator('.dep-head');
-
-      const strokeD = await stroke.getAttribute('d');
-      const headD = await head.getAttribute('d');
+      const arrow = gantt.dependencyArrows.nth(i);
+      const strokeD = await arrow.getByTestId('dep-stroke').getAttribute('d');
+      const headD = await arrow.getByTestId('dep-head').getAttribute('d');
 
       expect(strokeD).toBeTruthy();
       expect(headD).toBeTruthy();
-
-      // Arrow head should be a triangle (3 points: M, L, L, Z)
       expect(headD).toMatch(/M.*L.*L.*Z/);
     }
   });
 
-  test('SF dependency renders correct arrow path', async ({ page }) => {
-    // pe-3 has a FS dependency on pe-1 in demo data.
-    // We'll change it to SF and verify the arrow renders correctly.
-
-    // Find the pe-3 task's predecessors cell and click to open the dependency editor.
-    // The predecessors cell for pe-3 shows "pe-1+2" (FS is hidden, lag=2 shown).
-    const predCell = page.locator('button').filter({ hasText: /^pe-1\+2$/ });
-    await predCell.click();
-
-    // Wait for the dependency editor modal to appear
-    const modal = page.locator('.fade-in');
-    await modal.waitFor({ timeout: 5_000 });
-
-    // Find the dependency type dropdown (second select in the row) and change to SF
-    const typeSelect = modal.locator('select').nth(1);
-    await typeSelect.selectOption('SF');
-
-    // Close modal by pressing Escape
-    await page.keyboard.press('Escape');
-
-    // Wait for re-render with new arrow
-    await page.waitForTimeout(500);
-
-    // Verify dependency arrows still exist and have valid path data
-    const arrows = page.locator('g.dependency-arrow');
-    const arrowCount = await arrows.count();
-    expect(arrowCount).toBeGreaterThan(0);
-
-    // Find the SF arrow by checking all arrows for the one with an arrowhead
-    // pointing left (tip x < base x). SF arrows point toward the successor's finish.
-    let foundSfArrow = false;
-    for (let i = 0; i < arrowCount; i++) {
-      const arrow = arrows.nth(i);
-      const headD = await arrow.locator('.dep-head').getAttribute('d');
-      if (!headD) continue;
-
-      // Parse arrowhead triangle path: M x1 y1 L x2 y2 L x3 y3 Z
-      // Extract x coordinates
-      const coords = headD.match(/[-\d.]+/g)?.map(Number);
-      if (!coords || coords.length < 6) continue;
-
-      // Triangle has 3 points: (x1,y1), (x2,y2), (x3,y3)
-      // For a left-pointing arrowhead, the tip x is the minimum x
-      const xs = [coords[0], coords[2], coords[4]];
-      const tipX = Math.min(...xs);
-      const baseXs = xs.filter((x) => x !== tipX);
-
-      // Left-pointing: tip x is less than both base x values
-      if (baseXs.length === 2 && tipX < baseXs[0] && tipX < baseXs[1]) {
-        foundSfArrow = true;
-
-        // Verify the stroke path is also valid
-        const strokeD = await arrow.locator('.dep-stroke').getAttribute('d');
-        expect(strokeD).toBeTruthy();
-        expect(strokeD).toMatch(/[MC]/);
-        break;
-      }
-    }
-
-    expect(foundSfArrow).toBe(true);
-
-    // Restore: reopen and change back to FS
-    const restoredPredCell = page.locator('button').filter({ hasText: /pe-1/ }).first();
-    await restoredPredCell.click();
-    const restoreModal = page.locator('.fade-in');
-    await restoreModal.waitFor({ timeout: 5_000 });
-    const restoreTypeSelect = restoreModal.locator('select').nth(1);
-    await restoreTypeSelect.selectOption('FS');
-    await page.keyboard.press('Escape');
-  });
-
-  test('MSO constraint with past date does not crash the app', async ({ page }) => {
-    // Set MSO on a task to a date in the past — verifies the app handles
-    // constraint violations gracefully without crashing
-    const taskBar = page.locator('.task-bar').first();
-    await taskBar.dispatchEvent('dblclick');
-
-    const popover = page.locator('.fade-in');
-    await popover.waitFor({ timeout: 5_000 });
-
-    // Set MSO constraint (Must Start On) — a hard constraint
-    const constraintSelect = popover.locator('select').last();
-    await constraintSelect.selectOption('MSO');
-
-    // Set constraint date to far in the past to force a conflict
-    const dateInput = popover.locator('input[type="date"]').last();
-    await dateInput.fill('2020-01-01');
-
-    // Close popover
-    await page.keyboard.press('Escape');
-
-    // Wait for WASM conflict detection
-    await page.waitForTimeout(1000);
-
-    // Look for conflict indicators: red circles (warning icons) or
-    // red dashed outlines (stroke="#ef4444" with strokeDasharray)
-    const conflictCircles = page.locator('circle[fill="#ef4444"]');
-    const conflictOutlines = await page.evaluate(() => {
-      return document.querySelectorAll('rect[stroke="#ef4444"]').length;
+  test('SF dependency renders correct arrow path', async ({ sandboxPage: gantt }) => {
+    await test.step('change FS dependency to SF', async () => {
+      const depEditor = await gantt.openDepEditor(/^pe-1\+2$/);
+      await depEditor.setType(0, 'SF');
+      await depEditor.close();
     });
 
-    // Verify the app is still functioning — task bars visible, no crash
-    await expect(page.locator('.task-bar').first()).toBeVisible({ timeout: 5_000 });
+    await test.step('verify SF arrow exists (left-pointing arrowhead)', async () => {
+      const arrowCount = await gantt.dependencyArrows.count();
+      expect(arrowCount).toBeGreaterThan(0);
 
-    // If the task has dependencies, MSO with a past date should produce
-    // at least one conflict indicator (red circle or dashed outline)
-    const conflictCount = (await conflictCircles.count()) + conflictOutlines;
-    expect(conflictCount).toBeGreaterThan(0);
+      let foundSfArrow = false;
+      for (let i = 0; i < arrowCount; i++) {
+        const arrow = gantt.dependencyArrows.nth(i);
+        const headD = await arrow.getByTestId('dep-head').getAttribute('d');
+        if (!headD) continue;
 
-    // Reset: remove constraint to clean up
-    await taskBar.dispatchEvent('dblclick');
-    const resetPopover = page.locator('.fade-in');
-    await resetPopover.waitFor({ timeout: 5_000 });
-    const resetSelect = resetPopover.locator('select').last();
-    await resetSelect.selectOption('ASAP');
-    await page.keyboard.press('Escape');
+        const coords = headD.match(/[-\d.]+/g)?.map(Number);
+        if (!coords || coords.length < 6) continue;
+
+        const xs = [coords[0], coords[2], coords[4]];
+        const tipX = Math.min(...xs);
+        const baseXs = xs.filter((x) => x !== tipX);
+
+        if (baseXs.length === 2 && tipX < baseXs[0] && tipX < baseXs[1]) {
+          foundSfArrow = true;
+          const strokeD = await arrow.getByTestId('dep-stroke').getAttribute('d');
+          expect(strokeD).toBeTruthy();
+          expect(strokeD).toMatch(/[MC]/);
+          break;
+        }
+      }
+      expect(foundSfArrow).toBe(true);
+    });
+
+    await test.step('restore to FS', async () => {
+      // After SF change, button text is "pe-1 SF+2" — multiple buttons may match
+      const depEditor = await gantt.openDepEditorFirst(/pe-1/);
+      await depEditor.setType(0, 'FS');
+      await depEditor.close();
+    });
+  });
+
+  test('MSO constraint with past date shows conflict indicator', async ({ sandboxPage: gantt }) => {
+    await test.step('set MSO constraint with past date', async () => {
+      const popover = await gantt.openPopover(0);
+      await popover.setConstraint('MSO', '2020-01-01');
+      await popover.close();
+    });
+
+    await test.step('verify conflict indicators appear', async () => {
+      await expect(async () => {
+        const indicatorCount = await gantt.conflictIndicators.count();
+        const outlineCount = await gantt.conflictOutlines.count();
+        expect(indicatorCount + outlineCount).toBeGreaterThan(0);
+      }).toPass({ timeout: 5_000 });
+    });
+
+    await test.step('verify app still functional', async () => {
+      await expect(gantt.taskBars.first()).toBeVisible({ timeout: 5_000 });
+    });
+
+    await test.step('reset constraint to ASAP', async () => {
+      const popover = await gantt.openPopover(0);
+      await popover.setConstraint('ASAP');
+      await popover.close();
+    });
+  });
+
+  test('drag task bar moves task dates', async ({ sandboxPage: gantt }) => {
+    // Read original start date from the first task
+    const popoverBefore = await gantt.openPopover(0);
+    const originalStart = await popoverBefore.startDate.inputValue();
+    await popoverBefore.close();
+
+    await test.step('drag task bar to the right', async () => {
+      // The table panel overlaps SVG task bars, so Playwright's page.mouse
+      // hits the table layer instead. Dispatch the entire drag sequence via
+      // evaluate on the SVG rect's native events (React picks them up via
+      // delegation, and the mousemove/mouseup handlers attach to document).
+      await gantt.page.evaluate(() => {
+        const el = document.querySelector('[data-testid^="task-bar-"]');
+        if (!el) throw new Error('No task bar found');
+        const rect = el.getBoundingClientRect();
+        const cx = rect.x + rect.width / 2;
+        const cy = rect.y + rect.height / 2;
+
+        // mousedown on the rect (React's onMouseDown attaches doc listeners)
+        el.dispatchEvent(
+          new MouseEvent('mousedown', {
+            clientX: cx,
+            clientY: cy,
+            button: 0,
+            detail: 1,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+
+        // mousemove on document (drag handler listens here)
+        for (let i = 1; i <= 10; i++) {
+          document.dispatchEvent(
+            new MouseEvent('mousemove', {
+              clientX: cx + i * 10,
+              clientY: cy,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
+        }
+
+        // mouseup on document (completes the drag)
+        document.dispatchEvent(
+          new MouseEvent('mouseup', {
+            clientX: cx + 100,
+            clientY: cy,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      });
+    });
+
+    await test.step('verify date changed', async () => {
+      const popoverAfter = await gantt.openPopover(0);
+      const newStart = await popoverAfter.startDate.inputValue();
+      expect(newStart).not.toBe(originalStart);
+      await popoverAfter.close();
+    });
+  });
+
+  test('resize task bar changes end date', async ({ sandboxPage: gantt }) => {
+    const popoverBefore = await gantt.openPopover(0);
+    const originalEnd = await popoverBefore.endDate.inputValue();
+    await popoverBefore.close();
+
+    await test.step('resize task bar by dragging right edge', async () => {
+      // Same evaluate pattern as drag — table panel overlaps SVG
+      await gantt.page.evaluate(() => {
+        const handle = document.querySelector('[data-testid^="resize-handle-"]');
+        if (!handle) throw new Error('No resize handle found');
+        const rect = handle.getBoundingClientRect();
+        const cx = rect.x + rect.width / 2;
+        const cy = rect.y + rect.height / 2;
+
+        handle.dispatchEvent(
+          new MouseEvent('mousedown', {
+            clientX: cx,
+            clientY: cy,
+            button: 0,
+            detail: 1,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+
+        for (let i = 1; i <= 10; i++) {
+          document.dispatchEvent(
+            new MouseEvent('mousemove', {
+              clientX: cx + i * 10,
+              clientY: cy,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
+        }
+
+        document.dispatchEvent(
+          new MouseEvent('mouseup', {
+            clientX: cx + 100,
+            clientY: cy,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      });
+    });
+
+    await test.step('verify end date changed', async () => {
+      const popoverAfter = await gantt.openPopover(0);
+      const newEnd = await popoverAfter.endDate.inputValue();
+      expect(newEnd).not.toBe(originalEnd);
+      await popoverAfter.close();
+    });
+  });
+
+  test('undo reverts constraint change', async ({ sandboxPage: gantt }) => {
+    await test.step('set SNET constraint', async () => {
+      const popover = await gantt.openPopover(0);
+      await popover.setConstraint('SNET', '2026-06-01');
+      await popover.close();
+    });
+
+    await test.step('undo until constraint reverts to ASAP', async () => {
+      // SET_CONSTRAINT + CASCADE_DEPENDENTS = 2 undoable actions
+      const undoBtn = gantt.undoButton;
+      await expect(undoBtn).toBeEnabled({ timeout: 5_000 });
+
+      // Click undo and poll until constraint reverts (may need 1-3 clicks)
+      await expect(async () => {
+        await undoBtn.click();
+        const pop = await gantt.openPopover(0);
+        const val = await pop.constraintType.inputValue();
+        await pop.close();
+        expect(val).toBe('ASAP');
+      }).toPass({ timeout: 10_000 });
+    });
+  });
+
+  test('redo restores undone constraint change', async ({ sandboxPage: gantt }) => {
+    await test.step('set SNET constraint', async () => {
+      const popover = await gantt.openPopover(0);
+      await popover.setConstraint('SNET', '2026-06-01');
+      await popover.close();
+    });
+
+    await test.step('undo until ASAP', async () => {
+      await expect(async () => {
+        await gantt.undoButton.click();
+        const pop = await gantt.openPopover(0);
+        const val = await pop.constraintType.inputValue();
+        await pop.close();
+        expect(val).toBe('ASAP');
+      }).toPass({ timeout: 10_000 });
+    });
+
+    await test.step('redo until SNET restored', async () => {
+      await expect(async () => {
+        await gantt.redoButton.click();
+        const pop = await gantt.openPopover(0);
+        const val = await pop.constraintType.inputValue();
+        await pop.close();
+        expect(val).toBe('SNET');
+      }).toPass({ timeout: 10_000 });
+    });
   });
 });

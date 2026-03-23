@@ -425,6 +425,7 @@ export default function TaskBar({
         {/* Conflict indicator outline */}
         {conflictMessage && (
           <rect
+            data-testid="conflict-outline"
             x={x - 2}
             y={barY - 2}
             width={Math.max(width, 4) + 4}
@@ -449,6 +450,7 @@ export default function TaskBar({
           opacity={isCritical ? 0.35 : 0.6}
           className="task-bar"
           data-testid={`task-bar-${taskId}`}
+          data-critical={isCritical ? 'true' : undefined}
           onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />
@@ -465,6 +467,7 @@ export default function TaskBar({
           opacity={isCritical ? 1 : 0.6}
           className="task-bar"
           data-testid={`task-bar-${taskId}`}
+          data-critical={isCritical ? 'true' : undefined}
           onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />
@@ -525,7 +528,7 @@ export default function TaskBar({
             delay={100}
             svg
           >
-            <g style={{ cursor: 'default' }}>
+            <g data-testid="conflict-indicator" style={{ cursor: 'default' }}>
               <circle
                 cx={x + Math.max(width, 4) + 10}
                 cy={barY + barHeight / 2}
@@ -556,6 +559,7 @@ export default function TaskBar({
           height={barHeight}
           fill="transparent"
           className="resize-handle"
+          data-testid={`resize-handle-${taskId}`}
           onMouseDown={(e) => handleMouseDown(e, 'resize')}
         />
       </g>

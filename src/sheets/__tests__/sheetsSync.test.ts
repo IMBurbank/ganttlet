@@ -359,3 +359,35 @@ describe('T2.2 — saveDirty + saveInFlight poll guard', () => {
     expect(isSavePending()).toBe(false);
   });
 });
+
+describe('scheduleSave error dispatches SET_SYNC_ERROR (T3.2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cancelPendingSave();
+    vi.useRealTimers();
+  });
+
+  it('dispatches SET_SYNC_ERROR when updateSheet rejects', async () => {
+    (updateSheet as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new TypeError('Failed to fetch')
+    );
+    const mockDispatch = vi.fn();
+    initSync('spreadsheet-id-123', mockDispatch as any);
+
+    scheduleSave([makeTask({ id: 'err-save', name: 'Error Save' })]);
+    await vi.runAllTimersAsync();
+
+    expect(mockDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_SYNC_ERROR',
+        error: expect.objectContaining({ type: 'network' }),
+      })
+    );
+    // RESET_SYNC should also fire
+    expect(mockDispatch).toHaveBeenCalledWith({ type: 'RESET_SYNC' });
+  });
+});

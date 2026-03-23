@@ -12,7 +12,17 @@ interface InlineEditProps {
   validate?: (value: string) => string | null;
 }
 
-export default function InlineEdit({ value, onSave, type = 'text', displayValue, min, max, autoEdit, readOnly, validate }: InlineEditProps) {
+export default function InlineEdit({
+  value,
+  onSave,
+  type = 'text',
+  displayValue,
+  min,
+  max,
+  autoEdit,
+  readOnly,
+  validate,
+}: InlineEditProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +87,7 @@ export default function InlineEdit({ value, onSave, type = 'text', displayValue,
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
           className={`inline-edit-input${hasError ? ' inline-edit-error' : ''}`}
+          data-testid="inline-edit-input"
           min={min}
           max={max}
           aria-invalid={hasError}
@@ -102,7 +113,10 @@ export default function InlineEdit({ value, onSave, type = 'text', displayValue,
   return (
     <span
       className="cursor-pointer hover:text-blue-400 transition-colors truncate"
-      onDoubleClick={() => { setEditValue(value); setEditing(true); }}
+      onDoubleClick={() => {
+        setEditValue(value);
+        setEditing(true);
+      }}
       title="Double-click to edit"
     >
       {displayValue || value || '\u00A0'}

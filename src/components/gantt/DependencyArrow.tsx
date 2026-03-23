@@ -1,6 +1,10 @@
 import React from 'react';
 import type { Dependency, Task, ZoomLevel } from '../../types';
-import { getDependencyPoints, createBezierPath, createArrowHead } from '../../utils/dependencyUtils';
+import {
+  getDependencyPoints,
+  createBezierPath,
+  createArrowHead,
+} from '../../utils/dependencyUtils';
 
 interface DependencyArrowProps {
   dep: Dependency;
@@ -17,9 +21,29 @@ interface DependencyArrowProps {
 }
 
 export default function DependencyArrow({
-  dep, fromTask, toTask, taskYPositions, timelineStart, colWidth, zoom, rowHeight, onClick, isCritical, collapseWeekends,
+  dep,
+  fromTask,
+  toTask,
+  taskYPositions,
+  timelineStart,
+  colWidth,
+  zoom,
+  rowHeight,
+  onClick,
+  isCritical,
+  collapseWeekends,
 }: DependencyArrowProps) {
-  const points = getDependencyPoints(dep, fromTask, toTask, taskYPositions, timelineStart, colWidth, zoom, rowHeight, collapseWeekends);
+  const points = getDependencyPoints(
+    dep,
+    fromTask,
+    toTask,
+    taskYPositions,
+    timelineStart,
+    colWidth,
+    zoom,
+    rowHeight,
+    collapseWeekends
+  );
   if (!points) return null;
 
   const path = createBezierPath(points.start, points.end, dep.type);
@@ -31,13 +55,34 @@ export default function DependencyArrow({
   return (
     <g
       className="dependency-arrow"
+      data-testid="dependency-arrow"
       opacity={isCritical ? 0.9 : 0.5}
-      onClick={onClick ? (e) => { e.stopPropagation(); onClick(dep); } : undefined}
+      onClick={
+        onClick
+          ? (e) => {
+              e.stopPropagation();
+              onClick(dep);
+            }
+          : undefined
+      }
     >
       {/* Invisible wider hit area for easier clicking */}
       <path className="dep-hit-area" d={path} fill="none" stroke="transparent" strokeWidth={12} />
-      <path className="dep-stroke" d={path} fill="none" stroke={strokeColor} strokeWidth={strokeW} />
-      <path className="dep-head" d={arrowHead} fill={strokeColor} stroke="none" />
+      <path
+        className="dep-stroke"
+        data-testid="dep-stroke"
+        d={path}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth={strokeW}
+      />
+      <path
+        className="dep-head"
+        data-testid="dep-head"
+        d={arrowHead}
+        fill={strokeColor}
+        stroke="none"
+      />
     </g>
   );
 }

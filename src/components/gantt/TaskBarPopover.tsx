@@ -143,6 +143,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
     <div
       ref={popoverRef}
       className="fixed z-50 bg-surface-raised border border-border-default rounded-lg shadow-xl w-[240px] fade-in"
+      data-testid="task-popover"
       style={{ top, left }}
     >
       <div className="px-3 py-2 border-b border-border-subtle flex items-center justify-between">
@@ -156,8 +157,14 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
       </div>
       <div className="px-3 py-2 space-y-2">
         <div>
-          <label className="text-[10px] text-text-muted uppercase">Name</label>
+          <label
+            htmlFor={`popover-name-${taskId}`}
+            className="text-[10px] text-text-muted uppercase"
+          >
+            Name
+          </label>
           <input
+            id={`popover-name-${taskId}`}
             ref={nameInputRef}
             type="text"
             value={name}
@@ -171,8 +178,14 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         </div>
         <div className="flex gap-2">
           <div className="flex-1">
-            <label className="text-[10px] text-text-muted uppercase">Start</label>
+            <label
+              htmlFor={`popover-start-${taskId}`}
+              className="text-[10px] text-text-muted uppercase"
+            >
+              Start
+            </label>
             <input
+              id={`popover-start-${taskId}`}
               type="date"
               value={startDate}
               onChange={(e) => {
@@ -183,8 +196,14 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             />
           </div>
           <div className="flex-1">
-            <label className="text-[10px] text-text-muted uppercase">End</label>
+            <label
+              htmlFor={`popover-end-${taskId}`}
+              className="text-[10px] text-text-muted uppercase"
+            >
+              End
+            </label>
             <input
+              id={`popover-end-${taskId}`}
               type="date"
               value={endDate}
               onChange={(e) => {
@@ -201,8 +220,14 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
           <span className="block text-xs text-text-secondary px-2 py-1">{task.duration}d</span>
         </div>
         <div>
-          <label className="text-[10px] text-text-muted uppercase">Owner</label>
+          <label
+            htmlFor={`popover-owner-${taskId}`}
+            className="text-[10px] text-text-muted uppercase"
+          >
+            Owner
+          </label>
           <input
+            id={`popover-owner-${taskId}`}
             type="text"
             value={owner}
             onChange={(e) => setOwner(e.target.value)}
@@ -214,8 +239,14 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
           />
         </div>
         <div>
-          <label className="text-[10px] text-text-muted uppercase">Constraint</label>
+          <label
+            htmlFor={`popover-constraint-${taskId}`}
+            className="text-[10px] text-text-muted uppercase"
+          >
+            Constraint
+          </label>
           <select
+            id={`popover-constraint-${taskId}`}
             value={task.constraintType ?? 'ASAP'}
             onChange={(e) => {
               const ct = e.target.value as NonNullable<Task['constraintType']>;
@@ -239,8 +270,14 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         </div>
         {DATE_BEARING_CONSTRAINTS.has(task.constraintType ?? 'ASAP') && (
           <div>
-            <label className="text-[10px] text-text-muted uppercase">Constraint Date</label>
+            <label
+              htmlFor={`popover-cdate-${taskId}`}
+              className="text-[10px] text-text-muted uppercase"
+            >
+              Constraint Date
+            </label>
             <input
+              id={`popover-cdate-${taskId}`}
               type="date"
               value={task.constraintDate ?? ''}
               onChange={(e) => {

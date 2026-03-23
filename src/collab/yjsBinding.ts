@@ -395,15 +395,13 @@ export function applyActionToYjs(doc: Y.Doc, action: GanttAction): void {
       break;
     }
 
-    case 'SET_TASKS': {
-      applyTasksToYjs(doc, action.tasks);
-      break;
-    }
-
     case 'REPARENT_TASK': {
       // Reparent replaces multiple tasks — handled via full sync in GanttContext
       break;
     }
+
+    // SET_TASKS intentionally omitted — it's a read-only observer action dispatched
+    // by bindYjsToDispatch. Routing it back into Yjs would write data that just arrived.
 
     default:
       break;

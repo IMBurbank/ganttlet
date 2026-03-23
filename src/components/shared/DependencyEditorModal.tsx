@@ -31,14 +31,14 @@ export default function DependencyEditorModal() {
 
   if (!editor) return null;
 
-  const task = state.tasks.find(t => t.id === editor.taskId);
+  const task = state.tasks.find((t) => t.id === editor.taskId);
   if (!task) return null;
 
-  const nonSummaryTasks = state.tasks.filter(t => !t.isSummary && t.id !== task.id);
+  const nonSummaryTasks = state.tasks.filter((t) => !t.isSummary && t.id !== task.id);
 
   // Tasks that can be added as predecessors (not already a predecessor, no cycle, no hierarchy violation)
-  const availablePredecessors = nonSummaryTasks.filter(t => {
-    if (task.dependencies.some(d => d.fromId === t.id)) return false;
+  const availablePredecessors = nonSummaryTasks.filter((t) => {
+    if (task.dependencies.some((d) => d.fromId === t.id)) return false;
     if (wouldCreateCycle(state.tasks, task.id, t.id)) return false;
     if (validateDependencyHierarchy(state.tasks, task.id, t.id)) return false;
     return true;
@@ -126,9 +126,9 @@ export default function DependencyEditorModal() {
 
   // Build list of valid predecessors for a given dependency row
   function getValidPredecessorsForRow(currentFromId: string) {
-    return nonSummaryTasks.filter(t => {
+    return nonSummaryTasks.filter((t) => {
       if (t.id === currentFromId) return true; // current selection always valid
-      if (task!.dependencies.some(d => d.fromId === t.id)) return false; // already used
+      if (task!.dependencies.some((d) => d.fromId === t.id)) return false; // already used
       if (wouldCreateCycle(state.tasks, task!.id, t.id)) return false;
       if (validateDependencyHierarchy(state.tasks, task!.id, t.id)) return false;
       return true;
@@ -138,18 +138,27 @@ export default function DependencyEditorModal() {
   const modal = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={(e) => { if (e.target === e.currentTarget) close(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0" style={{ backgroundColor: 'var(--raw-backdrop)' }} onClick={close} />
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: 'var(--raw-backdrop)' }}
+        onClick={close}
+      />
 
       {/* Modal content */}
-      <div className="relative bg-surface-raised border border-border-default rounded-lg shadow-xl w-[560px] max-h-[80vh] flex flex-col fade-in">
+      <div
+        className="relative bg-surface-raised border border-border-default rounded-lg shadow-xl w-[560px] max-h-[80vh] flex flex-col fade-in"
+        role="dialog"
+        aria-label={`Dependencies — ${task.name}`}
+        data-testid="dependency-editor"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
-          <h2 className="text-sm font-semibold text-text-primary">
-            Dependencies — {task.name}
-          </h2>
+          <h2 className="text-sm font-semibold text-text-primary">Dependencies — {task.name}</h2>
           <button
             onClick={close}
             className="text-text-secondary hover:text-text-primary transition-colors text-lg leading-none cursor-pointer"
@@ -173,7 +182,7 @@ export default function DependencyEditorModal() {
                 </tr>
               </thead>
               <tbody>
-                {task.dependencies.map(dep => {
+                {task.dependencies.map((dep) => {
                   const isHighlighted = editor.highlightFromId === dep.fromId;
                   const validPreds = getValidPredecessorsForRow(dep.fromId);
                   return (
@@ -184,10 +193,10 @@ export default function DependencyEditorModal() {
                       <td className="py-2 pr-2">
                         <select
                           value={dep.fromId}
-                          onChange={e => handleChangePredecessor(dep.fromId, e.target.value, dep)}
+                          onChange={(e) => handleChangePredecessor(dep.fromId, e.target.value, dep)}
                           className="bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs w-full cursor-pointer"
                         >
-                          {validPreds.map(t => (
+                          {validPreds.map((t) => (
                             <option key={t.id} value={t.id}>
                               {t.id} — {t.name}
                             </option>
@@ -196,11 +205,15 @@ export default function DependencyEditorModal() {
                       </td>
                       <td className="py-2 pr-2">
                         <select
+                          aria-label="Dependency type"
+                          data-testid="dep-type-select"
                           value={dep.type}
-                          onChange={e => handleChangeType(dep.fromId, e.target.value as DependencyType, dep)}
+                          onChange={(e) =>
+                            handleChangeType(dep.fromId, e.target.value as DependencyType, dep)
+                          }
                           className="bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs cursor-pointer"
                         >
-                          {(Object.keys(DEP_TYPE_LABELS) as DependencyType[]).map(t => (
+                          {(Object.keys(DEP_TYPE_LABELS) as DependencyType[]).map((t) => (
                             <option key={t} value={t}>
                               {DEP_TYPE_LABELS[t]}
                             </option>
@@ -211,7 +224,9 @@ export default function DependencyEditorModal() {
                         <input
                           type="number"
                           value={dep.lag}
-                          onChange={e => handleChangeLag(dep.fromId, parseInt(e.target.value, 10) || 0, dep)}
+                          onChange={(e) =>
+                            handleChangeLag(dep.fromId, parseInt(e.target.value, 10) || 0, dep)
+                          }
                           className="bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs w-16"
                         />
                       </td>

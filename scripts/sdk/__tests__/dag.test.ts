@@ -323,6 +323,21 @@ describe('dag parser', () => {
       expect(result.groups.find((g) => g.id === 'C')!.dependsOn).toEqual(['A', 'B']);
     });
 
+    it('stage groups with branch get verify nodes, downstream depends on verify', () => {
+      const result = parseConfig({
+        phase: 'test',
+        merge_target: 'feature/test',
+        stages: [
+          { name: 'S1', groups: [{ id: 'A', prompt: 'a.md', branch: 'feature/A' }] },
+          { name: 'S2', groups: [{ id: 'B', prompt: 'b.md' }] },
+        ],
+      });
+      // A has branch → verify:A inserted. B depends on A (from stage desugar).
+      // In the node graph, B should depend on verify:A, not A.
+      const nodeB = result.nodes.find((n) => n.id === 'B')!;
+      expect(nodeB.dependsOn).toEqual(['verify:A']);
+    });
+
     it('throws if both stages and groups are provided', () => {
       expect(() =>
         parseConfig({

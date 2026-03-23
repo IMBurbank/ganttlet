@@ -129,6 +129,27 @@ describe('merge handler', () => {
     expect(runAgent).toHaveBeenCalledOnce(); // only first attempt before re-merge succeeds
   });
 
+  it('aborts and retries when fix agent succeeds but merge not clean', async () => {
+    const mergeFn = vi
+      .fn()
+      .mockReturnValueOnce('conflict' as const) // initial
+      .mockReturnValueOnce('conflict' as const); // re-merge after abort
+    const gitOps = mockGitOps({
+      mergeBranch: mergeFn,
+      isMergeClean: vi
+        .fn()
+        .mockReturnValueOnce(false) // first fix succeeded but merge dirty
+        .mockReturnValueOnce(true), // second fix clean
+    });
+    const runAgent = vi.fn().mockResolvedValue({ failed: false });
+    const handler = createMergeHandler(gitOps, runAgent, mockRunIdentity());
+
+    const result = await handler('/tmp/wt', 'feature/test', () => {});
+    expect(result).toBe('merged');
+    expect(runAgent).toHaveBeenCalledTimes(2);
+    expect(gitOps.mergeAbort).toHaveBeenCalledTimes(1); // aborted after first dirty
+  });
+
   it('forwards events to onEvent callback', async () => {
     const gitOps = mockGitOps({
       mergeBranch: vi.fn().mockReturnValue('conflict' as const),

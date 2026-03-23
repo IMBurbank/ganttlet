@@ -9,7 +9,7 @@
  * No sheet creation/deletion — avoids Drive API scope requirements.
  */
 import type { FullConfig } from '@playwright/test';
-import { getAccessToken } from './helpers/cloud-auth';
+import { getAccessToken } from './helpers/service-account';
 import { resetTestSheet } from './helpers/sheet-lifecycle';
 import { getTestSheetId } from './helpers/get-sheet-id';
 

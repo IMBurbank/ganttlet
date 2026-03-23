@@ -109,106 +109,122 @@ groups:
 
 ### 2. Dependency Model
 
-**Core insight:** In SOTA workflow engines (Temporal, Airflow, GitHub Actions), every
-unit of work is the same primitive — an activity, a task, a step. Dependencies are
-between work units. Retry, failure, and recovery apply uniformly.
+**Two dependency types:**
 
-Merge is work. Verification is work. They can fail, they can be retried, they take
-time. They should be modeled the same way as agent execution — as nodes in the DAG.
+- **Data dependency** — "I need your output." The downstream group needs the upstream
+  group to complete. No code merge required. Example: curator needs reviewer reports.
 
-**Two dependency types emerge naturally:**
+- **Code dependency** — "I need your code changes integrated." The downstream group
+  needs the upstream group's branch merged into the merge target. Example:
+  integration-tests need feature-A's code.
 
-- **Data dependency** — "I need your output." The downstream node needs the upstream
-  node to complete (files on disk, reports, etc.). No code merge required.
-  Example: curator depends on reviewer reports.
+The distinction is implicit from the config: upstream groups with `branch` create
+code dependencies; those without create data dependencies. No explicit annotation needed.
 
-- **Code dependency** — "I need your code changes integrated." The downstream node
-  needs the upstream node's branch merged into the merge target, verified, and clean.
-  Example: integration-tests depend on feature-A's code.
+**Merge is infrastructure, not a node.** Merge is mechanical — it takes a branch and
+integrates it into the merge target. It's deterministic, bounded, and tied to a shared
+resource (the merge worktree). Like worktree creation or WASM copying, it's something
+the pipeline runner handles as infrastructure when a code-dependent group becomes ready.
+If merge conflicts, the runner spawns a fix agent and retries — same pattern as the
+current `merge.sh`, not a new abstraction.
 
-The DAG parser automatically inserts merge+verify nodes for code dependencies:
+**Verify IS a node.** Verification is judgment: which checks to run, how to fix
+failures, whether the result is acceptable. It's configurable per-group, can fail
+independently, can be retried with fix agents, and different groups need different
+levels. It belongs in the DAG.
 
-```
-# User writes:
+### The verify concern
+
+Not every merge needs full verification. Not every verification follows a merge.
+
+```yaml
 groups:
   - id: feature-A
     branch: feature/A
-  - id: feature-B
-    branch: feature/B
-  - id: integration
-    depends_on: [feature-A, feature-B]
-    branch: feature/integration
+    verify: full              # tsc + vitest + cargo after merge
 
-# DAG parser expands to (internal representation):
-nodes:
-  - { id: feature-A, type: 'agent' }
-  - { id: feature-B, type: 'agent' }
-  - { id: merge:feature-A, type: 'merge', targetBranch: feature/A, dependsOn: [feature-A] }
-  - { id: merge:feature-B, type: 'merge', targetBranch: feature/B, dependsOn: [feature-B] }
-  - { id: verify:feature-A, type: 'verify', dependsOn: [merge:feature-A] }
-  - { id: verify:feature-B, type: 'verify', dependsOn: [merge:feature-B] }
-  - { id: integration, type: 'agent', dependsOn: [verify:feature-A, verify:feature-B] }
+  - id: docs-update
+    branch: docs/update
+    verify: none              # docs don't need build verification
+
+  - id: quick-fix
+    branch: fix/typo
+    verify: quick             # tsc only, no vitest
+
+  - id: solo-agent
+    branch: fix/bug-123
+    verify: full              # single agent, no merge needed, but verify its work
+    # no depends_on — runs alone, verify confirms its changes
+
+  - id: integration
+    depends_on: [feature-A, docs-update, quick-fix]
+    branch: feature/integration
+    verify: full
 ```
 
-**What this enables:**
-- feature-A and feature-B run in parallel
-- When A finishes, merge:A starts immediately (doesn't wait for B)
-- If merge:B conflicts, it doesn't block merge:A or verify:A
-- Merge conflicts get a fix agent (retry on the merge node)
-- integration starts when ALL verify nodes pass
-- Read-only groups (no branch) have no merge/verify nodes — pure data dependencies
+Verify levels:
+- `full` — tsc + vitest + cargo test (default for branched groups)
+- `quick` — tsc only (~5s vs ~30s)
+- `none` — skip verification (docs, skills, data-only output)
 
-**Data-only dependencies** (reviewer → curator) skip merge/verify entirely:
+The DAG parser inserts verify nodes for groups where `verify != 'none'`:
 
 ```
 # User writes:
-groups:
-  - id: reviewer-accuracy     # no branch = read-only
-  - id: curator
-    depends_on: [reviewer-accuracy, ...]
-    branch: curation/skill-name
+- { id: feature-A, branch: feature/A, verify: full }
+- { id: docs-update, branch: docs/update, verify: none }
+- { id: integration, depends_on: [feature-A, docs-update] }
 
-# Internal:
-nodes:
-  - { id: reviewer-accuracy, type: 'agent' }       # data only
-  - { id: curator, type: 'agent', dependsOn: [reviewer-accuracy, ...] }
-  - { id: merge:curator, type: 'merge', dependsOn: [curator] }
-  - { id: verify:curator, type: 'verify', dependsOn: [merge:curator] }
+# Internal DAG:
+- { id: feature-A, type: 'agent' }
+- { id: verify:feature-A, type: 'verify', level: 'full', dependsOn: [feature-A] }
+- { id: docs-update, type: 'agent' }
+  # no verify node — verify: none
+- { id: integration, type: 'agent', dependsOn: [verify:feature-A, docs-update] }
+  # depends on verify:feature-A (code dep with verify)
+  # depends on docs-update directly (code dep without verify)
 ```
 
-No merge/verify inserted between reviewer and curator because the reviewer
-has no branch. The curator's OWN branch gets merge/verify after it completes.
+**When a code-dependent group becomes ready**, the pipeline runner merges all unmerged
+dependency branches before creating the group's worktree. Merge is serialized on the
+merge worktree. If a merge conflicts, the runner spawns a fix agent. This is
+infrastructure — not scheduled by the DAG.
+
+**Key insight:** Merge is like `git worktree add` — infrastructure the runner handles.
+Verify is like an agent — scheduled work in the DAG that can fail, retry, and be
+configured.
 
 ### 3. Node Types
 
 ```typescript
-type NodeType = 'agent' | 'merge' | 'verify';
+type NodeType = 'agent' | 'verify';
 
 interface DAGNode {
-  id: string;              // 'feature-A' or 'merge:feature-A' or 'verify:feature-A'
+  id: string;              // 'feature-A' or 'verify:feature-A'
   type: NodeType;
   dependsOn: string[];     // other node IDs
   // Agent-specific:
   spec?: GroupSpec;         // only for type='agent'
-  // Merge-specific:
-  targetBranch?: string;    // only for type='merge'
+  // Verify-specific:
+  level?: 'full' | 'quick';  // only for type='verify'
   // All types:
-  maxRetries?: number;      // merge/verify default to 3
+  maxRetries?: number;      // verify default 3
 }
 ```
 
-Users never write merge/verify nodes — the DAG parser generates them from
-`branch` + `dependsOn` declarations. The internal DAG is richer than the config.
+Users never write verify nodes — the DAG parser generates them from the `verify`
+field on groups with branches. The internal DAG has more nodes than the config,
+but only one additional type (verify), which maps directly to a clear user concept.
 
 ### 4. Scheduler (`scheduler.ts`, ~60 lines)
 
 Pure state machine. Given DAG nodes + current state → next actions. No I/O, no path
-resolution, no side effects. Works identically for agent, merge, and verify nodes.
+resolution, no side effects. Works identically for agent and verify nodes.
 
 ```typescript
 interface NodeState {
   status: 'blocked' | 'ready' | 'running' | 'success' | 'failure' | 'skipped';
-  failureReason?: 'agent' | 'merge_conflict' | 'verify_failed' | 'timeout' | 'budget' | 'dependency';
+  failureReason?: 'agent' | 'verify_failed' | 'timeout' | 'budget' | 'dependency';
   attempt: number;
   maxRetries: number;
   sessionId?: string;      // agent nodes only
@@ -216,7 +232,6 @@ interface NodeState {
   turns: number;           // agent nodes only
 }
 
-// Actions are uniform — the pipeline runner handles type-specific execution.
 type Action =
   | { type: 'execute'; nodeId: string }
   | { type: 'complete'; status: 'success' | 'partial' | 'failed' | 'deadlock' }
@@ -227,24 +242,17 @@ function nextActions(nodes: DAGNode[], state: Record<string, NodeState>): Action
 Logic (uniform across all node types):
 1. For each `blocked` node: if all `dependsOn` are `success` → `ready`. If any is
    `failure`/`skipped` → `skipped(dependency)`.
-2. For each `ready` node that isn't already in `running` → emit `execute` action.
+2. For each `ready` node that isn't already `running` → emit `execute` action.
 3. If a `failure` node has `attempt < maxRetries` → reset to `ready` (auto-retry).
 4. If no actions and all nodes are terminal → `complete`.
 5. If no actions and non-terminal nodes exist → `deadlock`.
 
-**The scheduler doesn't know what agents, merges, or verifications are.** It just
-resolves dependencies and emits `execute` for ready nodes. The pipeline runner
-dispatches to the right handler based on `node.type`.
-
-**Key invariants:**
-- The scheduler never resolves paths or knows about git.
-- All node types follow the same state transitions.
-- Retry logic is uniform — merge nodes retry on conflict the same way agent nodes
-  retry on failure.
+**The scheduler doesn't know what agents or verifications are.** It resolves
+dependencies and emits `execute`. The pipeline runner dispatches by type.
 
 Tests must cover: zero-dependency nodes, single-node pipelines, diamond dependencies,
-partial failure cascades with mixed node types, retry exhaustion, resume from partial
-state, all-data-deps (no merge/verify nodes), boundary values.
+partial failure cascades, retry exhaustion, resume from partial state, all-data-deps
+(no verify nodes), mixed verify levels, boundary values.
 
 ### 5. Executor (existing `agent-runner.ts`, interface change only)
 
@@ -268,26 +276,21 @@ The `canUseTool` callback (for `.claude/skills/` edit permissions, #37157 workar
 MUST be preserved in the executor adapter. This is load-bearing for curation curators.
 See `docs/sdk-skill-edit-findings.md`.
 
-### Merge and Verify Handlers
-
-The pipeline runner dispatches to handlers based on node type:
+### Verify Handler
 
 ```typescript
-async function executeMerge(node: DAGNode, mergeWorktree: string, gitOps: GitOps): Promise<NodeResult> {
-  const result = await gitOps.mergeBranch(mergeWorktree, node.targetBranch!);
-  if (result === 'conflict') {
-    // Spawn fix agent to resolve conflict, then retry
-    const fixed = await spawnMergeFixAgent(mergeWorktree, node.targetBranch!);
-    if (!fixed) return { status: 'failure', failureReason: 'merge_conflict' };
-    return { status: 'success' };
-  }
-  return { status: result === 'up-to-date' ? 'success' : 'success' };
-}
+async function executeVerify(
+  node: DAGNode,
+  mergeWorktree: string,
+  gitOps: GitOps
+): Promise<NodeResult> {
+  const checks = node.level === 'quick'
+    ? { tsc: true, vitest: false, cargo: false }
+    : { tsc: true, vitest: true, cargo: true };
 
-async function executeVerify(node: DAGNode, mergeWorktree: string, gitOps: GitOps): Promise<NodeResult> {
-  const result = await gitOps.verify(mergeWorktree);
-  if (!result.tsc || !result.vitest || !result.cargo) {
-    // Spawn fix agent, then re-verify
+  const result = await gitOps.verify(mergeWorktree, checks);
+
+  if (!result.passed) {
     const fixed = await spawnVerifyFixAgent(mergeWorktree, result);
     if (!fixed) return { status: 'failure', failureReason: 'verify_failed' };
     return { status: 'success' };
@@ -296,8 +299,48 @@ async function executeVerify(node: DAGNode, mergeWorktree: string, gitOps: GitOp
 }
 ```
 
-Merge nodes are serialized (one at a time on the merge worktree). Verify nodes
-run after their corresponding merge. Agent nodes run in parallel.
+### Merge as Infrastructure (in Pipeline Runner)
+
+When a code-dependent group becomes ready, the pipeline runner merges all
+unmerged dependency branches before executing the group:
+
+```typescript
+async function mergeIfNeeded(
+  group: GroupSpec,
+  dag: DAGNode[],
+  mergedBranches: Set<string>,
+  mergeWorktree: string,
+  gitOps: GitOps,
+  observer: Observer,
+): Promise<boolean> {
+  // Find dependency groups with branches that haven't been merged yet
+  const toMerge = (group.dependsOn ?? [])
+    .map(id => dag.find(n => n.id === id)?.spec)
+    .filter(s => s?.branch && !mergedBranches.has(s.branch));
+
+  if (toMerge.length === 0) return true;
+
+  for (const dep of toMerge) {
+    for (let attempt = 0; attempt < MERGE_FIX_RETRIES; attempt++) {
+      const result = await gitOps.mergeBranch(mergeWorktree, dep.branch!);
+      observer.onMerge(dep.id, dep.branch!, result);
+
+      if (result === 'merged' || result === 'up-to-date') {
+        mergedBranches.add(dep.branch!);
+        break;
+      }
+      if (result === 'conflict') {
+        const fixed = await spawnMergeFixAgent(mergeWorktree, dep.branch!);
+        if (!fixed && attempt === MERGE_FIX_RETRIES - 1) return false;
+      }
+    }
+  }
+  return true;
+}
+```
+
+Merge is serialized via `mergeLock` (one at a time on the shared worktree).
+This is a resource constraint, not a DAG dependency — the scheduler doesn't model it.
 
 ### 3. Executor (existing `agent-runner.ts`, interface change only)
 
@@ -461,11 +504,11 @@ This replaces the bash `monitor_agent` function. The SDK stream itself has a tim
 if the stream hangs (network issue, model hang), the executor's `maxBudgetUsd` and
 turn limits provide the backstop.
 
-### 8. Pipeline Runner (`pipeline-runner.ts`, ~180 lines)
+### 7. Pipeline Runner (`pipeline-runner.ts`, ~180 lines)
 
 Composition layer. Receives all dependencies as arguments (DI for testing).
-The runner doesn't know about agents, merges, or verifications — it executes
-DAG nodes uniformly, dispatching to type-specific handlers.
+Dispatches to type-specific handlers. Handles merge as infrastructure (serialized
+on merge worktree), not as scheduled work.
 
 ```typescript
 async function runPipeline(
@@ -473,7 +516,6 @@ async function runPipeline(
   run: RunIdentity,
   handlers: {
     agent: (spec: GroupSpec, run: RunIdentity, onEvent: AgentEventCallback) => Promise<NodeResult>;
-    merge: (node: DAGNode, mergeWorktree: string, gitOps: GitOps) => Promise<NodeResult>;
     verify: (node: DAGNode, mergeWorktree: string, gitOps: GitOps) => Promise<NodeResult>;
   },
   gitOps: GitOps,
@@ -482,16 +524,14 @@ async function runPipeline(
 ): Promise<PipelineState>
 ```
 
-**Core loop (event-driven, not batch):**
-
-The loop re-evaluates the scheduler after EACH node completes. This is the core
-DAG advantage — merge:A starts as soon as feature-A finishes, verify:A starts as
-soon as merge:A finishes, all without waiting for unrelated nodes.
+**Core loop (event-driven):**
 
 ```typescript
 const state = loadOrCreateState(statePath, dag);
 const stateWriteQueue = createWriteQueue();
-let mergeWorktree: string | null = null;  // created lazily on first merge node
+const mergedBranches = new Set<string>();
+let mergeWorktree: string | null = null;  // created lazily on first code-dependent group
+const mergeLock = createMutex();
 
 const running = new Map<string, Promise<void>>();
 
@@ -517,24 +557,32 @@ while (true) {
         switch (node.type) {
           case 'agent': {
             const spec = node.spec!;
+
+            // Merge infrastructure: integrate dependency branches before starting
+            if (spec.branch || spec.dependsOn?.some(id => groupHasBranch(dag, id))) {
+              if (!mergeWorktree) {
+                mergeWorktree = await gitOps.createMergeWorktree(run.mergeTarget);
+              }
+              const merged = await mergeLock.run(() =>
+                mergeIfNeeded(spec, dag, mergedBranches, mergeWorktree!, gitOps, observer)
+              );
+              if (!merged) {
+                result = { status: 'failure', failureReason: 'merge_conflict' };
+                break;
+              }
+            }
+
             const workdir = spec.branch
               ? await gitOps.createWorktree(spec.branch, run.mergeTarget)
               : run.launchDir;
+
             observer.onGroupStart(node.id, spec);
             result = await handlers.agent(spec, run, (e) => observer.onAgentEvent(node.id, e));
             observer.onGroupComplete(node.id, state.nodes[node.id]);
             break;
           }
-          case 'merge': {
-            if (!mergeWorktree) {
-              mergeWorktree = await gitOps.createMergeWorktree(run.mergeTarget);
-            }
-            // Merges are serialized (one at a time on the merge worktree)
-            result = await mergeLock.run(() => handlers.merge(node, mergeWorktree!, gitOps));
-            observer.onMerge(node.id, node.targetBranch!, result.status);
-            break;
-          }
           case 'verify': {
+            // Verify runs on the merge worktree (which has accumulated merges)
             result = await handlers.verify(node, mergeWorktree!, gitOps);
             observer.onVerify(result);
             break;
@@ -569,12 +617,13 @@ return state;
 ```
 
 **Key design decisions:**
-- `Promise.race` (not `Promise.all`) — re-evaluate scheduler after EACH completion
+- `Promise.race` — re-evaluate scheduler after EACH completion (core DAG advantage)
+- Merge is infrastructure: serialized via `mergeLock`, happens before agent execution,
+  not as a scheduled node. Fix agents spawn on conflict within `mergeIfNeeded`.
+- Verify IS a scheduled node: configurable per-group, can fail independently
+- Merge worktree created lazily (not wasted for all-read-only DAGs)
 - State writes serialized via write queue — no torn writes
-- Merge worktree created lazily on first merge node (not wasted for all-read-only DAGs)
-- Merge execution serialized via `mergeLock` (one merge at a time on shared worktree)
-- Agent, merge, verify nodes all follow the same execute→update→save pattern
-- `status = 'running'` set before try block — crash recovery resets to `ready`
+- `status = 'running'` set before try — crash recovery resets to `ready`
 - Prompt paths resolved relative to `run.launchDir`, never `process.cwd()`
 - `kill_tree` + SIGINT/SIGTERM handler for process cleanup
 
@@ -585,10 +634,9 @@ await gitOps.runHookTests();
 await gitOps.ensureWasm(run.launchDir);
 ```
 
-**`--only nodeA,nodeB`:** Filters the DAG before passing to the scheduler. All
-transitive dependencies of the specified nodes are included. All other nodes are
-excluded. This replaces `--stage N` which doesn't map to DAG semantics. Implementation:
-reverse walk from specified nodes, collecting all `dependsOn` transitively.
+**`--only groupA,groupB`:** Filters the DAG to include only the specified groups,
+their transitive dependencies, and any auto-inserted verify nodes. Implementation:
+reverse walk from specified group IDs, collecting all `dependsOn` transitively.
 
 ### CLI Entry Point (~40 lines)
 
@@ -706,25 +754,26 @@ needs to be in a wrapper file.
 
 ## Failure & Recovery
 
-### Agent node failure
-- Node marked `failure` in state with `failureReason`
-- Independent nodes (agents, merges, verifies on other branches) continue
+### Agent failure
+- Agent node marked `failure` in state with `failureReason`
+- Independent nodes continue running (DAG advantage)
 - Dependent nodes marked `skipped(dependency)` by scheduler
 - Pipeline completes as `partial`
 - Resume: `--resume` retries failed nodes, skips succeeded, re-evaluates skipped
 
-### Merge node failure (conflict)
-- Merge handler detects conflict, spawns fix agent to resolve
+### Merge conflict (infrastructure failure)
+- `mergeIfNeeded` detects conflict, spawns fix agent to resolve in merge worktree
 - Fix agent has access to the merge worktree and both branches
-- If fix agent succeeds → merge node marked `success`, verify node becomes `ready`
-- If fix agent fails after retries → merge node marked `failure(merge_conflict)`
-- Downstream verify and agent nodes → `skipped(dependency)`
-- Resume: human resolves conflict, `--resume` retries the merge node
+- Retry up to `MERGE_FIX_RETRIES` (default 3)
+- If fix agent succeeds → merge proceeds, agent starts
+- If fix agent fails → the downstream agent is marked `failure(merge_conflict)`
+- Further downstream nodes → `skipped(dependency)`
+- Resume: human resolves conflict in merge worktree, `--resume` retries
 
-### Verify node failure
-- Verify handler detects tsc/vitest/cargo failure, spawns fix agent
+### Verify failure
+- Verify node detects tsc/vitest/cargo failure, spawns fix agent
 - Fix agent edits code in the merge worktree to resolve build issues
-- Retry verification up to `maxRetries` (default 3)
+- Retry up to `maxRetries` (default 3)
 - If unfixable: verify node marked `failure(verify_failed)`
 - Downstream agent nodes → `skipped(dependency)`
 

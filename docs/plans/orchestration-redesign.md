@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-23
 **Branch:** `worktree-curation-test-run`
-**Status:** Planning
+**Status:** Planning (reviewed, v2)
 **Predecessor:** Phase 19 (SDK agent runner), curation test runs (2026-03-22/23)
 
 ## Problem Statement
@@ -25,9 +25,10 @@ These are not individual bugs — they're symptoms of the wrong abstractions.
 1. **Config declares behavior.** The YAML is the complete truth. No naming conventions, no env var inference, no phase-name checks.
 2. **One execution engine.** `agent-runner.ts` handles all agent execution. Observation is pluggable, not a separate code path.
 3. **State is a file.** `pipeline-state.json` is the single source of truth. Resume reads it. Any process can query it.
-4. **Pure scheduling logic.** The scheduler is a pure function (like `attempt-machine.ts`). Given state, return actions. No I/O.
+4. **Pure scheduling logic.** The scheduler is a pure function (like `attempt-machine.ts`). Given state, return actions. No I/O, no path resolution.
 5. **DAG, not stages.** Groups declare dependencies. The scheduler runs groups when their dependencies are met. Stages are syntactic sugar.
 6. **Bash does bash things.** Git operations, builds, file copying — called via typed interface from TypeScript.
+7. **No new dependencies.** All new code uses Node built-ins and existing project deps only.
 
 ## Architecture
 
@@ -54,7 +55,7 @@ Config (YAML)
          └───────┘ └───────┘ └──────────┘
 ```
 
-### 1. DAG Parser (`dag.ts`, ~60 lines)
+### 1. DAG Parser (`dag.ts`, ~80 lines)
 
 Parses YAML config into a validated dependency graph.
 
@@ -71,15 +72,21 @@ interface GroupSpec {
   dependsOn?: string[];                // group IDs
 }
 
-function parseConfig(configPath: string): { run: Partial<RunIdentity>; groups: GroupSpec[] }
+function parseConfig(configPath: string): {
+  phase: string;
+  mergeTarget: string;
+  groups: GroupSpec[];
+}
 ```
 
 Responsibilities:
-- Parse YAML, validate required fields
+- Parse YAML, validate required fields (id, prompt are required)
 - Detect cycles in dependency graph (error)
 - Validate all `dependsOn` refs exist (error)
+- Validate no dead fields (all GroupSpec fields are consumed by executor adapter)
 - Desugar `stages:` syntax into explicit `dependsOn`
 - Support both `stages:` (common pattern) and `groups:` with `dependsOn:` (complex DAGs)
+- Support `group_templates:` for reducing repetition (see Config Format section)
 
 Stages desugar:
 ```yaml
@@ -100,9 +107,10 @@ groups:
   - { id: C, prompt: c.md, branch: x, dependsOn: [A, B] }
 ```
 
-### 2. Scheduler (`scheduler.ts`, ~50 lines)
+### 2. Scheduler (`scheduler.ts`, ~60 lines)
 
-Pure state machine. Given DAG + current state → next actions.
+Pure state machine. Given DAG + current state → next actions. No I/O, no path
+resolution, no side effects.
 
 ```typescript
 interface GroupState {
@@ -116,64 +124,105 @@ interface GroupState {
   logFile: string;
 }
 
+// Actions reference group IDs only — the pipeline runner resolves paths.
 type Action =
-  | { type: 'run'; group: GroupSpec; workdir: string }
-  | { type: 'merge'; branches: string[]; verify: boolean }
+  | { type: 'run'; groupId: string }
+  | { type: 'merge'; groupIds: string[]; verify: boolean }  // groups whose branches to merge
   | { type: 'complete'; status: 'success' | 'partial' | 'failed' | 'deadlock' }
 
 function nextActions(groups: GroupSpec[], state: Record<string, GroupState>): Action[]
 ```
 
-Logic (~40 lines):
-1. For each `blocked` group: if all `dependsOn` are `success` → `ready`. If any `dependsOn` is `failure`/`skipped` → `skipped`.
-2. For each `ready` group: if branch dependencies aren't merged → emit `merge` action first.
-3. For each `ready` group with merges complete: emit `run` action.
-4. If no actions and all groups are terminal → emit `complete`.
-5. If no actions and some groups are non-terminal → `deadlock`.
+Logic:
+1. For each `blocked` group: if all `dependsOn` are `success` → transition to `ready`. If any `dependsOn` is `failure`/`skipped` → `skipped(dependency)`.
+2. For each `ready` group: collect `dependsOn` groups that have branches AND `merged === false` → emit `merge` action with those group IDs.
+3. For each `ready` group where all branch dependencies are merged (or have no branch) → emit `run` action.
+4. Groups with `branch: null/undefined` never emit merge actions and never set `merged`.
+5. If no actions and all groups are terminal (`success`/`failure`/`skipped`) → `complete`.
+6. If no actions and some groups are non-terminal → `deadlock`.
 
-No I/O. No side effects. Testable with the same exhaustive approach as `attempt-machine.ts`.
+**Key invariants:**
+- The scheduler never resolves paths — `run` returns a `groupId`, not a `workdir`.
+- The scheduler never emits `merge` for groups without branches.
+- `merge` action carries group IDs, not branch names — the pipeline runner maps ID→branch.
 
-### 3. Executor (existing `agent-runner.ts`, unchanged)
+Tests must cover: zero-dependency groups, single-group pipelines, diamond dependencies,
+partial failure cascades, resume from partial state, all-read-only (no merges), boundary
+values (0 dependencies, 1 group, maxRetries=0).
+
+### 3. Executor (existing `agent-runner.ts`, interface change only)
 
 Already well-designed: policies, attempt machine, stream events, `canUseTool`, metrics.
 
-Thin adapter from GroupSpec:
+**Interface change:** The executor must accept an event callback for the observer
+pattern. Currently it writes to log files internally via `fs.appendFileSync`. The
+new interface:
+
 ```typescript
-function groupSpecToRunnerOptions(spec: GroupSpec, run: RunIdentity): RunnerOptions {
-  return {
-    group: spec.id,
-    phase: run.phase,
-    workdir: spec.branch ? worktreePath(spec) : run.launchDir,
-    prompt: spec.prompt,
-    logFile: path.join(run.logDir, `${spec.id}.log`),
-    policy: spec.policy ?? 'default',
-    agent: spec.agent,
-    promptVars: { ...spec.promptVars, LOG_DIR: run.logDir },
-    outputFile: spec.output ? path.join(run.logDir, spec.output) : undefined,
-  };
-}
+// Current: events written to logFile internally
+// New: events emitted via callback, pipeline runner routes to observer
+type AgentEventCallback = (event: AgentEvent) => void;
+
+// Adapter wraps existing runAgent, adds callback routing
+async function executeGroup(
+  spec: GroupSpec,
+  run: RunIdentity,
+  onEvent: AgentEventCallback,
+): Promise<AgentResult>
 ```
 
-`LOG_DIR` is injected here — not in wrapper prompts, not in env vars. The executor resolves it from the RunIdentity.
+The `canUseTool` callback (for `.claude/skills/` edit permissions, #37157 workaround)
+MUST be preserved in the executor adapter. This is load-bearing for curation curators.
+See `docs/sdk-skill-edit-findings.md`.
 
-### 4. GitOps (`git-ops.ts`, ~80 lines)
+### 4. GitOps (`git-ops.ts`, ~120 lines)
 
 Typed interface over shell commands. Called via `execSync`.
 
 ```typescript
 interface GitOps {
+  // Worktree lifecycle
   createWorktree(branch: string, base: string): string;  // returns path
+  // createWorktree MUST: npm install, copy WASM, seed .agent-status.json
+  // createWorktree branching base MUST be mergeTarget AFTER relevant merges complete
   removeWorktree(path: string): void;
+  // removeWorktree uses rm -rf + git worktree prune (not git worktree remove,
+  // which guard blocks). ExitWorktree is for interactive sessions only.
+
+  // Merge worktree (persists for entire pipeline run)
+  createMergeWorktree(mergeTarget: string): string;
+  removeMergeWorktree(path: string): void;
+
+  // Merge operations (serialized — caller holds merge lock)
   mergeBranch(worktree: string, branch: string): 'merged' | 'conflict' | 'up-to-date';
+  // After merge: conditionally rebuild WASM if crates/ changed, auto-commit Cargo.lock
   verify(worktree: string): { tsc: boolean; vitest: boolean; cargo: boolean };
+
+  // Build artifacts
   copyWasm(from: string, to: string): void;
-  npmInstall(dir: string): void;
   ensureWasm(launchDir: string): void;  // preflight: copy from main repo if missing
+
+  // Preflight
+  checkCleanState(): void;              // error if dirty git state
+  runHookTests(): void;                 // run test-hooks.sh, error on failure
+  applySkillsPatch(): void;             // run patch-sdk-skills-permission.py after npm install
 }
 ```
 
-Merge serialization: the pipeline runner holds a merge lock (simple `Promise` chain).
-Only one merge at a time on the merge worktree.
+**Important constraints from code comments and git history:**
+- `createWorktree` must copy WASM artifacts (gitignored, not in worktree by default)
+- `createWorktree` must branch from `mergeTarget` AFTER prior merges complete
+  (agents must see merged output of prior groups)
+- `mergeBranch` must conditionally rebuild WASM if `git diff HEAD~1 --name-only | grep '^crates/'`
+  and auto-commit `Cargo.lock` changes (dirty Cargo.lock breaks subsequent verification)
+- `removeWorktree` uses `rm -rf` + `git worktree prune`, NOT `git worktree remove`
+  (guard binary blocks `git worktree remove`). `ExitWorktree` is for interactive
+  sessions — `git-ops.ts` is infrastructure, not an interactive agent.
+- `npmInstall` must be followed by `applySkillsPatch` to re-apply the SDK binary patch
+  (#37157). Without this, curators cannot edit `.claude/skills/` files.
+- Exit codes from git commands must be propagated, not swallowed.
+- Use `git worktree list --porcelain | head -1` for main repo root, never `git rev-parse --show-toplevel`
+  (returns current worktree root, not main).
 
 ### 5. Pipeline State (`pipeline-state.json`)
 
@@ -188,42 +237,77 @@ interface RunIdentity {
   logDir: string;
   launchDir: string;
   configPath: string;
+  mergeWorktree: string;  // path to the merge worktree
 }
 
 interface PipelineState {
   run: RunIdentity;
   groups: Record<string, GroupState>;
-  status: 'running' | 'complete' | 'partial' | 'failed';
+  status: 'running' | 'complete' | 'partial' | 'failed' | 'deadlock';
   createdAt: string;
   updatedAt: string;
 }
 ```
 
 Written after: each group completion, each merge, pipeline completion.
+**State writes are serialized** via a write queue — no concurrent `saveState` calls
+from `Promise.all` completions (prevents torn writes and lost updates).
 
-On resume: load state, reset `running` → `ready` (crash recovery), skip `success` groups.
+**Resume (`--resume`):**
+- Load state from `{logDir}/pipeline-state.json`
+- `RunIdentity` (including `suffix`, `baseRef`, `mergeTarget`) is recovered FROM the
+  state file — never recomputed. This ensures worktree paths, branch names, and log
+  dirs match the original run even if HEAD has advanced.
+- Groups with `status: 'running'` at crash time → reset to `ready` (crash recovery)
+- Groups with `status: 'success'` → skipped
+- Groups with `status: 'skipped'` → re-evaluated (dependency may now be `success`)
+- Failed groups with stale worktrees → worktree removed before retry
+- Session IDs preserved for agent-runner resumption
+
+**Same-commit re-runs:** If `--resume` is NOT passed but a state file exists for the
+same `suffix`, the pipeline starts fresh (overwrites state). Use `--resume` explicitly
+to continue a prior run. This prevents accidental resumption of stale state.
 
 ### 6. Observer (pluggable)
 
 ```typescript
 interface Observer {
+  onPipelineStart(run: RunIdentity): void;
   onGroupStart(id: string, spec: GroupSpec): void;
-  onAgentEvent(id: string, event: AgentEvent): void;
+  onAgentEvent(id: string, event: AgentEvent): void;  // tool, text, turn, cost
   onGroupComplete(id: string, state: GroupState): void;
-  onMerge(branch: string, result: string): void;
+  onMerge(groupId: string, branch: string, result: string): void;
   onVerify(result: { tsc: boolean; vitest: boolean; cargo: boolean }): void;
+  onStall(id: string, idleSeconds: number): void;
   onPipelineComplete(state: PipelineState): void;
 }
 ```
 
 Implementations:
-- **FileLogObserver** (~40 lines): structured log files with `[turn N] [tool] [text]`. Agent orchestrators read these.
-- **TmuxObserver** (~100 lines): renders to tmux panes. Admin attaches to watch. Creates one window per running group.
+- **FileLogObserver** (~50 lines): structured log files with `[turn N] [tool path] [text]`.
+  Full text preserved (not truncated). Agent orchestrators read these. Format is a
+  documented requirement, not an implementation detail:
+  - `[turn N]` — turn counter for budget visibility
+  - `[tool] ToolName /path/to/file` — tool name + first relevant input field
+  - `[text] Full agent text output` — complete, not truncated
+  - `[result] status turns=N cost=$X.XX` — final summary
+- **TmuxObserver** (~120 lines): renders events to tmux panes. Admin attaches to watch.
+  Creates one window per running group. Shows status summary in first window.
+  Must have unit tests for state management and string formatting logic — only
+  tmux rendering itself is manual-test-only.
 - **StdoutObserver** (~30 lines): summary lines for CI. Exit code reflects status.
 
 All three observe the same execution from agent-runner's `includePartialMessages` stream.
+None affect execution. None duplicate the execution path.
 
-### 7. Pipeline Runner (`pipeline-runner.ts`, ~100 lines)
+**Stall detection:** The pipeline runner tracks time since last `onAgentEvent` per
+group. If no events for `STALL_THRESHOLD` seconds (default 300), it calls
+`observer.onStall()` and optionally kills the agent process tree via `kill_tree`.
+This replaces the bash `monitor_agent` function. The SDK stream itself has a timeout —
+if the stream hangs (network issue, model hang), the executor's `maxBudgetUsd` and
+turn limits provide the backstop.
+
+### 7. Pipeline Runner (`pipeline-runner.ts`, ~150 lines)
 
 Composition layer. Receives all dependencies as arguments (DI for testing).
 
@@ -231,17 +315,26 @@ Composition layer. Receives all dependencies as arguments (DI for testing).
 async function runPipeline(
   groups: GroupSpec[],
   run: RunIdentity,
-  executor: (opts: RunnerOptions, onEvent: (e: AgentEvent) => void) => Promise<AgentResult>,
+  executor: (spec: GroupSpec, run: RunIdentity, onEvent: AgentEventCallback) => Promise<AgentResult>,
   gitOps: GitOps,
   observer: Observer,
   statePath: string,
 ): Promise<PipelineState>
 ```
 
-Core loop:
+**Core loop (event-driven, not batch):**
+
+The loop must re-evaluate the scheduler after EACH group completes, not after all
+current groups complete. This is the core DAG advantage — group C starts as soon as
+group A finishes, without waiting for group B.
+
 ```typescript
 const state = loadOrCreateState(statePath, groups);
-const mergeLock = createMutex();
+const stateWriteQueue = createWriteQueue();  // serializes state file writes
+const mergeWorktree = await gitOps.createMergeWorktree(run.mergeTarget);
+
+// Track running promises
+const running = new Map<string, Promise<void>>();
 
 while (true) {
   const actions = nextActions(groups, state.groups);
@@ -252,64 +345,105 @@ while (true) {
     break;
   }
 
-  // Execute merges first (serialized)
+  // Execute merges (serialized — one at a time)
   for (const action of actions.filter(a => a.type === 'merge')) {
-    await mergeLock.run(async () => {
-      for (const branch of action.branches) {
-        const result = await gitOps.mergeBranch(mergeWorktree, branch);
-        observer.onMerge(branch, result);
-        if (result === 'conflict') markGroupFailed(state, branch, 'merge_conflict');
+    for (const groupId of action.groupIds) {
+      const spec = groups.find(g => g.id === groupId)!;
+      const result = await gitOps.mergeBranch(mergeWorktree, spec.branch!);
+      observer.onMerge(groupId, spec.branch!, result);
+      if (result === 'conflict') {
+        state.groups[groupId].failureReason = 'merge_conflict';
+        // Don't mark the merged group as failed — mark downstream groups
       }
-      if (action.verify) {
-        const vr = await gitOps.verify(mergeWorktree);
-        observer.onVerify(vr);
-      }
-    });
-    markMerged(state, action.branches);
-    saveState(statePath, state);
+    }
+    if (action.verify) {
+      const vr = await gitOps.verify(mergeWorktree);
+      observer.onVerify(vr);
+    }
+    for (const groupId of action.groupIds) {
+      state.groups[groupId].merged = true;
+    }
+    await stateWriteQueue.enqueue(() => saveState(statePath, state));
   }
 
-  // Execute ready groups in parallel
-  const runActions = actions.filter(a => a.type === 'run');
-  await Promise.all(runActions.map(async (action) => {
-    const spec = action.group;
-    const workdir = spec.branch
-      ? await gitOps.createWorktree(spec.branch, run.mergeTarget)
-      : run.launchDir;
+  // Launch ready groups (don't wait — fire and re-loop)
+  for (const action of actions.filter(a => a.type === 'run')) {
+    const spec = groups.find(g => g.id === action.groupId)!;
+    if (running.has(spec.id)) continue;  // already running
 
     state.groups[spec.id].status = 'running';
     observer.onGroupStart(spec.id, spec);
 
-    const result = await executor(
-      groupSpecToRunnerOptions(spec, run),
-      (event) => observer.onAgentEvent(spec.id, event)
-    );
+    const promise = (async () => {
+      const workdir = spec.branch
+        ? await gitOps.createWorktree(spec.branch, run.mergeTarget)
+        : run.launchDir;
 
-    state.groups[spec.id] = {
-      ...state.groups[spec.id],
-      status: result.failed ? 'failure' : 'success',
-      ...result,
-    };
+      try {
+        const result = await executor(spec, run, (e) => observer.onAgentEvent(spec.id, e));
+        state.groups[spec.id] = {
+          ...state.groups[spec.id],
+          status: result.failed ? 'failure' : 'success',
+          ...result,
+        };
+      } catch (err) {
+        state.groups[spec.id].status = 'failure';
+        state.groups[spec.id].failureReason = 'agent';
+      }
 
-    observer.onGroupComplete(spec.id, state.groups[spec.id]);
-    saveState(statePath, state);
-  }));
+      observer.onGroupComplete(spec.id, state.groups[spec.id]);
+      await stateWriteQueue.enqueue(() => saveState(statePath, state));
+      running.delete(spec.id);
+    })();
+
+    running.set(spec.id, promise);
+  }
+
+  // Wait for any one group to complete before re-evaluating
+  if (running.size > 0) {
+    await Promise.race(running.values());
+  }
 }
+
+await gitOps.removeMergeWorktree(mergeWorktree);
+observer.onPipelineComplete(state);
+return state;
 ```
 
-### CLI Entry Point (~30 lines)
+**Key design decisions:**
+- `Promise.race` (not `Promise.all`) — re-evaluate scheduler after EACH completion
+- State writes serialized via write queue — no torn writes from concurrent completions
+- `status = 'running'` set before try block — crash recovery resets to `ready` on resume
+- Executor errors caught — group marked `failure`, not pipeline crash
+- Merge worktree created once at pipeline start, removed at end
+- Prompt paths resolved relative to `run.launchDir` (orchestrator's worktree),
+  never `process.cwd()` — prevents loading stale prompts from `/workspace`
+- `kill_tree` for process cleanup on timeout/abort (SIGINT/SIGTERM handler kills
+  all running process groups, not just Node)
+
+**Preflight (before the main loop):**
+```typescript
+await gitOps.checkCleanState();     // dirty git state blocks launch
+await gitOps.runHookTests();        // test-hooks.sh must pass
+await gitOps.ensureWasm(run.launchDir);  // copy from main repo if missing
+```
+
+### CLI Entry Point (~40 lines)
 
 ```bash
 # All three contexts:
-npx tsx scripts/sdk/pipeline-runner.ts config.yaml              # agent/default
-npx tsx scripts/sdk/pipeline-runner.ts config.yaml --watch       # admin tmux
-npx tsx scripts/sdk/pipeline-runner.ts config.yaml --ci          # GitHub Actions
-npx tsx scripts/sdk/pipeline-runner.ts config.yaml --resume      # retry after failure
-npx tsx scripts/sdk/pipeline-runner.ts config.yaml --stage 2     # run specific stage only
+npx tsx scripts/sdk/pipeline-runner.ts config.yaml              # agent/default (FileLogObserver)
+npx tsx scripts/sdk/pipeline-runner.ts config.yaml --watch       # admin tmux (TmuxObserver)
+npx tsx scripts/sdk/pipeline-runner.ts config.yaml --ci          # GitHub Actions (StdoutObserver)
+npx tsx scripts/sdk/pipeline-runner.ts config.yaml --resume      # retry from state file
+npx tsx scripts/sdk/pipeline-runner.ts config.yaml --force-new   # ignore existing state file
 
 # Backwards compat wrapper:
 ./scripts/launch-phase.sh config.yaml                            # → delegates to pipeline-runner.ts
 ```
+
+`--stage N` is not supported in DAG mode — it's a stages concept. For running a
+subset, use `--only groupA,groupB` to run specific groups (and their dependencies).
 
 ## Config Format
 
@@ -369,6 +503,27 @@ stages:
         merge_message: "docs: curate scheduling-engine skill"
 ```
 
+### Group templates (reduces curation YAML verbosity)
+
+With 8 skills × 5 angles = 40 reviewer groups, explicit YAML is verbose. Templates:
+
+```yaml
+group_templates:
+  - template: reviewer
+    prompt: docs/prompts/curation/reviewer-template.md
+    policy: reviewer
+    agent: skill-reviewer
+    expand:
+      - { SKILL: scheduling-engine, ANGLE: accuracy }
+      - { SKILL: scheduling-engine, ANGLE: structure }
+      # ...
+    # Each expands to: id={SKILL}-{ANGLE}, prompt_vars={SKILL, ANGLE},
+    # output=reviews/{SKILL}/{ANGLE}.md
+```
+
+The DAG parser desugars templates into individual GroupSpecs. The template is
+config convenience, not a runtime concept.
+
 ### Per-group prompt wrapper files eliminated
 
 Current: 9 wrapper files (one per skill) with nearly identical content.
@@ -381,26 +536,37 @@ needs to be in a wrapper file.
 ## Failure & Recovery
 
 ### Group failure
-- Group marked `failure` in state
-- Independent groups continue
-- Dependent groups marked `skipped(dependency)`
+- Group marked `failure` in state with `failureReason`
+- Independent groups continue running (DAG advantage)
+- Dependent groups marked `skipped(dependency)` by scheduler
 - Pipeline completes as `partial`
-- Resume: `--resume` retries failed, skips succeeded, unblocks skipped
+- Resume: `--resume` retries failed groups, skips succeeded, re-evaluates skipped
 
 ### Merge conflict
-- Group that triggered merge marked `failure(merge_conflict)`
+- `mergeBranch` returns `'conflict'`
+- Downstream groups whose dependencies include the conflicting branch → `failure(merge_conflict)`
 - Human/agent resolves conflict in merge worktree
 - Resume: re-attempts merge, continues if resolved
 
 ### Verification failure
 - Pipeline runner spawns fix agent (like current merge.sh pattern)
 - Retry verification up to 3 times
-- If unfixable: downstream group marked `failure(verify_failed)`
+- If unfixable: downstream groups marked `failure(verify_failed)`
 
-### Pipeline crash
-- State file written after each group completion
-- On restart: `running` groups reset to `ready` (can't know if they finished)
-- Session IDs preserved for agent-runner resumption
+### Pipeline crash (Node process dies)
+- State file written after each group completion (via serialized write queue)
+- On restart with `--resume`:
+  - `RunIdentity` recovered from state file (suffix, mergeTarget preserved)
+  - `running` groups reset to `ready` (can't know if they finished)
+  - Stale worktrees from running groups cleaned up before retry
+  - Session IDs preserved for agent-runner resumption
+  - Merge worktree re-created if missing
+
+### Process cleanup on abort
+- Pipeline runner installs SIGINT/SIGTERM handler
+- Handler calls `kill_tree` on all running agent PIDs (kills entire process tree,
+  not just parent — prevents orphaned subprocesses)
+- State saved with running groups marked `failure(timeout)` before exit
 
 ### Retry with no waste
 ```bash
@@ -417,30 +583,36 @@ No `generate-retry-config.sh`. No manual cleanup. No re-running succeeded groups
 
 ## What Changes
 
-### New files (~500 lines total)
+### New files (~700 lines total)
 
 | File | Lines | Purpose |
 |---|---|---|
-| `scripts/sdk/dag.ts` | ~60 | YAML parser, validator, stages→DAG desugar |
-| `scripts/sdk/scheduler.ts` | ~50 | Pure state machine: state → actions |
-| `scripts/sdk/git-ops.ts` | ~80 | Typed interface over git/npm/cargo |
-| `scripts/sdk/pipeline-runner.ts` | ~100 | Composition + CLI entry point |
-| `scripts/sdk/observers/file-log.ts` | ~40 | Structured log files |
-| `scripts/sdk/observers/tmux.ts` | ~100 | Tmux pane rendering |
+| `scripts/sdk/dag.ts` | ~80 | YAML parser, validator, stages/template desugar, cycle detection |
+| `scripts/sdk/scheduler.ts` | ~60 | Pure state machine: state → actions |
+| `scripts/sdk/git-ops.ts` | ~120 | Typed interface over git/npm/cargo with full merge lifecycle |
+| `scripts/sdk/pipeline-runner.ts` | ~150 | Event-driven composition loop + CLI entry point |
+| `scripts/sdk/observers/file-log.ts` | ~50 | Structured log files (format is a documented requirement) |
+| `scripts/sdk/observers/tmux.ts` | ~120 | Tmux pane rendering (unit-testable state + manual rendering) |
 | `scripts/sdk/observers/stdout.ts` | ~30 | CI summary output |
-| `scripts/sdk/__tests__/dag.test.ts` | ~100 | Config parsing, cycle detection |
-| `scripts/sdk/__tests__/scheduler.test.ts` | ~150 | State transitions, all edge cases |
-| `scripts/sdk/__tests__/pipeline-runner.test.ts` | ~200 | Integration with mock executor |
+| `scripts/sdk/__tests__/dag.test.ts` | ~120 | Config parsing, cycle detection, desugar, templates |
+| `scripts/sdk/__tests__/scheduler.test.ts` | ~180 | Exhaustive state transitions, boundary values |
+| `scripts/sdk/__tests__/pipeline-runner.test.ts` | ~250 | Integration with mock executor, resume, failures |
+| `scripts/sdk/__tests__/git-ops.test.ts` | ~100 | Integration with real git repo in /tmp |
+
+### Modified (interface additions)
+
+| File | Lines | Change |
+|---|---|---|
+| `types.ts` | +80 | Add `GroupSpec`, `GroupState`, `RunIdentity`, `PipelineState`, `Action`, `AgentEvent` |
+| `agent-runner.ts` | +20 | Add event callback parameter to `callQuery`, preserve `canUseTool` |
 
 ### Unchanged (well-designed, keep as-is)
 
 | File | Lines | Why |
 |---|---|---|
-| `agent-runner.ts` | 607 | Execution engine — already correct |
 | `attempt-machine.ts` | 65 | Pure state machine — pattern for scheduler |
 | `policy-registry.ts` | 46 | Open/closed — composable |
 | `policies/*.ts` | 160 | Domain knowledge, correctly separated |
-| `types.ts` | 100 | Clean, generic (expanded with GroupSpec, PipelineState) |
 | `prompts.ts` | 44 | Frontmatter strip, var substitution |
 | `metrics.ts` | 16 | JSONL append |
 | All existing tests | 1489 | Full coverage maintained |
@@ -453,10 +625,10 @@ No `generate-retry-config.sh`. No manual cleanup. No re-running succeeded groups
 |---|---|---|
 | `scripts/lib/stage.sh` | 229 | `pipeline-runner.ts` + `scheduler.ts` |
 | `scripts/lib/watch.sh` | 493 | `observers/tmux.ts` |
-| `scripts/lib/agent.sh` (SDK path) | 80 | Direct `runAgent()` call |
+| `scripts/lib/agent.sh` (SDK path) | 80 | Direct executor call |
 | `scripts/lib/agent.sh` (legacy path) | 60 | Removed (SDK runner is only engine) |
 | `scripts/lib/config.sh` | 135 | `dag.ts` |
-| `scripts/launch-phase.sh` | 399 | CLI in `pipeline-runner.ts` (~30 lines) |
+| `scripts/launch-phase.sh` | 399 | CLI in `pipeline-runner.ts` (~40 lines) |
 | `scripts/curate-skills.sh` | 96 | Config-only (YAML handles the flow) |
 | `scripts/generate-retry-config.sh` | — | `--resume` reads state file |
 
@@ -464,53 +636,74 @@ No `generate-retry-config.sh`. No manual cleanup. No re-running succeeded groups
 
 | File | Purpose |
 |---|---|
-| `scripts/lib/merge.sh` core | Git merge + per-branch verification logic → `git-ops.ts` |
-| `scripts/lib/worktree.sh` core | Worktree create/remove → `git-ops.ts` |
-| `scripts/lib/validate.sh` core | tsc/vitest/cargo parallel run → `git-ops.ts` |
+| `scripts/lib/merge.sh` core logic | Git merge + per-branch verification → `git-ops.ts` |
+| `scripts/lib/worktree.sh` core logic | Worktree create/remove → `git-ops.ts` |
+| `scripts/lib/validate.sh` core logic | tsc/vitest/cargo parallel run → `git-ops.ts` |
 | `scripts/verify.sh` | Guard rebuild + verification (PostToolUse hook, unchanged) |
 | `scripts/full-verify.sh` | Pre-commit verification (unchanged) |
-| `scripts/test-hooks.sh` | Hook integration tests (unchanged) |
+| `scripts/test-hooks.sh` | Hook integration tests (called by `git-ops.ts` preflight) |
+| `scripts/patch-sdk-skills-permission.py` | SDK binary patch (called by `git-ops.ts` after npm install) |
 
 ## Implementation Plan
 
-### Phase 1: Core abstractions (testable without running agents)
+### Phase 1a: Types + DAG + Scheduler (pure, no I/O)
 
-**Files:** `types.ts` (expand), `dag.ts`, `scheduler.ts`, `git-ops.ts`
+**Files:** `types.ts` (expand), `dag.ts`, `scheduler.ts`
 **Tests:** `dag.test.ts`, `scheduler.test.ts`
 
-1. Add `GroupSpec`, `GroupState`, `RunIdentity`, `PipelineState`, `Action` to types.ts
-2. Implement DAG parser with stages desugar and cycle detection
+1. Add `GroupSpec`, `GroupState`, `RunIdentity`, `PipelineState`, `Action`, `AgentEvent` to types.ts
+2. Implement DAG parser with stages desugar, template expansion, and cycle detection
 3. Implement scheduler as pure function with exhaustive tests
-4. Implement GitOps interface with execSync (worktree, merge, verify, WASM)
-5. Test DAG parser with curation config and phase 19 config
-6. Test scheduler with: normal flow, partial failure, resume, deadlock, merge gating
+4. Test DAG parser with curation config, phase 19 config, and edge cases
+5. Test scheduler with: normal flow, partial failure, resume, deadlock, merge gating,
+   diamond dependencies, zero-dep groups, single-group, all-read-only, boundary values
 
-**Validation:** `npx vitest run` — all new + existing tests pass.
+**Validation:** `npx vitest run` — all new + existing tests pass. `./scripts/full-verify.sh` passes.
+**Commits:** `feat: add DAG parser`, `feat: add pipeline scheduler`
+
+### Phase 1b: GitOps (integration tests with real git)
+
+**Files:** `git-ops.ts`
+**Tests:** `git-ops.test.ts`
+
+1. Implement GitOps interface with execSync wrappers
+2. Include WASM copy in createWorktree, conditional WASM rebuild + Cargo.lock commit in mergeBranch
+3. Include npm install + SDK patch application
+4. Include preflight: clean state check, hook tests, WASM ensure
+5. Integration tests with real git repos in /tmp
+
+**Validation:** `npx vitest run` + `./scripts/full-verify.sh`
+**Commits:** `feat: add GitOps interface for git/build operations`
 
 ### Phase 2: Pipeline runner + file observer
 
 **Files:** `pipeline-runner.ts`, `observers/file-log.ts`
 **Tests:** `pipeline-runner.test.ts`
 
-1. Implement pipeline runner composition loop
-2. Implement FileLogObserver (replaces current stream logger in agent-runner)
-3. Move `canUseTool` and `includePartialMessages` config into executor adapter
-4. Implement CLI entry point with `--resume` support
-5. Integration test with mock executor (no real API calls)
+1. Implement event-driven pipeline runner with `Promise.race` loop
+2. Implement serialized state write queue
+3. Implement FileLogObserver with documented format requirements
+4. Implement executor adapter (GroupSpec → RunnerOptions + event callback routing)
+5. Implement CLI entry point with `--resume` and `--force-new`
+6. Implement stall detection and kill_tree on timeout
+7. Implement SIGINT/SIGTERM handler for clean shutdown
+8. Integration test with mock executor (no real API calls)
 
-**Validation:** Run curation test config end-to-end. Compare results with previous run.
+**Validation:** Run curation test config end-to-end. `./scripts/full-verify.sh`
+**Commits:** `feat: add pipeline runner`, `feat: add file log observer`
 
 ### Phase 3: Tmux observer
 
 **Files:** `observers/tmux.ts`
-**Tests:** Manual — admin attaches and watches
+**Tests:** `tmux-observer.test.ts` (state/formatting), manual (rendering)
 
 1. Implement TmuxObserver: creates session, one window per running group
-2. Renders `[turn N] [tool] [text]` events to pane
-3. Shows status summary in first window
+2. Unit tests for state tracking and string formatting (no tmux dependency)
+3. Manual test: run with `--watch`, attach to tmux, verify rich output
 4. `--watch` flag selects this observer
 
-**Validation:** Run with `--watch`, attach to tmux, verify rich output.
+**Validation:** Manual tmux test + `./scripts/full-verify.sh`
+**Commits:** `feat: add tmux observer for admin monitoring`
 
 ### Phase 4: Stdout observer + CI support
 
@@ -522,37 +715,43 @@ No `generate-retry-config.sh`. No manual cleanup. No re-running succeeded groups
 3. `--ci` flag selects this observer
 4. Artifact collection: state file + logs in a known location
 
-**Validation:** Run in simulated CI context.
+**Validation:** Run in simulated CI context + `./scripts/full-verify.sh`
+**Commits:** `feat: add stdout observer for CI`
 
 ### Phase 5: Migration + cleanup
 
-1. Update `launch-phase.sh` to delegate to `pipeline-runner.ts`
-2. Update `curate-skills.sh` to use new config format (or remove — config handles flow)
-3. Update YAML configs (curation, phase 19) to new format
+1. Update YAML configs (curation, phase 19) to new format with explicit fields
+2. Verify both configs produce correct results with new pipeline runner
+3. Update `launch-phase.sh` to delegate to `pipeline-runner.ts`
 4. Update CLAUDE.md, skills, and docs to reference new architecture
-5. Remove deprecated bash scripts after validation
-6. Run full-verify.sh
+5. Remove deprecated bash scripts
+6. Run `./scripts/full-verify.sh`
 
 **Validation:** Both curation and code-phase configs produce correct results.
+**Commits:** `refactor: migrate configs to DAG format`, `refactor: remove deprecated bash orchestration`
 
-### Phase 6: Polish
+### Phase 6: E2E tests + polish
 
-1. Update `generate-retry-config.sh` → remove (replaced by `--resume`)
+1. Write E2E tests for `--resume`, `--watch`, `--ci` CLI flags
 2. Update orchestrator prompt to reference new CLI
 3. Run curation on all 8 skills as final validation
 4. Write debrief
+
+**Validation:** All E2E tests pass. Full curation run succeeds.
+**Commits:** `test: add E2E tests for pipeline runner CLI`
 
 ## Test Strategy
 
 | Component | Test type | Approach |
 |---|---|---|
-| DAG parser | Unit | Valid/invalid YAML, cycle detection, desugar |
-| Scheduler | Unit | Exhaustive state transitions (like attempt-machine) |
-| GitOps | Integration | Real git repo in /tmp |
-| Pipeline runner | Integration | Mock executor returning canned results |
-| FileLogObserver | Unit | Mock events → verify file output |
-| TmuxObserver | Manual | Admin watches live run |
+| DAG parser | Unit | Valid/invalid YAML, cycle detection, desugar, templates |
+| Scheduler | Unit | Exhaustive state transitions (like attempt-machine: ~180 lines for ~60 lines) |
+| GitOps | Integration | Real git repo in /tmp, WASM copy, merge, verify |
+| Pipeline runner | Integration | Mock executor returning canned results, resume scenarios |
+| FileLogObserver | Unit | Mock events → verify file output format |
+| TmuxObserver | Unit + Manual | State/formatting unit tests; rendering manually verified |
 | StdoutObserver | Unit | Mock events → verify stdout |
+| CLI flags | E2E | `--resume`, `--watch`, `--ci` with real pipeline |
 | End-to-end | Integration | Real curation run (5 reviewers + 1 curator) |
 
 ## Success Criteria
@@ -563,10 +762,12 @@ No `generate-retry-config.sh`. No manual cleanup. No re-running succeeded groups
 - [ ] `--watch` shows tmux TUI equivalent to current WATCH mode
 - [ ] All existing SDK tests pass (120 tests)
 - [ ] Pipeline runner tests cover: normal, partial failure, resume, deadlock, merge gating
-- [ ] Scheduler tests are exhaustive (like attempt-machine: ~150 lines for ~50 lines of code)
+- [ ] Scheduler tests are exhaustive (like attempt-machine: ~180 lines for ~60 lines of code)
 - [ ] No env var threading between components
 - [ ] State file is queryable: `cat pipeline-state.json | jq '.groups | to_entries[] | "\(.key): \(.value.status)"'`
-- [ ] full-verify.sh passes
+- [ ] `./scripts/full-verify.sh` passes at every phase boundary
+- [ ] E2E tests cover `--resume`, `--watch`, `--ci` flags
+- [ ] Zero new npm dependencies added
 
 ## Risk Assessment
 
@@ -574,6 +775,11 @@ No `generate-retry-config.sh`. No manual cleanup. No re-running succeeded groups
 |---|---|
 | Tmux observer harder than expected | Phase 3 is independent — file log works without it |
 | Agent-runner interface changes | Adapter pattern — GroupSpec→RunnerOptions is the seam |
-| WATCH mode parity | TmuxObserver can call existing tmux-supervisor.sh functions |
-| Merge logic is complex | GitOps wraps existing merge.sh logic, doesn't rewrite it |
+| WATCH mode parity | TmuxObserver can reuse tmux-supervisor.sh helpers if needed |
+| Merge logic is complex (WASM rebuild, Cargo.lock) | GitOps wraps existing merge.sh logic, doesn't rewrite it |
 | CI workflow untested | StdoutObserver is simple; real CI testing is Phase 4 |
+| SDK binary patch dependency (#37157) | `patch-sdk-skills-permission.py` runs after npm install in GitOps. Script warns loudly on SDK updates. |
+| Same-commit re-run state clash | `--resume` is explicit opt-in. Default overwrites state. `--force-new` available. |
+| Event-driven loop complexity | `Promise.race` pattern is standard; integration tests with mock executor cover timing |
+| Process orphans on crash | SIGINT/SIGTERM handler + kill_tree on all running PIDs |
+| Two-dot vs three-dot diff in merge detection | GitOps tests verify squash-merge detection with real git repos |

@@ -1,9 +1,9 @@
 /**
  * base-page.ts — Base page model with shared locators and interactions.
  *
- * All locators are defined here as the single source of truth. Page-specific
- * models (GanttPage) extend this class. Tests and fixtures use model properties
- * exclusively — no raw page.getBy* calls outside this layer.
+ * Single source of truth for all locators. Uses Playwright's priority:
+ *   getByRole > getByLabel > getByPlaceholder > getByText > getByTestId
+ * getByTestId only for SVG elements, structural containers, and icon-only buttons.
  */
 import { type Locator, type Page } from '@playwright/test';
 import { ensureClientId } from '../helpers/gis-mock';
@@ -25,12 +25,10 @@ export class BasePage {
 
   // ── Auth ──
 
-  /** The "Sign in with Google" button (FirstVisitWelcome, CollaboratorWelcome, PromotionFlow). */
   get signInButton(): Locator {
     return this.page.getByRole('button', { name: 'Sign in with Google' });
   }
 
-  /** Click sign-in and wait for the button to disappear. */
   async signIn(): Promise<void> {
     await this.signInButton.first().click();
     await this.signInButton.first().waitFor({ state: 'hidden', timeout: 10_000 });
@@ -55,15 +53,15 @@ export class BasePage {
   }
 
   get newProjectButton(): Locator {
-    return this.page.getByTestId('new-project-button');
+    return this.page.getByRole('button', { name: 'New Project' });
   }
 
   get existingSheetButton(): Locator {
-    return this.page.getByTestId('existing-sheet-button');
+    return this.page.getByRole('button', { name: 'Connect Existing Sheet' });
   }
 
   get demoButton(): Locator {
-    return this.page.getByTestId('demo-button');
+    return this.page.getByRole('button', { name: 'Demo' });
   }
 
   get sandboxBanner(): Locator {
@@ -71,7 +69,7 @@ export class BasePage {
   }
 
   get saveToSheetButton(): Locator {
-    return this.page.getByTestId('save-to-sheet-button');
+    return this.page.getByRole('button', { name: 'Save to Google Sheet' });
   }
 
   get recentProjects(): Locator {
@@ -85,7 +83,7 @@ export class BasePage {
   }
 
   get emptyStateInput(): Locator {
-    return this.page.getByTestId('empty-state-task-input');
+    return this.page.getByPlaceholder('Enter task name...');
   }
 
   get startFromTemplate(): Locator {
@@ -97,7 +95,17 @@ export class BasePage {
   }
 
   get templatePickerClose(): Locator {
-    return this.page.getByTestId('template-picker-close');
+    return this.page.getByTestId('template-picker-close'); // icon-only button — no text
+  }
+
+  // ── Task bars (shared — onboarding tests check tasks loaded) ──
+
+  get taskBars(): Locator {
+    return this.page.getByTestId(/^task-bar-/);
+  }
+
+  get editableCells(): Locator {
+    return this.page.getByTitle('Double-click to edit');
   }
 
   // ── Header ──
@@ -111,7 +119,7 @@ export class BasePage {
   }
 
   get shareButton(): Locator {
-    return this.page.getByTestId('share-button');
+    return this.page.getByTestId('share-button'); // icon + text — testid avoids matching SVG internals
   }
 
   get sheetDropdownTrigger(): Locator {
@@ -123,7 +131,7 @@ export class BasePage {
   }
 
   get menuDisconnect(): Locator {
-    return this.page.getByTestId('menu-disconnect');
+    return this.page.getByRole('button', { name: 'Disconnect' }).first();
   }
 
   get disconnectConfirm(): Locator {
@@ -131,7 +139,8 @@ export class BasePage {
   }
 
   get disconnectConfirmBtn(): Locator {
-    return this.page.getByTestId('disconnect-confirm-btn');
+    // Inside the confirm dialog, use the specific Disconnect button
+    return this.disconnectConfirm.getByRole('button', { name: 'Disconnect' });
   }
 
   // ── Error states ──
@@ -149,15 +158,15 @@ export class BasePage {
   }
 
   get downloadTemplateBtn(): Locator {
-    return this.page.getByTestId('download-template-btn');
+    return this.page.getByRole('button', { name: 'Download header template' });
   }
 
   get createNewSheetBtn(): Locator {
-    return this.page.getByTestId('create-new-sheet-btn');
+    return this.page.getByRole('button', { name: 'Create a new sheet instead' });
   }
 
   get openAnotherBtn(): Locator {
-    return this.page.getByTestId('open-another-btn');
+    return this.page.getByRole('button', { name: 'Open another sheet' }).first();
   }
 
   get loadingSkeleton(): Locator {
@@ -171,11 +180,11 @@ export class BasePage {
   }
 
   get createNewSheetButton(): Locator {
-    return this.page.getByTestId('create-new-sheet-button');
+    return this.page.getByRole('button', { name: 'Create new sheet' });
   }
 
   get saveToExistingButton(): Locator {
-    return this.page.getByTestId('save-to-existing-button');
+    return this.page.getByRole('button', { name: 'Save to existing sheet' });
   }
 
   get promotionError(): Locator {
@@ -186,6 +195,10 @@ export class BasePage {
 
   get syncStatus(): Locator {
     return this.page.getByTestId('sync-status');
+  }
+
+  get collabStatus(): Locator {
+    return this.page.locator('[data-collab-status="connected"]');
   }
 
   // ── Sheet selector ──

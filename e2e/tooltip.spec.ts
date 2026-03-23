@@ -26,9 +26,9 @@ test.describe('Tooltips', () => {
     await gantt.taskBars.first().hover({ force: true });
 
     // Move to header (neutral area)
-    await gantt.page.locator('header').hover();
+    await gantt.header.hover();
 
     // Tooltip should be removed from DOM after mouse leave
-    await expect(gantt.page.getByTestId('tooltip')).toBeHidden({ timeout: 1_000 });
+    await expect(gantt.tooltip).toBeHidden({ timeout: 1_000 });
   });
 });

@@ -58,10 +58,7 @@ test.describe('Cloud E2E @cloud', () => {
 
     await test.step('enter sandbox', async () => {
       await app.tryDemoButton.click();
-      await app.page
-        .getByTestId(/^task-bar-/)
-        .first()
-        .waitFor({ timeout: 15_000 });
+      await app.taskBars.first().waitFor({ timeout: 15_000 });
       await expect(app.sandboxBanner).toBeVisible();
     });
 

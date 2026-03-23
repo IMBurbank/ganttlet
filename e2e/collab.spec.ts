@@ -13,10 +13,7 @@ test.describe('Collaboration E2E @collab', () => {
   test.skip(!hasCloudAuth, 'Requires two SA keys for collab');
 
   test('presence indicators appear for connected users @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.page
-      .locator('[data-collab-status="connected"]')
-      .isVisible()
-      .catch(() => false);
+    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
     if (!collabReady) {
       test.skip(true, 'Collab relay not available');
       return;
@@ -26,10 +23,7 @@ test.describe('Collaboration E2E @collab', () => {
   });
 
   test('task edit in one tab propagates to the other @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.page
-      .locator('[data-collab-status="connected"]')
-      .isVisible()
-      .catch(() => false);
+    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
     if (!collabReady) {
       test.skip(true, 'Collab relay not available');
       return;
@@ -49,10 +43,7 @@ test.describe('Collaboration E2E @collab', () => {
   });
 
   test('constraint change in one tab propagates @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.page
-      .locator('[data-collab-status="connected"]')
-      .isVisible()
-      .catch(() => false);
+    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
     if (!collabReady) {
       test.skip(true, 'Collab relay not available');
       return;
@@ -85,10 +76,7 @@ test.describe('Collaboration E2E @collab', () => {
   });
 
   test('conflict indicator visible to collaborators @slow', async ({ collabPair }) => {
-    const collabReady = await collabPair.pageA.page
-      .locator('[data-collab-status="connected"]')
-      .isVisible()
-      .catch(() => false);
+    const collabReady = await collabPair.pageA.collabStatus.isVisible().catch(() => false);
     if (!collabReady) {
       test.skip(true, 'Collab relay not available');
       return;

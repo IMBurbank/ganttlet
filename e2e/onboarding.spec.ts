@@ -1,5 +1,4 @@
 import { test, expect } from './fixtures';
-import { ensureClientId } from './helpers/gis-mock';
 import { BasePage } from './models/base-page';
 
 test.describe('Journey 1: First visit → demo → sandbox', () => {
@@ -14,7 +13,7 @@ test.describe('Journey 1: First visit → demo → sandbox', () => {
     await app.goto('/');
     await app.tryDemoButton.click();
 
-    await expect(app.page.getByTestId(/^task-bar-/)).not.toHaveCount(0, { timeout: 15_000 });
+    await expect(app.taskBars).not.toHaveCount(0, { timeout: 15_000 });
     await expect(app.sandboxBanner).toBeVisible();
     await expect(app.firstVisitTitle).toBeHidden();
   });
@@ -22,10 +21,7 @@ test.describe('Journey 1: First visit → demo → sandbox', () => {
   test('sandbox banner shows save-to-sheet button', async ({ basePage: app }) => {
     await app.goto('/');
     await app.tryDemoButton.click();
-    await app.page
-      .getByTestId(/^task-bar-/)
-      .first()
-      .waitFor({ timeout: 15_000 });
+    await app.taskBars.first().waitFor({ timeout: 15_000 });
 
     await expect(app.sandboxBanner).toContainText('demo project');
     await expect(app.saveToSheetButton).toBeVisible();
@@ -43,10 +39,7 @@ test.describe('Journey 2: Sign in → ChoosePath → branches', () => {
 
   test('ChoosePath demo button enters sandbox mode', async ({ signedInPage: app }) => {
     await app.demoButton.click();
-    await app.page
-      .getByTestId(/^task-bar-/)
-      .first()
-      .waitFor({ timeout: 15_000 });
+    await app.taskBars.first().waitFor({ timeout: 15_000 });
     await expect(app.sandboxBanner).toBeVisible();
   });
 
@@ -66,8 +59,7 @@ test.describe('Journey 3: Return visitor → recent sheets', () => {
   test('signed-in user with recent sheets sees them in ChoosePath', async ({ mockAuthContext }) => {
     const rawPage = await mockAuthContext.newPage();
     const app = new BasePage(rawPage);
-    await app.goto('/');
-    await ensureClientId(rawPage);
+    await app.gotoAuthenticated('/');
 
     // Pre-populate recent sheets in localStorage before sign-in
     await rawPage.evaluate(() => {
@@ -83,8 +75,8 @@ test.describe('Journey 3: Return visitor → recent sheets', () => {
     await app.signIn();
     await expect(app.choosePathHeading).toBeVisible({ timeout: 10_000 });
     await expect(app.recentProjects).toBeVisible();
-    await expect(rawPage.getByText('Q2 Planning', { exact: true })).toBeVisible();
-    await expect(rawPage.getByText('Sprint Board', { exact: true })).toBeVisible();
+    await expect(app.page.getByText('Q2 Planning', { exact: true })).toBeVisible();
+    await expect(app.page.getByText('Sprint Board', { exact: true })).toBeVisible();
   });
 });
 
@@ -106,13 +98,8 @@ test.describe('Journey 5: Empty state → create task', () => {
     });
 
     await test.step('verify task appears in Gantt', async () => {
-      await app.page
-        .getByTestId(/^task-bar-/)
-        .first()
-        .waitFor({ timeout: 10_000 });
-      await expect(
-        app.page.getByTitle('Double-click to edit').filter({ hasText: 'My First Task' })
-      ).toBeVisible();
+      await app.taskBars.first().waitFor({ timeout: 10_000 });
+      await expect(app.editableCells.filter({ hasText: 'My First Task' })).toBeVisible();
     });
   });
 });
@@ -137,10 +124,7 @@ test.describe('Journey 8: Header', () => {
   test('header visible in sandbox mode', async ({ basePage: app }) => {
     await app.goto('/');
     await app.tryDemoButton.click();
-    await app.page
-      .getByTestId(/^task-bar-/)
-      .first()
-      .waitFor({ timeout: 15_000 });
+    await app.taskBars.first().waitFor({ timeout: 15_000 });
     await expect(app.header).toBeVisible();
   });
 });

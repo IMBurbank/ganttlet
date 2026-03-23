@@ -90,10 +90,7 @@ export class DepEditorModel {
  */
 export class GanttPage extends BasePage {
   // ── SVG locators (getByTestId correct — no ARIA roles for SVG) ──
-
-  get taskBars(): Locator {
-    return this.page.getByTestId(/^task-bar-/);
-  }
+  // taskBars and editableCells inherited from BasePage
 
   taskBar(index: number): Locator {
     return this.taskBars.nth(index);
@@ -101,10 +98,6 @@ export class GanttPage extends BasePage {
 
   taskBarById(taskId: string): Locator {
     return this.page.getByTestId(`task-bar-${taskId}`);
-  }
-
-  get editableCells(): Locator {
-    return this.page.getByTitle('Double-click to edit');
   }
 
   get inlineEditInput(): Locator {
@@ -129,6 +122,22 @@ export class GanttPage extends BasePage {
 
   get tooltip(): Locator {
     return this.page.getByTestId('tooltip');
+  }
+
+  get criticalTaskBars(): Locator {
+    return this.page.locator('[data-testid^="task-bar-"][data-critical="true"]');
+  }
+
+  get criticalPathButton(): Locator {
+    return this.page.getByRole('button', { name: 'Critical Path' });
+  }
+
+  get undoButton(): Locator {
+    return this.page.getByRole('button', { name: 'Undo' });
+  }
+
+  get redoButton(): Locator {
+    return this.page.getByRole('button', { name: 'Redo' });
   }
 
   // ── Multi-step methods ──

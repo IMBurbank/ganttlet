@@ -162,16 +162,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
       await Promise.all([ganttA.waitForTaskBars(60_000), ganttB.waitForTaskBars(60_000)]);
 
-      // Wait for collab connections
+      // Wait for collab connections (via model locator)
       await Promise.all([
-        pageA
-          .locator('[data-collab-status="connected"]')
-          .waitFor({ timeout: 45_000 })
-          .catch(() => {}),
-        pageB
-          .locator('[data-collab-status="connected"]')
-          .waitFor({ timeout: 45_000 })
-          .catch(() => {}),
+        ganttA.collabStatus.waitFor({ timeout: 45_000 }).catch(() => {}),
+        ganttB.collabStatus.waitFor({ timeout: 45_000 }).catch(() => {}),
       ]);
 
       await use({ pageA: ganttA, pageB: ganttB });

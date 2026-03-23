@@ -31,15 +31,11 @@ test.describe('Gantt Chart @gantt', () => {
     });
 
     await test.step('verify critical task bars appear', async () => {
-      // Critical task bars get data-critical="true" attribute
-      const criticalBars = gantt.page.locator('[data-testid^="task-bar-"][data-critical="true"]');
-      await expect(criticalBars.first()).toBeVisible({ timeout: 5_000 });
+      await expect(gantt.criticalTaskBars.first()).toBeVisible({ timeout: 5_000 });
     });
 
     await test.step('verify button active state', async () => {
-      await expect(gantt.page.getByRole('button', { name: 'Critical Path' })).toHaveClass(
-        /bg-red-600/
-      );
+      await expect(gantt.criticalPathButton).toHaveClass(/bg-red-600/);
     });
 
     // Restore
@@ -50,7 +46,7 @@ test.describe('Gantt Chart @gantt', () => {
     await gantt.toggleCriticalPath();
 
     await test.step('open scope and select workstream', async () => {
-      const scopeButton = gantt.page.getByRole('button', { name: 'Scope' });
+      const scopeButton = gantt.page.getByRole('button', { name: 'Scope' }); // via page — selectScope() already encapsulates this
       if ((await scopeButton.count()) > 0) {
         await scopeButton.click();
       }
@@ -325,7 +321,7 @@ test.describe('Gantt Chart @gantt', () => {
 
     await test.step('undo until constraint reverts to ASAP', async () => {
       // SET_CONSTRAINT + CASCADE_DEPENDENTS = 2 undoable actions
-      const undoBtn = gantt.page.getByRole('button', { name: 'Undo' });
+      const undoBtn = gantt.undoButton;
       await expect(undoBtn).toBeEnabled({ timeout: 5_000 });
 
       // Click undo and poll until constraint reverts (may need 1-3 clicks)
@@ -345,11 +341,11 @@ test.describe('Gantt Chart @gantt', () => {
       await popover.setConstraint('SNET', '2026-06-01');
       await popover.close();
 
-      await gantt.page.getByRole('button', { name: 'Undo' }).click();
+      await gantt.undoButton.click();
     });
 
     await test.step('undo until ASAP', async () => {
-      const undoBtn = gantt.page.getByRole('button', { name: 'Undo' });
+      const undoBtn = gantt.undoButton;
       await expect(undoBtn).toBeEnabled({ timeout: 5_000 });
 
       await expect(async () => {
@@ -362,7 +358,7 @@ test.describe('Gantt Chart @gantt', () => {
     });
 
     await test.step('redo until SNET restored', async () => {
-      const redoBtn = gantt.page.getByRole('button', { name: 'Redo' });
+      const redoBtn = gantt.redoButton;
       await expect(redoBtn).toBeEnabled({ timeout: 5_000 });
 
       await expect(async () => {

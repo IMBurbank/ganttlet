@@ -1,0 +1,162 @@
+# Skill Curation — DAG pipeline format
+# Run via: npx tsx scripts/sdk/cli.ts docs/prompts/curation/skill-curation-dag.yaml
+
+phase: skill-curation
+merge_target: curation/run
+
+group_templates:
+  - template: reviewer
+    prompt: docs/prompts/curation/reviewer-template.md
+    policy: reviewer
+    agent: skill-reviewer
+    id_pattern: "{SKILL}-{ANGLE}"
+    output_pattern: "reviews/{SKILL}/{ANGLE}.md"
+    expand:
+      # scheduling-engine
+      - { SKILL: scheduling-engine, ANGLE: accuracy }
+      - { SKILL: scheduling-engine, ANGLE: structure }
+      - { SKILL: scheduling-engine, ANGLE: scope }
+      - { SKILL: scheduling-engine, ANGLE: history }
+      - { SKILL: scheduling-engine, ANGLE: adversarial }
+      # hooks
+      - { SKILL: hooks, ANGLE: accuracy }
+      - { SKILL: hooks, ANGLE: structure }
+      - { SKILL: hooks, ANGLE: scope }
+      - { SKILL: hooks, ANGLE: history }
+      - { SKILL: hooks, ANGLE: adversarial }
+      # multi-agent-orchestration
+      - { SKILL: multi-agent-orchestration, ANGLE: accuracy }
+      - { SKILL: multi-agent-orchestration, ANGLE: structure }
+      - { SKILL: multi-agent-orchestration, ANGLE: scope }
+      - { SKILL: multi-agent-orchestration, ANGLE: history }
+      - { SKILL: multi-agent-orchestration, ANGLE: adversarial }
+      # e2e-testing
+      - { SKILL: e2e-testing, ANGLE: accuracy }
+      - { SKILL: e2e-testing, ANGLE: structure }
+      - { SKILL: e2e-testing, ANGLE: scope }
+      - { SKILL: e2e-testing, ANGLE: history }
+      - { SKILL: e2e-testing, ANGLE: adversarial }
+      # shell-scripting
+      - { SKILL: shell-scripting, ANGLE: accuracy }
+      - { SKILL: shell-scripting, ANGLE: structure }
+      - { SKILL: shell-scripting, ANGLE: scope }
+      - { SKILL: shell-scripting, ANGLE: history }
+      - { SKILL: shell-scripting, ANGLE: adversarial }
+      # issue-workflow
+      - { SKILL: issue-workflow, ANGLE: accuracy }
+      - { SKILL: issue-workflow, ANGLE: structure }
+      - { SKILL: issue-workflow, ANGLE: scope }
+      - { SKILL: issue-workflow, ANGLE: history }
+      - { SKILL: issue-workflow, ANGLE: adversarial }
+      # cloud-deployment
+      - { SKILL: cloud-deployment, ANGLE: accuracy }
+      - { SKILL: cloud-deployment, ANGLE: structure }
+      - { SKILL: cloud-deployment, ANGLE: scope }
+      - { SKILL: cloud-deployment, ANGLE: history }
+      - { SKILL: cloud-deployment, ANGLE: adversarial }
+      # google-sheets-sync
+      - { SKILL: google-sheets-sync, ANGLE: accuracy }
+      - { SKILL: google-sheets-sync, ANGLE: structure }
+      - { SKILL: google-sheets-sync, ANGLE: scope }
+      - { SKILL: google-sheets-sync, ANGLE: history }
+      - { SKILL: google-sheets-sync, ANGLE: adversarial }
+
+stages:
+  - name: "Curate"
+    groups:
+      - id: scheduling-engine
+        prompt: docs/prompts/curation/scheduling-engine.md
+        prompt_vars: { SKILL: scheduling-engine }
+        policy: curator
+        branch: curation/scheduling-engine
+        merge_message: "docs: curate scheduling-engine skill"
+        depends_on:
+          - scheduling-engine-accuracy
+          - scheduling-engine-structure
+          - scheduling-engine-scope
+          - scheduling-engine-history
+          - scheduling-engine-adversarial
+      - id: hooks
+        prompt: docs/prompts/curation/hooks.md
+        prompt_vars: { SKILL: hooks }
+        policy: curator
+        branch: curation/hooks
+        merge_message: "docs: curate hooks skill"
+        depends_on:
+          - hooks-accuracy
+          - hooks-structure
+          - hooks-scope
+          - hooks-history
+          - hooks-adversarial
+      - id: multi-agent-orchestration
+        prompt: docs/prompts/curation/multi-agent-orchestration.md
+        prompt_vars: { SKILL: multi-agent-orchestration }
+        policy: curator
+        branch: curation/multi-agent-orchestration
+        merge_message: "docs: curate multi-agent-orchestration skill"
+        depends_on:
+          - multi-agent-orchestration-accuracy
+          - multi-agent-orchestration-structure
+          - multi-agent-orchestration-scope
+          - multi-agent-orchestration-history
+          - multi-agent-orchestration-adversarial
+      - id: e2e-testing
+        prompt: docs/prompts/curation/e2e-testing.md
+        prompt_vars: { SKILL: e2e-testing }
+        policy: curator
+        branch: curation/e2e-testing
+        merge_message: "docs: curate e2e-testing skill"
+        depends_on:
+          - e2e-testing-accuracy
+          - e2e-testing-structure
+          - e2e-testing-scope
+          - e2e-testing-history
+          - e2e-testing-adversarial
+      - id: shell-scripting
+        prompt: docs/prompts/curation/shell-scripting.md
+        prompt_vars: { SKILL: shell-scripting }
+        policy: curator
+        branch: curation/shell-scripting
+        merge_message: "docs: curate shell-scripting skill"
+        depends_on:
+          - shell-scripting-accuracy
+          - shell-scripting-structure
+          - shell-scripting-scope
+          - shell-scripting-history
+          - shell-scripting-adversarial
+      - id: issue-workflow
+        prompt: docs/prompts/curation/issue-workflow.md
+        prompt_vars: { SKILL: issue-workflow }
+        policy: curator
+        branch: curation/issue-workflow
+        merge_message: "docs: curate issue-workflow skill"
+        depends_on:
+          - issue-workflow-accuracy
+          - issue-workflow-structure
+          - issue-workflow-scope
+          - issue-workflow-history
+          - issue-workflow-adversarial
+      - id: cloud-deployment
+        prompt: docs/prompts/curation/cloud-deployment.md
+        prompt_vars: { SKILL: cloud-deployment }
+        policy: curator
+        branch: curation/cloud-deployment
+        merge_message: "docs: curate cloud-deployment skill"
+        depends_on:
+          - cloud-deployment-accuracy
+          - cloud-deployment-structure
+          - cloud-deployment-scope
+          - cloud-deployment-history
+          - cloud-deployment-adversarial
+      - id: google-sheets-sync
+        prompt: docs/prompts/curation/google-sheets-sync.md
+        prompt_vars: { SKILL: google-sheets-sync }
+        policy: curator
+        branch: curation/google-sheets-sync
+        merge_message: "docs: curate google-sheets-sync skill"
+        depends_on:
+          - google-sheets-sync-accuracy
+          - google-sheets-sync-structure
+          - google-sheets-sync-scope
+          - google-sheets-sync-history
+          - google-sheets-sync-adversarial

@@ -26,6 +26,7 @@ export default function Avatar({ initials, color, size = 32, showRing, isOnline 
       {isOnline !== undefined && (
         <div
           className={`absolute bottom-0 right-0 rounded-full border-2 border-surface-base ${isOnline ? 'bg-green-400 pulse-dot' : 'bg-gray-500'}`}
+          data-testid="presence-indicator"
           style={{ width: size * 0.3, height: size * 0.3 }}
         />
       )}

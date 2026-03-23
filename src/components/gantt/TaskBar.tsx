@@ -425,6 +425,7 @@ export default function TaskBar({
         {/* Conflict indicator outline */}
         {conflictMessage && (
           <rect
+            data-testid="conflict-outline"
             x={x - 2}
             y={barY - 2}
             width={Math.max(width, 4) + 4}
@@ -525,7 +526,7 @@ export default function TaskBar({
             delay={100}
             svg
           >
-            <g style={{ cursor: 'default' }}>
+            <g data-testid="conflict-indicator" style={{ cursor: 'default' }}>
               <circle
                 cx={x + Math.max(width, 4) + 10}
                 cy={barY + barHeight / 2}

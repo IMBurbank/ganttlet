@@ -7,7 +7,10 @@ export default function CollaboratorWelcome() {
   }, []);
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-surface-base text-text-primary px-6">
+    <div
+      className="flex flex-col items-center justify-center h-screen bg-surface-base text-text-primary px-6"
+      data-testid="collaborator-welcome"
+    >
       <h1 className="text-3xl font-bold mb-3" data-testid="collaborator-title">
         You've been invited to collaborate on a project
       </h1>

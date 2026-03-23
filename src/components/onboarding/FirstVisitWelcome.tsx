@@ -20,7 +20,10 @@ export default function FirstVisitWelcome({ onSignInComplete }: FirstVisitWelcom
   }, [onSignInComplete]);
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-surface-base text-text-primary px-6">
+    <div
+      className="flex flex-col items-center justify-center h-screen bg-surface-base text-text-primary px-6"
+      data-testid="first-visit-welcome"
+    >
       <h1 className="text-4xl font-bold mb-3" data-testid="first-visit-title">
         Ganttlet
       </h1>

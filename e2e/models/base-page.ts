@@ -37,16 +37,23 @@ export class BasePage {
     await this.signInButton.first().waitFor({ state: 'hidden', timeout: 10_000 });
   }
 
-  // ── Onboarding screens ──
+  // ── Onboarding screens (scoped to containers to avoid locator collisions) ──
+
+  get firstVisitWelcome(): Locator {
+    return this.page.getByTestId('first-visit-welcome');
+  }
 
   get firstVisitTitle(): Locator {
-    // getByTestId needed — "Ganttlet" heading also exists in the app header,
-    // so getByRole('heading', { name: 'Ganttlet' }) matches multiple elements
-    return this.page.getByTestId('first-visit-title');
+    // Scoped to welcome container — avoids collision with header's "Ganttlet" heading
+    return this.firstVisitWelcome.getByRole('heading', { name: 'Ganttlet' });
+  }
+
+  get collaboratorWelcome(): Locator {
+    return this.page.getByTestId('collaborator-welcome');
   }
 
   get collaboratorTitle(): Locator {
-    return this.page.getByRole('heading', { name: /invited to collaborate/ });
+    return this.collaboratorWelcome.getByRole('heading', { name: /invited to collaborate/ });
   }
 
   get choosePathHeading(): Locator {
@@ -136,7 +143,8 @@ export class BasePage {
   }
 
   get menuDisconnect(): Locator {
-    return this.page.getByRole('button', { name: 'Disconnect' }).first();
+    // Scoped to dropdown menu — "Disconnect" also exists in the confirm dialog
+    return this.sheetDropdownMenu.getByRole('button', { name: 'Disconnect' });
   }
 
   get disconnectConfirm(): Locator {
@@ -144,7 +152,7 @@ export class BasePage {
   }
 
   get disconnectConfirmBtn(): Locator {
-    // Inside the confirm dialog, use the specific Disconnect button
+    // Scoped to confirm dialog — "Disconnect" also exists in the dropdown menu
     return this.disconnectConfirm.getByRole('button', { name: 'Disconnect' });
   }
 

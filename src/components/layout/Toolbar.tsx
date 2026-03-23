@@ -277,7 +277,7 @@ export default function Toolbar() {
             onClick={() => setShowCpScopeMenu(!showCpScopeMenu)}
             className="px-1.5 py-0.5 rounded-r bg-red-600/30 text-red-400 border border-l-0 border-red-500/40 hover:bg-red-600/50 transition-colors"
             title="Scope"
-            data-testid="scope-button"
+            aria-label="Scope"
           >
             <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
               <path d="M7 10l5 5 5-5z" />

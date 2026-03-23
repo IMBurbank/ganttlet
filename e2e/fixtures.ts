@@ -76,8 +76,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const page = await mockAuthContext.newPage();
     await page.goto('/');
     await ensureClientId(page);
-    await page.getByTestId('sign-in-button').click();
-    await page.getByTestId('choose-path-title').waitFor({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByTestId('choose-path-title').waitFor({ timeout: 10_000 }); // ChoosePath title has no heading role
     await use(page);
   },
 
@@ -136,9 +136,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const roomId = `e2e-test-${Date.now()}`;
     const url = `/?sheet=${sheetId}&room=${roomId}`;
 
-    const contextA = await browser.newContext();
-    const contextB = await browser.newContext();
+    let contextA: BrowserContext | undefined;
+    let contextB: BrowserContext | undefined;
     try {
+      contextA = await browser.newContext();
+      contextB = await browser.newContext();
       await setupMockAuth(contextA, cloudTokenA);
       await setupMockAuth(contextB, cloudTokenB);
 
@@ -170,8 +172,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
       await use({ pageA: ganttA, pageB: ganttB });
     } finally {
-      await contextA.close();
-      await contextB.close();
+      await contextA?.close().catch(() => {});
+      await contextB?.close().catch(() => {});
     }
   },
 });

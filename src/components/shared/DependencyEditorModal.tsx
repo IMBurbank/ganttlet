@@ -152,6 +152,8 @@ export default function DependencyEditorModal() {
       {/* Modal content */}
       <div
         className="relative bg-surface-raised border border-border-default rounded-lg shadow-xl w-[560px] max-h-[80vh] flex flex-col fade-in"
+        role="dialog"
+        aria-label={`Dependencies — ${task.name}`}
         data-testid="dependency-editor"
       >
         {/* Header */}
@@ -203,6 +205,7 @@ export default function DependencyEditorModal() {
                       </td>
                       <td className="py-2 pr-2">
                         <select
+                          aria-label="Dependency type"
                           data-testid="dep-type-select"
                           value={dep.type}
                           onChange={(e) =>

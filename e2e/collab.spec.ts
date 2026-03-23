@@ -65,15 +65,16 @@ test.describe('Collaboration E2E @collab', () => {
     });
 
     await test.step('verify constraint synced to page B', async () => {
-      // Poll by opening/closing the popover until the synced value appears
+      // Poll by opening/closing the popover until the synced value appears.
+      // Uses raw locators instead of PopoverModel because the model's close()
+      // asserts toBeHidden which would throw inside the toPass retry loop.
+      const pageB = collabPair.pageB.page;
       await expect(async () => {
-        const bar = collabPair.pageB.taskBar(0);
-        await bar.dispatchEvent('dblclick');
-        const popover = collabPair.pageB.page.getByTestId('task-popover');
+        await collabPair.pageB.taskBar(0).dispatchEvent('dblclick');
+        const popover = pageB.getByTestId('task-popover');
         await popover.waitFor({ timeout: 3_000 });
         const val = await popover.getByLabel('Constraint', { exact: true }).inputValue();
-        // Close popover before next retry
-        await collabPair.pageB.page.keyboard.press('Escape');
+        await pageB.keyboard.press('Escape');
         expect(val).toBe('SNET');
       }).toPass({ timeout: 15_000 });
     });
@@ -107,7 +108,10 @@ test.describe('Collaboration E2E @collab', () => {
       }).toPass({ timeout: 15_000 });
     });
   });
+});
 
+// Outside the cloud-auth-gated describe — runs in all environments
+test.describe('Single-user resilience', () => {
   test('single-user mode works without relay @smoke', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {

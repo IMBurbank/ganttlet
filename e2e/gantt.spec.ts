@@ -50,7 +50,7 @@ test.describe('Gantt Chart @gantt', () => {
     await gantt.toggleCriticalPath();
 
     await test.step('open scope and select workstream', async () => {
-      const scopeButton = gantt.page.getByTestId('scope-button');
+      const scopeButton = gantt.page.getByRole('button', { name: 'Scope' });
       if ((await scopeButton.count()) > 0) {
         await scopeButton.click();
       }

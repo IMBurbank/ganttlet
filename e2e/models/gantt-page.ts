@@ -192,7 +192,7 @@ export class GanttPage {
 
   /** Open the scope dropdown and select an item by name. */
   async selectScope(name: string): Promise<void> {
-    await this.page.getByTestId('scope-button').click();
+    await this.page.getByRole('button', { name: 'Scope' }).click();
     await this.page.getByRole('button', { name }).click();
   }
 }

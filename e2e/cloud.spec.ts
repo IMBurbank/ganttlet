@@ -96,11 +96,11 @@ test.describe('Cloud E2E @cloud', () => {
       await expect(async () => {
         const urlHasSheet = page.url().includes('sheet=');
         const hasError = await page
-          .getByText('Failed', { exact: true })
+          .getByTestId('promotion-error')
           .isVisible()
           .catch(() => false);
         const hasTryAgain = await page
-          .getByText('Try again', { exact: true })
+          .getByText('Try again')
           .isVisible()
           .catch(() => false);
         expect(urlHasSheet || hasError || hasTryAgain).toBeTruthy();

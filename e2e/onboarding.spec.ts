@@ -142,3 +142,68 @@ test.describe('Journey 8: Header', () => {
     await expect(page.locator('header')).toBeVisible();
   });
 });
+
+test.describe('Error states', () => {
+  test('HeaderMismatchError shows when sheet has wrong columns', async ({ mockAuthContext }) => {
+    const page = await mockAuthContext.newPage();
+
+    await test.step('mock Sheets API with wrong headers', async () => {
+      // Intercept Sheets API to return mismatched columns
+      await page.route('**/sheets.googleapis.com/**/values/**', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            range: 'Sheet1!A1:T2',
+            values: [
+              ['wrong_col', 'bad_header', 'not_valid'],
+              ['data1', 'data2', 'data3'],
+            ],
+          }),
+        });
+      });
+    });
+
+    await test.step('navigate to sheet and sign in', async () => {
+      await page.goto('/?sheet=mock-header-test');
+      await ensureClientId(page);
+      await page.getByTestId('collaborator-sign-in-button').click();
+    });
+
+    await test.step('verify header mismatch error screen', async () => {
+      await expect(page.getByTestId('header-mismatch-error')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('expected-columns')).toBeVisible();
+      await expect(page.getByTestId('download-template-btn')).toBeVisible();
+      await expect(page.getByTestId('create-new-sheet-btn')).toBeVisible();
+    });
+  });
+
+  test('ErrorBanner shows on sheet not found and offers navigation', async ({
+    mockAuthContext,
+  }) => {
+    const page = await mockAuthContext.newPage();
+
+    await test.step('mock Sheets API to always return 404', async () => {
+      await page.route('**/sheets.googleapis.com/**', (route) => {
+        route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 404, message: 'Requested entity was not found.' },
+          }),
+        });
+      });
+    });
+
+    await test.step('navigate to sheet and sign in', async () => {
+      await page.goto('/?sheet=nonexistent-mock-sheet');
+      await ensureClientId(page);
+      await page.getByTestId('collaborator-sign-in-button').click();
+    });
+
+    await test.step('verify error banner with open-another button', async () => {
+      await expect(page.getByTestId('error-banner')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('open-another-btn')).toBeVisible();
+    });
+  });
+});

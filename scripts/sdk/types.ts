@@ -11,6 +11,7 @@ export interface AgentResult {
   sessionId: string | null;
   failureMode: FailureMode;
   totalCostUsd: number;
+  totalTurns: number;
 }
 
 export type FailureMode =

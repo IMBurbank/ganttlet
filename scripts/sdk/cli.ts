@@ -195,7 +195,7 @@ async function main(): Promise<void> {
       onEvent({
         type: 'result',
         status: result.failureMode,
-        turns: result.attempt,
+        turns: result.totalTurns,
         costUsd: result.totalCostUsd,
       });
       return {
@@ -209,7 +209,7 @@ async function main(): Promise<void> {
           : undefined,
         sessionId: result.sessionId ?? undefined,
         costUsd: result.totalCostUsd,
-        turns: result.attempt,
+        turns: result.totalTurns,
       };
     },
     merge: createMergeHandler(gitOps, fixAgent, run.logDir),

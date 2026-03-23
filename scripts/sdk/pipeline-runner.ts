@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -14,6 +15,27 @@ import type { Handlers } from './handlers.js';
 import type { GitOps } from './git-ops.js';
 import type { Observer } from './observers/types.js';
 import { createCompositeObserver } from './observers/types.js';
+
+// ── Process cleanup ─────────────────────────────────────────────────
+
+/** Recursively kill a process tree. Node has no built-in for this. */
+function killTree(pid: number): void {
+  try {
+    const children = execSync(`ps -o pid= --ppid ${pid}`, { encoding: 'utf-8' })
+      .trim()
+      .split('\n')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n));
+    for (const child of children) killTree(child);
+  } catch {
+    // no children or process already gone
+  }
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    // already exited
+  }
+}
 
 // ── State management ────────────────────────────────────────────────
 
@@ -160,12 +182,13 @@ export async function runPipeline(
 
   // ── SIGINT/SIGTERM handler ──────────────────────────────────────
   let aborted = false;
-  const processGroup = process.pid;
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       aborted = true;
+      // Kill child processes via kill_tree (process group kill is unreliable
+      // when invoked via npx/tsx — the Node process may not be group leader)
       try {
-        process.kill(-processGroup, signal);
+        killTree(process.pid);
       } catch {
         /* already exiting */
       }

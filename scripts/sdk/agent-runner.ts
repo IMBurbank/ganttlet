@@ -33,6 +33,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
       sessionId: null,
       failureMode: 'crash',
       totalCostUsd: 0,
+      totalTurns: 0,
     };
   }
 
@@ -45,6 +46,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
   const maxCrashRetries = options.maxCrashRetries ?? 2;
   const crashRetryDelayMs = options.crashRetryDelayMs ?? 1000;
   let cumulativeCostUsd = 0;
+  let cumulativeTurns = 0;
   let crashCount = 0;
   let attemptIndex = 0;
   let resultType: AttemptResultType = 'success';
@@ -104,6 +106,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         });
         outputFixAttempted = true; // Only mark after fix call completes
         cumulativeCostUsd += fixResult.costUsd;
+        cumulativeTurns += fixResult.turns;
         if (fixResult.output !== null) {
           lastOutput = fixResult.output;
           lastNonNullOutput = fixResult.output;
@@ -183,6 +186,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
       });
 
       cumulativeCostUsd += callResult.costUsd;
+      cumulativeTurns += callResult.turns;
       if (callResult.output !== null) {
         lastOutput = callResult.output;
         lastNonNullOutput = callResult.output;
@@ -247,6 +251,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
     sessionId: lastSessionId,
     failureMode: action.kind === 'done' ? action.failureMode : 'success',
     totalCostUsd: cumulativeCostUsd,
+    totalTurns: cumulativeTurns,
   };
 
   // Log metrics
@@ -632,6 +637,7 @@ export async function runAgentWithInlinePrompt(
     sessionId: result.sessionId,
     failureMode: result.resultType === 'success' ? 'success' : result.resultType,
     totalCostUsd: result.costUsd,
+    totalTurns: result.turns,
   };
 }
 

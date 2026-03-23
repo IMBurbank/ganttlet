@@ -71,9 +71,15 @@ export function createMergeHandler(
     for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt++) {
       const logFile = `${logDir}/fix-merge-${safeBranch}-attempt${attempt}.log`;
       const model = attempt >= 2 ? 'claude-opus-4-6' : undefined;
-      const fixResult = await fixAgent(FIX_MERGE_PROMPT, worktree, logFile, onEvent, model);
+      let fixFailed = true;
+      try {
+        const fixResult = await fixAgent(FIX_MERGE_PROMPT, worktree, logFile, onEvent, model);
+        fixFailed = fixResult.failed;
+      } catch {
+        // fix agent crashed — treat as failed, continue to abort+retry
+      }
 
-      if (!fixResult.failed && gitOps.isMergeClean(worktree)) {
+      if (!fixFailed && gitOps.isMergeClean(worktree)) {
         return 'merged';
       }
 
@@ -100,8 +106,14 @@ export function createVerifyHandler(
     if (result.passed) return { status: 'success' as const };
 
     const logFile = `${logDir}/fix-verify-${node.id}.log`;
-    const fixResult = await fixAgent(FIX_VERIFY_PROMPT, worktree, logFile, onEvent);
-    if (fixResult.failed) {
+    let fixFailed = true;
+    try {
+      const fixResult = await fixAgent(FIX_VERIFY_PROMPT, worktree, logFile, onEvent);
+      fixFailed = fixResult.failed;
+    } catch {
+      // fix agent crashed — treat as failed
+    }
+    if (fixFailed) {
       return { status: 'failure' as const, failureReason: 'verify_failed' as const };
     }
 

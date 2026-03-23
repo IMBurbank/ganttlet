@@ -444,6 +444,9 @@ interface PipelineState {
 Written after: each node completion, pipeline completion.
 **State writes are serialized** via a write queue — no concurrent `saveState` calls
 from concurrent completions (prevents torn writes and lost updates).
+**Atomic writes:** write to `pipeline-state.json.tmp`, then `rename` to
+`pipeline-state.json`. `rename` is atomic on POSIX — orchestrator agents reading
+the state file never see partial JSON.
 
 **State file location follows standard practice:**
 The state file path is deterministic from config + baseRef alone:
@@ -554,26 +557,32 @@ while (true) {
 
     const promise = (async () => {
       try {
+        // Universal merge infrastructure: before ANY node executes, merge
+        // any dependency branches that haven't been integrated yet.
+        // This handles: verify needing the agent's branch merged,
+        // agent needing upstream agents' branches merged, etc.
+        const depsWithUnmergedBranches = node.dependsOn
+          .map(id => dag.find(n => n.id === id))
+          .filter(n => n?.spec?.branch && !mergedBranches.has(n.spec.branch));
+
+        if (depsWithUnmergedBranches.length > 0) {
+          if (!mergeWorktree) {
+            mergeWorktree = await gitOps.createMergeWorktree(run.mergeTarget);
+          }
+          const merged = await mergeLock.run(() =>
+            mergeIfNeeded(depsWithUnmergedBranches, mergedBranches, mergeWorktree!, gitOps, observer)
+          );
+          if (!merged) {
+            result = { status: 'failure', failureReason: 'merge_conflict' };
+            // skip the node execution below
+          }
+        }
+
         let result: NodeResult;
 
         switch (node.type) {
           case 'agent': {
             const spec = node.spec!;
-
-            // Merge infrastructure: integrate dependency branches before starting
-            if (spec.branch || spec.dependsOn?.some(id => groupHasBranch(dag, id))) {
-              if (!mergeWorktree) {
-                mergeWorktree = await gitOps.createMergeWorktree(run.mergeTarget);
-              }
-              const merged = await mergeLock.run(() =>
-                mergeIfNeeded(spec, dag, mergedBranches, mergeWorktree!, gitOps, observer)
-              );
-              if (!merged) {
-                result = { status: 'failure', failureReason: 'merge_conflict' };
-                break;
-              }
-            }
-
             const workdir = spec.branch
               ? await gitOps.createWorktree(spec.branch, run.mergeTarget)
               : run.launchDir;
@@ -584,7 +593,6 @@ while (true) {
             break;
           }
           case 'verify': {
-            // Verify runs on the merge worktree (which has accumulated merges)
             result = await handlers.verify(node, mergeWorktree!, gitOps);
             observer.onVerify(result);
             break;

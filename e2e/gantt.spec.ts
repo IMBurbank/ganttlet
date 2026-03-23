@@ -198,4 +198,125 @@ test.describe('Gantt Chart @gantt', () => {
       await popover.close();
     });
   });
+
+  test('drag task bar moves task dates', async ({ sandboxPage: gantt }) => {
+    // Read original start date from the first task
+    const popoverBefore = await gantt.openPopover(0);
+    const originalStart = await popoverBefore.startDate.inputValue();
+    await popoverBefore.close();
+
+    await test.step('drag task bar to the right', async () => {
+      // The table panel overlaps SVG task bars, so Playwright's page.mouse
+      // hits the table layer instead. Dispatch the entire drag sequence via
+      // evaluate on the SVG rect's native events (React picks them up via
+      // delegation, and the mousemove/mouseup handlers attach to document).
+      await gantt.page.evaluate(() => {
+        const el = document.querySelector('[data-testid^="task-bar-"]');
+        if (!el) throw new Error('No task bar found');
+        const rect = el.getBoundingClientRect();
+        const cx = rect.x + rect.width / 2;
+        const cy = rect.y + rect.height / 2;
+
+        // mousedown on the rect (React's onMouseDown attaches doc listeners)
+        el.dispatchEvent(
+          new MouseEvent('mousedown', {
+            clientX: cx,
+            clientY: cy,
+            button: 0,
+            detail: 1,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+
+        // mousemove on document (drag handler listens here)
+        for (let i = 1; i <= 10; i++) {
+          document.dispatchEvent(
+            new MouseEvent('mousemove', {
+              clientX: cx + i * 10,
+              clientY: cy,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
+        }
+
+        // mouseup on document (completes the drag)
+        document.dispatchEvent(
+          new MouseEvent('mouseup', {
+            clientX: cx + 100,
+            clientY: cy,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      });
+    });
+
+    await test.step('verify date changed', async () => {
+      const popoverAfter = await gantt.openPopover(0);
+      const newStart = await popoverAfter.startDate.inputValue();
+      expect(newStart).not.toBe(originalStart);
+      await popoverAfter.close();
+    });
+  });
+
+  test('undo reverts constraint change', async ({ sandboxPage: gantt }) => {
+    await test.step('set SNET constraint', async () => {
+      const popover = await gantt.openPopover(0);
+      await popover.setConstraint('SNET', '2026-06-01');
+      await popover.close();
+    });
+
+    await test.step('undo until constraint reverts to ASAP', async () => {
+      // SET_CONSTRAINT + CASCADE_DEPENDENTS = 2 undoable actions
+      const undoBtn = gantt.page.getByRole('button', { name: 'Undo' });
+      await expect(undoBtn).toBeEnabled({ timeout: 5_000 });
+
+      // Click undo and poll until constraint reverts (may need 1-3 clicks)
+      await expect(async () => {
+        await undoBtn.click();
+        const pop = await gantt.openPopover(0);
+        const val = await pop.constraintType.inputValue();
+        await pop.close();
+        expect(val).toBe('ASAP');
+      }).toPass({ timeout: 10_000 });
+    });
+  });
+
+  test('redo restores undone constraint change', async ({ sandboxPage: gantt }) => {
+    await test.step('set constraint and undo', async () => {
+      const popover = await gantt.openPopover(0);
+      await popover.setConstraint('SNET', '2026-06-01');
+      await popover.close();
+
+      await gantt.page.getByRole('button', { name: 'Undo' }).click();
+    });
+
+    await test.step('undo until ASAP', async () => {
+      const undoBtn = gantt.page.getByRole('button', { name: 'Undo' });
+      await expect(undoBtn).toBeEnabled({ timeout: 5_000 });
+
+      await expect(async () => {
+        await undoBtn.click();
+        const pop = await gantt.openPopover(0);
+        const val = await pop.constraintType.inputValue();
+        await pop.close();
+        expect(val).toBe('ASAP');
+      }).toPass({ timeout: 10_000 });
+    });
+
+    await test.step('redo until SNET restored', async () => {
+      const redoBtn = gantt.page.getByRole('button', { name: 'Redo' });
+      await expect(redoBtn).toBeEnabled({ timeout: 5_000 });
+
+      await expect(async () => {
+        await redoBtn.click();
+        const pop = await gantt.openPopover(0);
+        const val = await pop.constraintType.inputValue();
+        await pop.close();
+        expect(val).toBe('SNET');
+      }).toPass({ timeout: 10_000 });
+    });
+  });
 });

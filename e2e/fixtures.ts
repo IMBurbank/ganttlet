@@ -85,15 +85,18 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     if (!sheetId) throw new Error('sheetPage requires TEST_SHEET_ID_DEV or TEST_SHEET_ID_CI');
 
     const context = await browser.newContext();
-    await setupMockAuth(context, cloudTokenA);
-    const page = await context.newPage();
-    await page.goto(`/?sheet=${sheetId}`);
-    await ensureClientId(page);
-    await page.getByTestId('collaborator-sign-in-button').click();
-    const gantt = new GanttPage(page);
-    await gantt.waitForTaskBars(60_000);
-    await use(gantt);
-    await context.close();
+    try {
+      await setupMockAuth(context, cloudTokenA);
+      const page = await context.newPage();
+      await page.goto(`/?sheet=${sheetId}`);
+      await ensureClientId(page);
+      await page.getByTestId('collaborator-sign-in-button').click();
+      const gantt = new GanttPage(page);
+      await gantt.waitForTaskBars(60_000);
+      await use(gantt);
+    } finally {
+      await context.close();
+    }
   },
 
   // collabPair: two pages connected to same sheet via Yjs, both with task bars
@@ -109,38 +112,41 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
     const contextA = await browser.newContext();
     const contextB = await browser.newContext();
-    await setupMockAuth(contextA, cloudTokenA);
-    await setupMockAuth(contextB, cloudTokenB);
+    try {
+      await setupMockAuth(contextA, cloudTokenA);
+      await setupMockAuth(contextB, cloudTokenB);
 
-    const pageA = await contextA.newPage();
-    const pageB = await contextB.newPage();
-    await Promise.all([pageA.goto(url), pageB.goto(url)]);
+      const pageA = await contextA.newPage();
+      const pageB = await contextB.newPage();
+      await Promise.all([pageA.goto(url), pageB.goto(url)]);
 
-    for (const page of [pageA, pageB]) {
-      await ensureClientId(page);
-      await page.getByTestId('collaborator-sign-in-button').click();
+      for (const page of [pageA, pageB]) {
+        await ensureClientId(page);
+        await page.getByTestId('collaborator-sign-in-button').click();
+      }
+
+      const ganttA = new GanttPage(pageA);
+      const ganttB = new GanttPage(pageB);
+
+      await Promise.all([ganttA.waitForTaskBars(60_000), ganttB.waitForTaskBars(60_000)]);
+
+      // Wait for collab connections (generous timeout for large sheets)
+      await Promise.all([
+        pageA
+          .locator('[data-collab-status="connected"]')
+          .waitFor({ timeout: 45_000 })
+          .catch(() => {}),
+        pageB
+          .locator('[data-collab-status="connected"]')
+          .waitFor({ timeout: 45_000 })
+          .catch(() => {}),
+      ]);
+
+      await use({ pageA: ganttA, pageB: ganttB });
+    } finally {
+      await contextA.close();
+      await contextB.close();
     }
-
-    const ganttA = new GanttPage(pageA);
-    const ganttB = new GanttPage(pageB);
-
-    await Promise.all([ganttA.waitForTaskBars(60_000), ganttB.waitForTaskBars(60_000)]);
-
-    // Wait for collab connections (generous timeout for large sheets)
-    await Promise.all([
-      pageA
-        .locator('[data-collab-status="connected"]')
-        .waitFor({ timeout: 45_000 })
-        .catch(() => {}),
-      pageB
-        .locator('[data-collab-status="connected"]')
-        .waitFor({ timeout: 45_000 })
-        .catch(() => {}),
-    ]);
-
-    await use({ pageA: ganttA, pageB: ganttB });
-    await contextA.close();
-    await contextB.close();
   },
 });
 

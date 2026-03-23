@@ -166,7 +166,12 @@ test.describe('Gantt Chart @gantt', () => {
     });
 
     await test.step('restore to FS', async () => {
-      const depEditor = await gantt.openDepEditor(/pe-1/);
+      // After SF change, button text may be "pe-1 SF+2". Use .first() to avoid
+      // strict mode if multiple buttons match (pe-2 may also depend on pe-1).
+      const depBtn = gantt.page.getByRole('button').filter({ hasText: /pe-1/ }).first();
+      await depBtn.click();
+      const depEditor = new (await import('./models/gantt-page')).DepEditorModel(gantt.page);
+      await depEditor.container.waitFor({ timeout: 5_000 });
       await depEditor.setType(0, 'FS');
       await depEditor.close();
     });

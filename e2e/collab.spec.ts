@@ -65,9 +65,16 @@ test.describe('Collaboration E2E @collab', () => {
     });
 
     await test.step('verify constraint synced to page B', async () => {
+      // Poll by opening/closing the popover until the synced value appears
       await expect(async () => {
-        const popoverB = await collabPair.pageB.openPopover(0);
-        await expect(popoverB.constraintType).toHaveValue('SNET', { timeout: 1_000 });
+        const bar = collabPair.pageB.taskBar(0);
+        await bar.dispatchEvent('dblclick');
+        const popover = collabPair.pageB.page.getByTestId('task-popover');
+        await popover.waitFor({ timeout: 3_000 });
+        const val = await popover.getByLabel('Constraint', { exact: true }).inputValue();
+        // Close popover before next retry
+        await collabPair.pageB.page.keyboard.press('Escape');
+        expect(val).toBe('SNET');
       }).toPass({ timeout: 15_000 });
     });
 

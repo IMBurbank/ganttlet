@@ -52,12 +52,12 @@ E2E tests use a synthetic Google Identity Services (GIS) mock for auth:
 - **`signInOnPage(page)`**: Clicks the sign-in button (collaborator or first-visit) and waits
   for buttons to disappear via `waitForFunction` (not timeout).
 
-For cloud E2E tests that need real Sheets API access, use `gisInitScript` from
-`e2e/helpers/collab-harness.ts` with a real service account token from `cloud-auth.ts`.
+For cloud E2E tests that need real Sheets API access, use `setupMockAuth` from
+`e2e/helpers/gis-mock.ts` with a real service account token from `service-account.ts`.
 
 ## Cloud Auth Pattern
 - SA keys: `GCP_SA_KEY_WRITER1_DEV`, `GCP_SA_KEY_WRITER2_DEV`, `GCP_SA_KEY_READER1_DEV`
-- `getAccessToken(keyJson, extraScopes?)` in `e2e/helpers/cloud-auth.ts` exchanges JWT for token
+- `getAccessToken(keyJson, extraScopes?)` in `e2e/helpers/service-account.ts` exchanges JWT for token
 - Cloud tests use `setupMockAuth(context, realToken)` — blocks GIS popup but uses real token
 
 ## Test Sheet Strategy

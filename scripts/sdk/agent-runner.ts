@@ -305,6 +305,7 @@ interface CallQueryResult {
   sessionId: string | null;
   costUsd: number;
   durationMs: number;
+  turns: number;
 }
 
 async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQueryResult> {
@@ -429,6 +430,7 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
     sessionId,
     costUsd,
     durationMs: Date.now() - start,
+    turns: turnCount,
   };
 }
 
@@ -579,6 +581,58 @@ Optional:
   --help                  Show this help message`;
 
   process.stdout.write(usage + '\n');
+}
+
+/**
+ * Run an agent with an inline prompt string instead of a file path.
+ * Used by fix agents (merge conflict resolution, verify failure fixes).
+ * Bypasses the normal prompt file reading — passes the string directly to the SDK.
+ */
+export async function runAgentWithInlinePrompt(
+  queryFn: QueryFn,
+  options: RunnerOptions,
+  inlinePrompt: string,
+  onEvent?: (event: import('./types.js').AgentEvent) => void
+): Promise<AgentResult> {
+  // Create a temporary RunnerOptions that uses the inline prompt directly
+  const opts: RunnerOptions = {
+    ...options,
+    prompt: '__inline__', // marker — not read from disk
+  };
+
+  // We need to use callQuery directly since runAgent reads from disk
+  const result = await callQuery(queryFn, {
+    prompt: inlinePrompt,
+    cwd: opts.workdir,
+    persistSession: false,
+    maxTurns: opts.maxTurns ?? 30,
+    model: opts.model ?? 'claude-sonnet-4-6',
+    maxBudgetUsd: opts.maxBudget,
+    agent: opts.agent,
+    logFile: opts.logFile,
+  });
+
+  if (onEvent && result.turns > 0) {
+    onEvent({
+      type: 'result',
+      status: result.resultType,
+      turns: result.turns,
+      costUsd: result.costUsd,
+    });
+  }
+
+  return {
+    group: opts.group,
+    phase: opts.phase,
+    attempt: 1,
+    totalAttempts: 1,
+    partial: false,
+    failed: result.resultType !== 'success',
+    output: result.output,
+    sessionId: result.sessionId,
+    failureMode: result.resultType === 'success' ? 'success' : result.resultType,
+    totalCostUsd: result.costUsd,
+  };
 }
 
 // CLI entry point

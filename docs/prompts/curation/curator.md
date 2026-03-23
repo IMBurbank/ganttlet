@@ -130,8 +130,14 @@ patches. See the curation skill for the full model.
 - Integrate new observations into existing sections (weave, don't append)
 - Remove stale/wrong/redundant content — code is the source of truth
 - Compress verbose content
-- Eliminate `## Lessons Learned` sections (integrate valuable content into body)
-- Remove `<!-- curator cleanup pending -->` and similar comments
+- **Eliminate `## Lessons Learned` sections entirely.** This is not optional.
+  For each item: (1) if the body already covers it, delete it. (2) If it adds
+  unique operational knowledge, integrate it into the relevant body section as
+  a bullet or sentence — don't just move the heading. (3) If it belongs in
+  another skill (e.g., shell-scripting), delete it and verify the cross-ref
+  pointer exists. The section heading itself must be removed from the output.
+  A skill file with a Lessons Learned section has not been fully curated.
+- Remove `<!-- curator cleanup pending -->` and similar HTML comments
 - Check cross-skill coherence: is the skill still complete? Any new duplication?
 - Preserve `[reviewed: keep]` content verbatim
 - Result should be equal or smaller than the original

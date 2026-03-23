@@ -144,6 +144,17 @@ grep "^## " .claude/skills/$SKILL/SKILL.md  # sections intact?
 
 If broken, fix. If unfixable after 2 attempts, revert and note in debrief.
 
+**Cross-check findings coverage:** Before committing, verify every finding
+that scored above threshold is accounted for — either reflected in the diff
+or listed in "Not Acted On" with a reason. Walk through your scored findings
+list and for each one:
+- If you changed something for it → it goes in "Changes Made"
+- If you deliberately kept the original → it goes in "Not Acted On" with why
+- If it's missing from both lists → you dropped it. Fix the rewrite or add it
+  to "Not Acted On"
+
+No finding above threshold should be silently absent from the commit message.
+
 ## Step 5: Commit
 
 Use a detailed commit message (the primary audit trail):
@@ -170,7 +181,10 @@ Threshold: {value} | {N above} / {M total} | {K filtered}
 - Kept despite flag: "{claim}" — {why overridden}
 
 ## Not Acted On
-- "{finding}" (scored {N}) — {why: false positive / overridden}
+- "{finding}" (scored {N}) — {why: false positive / context preserved / already covered}
+
+## Coverage Check
+{N acted} + {M not acted} = {total above threshold} ← must match
 
 ## Cross-Skill Notes
 - {duplication, moves, conflicts}
@@ -211,6 +225,8 @@ that every curator would see):
 - Cross-skill patterns unique to your skill's domain
 - Issues in CLAUDE.md files or instruction context discovered during review
   (as `wrong_documentation` observations — preserved for future scope)
+- Findings that failed the coverage check (as `workflow_gap` — explains why
+  the rewrite missed a scored finding, so the process can improve)
 
 Generate the filename per `docs/prompts/curation/debrief-template.md`.
 

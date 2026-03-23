@@ -348,6 +348,8 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
   let costUsd = 0;
   let gotResult = false;
 
+  let turnCount = 0;
+
   for await (const message of stream) {
     const msg = message as Record<string, unknown>;
     if (msg.type === 'system' && msg.subtype === 'init' && !sessionId) {
@@ -358,6 +360,8 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
     // correctness checks, not just confirm liveness.
     if (opts.logFile) {
       if (msg.type === 'assistant') {
+        turnCount++;
+        fs.appendFileSync(opts.logFile, `[turn ${turnCount}]\n`);
         const content = (
           msg as {
             message?: {
@@ -405,6 +409,13 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
         output = (msg.result as string) ?? null;
       }
       costUsd = (msg.total_cost_usd as number) ?? 0;
+      const numTurns = (msg as { num_turns?: number }).num_turns;
+      if (opts.logFile) {
+        fs.appendFileSync(
+          opts.logFile,
+          `[result] ${subtype} turns=${numTurns ?? turnCount} cost=$${costUsd.toFixed(2)}\n`
+        );
+      }
     }
   }
 

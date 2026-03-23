@@ -28,12 +28,7 @@ test.describe('Tooltips', () => {
     // Move to header (neutral area)
     await gantt.page.locator('header').hover();
 
-    // Tooltip portals to body with fade-in class — should be removed from DOM
-    await expect(async () => {
-      const tooltipVisible = await gantt.page.evaluate(() => {
-        return document.querySelectorAll('body > div.fade-in').length > 0;
-      });
-      expect(tooltipVisible).toBe(false);
-    }).toPass({ timeout: 1_000 });
+    // Tooltip should be removed from DOM after mouse leave
+    await expect(gantt.page.getByTestId('tooltip')).toBeHidden({ timeout: 1_000 });
   });
 });

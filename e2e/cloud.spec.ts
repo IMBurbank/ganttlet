@@ -3,27 +3,14 @@
  * Tests cloud-specific features: sheet loading, sync, header, disconnect, errors.
  */
 import { test, expect } from './fixtures';
-import { getAccessToken } from './helpers/service-account';
-import { setupMockAuth, ensureClientId } from './helpers/gis-mock';
-const hasCloudAuth = !!process.env.GCP_SA_KEY_WRITER1_DEV;
 
-/** Create a browser context with real SA token auth, navigate to URL. */
-async function createCloudPage(browser: import('@playwright/test').Browser, url: string) {
-  const key = process.env.GCP_SA_KEY_WRITER1_DEV!;
-  const token = await getAccessToken(key);
-  const context = await browser.newContext();
-  await setupMockAuth(context, token);
-  const page = await context.newPage();
-  await page.goto(url);
-  await ensureClientId(page);
-  return { context, page };
-}
+const hasCloudAuth = !!process.env.GCP_SA_KEY_WRITER1_DEV;
 
 test.describe('Cloud E2E @cloud', () => {
   test.skip(!hasCloudAuth, 'Requires GCP_SA_KEY_WRITER1_DEV');
 
-  test('signed-in user sees ChoosePath', async ({ browser }) => {
-    const { context, page } = await createCloudPage(browser, '/');
+  test('signed-in user sees ChoosePath', async ({ createCloudPage }) => {
+    const { page } = await createCloudPage('/');
 
     await test.step('sign in', async () => {
       await page.getByTestId('sign-in-button').click();
@@ -32,8 +19,6 @@ test.describe('Cloud E2E @cloud', () => {
     await expect(
       page.getByTestId('choose-path-title').or(page.getByTestId('return-visitor-title'))
     ).toBeVisible({ timeout: 10_000 });
-
-    await context.close();
   });
 
   test('collaborator signs in and sheet data loads', async ({ sheetPage: gantt }) => {
@@ -46,7 +31,6 @@ test.describe('Cloud E2E @cloud', () => {
 
     await test.step('click share button', async () => {
       await gantt.page.getByTestId('share-button').click();
-      // Verify click didn't crash — task bars still visible
       await expect(gantt.taskBars.first()).toBeVisible();
     });
   });
@@ -73,20 +57,18 @@ test.describe('Cloud E2E @cloud', () => {
     });
   });
 
-  test('non-existent sheet shows error state', async ({ browser }) => {
-    const { context, page } = await createCloudPage(browser, '/?sheet=NONEXISTENT_SHEET_12345');
+  test('non-existent sheet shows error state', async ({ createCloudPage }) => {
+    const { page } = await createCloudPage('/?sheet=NONEXISTENT_SHEET_12345');
 
     await page.getByTestId('collaborator-sign-in-button').click();
 
     await expect(
       page.getByTestId('loading-skeleton').or(page.getByTestId('error-banner'))
     ).toBeVisible({ timeout: 60_000 });
-
-    await context.close();
   });
 
-  test('promotion flow @slow', async ({ browser }) => {
-    const { context, page } = await createCloudPage(browser, '/');
+  test('promotion flow @slow', async ({ createCloudPage }) => {
+    const { page } = await createCloudPage('/');
 
     await test.step('enter sandbox', async () => {
       await page.getByTestId('try-demo-button').click();
@@ -111,7 +93,6 @@ test.describe('Cloud E2E @cloud', () => {
     await test.step('attempt create sheet', async () => {
       await page.getByTestId('create-new-sheet-button').click();
 
-      // Wait for result: success (URL has sheet=) or error (modal shows error)
       await expect(async () => {
         const urlHasSheet = page.url().includes('sheet=');
         const hasError = await page
@@ -125,8 +106,6 @@ test.describe('Cloud E2E @cloud', () => {
         expect(urlHasSheet || hasError || hasTryAgain).toBeTruthy();
       }).toPass({ timeout: 10_000 });
     });
-
-    await context.close();
   });
 
   test('sync status shows Synced after loading', async ({ sheetPage: gantt }) => {

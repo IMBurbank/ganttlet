@@ -21,10 +21,13 @@ type WorkerFixtures = {
   cloudTokenB: string | undefined;
 };
 
+type CloudPageResult = { context: BrowserContext; page: Page };
+
 type TestFixtures = {
   sandboxPage: GanttPage;
   mockAuthContext: BrowserContext;
   signedInPage: Page;
+  createCloudPage: (url: string) => Promise<CloudPageResult>;
   sheetPage: GanttPage;
   collabPair: { pageA: GanttPage; pageB: GanttPage };
 };
@@ -76,6 +79,29 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await page.getByTestId('sign-in-button').click();
     await page.getByTestId('choose-path-title').waitFor({ timeout: 10_000 });
     await use(page);
+  },
+
+  // createCloudPage: factory for pages with real SA token auth at any URL
+  createCloudPage: async ({ browser, cloudTokenA }, use) => {
+    if (!cloudTokenA) throw new Error('createCloudPage requires GCP_SA_KEY_WRITER1_DEV');
+    const contexts: BrowserContext[] = [];
+
+    const factory = async (url: string): Promise<CloudPageResult> => {
+      const context = await browser.newContext();
+      contexts.push(context);
+      await setupMockAuth(context, cloudTokenA);
+      const page = await context.newPage();
+      await page.goto(url);
+      await ensureClientId(page);
+      return { context, page };
+    };
+
+    await use(factory);
+
+    // Auto-cleanup all contexts created by the factory
+    for (const ctx of contexts) {
+      await ctx.close().catch(() => {});
+    }
   },
 
   // sheetPage: connected to real test sheet, data loaded, returns GanttPage

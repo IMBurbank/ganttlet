@@ -450,6 +450,7 @@ export default function TaskBar({
           opacity={isCritical ? 0.35 : 0.6}
           className="task-bar"
           data-testid={`task-bar-${taskId}`}
+          data-critical={isCritical ? 'true' : undefined}
           onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />
@@ -466,6 +467,7 @@ export default function TaskBar({
           opacity={isCritical ? 1 : 0.6}
           className="task-bar"
           data-testid={`task-bar-${taskId}`}
+          data-critical={isCritical ? 'true' : undefined}
           onMouseDown={(e) => handleMouseDown(e, 'move')}
           onDoubleClick={handleDoubleClick}
         />

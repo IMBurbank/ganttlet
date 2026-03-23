@@ -30,14 +30,10 @@ test.describe('Gantt Chart @gantt', () => {
       await gantt.selectScope('Q2 Product Launch');
     });
 
-    await test.step('verify red-filled task bars appear', async () => {
-      // Critical task bars get fill="#ef4444" — use toPass for polling
-      await expect(async () => {
-        const count = await gantt.page.evaluate(
-          () => document.querySelectorAll('[data-testid^="task-bar-"][fill="#ef4444"]').length
-        );
-        expect(count).toBeGreaterThanOrEqual(1);
-      }).toPass({ timeout: 5_000 });
+    await test.step('verify critical task bars appear', async () => {
+      // Critical task bars get data-critical="true" attribute
+      const criticalBars = gantt.page.locator('[data-testid^="task-bar-"][data-critical="true"]');
+      await expect(criticalBars.first()).toBeVisible({ timeout: 5_000 });
     });
 
     await test.step('verify button active state', async () => {

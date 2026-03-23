@@ -559,6 +559,7 @@ export default function TaskBar({
           height={barHeight}
           fill="transparent"
           className="resize-handle"
+          data-testid={`resize-handle-${taskId}`}
           onMouseDown={(e) => handleMouseDown(e, 'resize')}
         />
       </g>

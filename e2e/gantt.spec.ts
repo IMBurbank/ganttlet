@@ -261,6 +261,61 @@ test.describe('Gantt Chart @gantt', () => {
     });
   });
 
+  test('resize task bar changes end date', async ({ sandboxPage: gantt }) => {
+    const popoverBefore = await gantt.openPopover(0);
+    const originalEnd = await popoverBefore.endDate.inputValue();
+    await popoverBefore.close();
+
+    await test.step('resize task bar by dragging right edge', async () => {
+      // Same evaluate pattern as drag — table panel overlaps SVG
+      await gantt.page.evaluate(() => {
+        const handle = document.querySelector('[data-testid^="resize-handle-"]');
+        if (!handle) throw new Error('No resize handle found');
+        const rect = handle.getBoundingClientRect();
+        const cx = rect.x + rect.width / 2;
+        const cy = rect.y + rect.height / 2;
+
+        handle.dispatchEvent(
+          new MouseEvent('mousedown', {
+            clientX: cx,
+            clientY: cy,
+            button: 0,
+            detail: 1,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+
+        for (let i = 1; i <= 10; i++) {
+          document.dispatchEvent(
+            new MouseEvent('mousemove', {
+              clientX: cx + i * 10,
+              clientY: cy,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
+        }
+
+        document.dispatchEvent(
+          new MouseEvent('mouseup', {
+            clientX: cx + 100,
+            clientY: cy,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      });
+    });
+
+    await test.step('verify end date changed', async () => {
+      const popoverAfter = await gantt.openPopover(0);
+      const newEnd = await popoverAfter.endDate.inputValue();
+      expect(newEnd).not.toBe(originalEnd);
+      await popoverAfter.close();
+    });
+  });
+
   test('undo reverts constraint change', async ({ sandboxPage: gantt }) => {
     await test.step('set SNET constraint', async () => {
       const popover = await gantt.openPopover(0);

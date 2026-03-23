@@ -100,7 +100,7 @@ test.describe('Cloud E2E @cloud', () => {
           .isVisible()
           .catch(() => false);
         const hasTryAgain = await page
-          .getByText('Try again')
+          .getByText('Try again', { exact: true })
           .isVisible()
           .catch(() => false);
         expect(urlHasSheet || hasError || hasTryAgain).toBeTruthy();

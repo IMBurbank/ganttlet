@@ -88,11 +88,9 @@ export async function signInOnPage(page: Page): Promise<void> {
     await firstVisitBtn.click();
   }
 
-  // Wait for sign-in to complete — buttons disappear
-  await page.waitForFunction(
-    () =>
-      !document.querySelector('[data-testid="sign-in-button"]') &&
-      !document.querySelector('[data-testid="collaborator-sign-in-button"]'),
-    { timeout: 10_000 }
-  );
+  // Wait for sign-in to complete — both buttons disappear
+  await page
+    .getByTestId('sign-in-button')
+    .or(page.getByTestId('collaborator-sign-in-button'))
+    .waitFor({ state: 'hidden', timeout: 10_000 });
 }

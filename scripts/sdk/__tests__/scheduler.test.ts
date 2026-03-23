@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { nextActions } from '../scheduler.js';
-import type { DAGNode, NodeState, SchedulerAction } from '../types.js';
+import { nextActions, type SchedulerResult } from '../scheduler.js';
+import type { DAGNode, NodeState } from '../types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -15,27 +15,33 @@ function makeState(
   return { status, attempt: 0, maxRetries: 1, costUsd: 0, turns: 0, ...overrides };
 }
 
-function executeIds(actions: SchedulerAction[]): string[] {
-  return actions.filter((a) => a.type === 'execute').map((a) => (a as { nodeId: string }).nodeId);
+function executeIds(r: SchedulerResult): string[] {
+  return r.actions.filter((a) => a.type === 'execute').map((a) => (a as { nodeId: string }).nodeId);
 }
 
-function completeStatus(actions: SchedulerAction[]): string | undefined {
-  const c = actions.find((a) => a.type === 'complete');
+function completeStatus(r: SchedulerResult): string | undefined {
+  const c = r.actions.find((a) => a.type === 'complete');
   return c ? (c as { status: string }).status : undefined;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('scheduler', () => {
+  describe('purity', () => {
+    it('does not mutate input state', () => {
+      const nodes = [makeNode('A'), makeNode('B', ['A'])];
+      const state = { A: makeState('success'), B: makeState('blocked') };
+      const original = JSON.parse(JSON.stringify(state));
+      nextActions(nodes, state);
+      expect(state).toEqual(original);
+    });
+  });
+
   describe('zero-dep nodes', () => {
     it('emits execute for all ready nodes', () => {
       const nodes = [makeNode('A'), makeNode('B')];
-      const state: Record<string, NodeState> = {
-        A: makeState('ready'),
-        B: makeState('ready'),
-      };
-      const actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual(['A', 'B']);
+      const state = { A: makeState('ready'), B: makeState('ready') };
+      expect(executeIds(nextActions(nodes, state))).toEqual(['A', 'B']);
     });
   });
 
@@ -61,33 +67,26 @@ describe('scheduler', () => {
     it('running → no actions (waiting)', () => {
       const nodes = [makeNode('A')];
       const state = { A: makeState('running') };
-      const actions = nextActions(nodes, state);
-      expect(actions).toEqual([]);
+      const result = nextActions(nodes, state);
+      expect(result.actions).toEqual([]);
     });
   });
 
   describe('blocked → ready (rule 1)', () => {
     it('unblocks when all deps succeed', () => {
       const nodes = [makeNode('A'), makeNode('B', ['A'])];
-      const state = {
-        A: makeState('success'),
-        B: makeState('blocked'),
-      };
-      const actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual(['B']);
-      expect(state.B.status).toBe('ready');
+      const state = { A: makeState('success'), B: makeState('blocked') };
+      const result = nextActions(nodes, state);
+      expect(executeIds(result)).toEqual(['B']);
+      expect(result.state.B.status).toBe('ready');
     });
 
     it('stays blocked when some deps are not success', () => {
       const nodes = [makeNode('A'), makeNode('B'), makeNode('C', ['A', 'B'])];
-      const state = {
-        A: makeState('success'),
-        B: makeState('running'),
-        C: makeState('blocked'),
-      };
-      const actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual([]);
-      expect(state.C.status).toBe('blocked');
+      const state = { A: makeState('success'), B: makeState('running'), C: makeState('blocked') };
+      const result = nextActions(nodes, state);
+      expect(executeIds(result)).toEqual([]);
+      expect(result.state.C.status).toBe('blocked');
     });
   });
 
@@ -98,23 +97,23 @@ describe('scheduler', () => {
         A: makeState('failure', { attempt: 1, maxRetries: 1 }),
         B: makeState('blocked'),
       };
-      nextActions(nodes, state);
-      expect(state.B.status).toBe('skipped');
+      const result = nextActions(nodes, state);
+      expect(result.state.B.status).toBe('skipped');
     });
 
-    it('skips when a dep is skipped', () => {
+    it('skips cascading through chain', () => {
       const nodes = [makeNode('A'), makeNode('B', ['A']), makeNode('C', ['B'])];
       const state = {
         A: makeState('failure', { attempt: 1, maxRetries: 1 }),
         B: makeState('blocked'),
         C: makeState('blocked'),
       };
-      // First call: A stays failure, B → skipped
-      nextActions(nodes, state);
-      expect(state.B.status).toBe('skipped');
-      // Second call: C → skipped (B is skipped)
-      nextActions(nodes, state);
-      expect(state.C.status).toBe('skipped');
+      // First call: B → skipped
+      const r1 = nextActions(nodes, state);
+      expect(r1.state.B.status).toBe('skipped');
+      // Second call (with updated state): C → skipped
+      const r2 = nextActions(nodes, r1.state);
+      expect(r2.state.C.status).toBe('skipped');
     });
   });
 
@@ -125,12 +124,10 @@ describe('scheduler', () => {
         A: makeState('failure', { attempt: 0, maxRetries: 2 }),
         B: makeState('skipped'),
       };
-      // A has retries: failure → ready (rule 5). B: skipped → blocked → ready (A is ready? no, A is ready but not success)
-      // Actually: A transitions to ready, B should go blocked (A is ready, not success)
-      const actions = nextActions(nodes, state);
-      expect(state.A.status).toBe('ready');
-      expect(state.B.status).toBe('blocked'); // A is ready, not success — B stays blocked
-      expect(executeIds(actions)).toEqual(['A']);
+      const result = nextActions(nodes, state);
+      expect(result.state.A.status).toBe('ready');
+      expect(result.state.B.status).toBe('blocked');
+      expect(executeIds(result)).toEqual(['A']);
     });
   });
 
@@ -138,17 +135,15 @@ describe('scheduler', () => {
     it('retries when attempt < maxRetries', () => {
       const nodes = [makeNode('A')];
       const state = { A: makeState('failure', { attempt: 0, maxRetries: 2 }) };
-      const actions = nextActions(nodes, state);
-      expect(state.A.status).toBe('ready');
-      expect(executeIds(actions)).toEqual(['A']);
+      const result = nextActions(nodes, state);
+      expect(result.state.A.status).toBe('ready');
+      expect(executeIds(result)).toEqual(['A']);
     });
 
     it('does not retry when attempt >= maxRetries', () => {
       const nodes = [makeNode('A')];
       const state = { A: makeState('failure', { attempt: 2, maxRetries: 2 }) };
-      const actions = nextActions(nodes, state);
-      expect(state.A.status).toBe('failure');
-      expect(completeStatus(actions)).toBe('failed');
+      expect(completeStatus(nextActions(nodes, state))).toBe('failed');
     });
 
     it('does not retry merge_conflict (terminal within run)', () => {
@@ -156,9 +151,9 @@ describe('scheduler', () => {
       const state = {
         A: makeState('failure', { attempt: 0, maxRetries: 3, failureReason: 'merge_conflict' }),
       };
-      const actions = nextActions(nodes, state);
-      expect(state.A.status).toBe('failure');
-      expect(completeStatus(actions)).toBe('failed');
+      const result = nextActions(nodes, state);
+      expect(result.state.A.status).toBe('failure');
+      expect(completeStatus(result)).toBe('failed');
     });
 
     it('retries non-merge failures with same attempt/maxRetries', () => {
@@ -166,9 +161,9 @@ describe('scheduler', () => {
       const state = {
         A: makeState('failure', { attempt: 0, maxRetries: 1, failureReason: 'timeout' }),
       };
-      const actions = nextActions(nodes, state);
-      expect(state.A.status).toBe('ready');
-      expect(executeIds(actions)).toEqual(['A']);
+      const result = nextActions(nodes, state);
+      expect(result.state.A.status).toBe('ready');
+      expect(executeIds(result)).toEqual(['A']);
     });
   });
 
@@ -181,8 +176,7 @@ describe('scheduler', () => {
         makeNode('D', ['B', 'C']),
       ];
 
-      // Initially: A ready, rest blocked
-      const state: Record<string, NodeState> = {
+      let state: Record<string, NodeState> = {
         A: makeState('ready'),
         B: makeState('blocked'),
         C: makeState('blocked'),
@@ -190,50 +184,47 @@ describe('scheduler', () => {
       };
 
       // Iteration 1: A executes
-      let actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual(['A']);
-
-      // A completes
+      let result = nextActions(nodes, state);
+      expect(executeIds(result)).toEqual(['A']);
+      state = result.state;
       state.A.status = 'success';
 
-      // Iteration 2: B and C unblock and execute
-      actions = nextActions(nodes, state);
-      expect(executeIds(actions).sort()).toEqual(['B', 'C']);
-
-      // B and C complete
+      // Iteration 2: B and C unblock
+      result = nextActions(nodes, state);
+      expect(executeIds(result).sort()).toEqual(['B', 'C']);
+      state = result.state;
       state.B.status = 'success';
       state.C.status = 'success';
 
-      // Iteration 3: D unblocks and executes
-      actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual(['D']);
-
-      // D completes
+      // Iteration 3: D unblocks
+      result = nextActions(nodes, state);
+      expect(executeIds(result)).toEqual(['D']);
+      state = result.state;
       state.D.status = 'success';
 
       // Iteration 4: complete
-      actions = nextActions(nodes, state);
-      expect(completeStatus(actions)).toBe('complete');
+      result = nextActions(nodes, state);
+      expect(completeStatus(result)).toBe('complete');
     });
   });
 
   describe('partial failure cascade', () => {
     it('succeeds some, skips downstream of failure', () => {
       const nodes = [makeNode('A'), makeNode('B'), makeNode('C', ['A']), makeNode('D', ['B'])];
-      const state: Record<string, NodeState> = {
+      let state: Record<string, NodeState> = {
         A: makeState('success'),
         B: makeState('failure', { attempt: 1, maxRetries: 1 }),
         C: makeState('blocked'),
         D: makeState('blocked'),
       };
 
-      nextActions(nodes, state);
-      expect(state.C.status).toBe('ready');
-      expect(state.D.status).toBe('skipped');
+      const result = nextActions(nodes, state);
+      expect(result.state.C.status).toBe('ready');
+      expect(result.state.D.status).toBe('skipped');
 
+      state = result.state;
       state.C.status = 'success';
-      const actions = nextActions(nodes, state);
-      expect(completeStatus(actions)).toBe('partial');
+      expect(completeStatus(nextActions(nodes, state))).toBe('partial');
     });
   });
 
@@ -265,34 +256,23 @@ describe('scheduler', () => {
 
   describe('deadlock detection', () => {
     it('deadlocks when no progress possible and no running nodes', () => {
-      // This shouldn't happen with valid DAGs, but the scheduler must detect it
       const nodes = [makeNode('A', ['B']), makeNode('B', ['A'])];
-      const state = {
-        A: makeState('blocked'),
-        B: makeState('blocked'),
-      };
+      const state = { A: makeState('blocked'), B: makeState('blocked') };
       expect(completeStatus(nextActions(nodes, state))).toBe('deadlock');
     });
 
     it('does not deadlock when nodes are running', () => {
       const nodes = [makeNode('A'), makeNode('B', ['A'])];
-      const state = {
-        A: makeState('running'),
-        B: makeState('blocked'),
-      };
-      const actions = nextActions(nodes, state);
-      expect(actions).toEqual([]); // waiting, not deadlocked
+      const state = { A: makeState('running'), B: makeState('blocked') };
+      const result = nextActions(nodes, state);
+      expect(result.actions).toEqual([]);
     });
   });
 
   describe('all-read-only (no branches)', () => {
     it('all nodes ready at start, all execute', () => {
       const nodes = [makeNode('A'), makeNode('B'), makeNode('C')];
-      const state = {
-        A: makeState('ready'),
-        B: makeState('ready'),
-        C: makeState('ready'),
-      };
+      const state = { A: makeState('ready'), B: makeState('ready'), C: makeState('ready') };
       expect(executeIds(nextActions(nodes, state)).sort()).toEqual(['A', 'B', 'C']);
     });
   });
@@ -304,18 +284,19 @@ describe('scheduler', () => {
         makeNode('verify:A', ['A'], 'verify'),
         makeNode('B', ['verify:A']),
       ];
-      const state: Record<string, NodeState> = {
+      let state: Record<string, NodeState> = {
         A: makeState('success'),
         'verify:A': makeState('blocked', { maxRetries: 3 }),
         B: makeState('blocked'),
       };
 
-      let actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual(['verify:A']);
+      let result = nextActions(nodes, state);
+      expect(executeIds(result)).toEqual(['verify:A']);
 
+      state = result.state;
       state['verify:A'].status = 'success';
-      actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual(['B']);
+      result = nextActions(nodes, state);
+      expect(executeIds(result)).toEqual(['B']);
     });
 
     it('verify retry works with maxRetries=3', () => {
@@ -323,25 +304,23 @@ describe('scheduler', () => {
       const state = {
         V: makeState('failure', { attempt: 1, maxRetries: 3, failureReason: 'verify_failed' }),
       };
-      const actions = nextActions(nodes, state);
-      expect(state.V.status).toBe('ready');
-      expect(executeIds(actions)).toEqual(['V']);
+      const result = nextActions(nodes, state);
+      expect(result.state.V.status).toBe('ready');
+      expect(executeIds(result)).toEqual(['V']);
     });
   });
 
   describe('resume from partial state', () => {
     it('skips success nodes, retries ready nodes', () => {
       const nodes = [makeNode('A'), makeNode('B'), makeNode('C', ['A', 'B'])];
-      // Simulates resume: A succeeded, B is ready (was running, reset by loadOrCreateState)
       const state = {
         A: makeState('success'),
         B: makeState('ready'),
         C: makeState('blocked'),
       };
-      const actions = nextActions(nodes, state);
-      expect(executeIds(actions)).toEqual(['B']);
-      // C stays blocked (B not yet success)
-      expect(state.C.status).toBe('blocked');
+      const result = nextActions(nodes, state);
+      expect(executeIds(result)).toEqual(['B']);
+      expect(result.state.C.status).toBe('blocked');
     });
   });
 
@@ -361,9 +340,9 @@ describe('scheduler', () => {
       const state = {
         A: makeState('failure', { attempt: 0, maxRetries: 2, failureReason: 'timeout' }),
       };
-      nextActions(nodes, state);
-      expect(state.A.status).toBe('ready');
-      expect(state.A.failureReason).toBeUndefined();
+      const result = nextActions(nodes, state);
+      expect(result.state.A.status).toBe('ready');
+      expect(result.state.A.failureReason).toBeUndefined();
     });
   });
 });

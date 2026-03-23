@@ -40,16 +40,18 @@ const FIX_VERIFY_PROMPT = `Verification failed in this worktree. Run the failing
 - Rust: \`cargo test -p scheduler\`
 Read the errors, fix the code, and commit. Do not enter plan mode — execute immediately.`;
 
-// ── Agent execution function type ───────────────────────────────────
+// ── Fix agent seam ──────────────────────────────────────────────────
 
 /**
- * Runs an agent with an inline prompt string (not a file path).
- * Used by fix agents for merge conflicts and verify failures.
+ * Narrow seam for fix agents — only exposes what handlers need.
+ * The pipeline runner constructs this from runAgentWithInlinePrompt.
  */
-export type RunAgentFn = (
-  opts: RunnerOptions,
-  inlinePrompt: string,
-  onEvent: AgentEventCallback
+export type FixAgentFn = (
+  prompt: string,
+  workdir: string,
+  logFile: string,
+  onEvent: AgentEventCallback,
+  model?: string
 ) => Promise<{ failed: boolean }>;
 
 // ── Handler factories ───────────────────────────────────────────────
@@ -58,42 +60,26 @@ const MAX_MERGE_ATTEMPTS = 3;
 
 export function createMergeHandler(
   gitOps: GitOps,
-  runAgent: RunAgentFn,
-  run: RunIdentity
+  fixAgent: FixAgentFn,
+  logDir: string
 ): Handlers['merge'] {
   return async (worktree, branch, onEvent) => {
     const result = gitOps.mergeBranch(worktree, branch);
     if (result !== 'conflict') return 'merged';
 
-    // Conflict — retry with escalating fix agents
+    const safeBranch = branch.replace(/\//g, '-');
     for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt++) {
-      const fixOpts: RunnerOptions = {
-        group: `fix-merge-${branch}-${attempt}`,
-        phase: run.phase,
-        workdir: worktree,
-        prompt: '__inline__',
-        logFile: path.join(
-          run.logDir,
-          `fix-merge-${branch.replace(/\//g, '-')}-attempt${attempt}.log`
-        ),
-        policy: 'default',
-        model: attempt >= 2 ? 'claude-opus-4-6' : undefined,
-      };
-      const fixResult = await runAgent(fixOpts, FIX_MERGE_PROMPT, onEvent);
+      const logFile = `${logDir}/fix-merge-${safeBranch}-attempt${attempt}.log`;
+      const model = attempt >= 2 ? 'claude-opus-4-6' : undefined;
+      const fixResult = await fixAgent(FIX_MERGE_PROMPT, worktree, logFile, onEvent, model);
 
-      if (!fixResult.failed) {
-        // Verify merge state is clean
-        if (gitOps.isMergeClean(worktree)) {
-          return 'merged';
-        }
-        // Fix agent didn't fully resolve — abort and retry
+      if (!fixResult.failed && gitOps.isMergeClean(worktree)) {
+        return 'merged';
       }
 
-      // Abort the merge to leave worktree clean for next attempt
       gitOps.mergeAbort(worktree);
 
       if (attempt < MAX_MERGE_ATTEMPTS - 1) {
-        // Re-attempt the merge (starts fresh)
         const retry = gitOps.mergeBranch(worktree, branch);
         if (retry !== 'conflict') return 'merged';
       }
@@ -104,8 +90,8 @@ export function createMergeHandler(
 
 export function createVerifyHandler(
   gitOps: GitOps,
-  runAgent: RunAgentFn,
-  run: RunIdentity
+  fixAgent: FixAgentFn,
+  logDir: string
 ): Handlers['verify'] {
   return async (node, worktree, onEvent) => {
     const level = node.level ?? 'full';
@@ -113,21 +99,12 @@ export function createVerifyHandler(
     const result = gitOps.verify(worktree, checks);
     if (result.passed) return { status: 'success' as const };
 
-    // Failure — spawn fix agent
-    const fixOpts: RunnerOptions = {
-      group: `fix-verify-${node.id}`,
-      phase: run.phase,
-      workdir: worktree,
-      prompt: '__inline__',
-      logFile: path.join(run.logDir, `fix-verify-${node.id}.log`),
-      policy: 'default',
-    };
-    const fixResult = await runAgent(fixOpts, FIX_VERIFY_PROMPT, onEvent);
+    const logFile = `${logDir}/fix-verify-${node.id}.log`;
+    const fixResult = await fixAgent(FIX_VERIFY_PROMPT, worktree, logFile, onEvent);
     if (fixResult.failed) {
       return { status: 'failure' as const, failureReason: 'verify_failed' as const };
     }
 
-    // Re-verify after fix
     const recheck = gitOps.verify(worktree, checks);
     return recheck.passed
       ? { status: 'success' as const }

@@ -1,21 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createMergeHandler, createVerifyHandler, type RunAgentFn } from '../handlers.js';
+import { createMergeHandler, createVerifyHandler, type FixAgentFn } from '../handlers.js';
 import type { GitOps } from '../git-ops.js';
-import type { DAGNode, RunIdentity, VerifyResult } from '../types.js';
+import type { DAGNode, VerifyResult } from '../types.js';
 
 // ── Mock factories ──────────────────────────────────────────────────
 
-function mockRunIdentity(): RunIdentity {
-  return {
-    phase: 'test',
-    baseRef: 'abc123',
-    suffix: '12345678',
-    mergeTarget: 'feature/test',
-    logDir: '/tmp/test-logs',
-    launchDir: '/tmp/test-launch',
-    configPath: 'config.yaml',
-  };
-}
+const LOG_DIR = '/tmp/test-logs';
 
 function mockGitOps(overrides: Partial<GitOps> = {}): GitOps {
   return {
@@ -41,7 +31,7 @@ function mockGitOps(overrides: Partial<GitOps> = {}): GitOps {
   };
 }
 
-function mockRunAgent(behavior: 'succeed' | 'fail' = 'succeed'): RunAgentFn {
+function mockFixAgent(behavior: 'succeed' | 'fail' = 'succeed'): FixAgentFn {
   return vi.fn().mockResolvedValue({ failed: behavior === 'fail' });
 }
 
@@ -50,7 +40,7 @@ function mockRunAgent(behavior: 'succeed' | 'fail' = 'succeed'): RunAgentFn {
 describe('merge handler', () => {
   it('returns merged on clean merge (no conflict)', async () => {
     const gitOps = mockGitOps();
-    const handler = createMergeHandler(gitOps, mockRunAgent(), mockRunIdentity());
+    const handler = createMergeHandler(gitOps, mockFixAgent(), LOG_DIR);
 
     const result = await handler('/tmp/wt', 'feature/test', () => {});
     expect(result).toBe('merged');
@@ -61,7 +51,7 @@ describe('merge handler', () => {
     const gitOps = mockGitOps({
       mergeBranch: vi.fn().mockReturnValue('up-to-date' as const),
     });
-    const handler = createMergeHandler(gitOps, mockRunAgent(), mockRunIdentity());
+    const handler = createMergeHandler(gitOps, mockFixAgent(), LOG_DIR);
 
     const result = await handler('/tmp/wt', 'feature/test', () => {});
     expect(result).toBe('merged');
@@ -70,103 +60,97 @@ describe('merge handler', () => {
   it('resolves conflict with fix agent on first attempt', async () => {
     const mergeFn = vi
       .fn()
-      .mockReturnValueOnce('conflict' as const) // initial merge
-      .mockReturnValueOnce('merged' as const); // not reached (fix agent succeeds)
+      .mockReturnValueOnce('conflict' as const)
+      .mockReturnValueOnce('merged' as const);
     const gitOps = mockGitOps({ mergeBranch: mergeFn });
-    const runAgent = mockRunAgent('succeed');
-    const handler = createMergeHandler(gitOps, runAgent, mockRunIdentity());
+    const fixAgent = mockFixAgent('succeed');
+    const handler = createMergeHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler('/tmp/wt', 'feature/test', () => {});
     expect(result).toBe('merged');
-    expect(runAgent).toHaveBeenCalledOnce();
+    expect(fixAgent).toHaveBeenCalledOnce();
   });
 
   it('retries with escalation after fix agent failure', async () => {
     const mergeFn = vi
       .fn()
-      .mockReturnValueOnce('conflict' as const) // initial
-      .mockReturnValueOnce('conflict' as const) // re-merge after attempt 0 fail
-      .mockReturnValueOnce('conflict' as const); // re-merge after attempt 1 fail
+      .mockReturnValueOnce('conflict' as const)
+      .mockReturnValueOnce('conflict' as const)
+      .mockReturnValueOnce('conflict' as const);
     const gitOps = mockGitOps({ mergeBranch: mergeFn });
-    const runAgent = vi
+    const fixAgent = vi
       .fn()
-      .mockResolvedValueOnce({ failed: true }) // attempt 0: fail
-      .mockResolvedValueOnce({ failed: true }) // attempt 1: fail
-      .mockResolvedValueOnce({ failed: false }); // attempt 2 (opus): succeed
-    const handler = createMergeHandler(gitOps, runAgent, mockRunIdentity());
+      .mockResolvedValueOnce({ failed: true })
+      .mockResolvedValueOnce({ failed: true })
+      .mockResolvedValueOnce({ failed: false });
+    const handler = createMergeHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler('/tmp/wt', 'feature/test', () => {});
     expect(result).toBe('merged');
-    expect(runAgent).toHaveBeenCalledTimes(3);
+    expect(fixAgent).toHaveBeenCalledTimes(3);
 
-    // Verify final attempt uses opus model
-    const lastCallOpts = runAgent.mock.calls[2][0];
-    expect(lastCallOpts.model).toBe('claude-opus-4-6');
+    // Verify final attempt uses opus model (5th arg)
+    const lastCall = fixAgent.mock.calls[2];
+    expect(lastCall[4]).toBe('claude-opus-4-6');
   });
 
   it('returns failed after all 3 fix agents fail', async () => {
     const mergeFn = vi.fn().mockReturnValue('conflict' as const);
     const gitOps = mockGitOps({ mergeBranch: mergeFn });
-    const runAgent = vi.fn().mockResolvedValue({ failed: true });
-    const handler = createMergeHandler(gitOps, runAgent, mockRunIdentity());
+    const fixAgent = vi.fn().mockResolvedValue({ failed: true });
+    const handler = createMergeHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler('/tmp/wt', 'feature/test', () => {});
     expect(result).toBe('failed');
-    expect(runAgent).toHaveBeenCalledTimes(3);
+    expect(fixAgent).toHaveBeenCalledTimes(3);
   });
 
   it('returns merged if conflict resolves upstream between attempts', async () => {
     const mergeFn = vi
       .fn()
-      .mockReturnValueOnce('conflict' as const) // initial
-      .mockReturnValueOnce('merged' as const); // re-merge after abort — conflict gone
+      .mockReturnValueOnce('conflict' as const)
+      .mockReturnValueOnce('merged' as const);
     const gitOps = mockGitOps({ mergeBranch: mergeFn });
-    const runAgent = vi.fn().mockResolvedValue({ failed: true }); // fix agent fails
-    const handler = createMergeHandler(gitOps, runAgent, mockRunIdentity());
+    const fixAgent = vi.fn().mockResolvedValue({ failed: true });
+    const handler = createMergeHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler('/tmp/wt', 'feature/test', () => {});
     expect(result).toBe('merged');
-    expect(runAgent).toHaveBeenCalledOnce(); // only first attempt before re-merge succeeds
+    expect(fixAgent).toHaveBeenCalledOnce();
   });
 
   it('aborts and retries when fix agent succeeds but merge not clean', async () => {
     const mergeFn = vi
       .fn()
-      .mockReturnValueOnce('conflict' as const) // initial
-      .mockReturnValueOnce('conflict' as const); // re-merge after abort
+      .mockReturnValueOnce('conflict' as const)
+      .mockReturnValueOnce('conflict' as const);
     const gitOps = mockGitOps({
       mergeBranch: mergeFn,
-      isMergeClean: vi
-        .fn()
-        .mockReturnValueOnce(false) // first fix succeeded but merge dirty
-        .mockReturnValueOnce(true), // second fix clean
+      isMergeClean: vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true),
     });
-    const runAgent = vi.fn().mockResolvedValue({ failed: false });
-    const handler = createMergeHandler(gitOps, runAgent, mockRunIdentity());
+    const fixAgent = vi.fn().mockResolvedValue({ failed: false });
+    const handler = createMergeHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler('/tmp/wt', 'feature/test', () => {});
     expect(result).toBe('merged');
-    expect(runAgent).toHaveBeenCalledTimes(2);
-    expect(gitOps.mergeAbort).toHaveBeenCalledTimes(1); // aborted after first dirty
+    expect(fixAgent).toHaveBeenCalledTimes(2);
+    expect(gitOps.mergeAbort).toHaveBeenCalledTimes(1);
   });
 
   it('forwards events to onEvent callback', async () => {
     const gitOps = mockGitOps({
       mergeBranch: vi.fn().mockReturnValue('conflict' as const),
     });
-    const events: unknown[] = [];
-    const onEvent = vi.fn((e: unknown) => events.push(e));
-    const runAgent: RunAgentFn = vi.fn(async (_opts, _prompt, cb) => {
+    const onEvent = vi.fn();
+    const fixAgent: FixAgentFn = vi.fn(async (_prompt, _workdir, _logFile, cb) => {
       cb({ type: 'turn', turn: 1 });
       return { failed: false };
     });
-    const handler = createMergeHandler(gitOps, runAgent, mockRunIdentity());
+    const handler = createMergeHandler(gitOps, fixAgent, LOG_DIR);
 
     await handler('/tmp/wt', 'feature/test', onEvent);
-    // The onEvent passed to handler is forwarded to the fix agent
-    expect(runAgent).toHaveBeenCalled();
-    const passedCallback = (runAgent as ReturnType<typeof vi.fn>).mock.calls[0][2];
-    expect(passedCallback).toBe(onEvent);
+    // The onEvent passed to handler is forwarded to the fix agent (4th arg)
+    expect((fixAgent as ReturnType<typeof vi.fn>).mock.calls[0][3]).toBe(onEvent);
   });
 });
 
@@ -181,7 +165,7 @@ describe('verify handler', () => {
 
   it('returns success when checks pass', async () => {
     const gitOps = mockGitOps();
-    const handler = createVerifyHandler(gitOps, mockRunAgent(), mockRunIdentity());
+    const handler = createVerifyHandler(gitOps, mockFixAgent(), LOG_DIR);
 
     const result = await handler(verifyNode, '/tmp/wt', () => {});
     expect(result.status).toBe('success');
@@ -191,7 +175,7 @@ describe('verify handler', () => {
   it('uses quick checks when level is quick', async () => {
     const gitOps = mockGitOps();
     const quickNode: DAGNode = { ...verifyNode, level: 'quick' };
-    const handler = createVerifyHandler(gitOps, mockRunAgent(), mockRunIdentity());
+    const handler = createVerifyHandler(gitOps, mockFixAgent(), LOG_DIR);
 
     await handler(quickNode, '/tmp/wt', () => {});
     expect(gitOps.verify).toHaveBeenCalledWith('/tmp/wt', {
@@ -216,12 +200,12 @@ describe('verify handler', () => {
         fixAttempts: 0,
       } satisfies VerifyResult);
     const gitOps = mockGitOps({ verify: verifyFn });
-    const runAgent = mockRunAgent('succeed');
-    const handler = createVerifyHandler(gitOps, runAgent, mockRunIdentity());
+    const fixAgent = mockFixAgent('succeed');
+    const handler = createVerifyHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler(verifyNode, '/tmp/wt', () => {});
     expect(result.status).toBe('success');
-    expect(runAgent).toHaveBeenCalledOnce();
+    expect(fixAgent).toHaveBeenCalledOnce();
     expect(verifyFn).toHaveBeenCalledTimes(2);
   });
 
@@ -233,8 +217,8 @@ describe('verify handler', () => {
         fixAttempts: 0,
       } satisfies VerifyResult),
     });
-    const runAgent = mockRunAgent('fail');
-    const handler = createVerifyHandler(gitOps, runAgent, mockRunIdentity());
+    const fixAgent = mockFixAgent('fail');
+    const handler = createVerifyHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler(verifyNode, '/tmp/wt', () => {});
     expect(result.status).toBe('failure');
@@ -248,13 +232,13 @@ describe('verify handler', () => {
       fixAttempts: 0,
     } satisfies VerifyResult);
     const gitOps = mockGitOps({ verify: verifyFn });
-    const runAgent = mockRunAgent('succeed');
-    const handler = createVerifyHandler(gitOps, runAgent, mockRunIdentity());
+    const fixAgent = mockFixAgent('succeed');
+    const handler = createVerifyHandler(gitOps, fixAgent, LOG_DIR);
 
     const result = await handler(verifyNode, '/tmp/wt', () => {});
     expect(result.status).toBe('failure');
     expect(result.failureReason).toBe('verify_failed');
-    expect(verifyFn).toHaveBeenCalledTimes(2); // initial + re-check
+    expect(verifyFn).toHaveBeenCalledTimes(2);
   });
 
   it('forwards events to onEvent callback', async () => {
@@ -266,13 +250,13 @@ describe('verify handler', () => {
       } satisfies VerifyResult),
     });
     const onEvent = vi.fn();
-    const runAgent: RunAgentFn = vi.fn(async (_opts, _prompt, cb) => {
+    const fixAgent: FixAgentFn = vi.fn(async (_prompt, _workdir, _logFile, cb) => {
       cb({ type: 'turn', turn: 1 });
       return { failed: false };
     });
-    const handler = createVerifyHandler(gitOps, runAgent, mockRunIdentity());
+    const handler = createVerifyHandler(gitOps, fixAgent, LOG_DIR);
 
     await handler(verifyNode, '/tmp/wt', onEvent);
-    expect((runAgent as ReturnType<typeof vi.fn>).mock.calls[0][2]).toBe(onEvent);
+    expect((fixAgent as ReturnType<typeof vi.fn>).mock.calls[0][3]).toBe(onEvent);
   });
 });

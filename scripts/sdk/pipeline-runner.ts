@@ -139,7 +139,6 @@ function createWriteQueue(): { enqueue: (fn: () => void) => Promise<void> } {
 
 export interface PipelineOptions {
   maxParallel: number;
-  stallThresholdSeconds?: number;
 }
 
 export async function runPipeline(
@@ -187,30 +186,30 @@ export async function runPipeline(
 
   // ── Two-phase main loop ─────────────────────────────────────────
   while (!aborted) {
-    const actions = nextActions(dag, state.nodes);
+    const scheduled = nextActions(dag, state.nodes);
+    // Apply scheduler's state transitions (pure — returns new state, doesn't mutate input)
+    state.nodes = scheduled.state;
 
-    const done = actions.find((a) => a.type === 'complete');
+    const done = scheduled.actions.find((a) => a.type === 'complete');
     if (done) {
       state.status = done.status as PipelineStatus;
       break;
     }
 
-    const batch = actions
+    // Separate verify (Phase 1, serial) from agents (Phase 2, parallel).
+    // Verify nodes don't count against maxParallel.
+    const executeActions = scheduled.actions
       .filter((a) => a.type === 'execute')
       .map((a) => dag.find((n) => n.id === (a as { nodeId: string }).nodeId)!)
-      .filter((n) => !running.has(n.id))
+      .filter((n) => !running.has(n.id));
+
+    const verifyBatch = executeActions.filter((n) => n.type === 'verify');
+    const agentBatch = executeActions
+      .filter((n) => n.type === 'agent')
       .slice(0, options.maxParallel - running.size);
 
-    // Transition retry-eligible nodes from failure → ready
-    for (const node of batch) {
-      if (state.nodes[node.id].status === 'failure') {
-        state.nodes[node.id].status = 'ready';
-        state.nodes[node.id].failureReason = undefined;
-      }
-    }
-
     // ── Phase 1: Serial merge-worktree operations ─────────────────
-    for (const node of batch) {
+    for (const node of [...verifyBatch, ...agentBatch]) {
       // Merge unmerged dependency branches
       const unmerged = node.dependsOn
         .map((id) => findBranchForDep(dag, id))
@@ -248,9 +247,8 @@ export async function runPipeline(
     }
 
     // ── Phase 2: Parallel agent dispatch ──────────────────────────
-    for (const node of batch) {
-      if (node.type !== 'agent') continue;
-      if (state.nodes[node.id].status === 'failure') continue;
+    for (const node of agentBatch) {
+      if (state.nodes[node.id].status === 'failure') continue; // failed in Phase 1 (merge)
       if (running.has(node.id)) continue;
 
       state.nodes[node.id].status = 'running';
@@ -281,8 +279,10 @@ export async function runPipeline(
         }
 
         observer.onNodeComplete(node.id, state.nodes[node.id]);
-        await stateWriteQueue.enqueue(() => saveState(statePath, state));
+        // Delete from running BEFORE async enqueue — prevents off-by-one
+        // in maxParallel calculation on next iteration
         running.delete(node.id);
+        await stateWriteQueue.enqueue(() => saveState(statePath, state));
       })();
 
       running.set(node.id, promise);

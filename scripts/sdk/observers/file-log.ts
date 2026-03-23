@@ -77,10 +77,6 @@ export function createFileLogObserver(logDir: string): Observer {
       );
     },
 
-    onStall(id: string, idleSeconds: number): void {
-      pipelineLog(`STALL: ${id} idle for ${idleSeconds}s`);
-    },
-
     onPipelineComplete(state: PipelineState): void {
       const nodeStats = Object.values(state.nodes);
       const success = nodeStats.filter((n) => n.status === 'success').length;

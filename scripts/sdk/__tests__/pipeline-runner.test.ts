@@ -67,7 +67,6 @@ function mockObserver(): Observer {
     onNodeComplete: vi.fn(),
     onMerge: vi.fn(),
     onVerify: vi.fn(),
-    onStall: vi.fn(),
     onPipelineComplete: vi.fn(),
   };
 }

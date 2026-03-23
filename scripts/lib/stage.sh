@@ -119,20 +119,26 @@ run_parallel_stage() {
     local group="${rps_groups[$i]}"
     local branch="${rps_branches[$i]}"
 
-    local worktree
-    worktree=$(setup_worktree "$group" "$branch")
-    if [[ $? -ne 0 ]]; then
-      err "${group}: worktree setup failed — skipping"
-      setup_failures=$((setup_failures + 1))
-      continue
+    local workdir
+    if [[ -z "$branch" ]]; then
+      # Read-only group — no worktree, share the orchestrator's directory
+      workdir="${_LAUNCH_DIR:-.}"
+      log "${group}: read-only (shared CWD: ${workdir})"
+    else
+      workdir=$(setup_worktree "$group" "$branch")
+      if [[ $? -ne 0 ]]; then
+        err "${group}: worktree setup failed — skipping"
+        setup_failures=$((setup_failures + 1))
+        continue
+      fi
     fi
 
-    run_agent "$group" "$worktree" &
+    run_agent "$group" "$workdir" &
     local agent_pid=$!
     pids+=($agent_pid)
     groups_list+=("$group")
 
-    monitor_agent "$agent_pid" "$worktree" "$group" &
+    monitor_agent "$agent_pid" "$workdir" "$group" &
     monitor_pids+=($!)
 
     log "${group} launched (PID: ${agent_pid})"

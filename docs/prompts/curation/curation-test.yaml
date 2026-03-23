@@ -6,19 +6,15 @@ merge_target: curation/run  # overridden by _USER_MERGE_TARGET env var
 
 stages:
   # ── Stage 1: Review ──────────────────────────────────────────────
-  # 5 reviewers for multi-agent-orchestration skill
+  # 5 reviewers — read-only, no branch/worktree needed (shared CWD).
+  # Output goes to ${LOG_DIR}/reviews/{skill}/{angle}.md via SDK runner.
   - name: "Review"
     groups:
       - id: multi-agent-orchestration-accuracy
-        branch: curation/multi-agent-orchestration-accuracy
       - id: multi-agent-orchestration-structure
-        branch: curation/multi-agent-orchestration-structure
       - id: multi-agent-orchestration-scope
-        branch: curation/multi-agent-orchestration-scope
       - id: multi-agent-orchestration-history
-        branch: curation/multi-agent-orchestration-history
       - id: multi-agent-orchestration-adversarial
-        branch: curation/multi-agent-orchestration-adversarial
 
   # ── Stage 2: Curate ─────────────────────────────────────────────
   # 1 curator reads all 5 reviewer reports from disk, rewrites skill

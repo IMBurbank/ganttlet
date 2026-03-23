@@ -148,6 +148,8 @@ cleanup_worktrees() {
   for i in "${!_groups[@]}"; do
     local group="${_groups[$i]}"
     local branch="${_branches[$i]}"
+    # Skip read-only groups (no branch = no worktree)
+    [[ -z "$branch" ]] && continue
     local worktree="${WORKTREE_BASE}/${branch//\//-}"
     if [[ -d "$worktree" ]]; then
       rm -rf "$worktree"

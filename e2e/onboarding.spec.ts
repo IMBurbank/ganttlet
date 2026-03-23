@@ -73,7 +73,7 @@ test.describe('Journey 3: Return visitor → recent sheets', () => {
     });
 
     await app.signIn();
-    await expect(app.choosePathHeading).toBeVisible({ timeout: 10_000 });
+    await expect(app.mainHeading).toBeVisible({ timeout: 10_000 });
     await expect(app.recentProjects).toBeVisible();
     await expect(app.page.getByText('Q2 Planning', { exact: true })).toBeVisible();
     await expect(app.page.getByText('Sprint Board', { exact: true })).toBeVisible();

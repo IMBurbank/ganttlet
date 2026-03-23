@@ -12,7 +12,7 @@ test.describe('Cloud E2E @cloud', () => {
   test('signed-in user sees ChoosePath', async ({ createCloudPage }) => {
     const { page: app } = await createCloudPage('/');
     await app.signIn();
-    await expect(app.choosePathHeading).toBeVisible({ timeout: 10_000 });
+    await expect(app.mainHeading).toBeVisible({ timeout: 10_000 });
   });
 
   test('collaborator signs in and sheet data loads', async ({ sheetPage: gantt }) => {
@@ -23,8 +23,9 @@ test.describe('Cloud E2E @cloud', () => {
     await expect(gantt.sheetTitle).toBeVisible({ timeout: 30_000 });
     await expect(gantt.shareButton).toBeVisible();
 
-    await test.step('click share button', async () => {
+    await test.step('click share button (no-crash smoke check)', async () => {
       await gantt.shareButton.click();
+      // Share copies URL to clipboard — no modal to assert. Verify app didn't crash.
       await expect(gantt.taskBars.first()).toBeVisible();
     });
   });
@@ -42,7 +43,7 @@ test.describe('Cloud E2E @cloud', () => {
     });
 
     await test.step('verify return to WelcomeGate', async () => {
-      await expect(gantt.choosePathHeading).toBeVisible({ timeout: 10_000 });
+      await expect(gantt.mainHeading).toBeVisible({ timeout: 10_000 });
       expect(gantt.page.url()).not.toContain('sheet=');
     });
   });

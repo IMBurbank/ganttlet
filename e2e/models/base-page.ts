@@ -56,7 +56,8 @@ export class BasePage {
     return this.collaboratorWelcome.getByRole('heading', { name: /invited to collaborate/ });
   }
 
-  get choosePathHeading(): Locator {
+  /** Any h1 heading — used to detect post-sign-in screen (ChoosePath or ReturnVisitor). */
+  get mainHeading(): Locator {
     return this.page.getByRole('heading', { level: 1 });
   }
 

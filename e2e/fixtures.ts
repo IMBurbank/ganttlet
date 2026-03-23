@@ -84,7 +84,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const app = new BasePage(rawPage);
     await app.gotoAuthenticated('/');
     await app.signIn();
-    await app.choosePathHeading.waitFor({ timeout: 10_000 });
+    await app.mainHeading.waitFor({ timeout: 10_000 });
     await use(app);
   },
 

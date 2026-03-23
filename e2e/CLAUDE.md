@@ -25,8 +25,9 @@ Instantiate models, manage lifecycle. Use model methods for setup — no raw loc
 Use model properties and methods exclusively. The only acceptable `.page.` escapes are:
 - `page.url()` for URL assertions
 - `page.evaluate()` for SVG drag sequences (table panel overlaps SVG)
-- `page.on()` for error listeners
+- `page.on()` for error/console listeners
 - `page.getByText()` for dynamic test data (not reusable locators)
+- `page.getByTestId()` for dynamic template card IDs (e.g., `template-card-${id}`)
 
 ## Locator Rules
 

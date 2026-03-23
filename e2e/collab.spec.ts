@@ -50,7 +50,7 @@ test.describe('Collaboration E2E @collab', () => {
         const popover = new PopoverModel(collabPair.pageB.page);
         await popover.container.waitFor({ timeout: 3_000 });
         const val = await popover.constraintType.inputValue();
-        await collabPair.pageB.page.keyboard.press('Escape');
+        await popover.dismiss();
         expect(val).toBe('SNET');
       }).toPass({ timeout: 15_000 });
     });

@@ -48,10 +48,15 @@ export class PopoverModel {
     }
   }
 
-  /** Close the popover by pressing Escape. */
+  /** Close the popover and assert it's hidden. */
   async close(): Promise<void> {
     await this.page.keyboard.press('Escape');
     await expect(this.container).toBeHidden();
+  }
+
+  /** Dismiss the popover without asserting hidden (for use inside toPass loops). */
+  async dismiss(): Promise<void> {
+    await this.page.keyboard.press('Escape');
   }
 }
 
@@ -181,12 +186,23 @@ export class GanttPage extends BasePage {
     return editor;
   }
 
+  /**
+   * Open dep editor when multiple buttons match the pattern.
+   * Uses .first() to avoid strict mode — for ambiguous post-edit states.
+   */
+  async openDepEditorFirst(pattern: RegExp): Promise<DepEditorModel> {
+    await this.page.getByRole('button').filter({ hasText: pattern }).first().click();
+    const editor = new DepEditorModel(this.page);
+    await editor.container.waitFor({ timeout: 5_000 });
+    return editor;
+  }
+
   async toggleCriticalPath(): Promise<void> {
-    await this.page.getByRole('button', { name: 'Critical Path' }).click();
+    await this.criticalPathButton.click();
   }
 
   async selectScope(name: string): Promise<void> {
-    await this.page.getByRole('button', { name: 'Scope' }).click();
+    await this.scopeButton.click();
     await this.page.getByRole('button', { name }).click();
   }
 }

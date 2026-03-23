@@ -640,6 +640,39 @@ await gitOps.ensureWasm(run.launchDir);
 their transitive dependencies, and any auto-inserted verify nodes. Implementation:
 reverse walk from specified group IDs, collecting all `dependsOn` transitively.
 
+### 8. Orchestrator Pattern
+
+The pipeline is designed to be launched and monitored by an orchestrator agent
+(or admin) who stays interactive while the pipeline runs autonomously.
+
+**Launch:** The orchestrator starts the pipeline in the background:
+```bash
+npx tsx scripts/sdk/pipeline-runner.ts config.yaml &
+```
+
+**Monitor:** The orchestrator queries state without blocking:
+```bash
+# Current status of all groups
+cat /tmp/ganttlet-logs/{phase}-{suffix}/pipeline-state.json | jq '.nodes | to_entries[] | "\(.key): \(.value.status)"'
+
+# What's the curator doing right now?
+tail -20 /tmp/ganttlet-logs/{phase}-{suffix}/multi-agent-orchestration-attempt1.log
+
+# How many turns has the accuracy reviewer used?
+grep -c '^\[turn' /tmp/ganttlet-logs/{phase}-{suffix}/multi-agent-orchestration-accuracy-attempt1.log
+
+# Did any groups fail?
+cat pipeline-state.json | jq '[.nodes | to_entries[] | select(.value.status == "failure")] | length'
+```
+
+**Respond to user questions:** The orchestrator reads state and logs to answer
+questions like "how's it going?", "what's taking so long?", "did the curator
+find the reviewer reports?" — without interrupting the pipeline.
+
+**The orchestrator doesn't intervene.** The pipeline handles its own failures
+(fix agents for merge conflicts and verify failures). The orchestrator reports
+status and results. The first human action is reviewing the PR.
+
 ### CLI Entry Point (~40 lines)
 
 ```bash

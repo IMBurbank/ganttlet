@@ -98,7 +98,9 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
           maxBudgetUsd: fixRemainingBudget,
           model: policy.attempts[action.attemptIndex].model,
           agent: options.agent,
-          logFile: options.logFile,
+          logFile: options.logFile
+            ? `${options.logFile.replace(/\.log$/, '')}-attempt${attemptIndex + 1}-fix.log`
+            : undefined,
         });
         outputFixAttempted = true; // Only mark after fix call completes
         cumulativeCostUsd += fixResult.costUsd;
@@ -175,7 +177,9 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         effort: attemptConfig.effort,
         maxBudgetUsd: remainingBudget,
         agent: options.agent,
-        logFile: options.logFile,
+        logFile: options.logFile
+          ? `${options.logFile.replace(/\.log$/, '')}-attempt${attemptIndex + 1}.log`
+          : undefined,
       });
 
       cumulativeCostUsd += callResult.costUsd;

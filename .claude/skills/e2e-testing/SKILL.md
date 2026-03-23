@@ -37,6 +37,23 @@ then starts the binary and waits for port 4000 before running tests.
 
 **Never use bare `npm run e2e` as final check** — collab tests skip silently.
 
+## CI Workflow (`e2e.yml`)
+
+**Auto-triggers**: pushes to `main`, PRs targeting `main` (every push to a PR branch triggers a run).
+
+**Attestation skip**: If a commit SHA already has an `e2e-verified` status, the workflow skips test execution and re-posts the status. This avoids redundant runs but means `gh workflow run` on an already-attested SHA does nothing.
+
+**Force a real run**: `gh workflow run e2e.yml --ref <branch> -f force=true`
+
+**Verify tests actually ran** (not just attested):
+```bash
+gh run view <run-id> --log | grep "passed"
+# Real run: "40 passed (42.4s)"
+# Attested skip: no "passed" line, just "E2E already verified"
+```
+
+**Test count in CI**: 40 tests (29 local + 11 cloud/collab with SA keys).
+
 ## Mock Auth Pattern
 E2E tests use a synthetic Google Identity Services (GIS) mock for auth:
 

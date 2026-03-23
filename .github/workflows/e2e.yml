@@ -2,6 +2,11 @@ name: E2E Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force run even if already attested'
+        type: boolean
+        default: false
   push:
     branches: [main]
   pull_request:
@@ -29,6 +34,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA=${{ github.event.pull_request.head.sha || github.sha }}
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          if [[ "$FORCE" == "true" ]]; then
+            echo "Force flag set — running E2E regardless of attestation"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           COUNT=$(gh api "repos/${{ github.repository }}/commits/$SHA/statuses" \
             --jq '[.[] | select(.context == "e2e-verified" and .state == "success")] | length' \
             2>/dev/null || echo "0")

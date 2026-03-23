@@ -353,25 +353,42 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
     if (msg.type === 'system' && msg.subtype === 'init' && !sessionId) {
       sessionId = msg.session_id as string;
     }
-    // Log stream events to the log file for monitoring/debugging
+    // Log stream events to the log file for monitoring/debugging.
+    // Full text is preserved — orchestrators need to read content for
+    // correctness checks, not just confirm liveness.
     if (opts.logFile) {
       if (msg.type === 'assistant') {
         const content = (
-          msg as { message?: { content?: Array<{ type: string; name?: string; text?: string }> } }
+          msg as {
+            message?: {
+              content?: Array<{
+                type: string;
+                name?: string;
+                text?: string;
+                input?: Record<string, unknown>;
+              }>;
+            };
+          }
         ).message?.content;
         if (content) {
           for (const block of content) {
             if (block.type === 'tool_use') {
-              fs.appendFileSync(opts.logFile, `[tool] ${block.name}\n`);
+              const input = (block as { input?: Record<string, unknown> }).input;
+              const path = input?.file_path ?? input?.command ?? '';
+              const pathStr = typeof path === 'string' ? path.substring(0, 200) : '';
+              fs.appendFileSync(
+                opts.logFile,
+                `[tool] ${block.name}${pathStr ? ' ' + pathStr : ''}\n`
+              );
             } else if (block.type === 'text' && block.text) {
-              fs.appendFileSync(opts.logFile, `[text] ${block.text.substring(0, 200)}\n`);
+              fs.appendFileSync(opts.logFile, `[text] ${block.text}\n`);
             }
           }
         }
       } else if (msg.type === 'tool_use_summary') {
         fs.appendFileSync(
           opts.logFile,
-          `[summary] ${(msg as { summary?: string }).summary?.substring(0, 200)}\n`
+          `[summary] ${(msg as { summary?: string }).summary ?? ''}\n`
         );
       }
     }

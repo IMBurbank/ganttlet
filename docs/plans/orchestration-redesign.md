@@ -29,6 +29,7 @@ These are not individual bugs — they're symptoms of the wrong abstractions.
 5. **DAG, not stages.** Groups declare dependencies. The scheduler runs groups when their dependencies are met. Stages are syntactic sugar.
 6. **Bash does bash things.** Git operations, builds, file copying — called via typed interface from TypeScript.
 7. **No new dependencies.** All new code uses Node built-ins and existing project deps only.
+8. **No human in the loop until PR.** The pipeline runs autonomously. Merge conflicts get fix agents. Verify failures get fix agents. Partial failures produce a PR that reports what worked and what didn't. The first human touchpoint is the PR review — not the pipeline itself. `--watch` is read-only observability, not intervention.
 
 ## Architecture
 
@@ -488,10 +489,11 @@ Implementations:
   - `[tool] ToolName /path/to/file` — tool name + first relevant input field
   - `[text] Full agent text output` — complete, not truncated
   - `[result] status turns=N cost=$X.XX` — final summary
-- **TmuxObserver** (~120 lines): renders events to tmux panes. Admin attaches to watch.
-  Creates one window per running group. Shows status summary in first window.
-  Must have unit tests for state management and string formatting logic — only
-  tmux rendering itself is manual-test-only.
+- **TmuxObserver** (~120 lines): renders events to tmux panes. Read-only — admin can
+  attach to observe progress but the pipeline doesn't accept input or pause for
+  intervention. Creates one window per running group. Shows status summary in first
+  window. Must have unit tests for state management and string formatting logic —
+  only tmux rendering itself is manual-test-only.
 - **StdoutObserver** (~30 lines): summary lines for CI. Exit code reflects status.
 
 All three observe the same execution from agent-runner's `includePartialMessages` stream.
@@ -763,19 +765,20 @@ needs to be in a wrapper file.
 
 ### Merge conflict (infrastructure failure)
 - `mergeIfNeeded` detects conflict, spawns fix agent to resolve in merge worktree
-- Fix agent has access to the merge worktree and both branches
-- Retry up to `MERGE_FIX_RETRIES` (default 3)
-- If fix agent succeeds → merge proceeds, agent starts
-- If fix agent fails → the downstream agent is marked `failure(merge_conflict)`
-- Further downstream nodes → `skipped(dependency)`
-- Resume: human resolves conflict in merge worktree, `--resume` retries
+- Fix agent has access to the merge worktree, both branches, and the conflict markers
+- Retry up to `MERGE_FIX_RETRIES` (default 3) — each retry is a fresh fix agent attempt
+- If fix agent succeeds → merge proceeds, downstream agent starts
+- If fix agent exhausts retries → downstream agent marked `failure(merge_conflict)`,
+  further downstream nodes → `skipped(dependency)`. Pipeline completes as `partial`.
+  The PR reports the unresolvable conflict with the specific files and branches.
 
 ### Verify failure
 - Verify node detects tsc/vitest/cargo failure, spawns fix agent
 - Fix agent edits code in the merge worktree to resolve build issues
 - Retry up to `maxRetries` (default 3)
-- If unfixable: verify node marked `failure(verify_failed)`
-- Downstream agent nodes → `skipped(dependency)`
+- If fix agent succeeds → verify node marked `success`, downstream unblocked
+- If fix agent exhausts retries → verify node marked `failure(verify_failed)`.
+  The PR reports the specific build failures that couldn't be auto-fixed.
 
 ### Pipeline crash (Node process dies)
 - State file written after each node completion (via serialized write queue)
@@ -793,18 +796,33 @@ needs to be in a wrapper file.
   not just parent — prevents orphaned subprocesses)
 - State saved with running nodes marked `failure(timeout)` before exit
 
+### Pipeline completion → PR
+The pipeline always ends with a PR, regardless of outcome:
+- **All success:** PR with full summary, all changes, ready for review
+- **Partial:** PR with what succeeded + detailed report of what failed and why.
+  The PR body includes: which groups completed, which failed, failure reasons,
+  fix agent attempts, and specific errors. Reviewer can assess whether the
+  successful work is mergeable independently.
+- **All failed:** No PR. State file and logs contain the full diagnostic.
+
+The PR is the handoff to human review. Everything before the PR is autonomous.
+
 ### Retry with no waste
 ```bash
 # First run — curator fails
 $ npx tsx pipeline-runner.ts config.yaml
 # State: 5 reviewers=success, curator=failure
+# No PR (or partial PR depending on config)
 
-# Fix issue, resume — only retries curator
+# Fix the underlying issue (prompt, config, code)
+# Resume — skips succeeded reviewers, retries curator only
 $ npx tsx pipeline-runner.ts config.yaml --resume
 # State: 5 reviewers=success(skipped), curator=success
+# PR created with full results
 ```
 
 No `generate-retry-config.sh`. No manual cleanup. No re-running succeeded groups.
+No human intervention during execution.
 
 ## What Changes
 

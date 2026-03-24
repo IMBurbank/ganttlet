@@ -931,6 +931,38 @@ All public interfaces use patterns that allow evolution without breaking consume
 - **Engine events**: new event types added to union. Old observers ignore via default case.
 - **ExecutionContext**: new optional fields. Old executors don't see them, don't break.
 
+## Security
+
+**File permissions:** `.agent-engine/.env` created as 600 (owner only).
+`logs/` directory as 700. `engine init` sets these. Engine never creates
+sensitive files as world-readable.
+
+**Credential masking:** Engine never logs credential VALUES — only names
+and masked previews (`sk-ant-...****`). State file never stores API keys.
+JSONL event log never records env var values. Error messages reference
+credential names, not values.
+
+**`.gitignore` enforced:** `engine init` creates `.gitignore` covering `.env`,
+`logs/`, `outputs/`. `engine validate` warns if `.gitignore` is missing or
+doesn't cover sensitive paths.
+
+**Config transparency:** `engine validate` shows exact shell commands that will
+run. No hidden execution — user sees every command before approving.
+
+**Budget caps:** `resources.cost_usd` is a hard limit. No step starts if budget
+exceeded. Combined with per-step `maxTurns` and `timeoutSeconds` for defense
+in depth against runaway agents.
+
+**Process isolation:** Workers run in own process groups (`setsid`). Can't affect
+engine or sibling workers. For higher isolation, document container-based workers
+as a future option.
+
+**User responsibilities (documented, not enforced):**
+- Prompt templates include "never output credentials or secrets"
+- Set provider-side spending limits (Anthropic/OpenAI consoles)
+- Use container/network isolation for untrusted prompts
+- Use OS-level user separation on shared machines
+
 ## Scaling
 
 ```

@@ -98,7 +98,37 @@ stallAbandonSeconds: 600
 `steps:` desugars into `groups:` with defaults. IDs inferred from prompt filenames.
 
 ### `engine init`
-Generates starter `config.yaml` + `prompts/` with templates.
+For humans. Detects installed SDK, checks API key, generates starter `config.yaml`
++ `prompts/` with templates.
+
+### `engine validate`
+For agents and humans. Validates config without running — critical for agent setup
+workflows where the agent generates config and needs fast feedback:
+```bash
+$ npx agent-engine validate config.yaml
+✓ Valid (3 steps, 0 branches)
+⚠ No resources.cost_usd — no budget cap
+ℹ Estimated: 3 steps × 30 turns × ~$0.10/turn = ~$9.00
+```
+
+### Agent-assisted setup
+A setup guide (`prompts/setup-guide.md`) ships with the engine, written FOR agents.
+When a user says "set up a workflow," their agent:
+1. Reads the guide
+2. Installs the package (`npm install @agent-engine/claude`)
+3. Analyzes the project (language, tests, structure)
+4. Writes `config.yaml` + prompt files directly (doesn't use `init`)
+5. Validates with `engine validate`
+6. Runs the pipeline
+
+### JSON schema
+`schema/config.schema.json` published with the package. Enables agent
+self-validation and VS Code autocomplete for YAML editing.
+
+### Prompt templates
+`prompts/templates/` ships with the engine: `review.md`, `implement.md`,
+`fix.md`, `refactor.md`. These show the STRUCTURE of a good prompt — agents
+read them and customize for the project.
 
 ## Agent-First Conventions
 
@@ -837,6 +867,10 @@ Engine overhead:
 | CLI multi-mode (inline, files, YAML) | 40 |
 | `steps:` shorthand + ID inference | 30 |
 | `engine init` scaffolding | 40 |
+| `engine validate` command + cost estimation | 50 |
+| JSON schema for config | 60 |
+| Setup guide for agents | 40 |
+| Prompt templates (review, implement, fix, refactor) | 80 |
 | Orchestrator prompt | 50 |
 | Workflow configs (curation, phase-dev, single-issue) | 60 |
 | File restructure (engine/ executors/ workspace/ project/) | 0 net |
@@ -854,7 +888,11 @@ Engine overhead:
 - [ ] `engine run --prompt "..."` works with zero config
 - [ ] `engine run review.md fix.md` runs two agents sequentially
 - [ ] `engine init` generates working starter config
+- [ ] `engine validate` checks config without running, shows cost estimate
 - [ ] `steps:` shorthand with ID inference
+- [ ] JSON schema published for config autocomplete + validation
+- [ ] Setup guide usable by agents for automated project setup
+- [ ] Prompt templates for common patterns (review, implement, fix)
 
 ### Engine
 - [ ] `StepExecutor` interface — engine has zero SDK dependencies

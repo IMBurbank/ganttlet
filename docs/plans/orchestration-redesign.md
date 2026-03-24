@@ -276,7 +276,14 @@ the pipeline using files. The "agent API" counterpart to the CLI.
 
 **Observer** — discriminated union (`EngineEvent`). Backward-compatible.
 Implementations: FileLog (JSONL), Report (markdown), Inline (TTY status line — default),
-Stdout (CI), Tmux (full panes).
+Stdout (CI), Tmux (full panes), Web (self-contained HTML dashboard).
+
+**Web dashboard** — `--dashboard` flag. Generates `dashboard.html` in logs dir.
+Self-contained (embedded JS, no build step). Reads state file + JSONL via fetch.
+Shows: DAG graph, timeline/Gantt, resource gauges, cost breakdown, live events.
+Dev server on localhost for live view during execution. ~155 lines. Files are the API —
+visualization is decoupled from the engine. VS Code extensions, Slack bots, Grafana
+integrations can be built the same way (read files, no engine changes).
 
 **Completion report** appended per run:
 ```

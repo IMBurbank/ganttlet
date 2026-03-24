@@ -596,68 +596,70 @@ function parseConfig(raw: RawConfig, desugars: Desugar[] = []): ParsedConfig {
 
 ## 11. Project Structure
 
-The engine is an npm package. This project is a consumer.
+Monorepo of packages. Each SDK gets its own package with dedicated onboarding,
+defaults, and configuration. The engine core has zero external dependencies.
 
 ```
-agent-engine/                    → npm package (standalone)
-  src/
-    types.ts                     # StepExecutor, StepConfig, NodeState, ...
-    scheduler.ts                 # Pure DAG scheduler
-    dag.ts                       # YAML → DAG (accepts desugars)
-    pipeline-runner.ts           # Main loop, worker management
-    resource-pool.ts             # Slots + budgets
-    state.ts                     # Load, save, resume, reconcile
-    cli.ts                       # CLI framework
-    observers/                   # FileLog, Report, Stdout, Tmux
-    executors/
-      shell.ts                   # Built-in (node:child_process)
-      claude.ts                  # Optional peer dep (@anthropic-ai/claude-agent-sdk)
-      mock.ts                    # For testing
-    workspace/
-      git.ts                     # Generic git worktree + branch desugar
-    prompts/                     # Orchestrator prompt, fix templates
-  package.json
-    peerDependencies:
-      "@anthropic-ai/claude-agent-sdk": ">=0.2.0"  (optional)
+@agent-engine/core               → pure engine (zero SDK deps)
+  scheduler.ts                   # Pure DAG scheduler
+  pipeline-runner.ts             # Main loop, worker spawning
+  dag.ts                         # YAML → DAG (accepts desugars)
+  resource-pool.ts               # Slots + budgets
+  state.ts                       # Load, save, resume, reconcile
+  cli.ts                         # CLI framework
+  observers/                     # FileLog, Report, Stdout, Tmux
+  executors/shell.ts             # Shell command executor (built-in)
+  executors/mock.ts              # Testing executor
+  workspace/git.ts               # Generic git worktree + branch desugar
+  cost.ts                        # tokensToCost utility
+  prompts/                       # Orchestrator prompt, fix templates
+  types.ts                       # StepExecutor, StepConfig, NodeState, ...
+  deps: yaml
+
+@agent-engine/claude             → Claude executor + onboarding
+  executor.ts                    # ClaudeExecutor (wraps query() + resume)
+  defaults.ts                    # Models, costs, turns, escalation
+  worker.ts                      # Worker script with Claude executor registered
+  init/                          # npx agent-engine init templates
+  deps: @agent-engine/core, @anthropic-ai/claude-agent-sdk
+
+@agent-engine/openai             → OpenAI executor + onboarding
+  executor.ts                    # OpenAIExecutor (wraps run() + Sessions)
+  tools.ts                       # ShellTool executor, ApplyPatch handler
+  defaults.ts                    # Models, costs, turns
+  worker.ts                      # Worker script with OpenAI executor registered
+  deps: @agent-engine/core, @openai/agents
+
+@agent-engine/google             → Google executor + onboarding
+  executor.ts                    # GeminiExecutor (wraps runAsync() + sessions)
+  tools.ts                       # Custom FunctionTools or MCP bridge
+  defaults.ts                    # Models, costs, turns
+  worker.ts                      # Worker script with Google executor registered
+  deps: @agent-engine/core, @google/adk
 
 ganttlet/                        → consumer (this project)
-  scripts/
-    workspace/setup.ts           # WASM copy, SDK patch, hooks (project-specific)
-    worker.ts                    # Registers executors + workspace
-    entry.ts                     # Wires engine
-    configs/
-      skill-curation.yaml
-      phase-development.yaml
-      single-issue.yaml
+  deps: @agent-engine/claude
+  workspace/setup.ts             # WASM, SDK patch, hooks
+  configs/                       # curation, phase-dev, single-issue
 ```
 
-**Three user types, one package:**
-
-| User | Installs | Gets |
-|---|---|---|
-| Claude developer | `agent-engine` + `@anthropic-ai/claude-agent-sdk` | Shell + Claude executors |
-| OpenAI developer | `agent-engine` + writes own executor | Shell + custom executor |
-| Script-only | `agent-engine` | Shell executor only |
-
-**Validated against competing SDKs:** StepExecutor maps cleanly to OpenAI Agents SDK
-(`@openai/agents` — `run()` + Sessions) and Google ADK (`@google/adk` — `runAsync()` +
-SessionService). Both support execute + resume. Tool implementation varies (Claude has
-built-in coding tools; others require custom tools or MCP). The interface needs zero
-changes for any of them.
-
-Engine ships a `tokensToCost(model, inputTokens, outputTokens)` utility for executors
-that return token counts instead of USD (OpenAI, Google).
-
-Claude executor uses dynamic import — only fails if you call it without the SDK:
-```typescript
-export async function createClaudeExecutor(): Promise<StepExecutor> {
-  const sdk = await import('@anthropic-ai/claude-agent-sdk');
-  return { execute: ..., resume: ... };
-}
+**User experience — one install, works immediately:**
+```bash
+npm install @agent-engine/claude     # or /openai, or /google
+npx agent-engine run --prompt "fix the failing tests"
 ```
 
-Generic git workspace ships with engine (~80 lines, pure git operations).
-Project-specific git setup (npm install, WASM, patches) is the consumer's concern.
+**Each SDK package owns:** executor implementation, default models/costs/turns,
+worker script, onboarding templates, README, test suite. Changes to one SDK
+don't touch others.
+
+**Validated against competing SDKs:** StepExecutor maps cleanly to all three:
+- Claude: `query()` + `resume` option
+- OpenAI: `run()` + Sessions / `conversation_id`
+- Google ADK: `runAsync()` + `SessionService`
+
+Core ships `tokensToCost(model, input, output)` for executors that return
+token counts instead of USD (OpenAI, Google). Claude returns USD directly.
 
 ## 12. Escalation Policy
 

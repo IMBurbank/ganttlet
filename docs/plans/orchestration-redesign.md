@@ -596,41 +596,59 @@ function parseConfig(raw: RawConfig, desugars: Desugar[] = []): ParsedConfig {
 
 ## 11. Project Structure
 
-This project is the **reference implementation**. The engine is the product.
+The engine is an npm package. This project is a consumer.
 
 ```
-engine/                      # ZERO external dependencies — extractable
-  types.ts                   # StepExecutor, StepConfig, StepResult, NodeState, ...
-  scheduler.ts               # Pure DAG scheduler
-  dag.ts                     # YAML → validated DAG (accepts desugars)
-  pipeline-runner.ts         # Main loop, worker management
-  resource-pool.ts           # Slots + budgets
-  state.ts                   # Load, save, resume, reconcile
-  observers/                 # FileLog, Report, Stdout, Tmux, composite
-  prompts/                   # Orchestrator prompt, fix templates
-  cli.ts                     # CLI framework
+agent-engine/                    → npm package (standalone)
+  src/
+    types.ts                     # StepExecutor, StepConfig, NodeState, ...
+    scheduler.ts                 # Pure DAG scheduler
+    dag.ts                       # YAML → DAG (accepts desugars)
+    pipeline-runner.ts           # Main loop, worker management
+    resource-pool.ts             # Slots + budgets
+    state.ts                     # Load, save, resume, reconcile
+    cli.ts                       # CLI framework
+    observers/                   # FileLog, Report, Stdout, Tmux
+    executors/
+      shell.ts                   # Built-in (node:child_process)
+      claude.ts                  # Optional peer dep (@anthropic-ai/claude-agent-sdk)
+      mock.ts                    # For testing
+    workspace/
+      git.ts                     # Generic git worktree + branch desugar
+    prompts/                     # Orchestrator prompt, fix templates
+  package.json
+    peerDependencies:
+      "@anthropic-ai/claude-agent-sdk": ">=0.2.0"  (optional)
 
-executors/                   # Each depends on its specific SDK
-  shell.ts                   # node:child_process (built-in)
-  claude.ts                  # @anthropic-ai/claude-agent-sdk
-  mock.ts                    # For testing
-
-workspace/                   # Domain-specific workspace providers
-  git.ts                     # Git worktree workspace + branch desugar
-
-project/                     # Reference implementation (Ganttlet-specific)
-  setup.ts                   # WASM copy, SDK patch, hook tests
-  escalation.ts              # Default escalation policy
-  worker.ts                  # Worker script (registers executors)
-  entry.ts                   # Wires engine + executors + workspace
-  configs/
-    skill-curation.yaml
-    phase-development.yaml
-    single-issue.yaml
+ganttlet/                        → consumer (this project)
+  scripts/
+    workspace/setup.ts           # WASM copy, SDK patch, hooks (project-specific)
+    worker.ts                    # Registers executors + workspace
+    entry.ts                     # Wires engine
+    configs/
+      skill-curation.yaml
+      phase-development.yaml
+      single-issue.yaml
 ```
 
-To extract: `engine/` is a standalone npm package.
-To use: `npm install engine`, write a worker that registers executors, write configs.
+**Three user types, one package:**
+
+| User | Installs | Gets |
+|---|---|---|
+| Claude developer | `agent-engine` + `@anthropic-ai/claude-agent-sdk` | Shell + Claude executors |
+| OpenAI developer | `agent-engine` + writes own executor | Shell + custom executor |
+| Script-only | `agent-engine` | Shell executor only |
+
+Claude executor uses dynamic import — only fails if you call it without the SDK:
+```typescript
+export async function createClaudeExecutor(): Promise<StepExecutor> {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk');
+  return { execute: ..., resume: ... };
+}
+```
+
+Generic git workspace ships with engine (~80 lines, pure git operations).
+Project-specific git setup (npm install, WASM, patches) is the consumer's concern.
 
 ## 12. Escalation Policy
 

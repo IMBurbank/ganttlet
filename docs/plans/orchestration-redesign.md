@@ -206,7 +206,6 @@ Every failure is classified. The scheduler decides retryability per-type.
 | `timeout` | Yes | max_turns, stall, or start-to-close exceeded | More turns |
 | `agent` | Yes | execution error, crash | Better model on final attempt |
 | `infra` | Yes | worktree creation, npm install | Retry same config |
-| `verify_failed` | Yes | build/test check failed | Fix agent |
 | `budget` | **No** | maxBudgetUsd exhausted | Orchestrator adjusts budget |
 | `blocked` | **No** | agent output `CANNOT_PROCEED:` | Orchestrator fixes dependency |
 | `merge_conflict` | **No** | merge handler exhausted attempts | Orchestrator resolves conflict |
@@ -268,17 +267,25 @@ completes as `partial` with remaining nodes failed as `budget`.
 ## 5. Pipeline Runner (scheduler + dispatcher)
 
 The runner is a simple loop. It does NOT execute work — it spawns workers and monitors
-their output.
+their output via the filesystem.
+
+**I/O model:** All worker monitoring uses ONE `readdir` per iteration (O(1) syscall)
+instead of per-worker `stat` calls (O(N) syscalls). This scales to 1000+ workers on
+NFS with constant filesystem overhead. Per-worker `stat` is only used for stall
+detection on workers that haven't completed — and only when the `readdir` didn't
+find their result file.
 
 ```typescript
 const workers = new Map<string, WorkerHandle>();
 
 while (!aborted) {
-  // ── Signals ─────────────────────────────────────────
-  checkCompletions(workers, state, resourcePool);
-  checkStalls(workers, state, observer);
-  processCommands(run.logDir, workers, state);
-  checkConfigChanges(run.configPath, dag, state);
+  // ── Monitor workers (batched I/O) ───────────────────
+  const dirSnapshot = new Set(fs.readdirSync(run.logDir));
+  processWorkers(dirSnapshot, workers, state, resourcePool, observer, options);
+
+  // ── External signals ────────────────────────────────
+  processCommands(run.logDir, dirSnapshot, workers, state);
+  checkConfigChanges(run.configPath, dag, state, observer);
   saveState(statePath, state);     // throttled to every 30s
 
   // ── Schedule ────────────────────────────────────────
@@ -297,82 +304,85 @@ while (!aborted) {
   }
 
   // ── Wait ────────────────────────────────────────────
-  // 1s poll: sub-second shell commands wait up to 1s for detection.
-  // Acceptable for our workloads (agent runs take minutes).
-  // Future optimization: fs.watch on log dir (unreliable cross-platform).
+  // 1s poll. Latency is acceptable — agent runs take minutes.
+  // Batched readdir means the poll cost is O(1), not O(workers).
   await sleep(1000);
 }
 ```
 
-### Checking completions
+### Worker monitoring (single pass, batched I/O)
+
+Completions, crash detection, stall detection, and live state updates in ONE loop
+over the workers map. The `dirSnapshot` from `readdir` tells us which result files
+exist without per-file `stat` calls. Only workers without results get a `stat` on
+their log file (for stall detection).
 
 ```typescript
-function checkCompletions(workers, state, resourcePool) {
+function processWorkers(dirSnapshot, workers, state, resourcePool, observer, options) {
+  const now = Date.now();
+
   for (const [nodeId, worker] of workers) {
-    if (!fs.existsSync(worker.resultPath)) {
-      // Update live state from log file
-      const mtime = fs.statSync(worker.logFile).mtimeMs;
-      state.nodes[nodeId].lastEventAt = new Date(mtime).toISOString();
+    // ── Completed? (set lookup, no syscall)
+    if (dirSnapshot.has(`${nodeId}-result.json`)) {
+      const result = JSON.parse(fs.readFileSync(worker.resultPath, 'utf-8'));
+      updateNodeState(state, nodeId, result);
+      resourcePool.release(worker.resources);
+      resourcePool.consume('cost_usd', result.costUsd);
+      workers.delete(nodeId);
+      observer.onNodeComplete(nodeId, state.nodes[nodeId]);
       continue;
     }
-    // Worker finished — read result
-    const result = JSON.parse(fs.readFileSync(worker.resultPath, 'utf-8'));
-    updateNodeState(state, nodeId, result);
-    resourcePool.release(node.spec.resources);
-    resourcePool.consume('cost_usd', result.costUsd);
-    workers.delete(nodeId);
-    observer.onNodeComplete(nodeId, state.nodes[nodeId]);
-  }
-}
-```
 
-### Stall detection
+    // ── Crashed? (kill(pid,0) — one syscall, no filesystem)
+    if (!isProcessAlive(worker.pid)) {
+      handleFailure(state, nodeId, 'infra', 'worker process died unexpectedly');
+      resourcePool.release(worker.resources);
+      workers.delete(nodeId);
+      observer.onNodeComplete(nodeId, state.nodes[nodeId]);
+      continue;
+    }
 
-```typescript
-function checkStalls(workers, state, observer) {
-  for (const [nodeId, worker] of workers) {
-    const idle = (Date.now() - fs.statSync(worker.logFile).mtimeMs) / 1000;
-    const startToClose = (Date.now() - worker.startedAt) / 1000;
+    // ── Still running — check stall + timeout (one stat for log mtime)
+    const logMtime = fs.statSync(worker.logFile).mtimeMs;
+    const idleSeconds = (now - logMtime) / 1000;
+    const elapsedSeconds = (now - worker.startedAt) / 1000;
+    state.nodes[nodeId].lastEventAt = new Date(logMtime).toISOString();
 
-    if (startToClose > node.spec.timeoutSeconds) {
+    if (worker.timeoutSeconds && elapsedSeconds > worker.timeoutSeconds) {
       killWorker(worker);
-      handleFailure(nodeId, 'timeout', `exceeded ${node.spec.timeoutSeconds}s`);
-    } else if (idle > options.stallAbandonSeconds) {
+      handleFailure(state, nodeId, 'timeout', `exceeded ${worker.timeoutSeconds}s total`);
+      resourcePool.release(worker.resources);
+      workers.delete(nodeId);
+    } else if (idleSeconds > options.stallAbandonSeconds) {
       killWorker(worker);
-      handleFailure(nodeId, 'timeout', `stalled ${idle}s`);
-    } else if (idle > options.stallWarnSeconds) {
-      observer.onStall(nodeId, idle, 'warning');
+      handleFailure(state, nodeId, 'timeout', `stalled: no output for ${Math.round(idleSeconds)}s`);
+      resourcePool.release(worker.resources);
+      workers.delete(nodeId);
+    } else if (idleSeconds > options.stallWarnSeconds) {
+      observer.onStall(nodeId, idleSeconds, 'warning');
     }
   }
 }
 
-function killWorker(worker) {
+function isProcessAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function killWorker(worker: WorkerHandle): void {
   try { process.kill(-worker.pgid, 'SIGTERM'); } catch { /* already dead */ }
 }
 ```
 
-No orphans. No `stallKilled` guard. Kill = dead.
+**Scaling:**
+- 10 workers: 1 readdir + ~10 stat (running workers only) = ~11 syscalls/iteration
+- 100 workers: 1 readdir + ~100 stat = ~101 syscalls/iteration (~100μs local, ~100ms NFS)
+- 1000 workers: 1 readdir + ~1000 stat = ~1001 syscalls/iteration (~1ms local, ~1-10s NFS)
+- Beyond 1000 on NFS: batch log mtimes via single `ls -lt` subprocess, or switch to
+  UDP notification from workers (worker sends nodeId to runner on completion).
 
-### Config watching
+### External signals
 
-```typescript
-function checkConfigChanges(configPath, dag, state) {
-  const mtime = fs.statSync(configPath).mtimeMs;
-  if (mtime <= lastConfigMtime) return;
-  lastConfigMtime = mtime;
-
-  const newConfig = parseConfig(loadYaml(configPath));
-  reconcileState(state, newConfig.nodes);  // add new, remove deleted, re-evaluate skipped
-  dag.length = 0;
-  dag.push(...newConfig.nodes);
-  observer.onDagChanged(dag);
-}
-```
-
-Orchestrator edits YAML → engine picks up in ≤30s → no restart.
-
-### Commands
-
+**Commands** — orchestrator → pipeline, one-way, consumed on read:
 ```typescript
 interface PipelineCommands {
   cancel?: { nodeId: string; reason: string; retryable?: boolean }[];
@@ -380,8 +390,27 @@ interface PipelineCommands {
 }
 ```
 
-Checked every loop iteration. Consumed on read. Cancel kills the worker process group.
-Adjust stores in `NodeState.adjustments`, applied on next attempt via `RetryContext`.
+The `dirSnapshot` from the main loop's `readdir` already tells us if `commands.json`
+exists — no additional syscall needed.
+
+Cancel kills the worker process group. Adjust stores in `NodeState.adjustments`,
+applied on next attempt via `RetryContext`.
+
+**Config watching** — detects YAML changes, reconciles live:
+```typescript
+function checkConfigChanges(configPath, dag, state, observer) {
+  const mtime = fs.statSync(configPath).mtimeMs;
+  if (mtime <= lastConfigMtime) return;
+  lastConfigMtime = mtime;
+  const newConfig = parseConfig(loadYaml(configPath));
+  reconcileState(state, newConfig.nodes);
+  dag.length = 0;
+  dag.push(...newConfig.nodes);
+  observer.onDagChanged(dag);
+}
+```
+
+Orchestrator edits YAML → engine picks up within 1s → no restart.
 
 ## 6. Step Worker (`run-step.ts`)
 
@@ -525,12 +554,14 @@ interface Observer {
   onNodeComplete(id: string, state: NodeState): void;
   onStall(id: string, idleSeconds: number, severity: 'warning' | 'critical'): void;
   onDagChanged(dag: DAGNode[]): void;
+  onError(context: string, error: string): void;
   onPipelineComplete(state: PipelineState): void;
 }
 ```
 
 No `onAgentEvent` — the runner doesn't see individual turns (workers write to log files).
 No `onMerge` — merge is just a step; results come through `onNodeComplete`.
+`onError` — non-fatal errors (config parse failures, stale worktrees, unexpected states).
 
 Implementations: FileLog (always), Report (always), Stdout (--ci), Tmux (--watch).
 Tmux gets live agent activity by tailing `{nodeId}.log` directly, not via Observer.
@@ -636,10 +667,14 @@ Multi-machine (shared filesystem):
   Shared FS: NFS, EFS, GCS FUSE
 
 The engine is never the bottleneck:
-  Scheduler: O(N) per iteration, negligible CPU
-  State file: <1MB for 1000 nodes
+  Scheduler: O(N × deps) per iteration, negligible CPU
+  I/O: O(1) readdir + O(running workers) stat per iteration
+  State file: <1MB for 1000 nodes, one write per 30s
   Workers: independent processes, own memory
-  Bottleneck is always external: API limits, disk, budget
+
+  Local: 1000 workers → ~1ms per iteration
+  NFS: 1000 workers → ~1-10s per iteration (stat calls)
+  Beyond 1000 on NFS: batch log stats or switch to UDP notification
 ```
 
 ## Success Criteria

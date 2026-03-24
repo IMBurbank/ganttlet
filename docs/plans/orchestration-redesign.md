@@ -269,32 +269,37 @@ Failed with: {previousFailure}. Hint: {retryHint}. Context: {adjustments}
 ```
 **Prompt composition (the engine is a good citizen):**
 
-The engine doesn't create a parallel knowledge system. It REFERENCES the user's
-existing one and adds only what no SDK provides.
+The engine references the user's existing project knowledge — it doesn't
+create parallel copies. Config points to files. Engine loads them. Agnostic.
 
 ```yaml
-context: CLAUDE.md                           # use project's existing instructions
+context: project-instructions.md                # project-wide knowledge
 steps:
   - prompt: implement.md
-    skills: [.claude/skills/scheduling-engine]   # existing project skills
+    skills: [skills/scheduling-engine.md]        # reusable domain knowledge
+  - prompt: review.md
+    skills: [skills/code-review.md, skills/security.md]
 ```
 
-| Layer | Who provides | Claude SDK | OpenAI/Google |
-|---|---|---|---|
-| User prefs | `~/.claude/CLAUDE.md` | SDK loads | Engine if `context:` |
-| Project knowledge | `CLAUDE.md` | SDK loads | Engine if `context:` |
-| Skills | `.claude/skills/*` | SDK loads | Engine if `skills:` |
-| Engine context | Auto-generated (above) | Engine adds | Engine adds |
-| Task prompt | User writes | Engine provides | Engine provides |
+`context:` and `skills:` are just file paths. The engine loads and prepends them.
+It doesn't know or care about their format — markdown, text, anything.
 
-For Claude: engine adds ONE layer (engine context). No duplication.
-For others: engine loads whatever `context:` and `skills:` reference.
+SDK packages may load their own project knowledge natively (e.g., Claude SDK
+loads CLAUDE.md and .claude/skills/ automatically). The executor declares this
+via `loadsProjectContext`, and the engine avoids duplicating what the SDK handles:
 
-`engine init` detects existing knowledge:
+```typescript
+interface StepExecutor {
+  // ...
+  loadsProjectContext?: boolean;  // if true, engine skips context:/skills: loading
+}
 ```
-✓ CLAUDE.md found — agents use it automatically
-✓ .claude/skills/ found (8 skills) — reference with skills: in config
-✗ Skipping context.md — CLAUDE.md already provides project knowledge
+
+`engine init` detects existing project knowledge and references it:
+```
+✓ Project instructions found — config references them automatically
+✓ Skills directory found (8 skills) — use skills: in config to reference
+✗ Skipping duplicate files — your project already has what agents need
 ```
 
 **CANNOT_PROCEED** → `blocked` (non-retryable). Reason in lastError.

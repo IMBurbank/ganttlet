@@ -248,12 +248,27 @@ RETRY_HINT → extracted for successor, SDK failures → mapped to taxonomy.
 
 ## Agent-First
 
-**Agent protocol** — the worker appends to EVERY prompt automatically:
+**Engine context** — the worker constructs and prepends to EVERY prompt:
+```markdown
+# Engine Context
+You are step "{id}" in an automated pipeline (attempt {attempt}/{maxAttempts}).
+
+## Your workspace
+Working directory: {workdir}
+Output saved to: .agent-engine/outputs/{id}.txt
+
+## Previous step outputs
+- .agent-engine/outputs/{dep_id}.txt (for each dependency)
+
+## Signals
+- CANNOT_PROCEED: <reason> — if you cannot complete this task
+- RETRY_HINT: <advice> — if you fail but have advice for a retry
+
+## Previous attempt (if retry)
+Failed with: {previousFailure}. Hint: {retryHint}. Context: {adjustments}
 ```
-If you cannot complete this task, output CANNOT_PROCEED: followed by the reason.
-If you fail but have advice for a retry, output RETRY_HINT: followed by your advice.
-```
-Users never write this. Every agent knows the signals from Level 0.
+SDK packages extend with executor-specific guidance (`executor.getContext()`).
+Users never write this. Every agent has full situational awareness from Level 0.
 
 **CANNOT_PROCEED** → `blocked` (non-retryable). Reason in lastError.
 

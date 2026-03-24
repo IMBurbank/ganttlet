@@ -300,6 +300,8 @@ while (!aborted) {
     if (!resourcePool.canAcquire(node.spec.resources)) continue;
 
     resourcePool.acquire(node.spec.resources);
+    state.nodes[node.id].status = 'running';
+    state.nodes[node.id].startedAt = new Date().toISOString();
     workers.set(node.id, spawnStep(node, run));
   }
 
@@ -672,9 +674,15 @@ The engine is never the bottleneck:
   State file: <1MB for 1000 nodes, one write per 30s
   Workers: independent processes, own memory
 
-  Local: 1000 workers → ~1ms per iteration
-  NFS: 1000 workers → ~1-10s per iteration (stat calls)
-  Beyond 1000 on NFS: batch log stats or switch to UDP notification
+  Local: 1000 workers → ~15ms per iteration (engine uses <2% of each tick)
+  NFS: 1000 workers → ~1-10s per iteration (stall-detection stat calls)
+  Beyond 1000 on NFS: batch log stats or worker-side heartbeat files
+
+  State file growth: ~200 bytes per attempt record. 1000 nodes × 10 attempts
+  = ~2MB state file. stringify ~20ms (within 30s save interval).
+
+  Scheduler: marks dispatched nodes 'running' immediately, so it only emits
+  execute for genuinely undispatched ready nodes. No redundant actions.
 ```
 
 ## Success Criteria

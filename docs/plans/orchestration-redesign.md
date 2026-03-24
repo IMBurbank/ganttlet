@@ -111,6 +111,21 @@ $ npx agent-engine validate config.yaml
 ℹ Estimated: 3 steps × 30 turns × ~$0.10/turn = ~$9.00
 ```
 
+### Validation errors (agent-actionable)
+
+Every error tells the agent WHAT, WHERE, and HOW TO FIX:
+- `Step "B" depends on "X" which doesn't exist. Available: A, C, D`
+- `Prompt "review.md" not found at /abs/path. Create the file or fix the path.`
+- `Step "A" uses resource "merge_lock" not in resources. Add: resources: { merge_lock: 1 }`
+- `Unknown field "timout_seconds" — did you mean "timeout_seconds"?`
+- `Prompt contains {SKILL} but step has no prompt_vars.SKILL`
+
+`--json` flag outputs structured errors for programmatic consumption:
+```json
+{ "type": "missing_dependency", "step": "B", "value": "X",
+  "available": ["A","C","D"], "fix": "Change depends_on to existing step ID" }
+```
+
 ### Agent-assisted setup
 A setup guide (`prompts/setup-guide.md`) ships with the engine, written FOR agents.
 When a user says "set up a workflow," their agent:

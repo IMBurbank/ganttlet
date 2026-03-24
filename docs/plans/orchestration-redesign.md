@@ -122,17 +122,34 @@ Engine files live in `.agent-engine/` (like `.github/`):
 `engine run` looks for `.agent-engine/config.yaml` by default. Explicit path overrides.
 Add `.agent-engine/logs/` to `.gitignore`.
 
-### Credentials
-Engine core has zero credential logic. Each SDK already discovers credentials
-natively (Claude reads `ANTHROPIC_API_KEY`, OpenAI reads `OPENAI_API_KEY`,
-Google uses ADC). The executor's `preflight()` validates using SDK-native checks.
+### Credentials and Prerequisites
 
-Engine provides one optional utility: `loadProjectEnv()` — reads
-`.agent-engine/.env` into `process.env`. SDK packages call it from their CLI
-entry point. 5 lines, optional, not called by engine core.
+Two types of credentials:
+- **Executor credentials** (API keys) — handled by `executor.preflight()`. Each SDK
+  package validates its own keys using SDK-native discovery.
+- **Workspace credentials** (GitHub, cloud, SSH) — needed by agents for their work.
+  Inherited from shell environment. Declared in config via `requires:`.
 
-If credentials exist in the shell → works. In `.agent-engine/.env` → works.
-Nowhere → preflight gives actionable error with get-your-key URL.
+```yaml
+requires:
+  env: [GITHUB_TOKEN]          # checked at pipeline start
+  commands: [gh, gcloud, npm]  # checked via 'which'
+```
+
+Preflight output:
+```
+  ✓ ANTHROPIC_API_KEY valid
+  ✗ GITHUB_TOKEN not set — export GITHUB_TOKEN=ghp_... or gh auth login
+  ✓ gh available (v2.42.0)
+  ✗ gcloud not found — install: https://cloud.google.com/sdk/install
+```
+
+Catches workspace auth problems before spending money. No agent wasting turns
+on `gh: not authenticated`. Level 0-2 configs skip `requires:` (no declaration =
+no check). Level 3 configs declare what their workflow needs.
+
+Engine provides optional `loadProjectEnv()` utility — reads `.agent-engine/.env`.
+SDK packages call it from their CLI entry. 5 lines, not in engine core.
 
 ### `engine init`
 For humans. Detects installed SDK, checks API key, creates `.agent-engine/` with

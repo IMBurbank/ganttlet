@@ -774,6 +774,27 @@ Inline observer for interactive use (when stdout is a TTY):
 ```
 Not the full Tmux UI — just a live status line so the user isn't staring at nothing.
 
+### JSONL pipeline log
+
+FileLog writes JSONL (one JSON object per line), not text:
+```json
+{"time":"...","type":"node:start","id":"review","nodeType":"agent"}
+{"time":"...","type":"node:complete","id":"review","status":"success","turns":12,"costUsd":1.80}
+{"time":"...","type":"stall","id":"implement","idle":120,"severity":"warning"}
+```
+Appendable, streamable (`tail -f`), machine-queryable (`grep + jq`).
+Inline and Stdout observers write human-readable text from the same events.
+
+### SDK auto-detection
+
+Engine discovers installed executor packages by scanning for
+`@agent-engine/*/package.json` with an `agent-engine.executor` field:
+```json
+{ "agent-engine": { "executor": true, "name": "claude" } }
+```
+One installed → auto-select. Multiple → require `--executor` or config.
+None → error: "Install @agent-engine/claude (or /openai, /google)."
+
 ### Completion report (appended per run)
 
 ```markdown
@@ -1071,6 +1092,7 @@ Engine overhead:
 | Workflow configs (curation, phase-dev, single-issue) | 60 |
 | File restructure (engine/ executors/ workspace/ project/) | 0 net |
 | Tests | 150 |
+| Documentation: README per package, getting started, config ref | 100 |
 
 ### Delete
 - `handlers.ts`

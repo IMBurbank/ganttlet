@@ -122,13 +122,17 @@ Engine files live in `.agent-engine/` (like `.github/`):
 `engine run` looks for `.agent-engine/config.yaml` by default. Explicit path overrides.
 Add `.agent-engine/logs/` to `.gitignore`.
 
-### Credential loading
-Engine loads env vars from (priority order):
-1. Process environment (already set in shell)
-2. `.agent-engine/.env` (project-scoped)
-3. `.env` in project root (common convention)
+### Credentials
+Engine core has zero credential logic. Each SDK already discovers credentials
+natively (Claude reads `ANTHROPIC_API_KEY`, OpenAI reads `OPENAI_API_KEY`,
+Google uses ADC). The executor's `preflight()` validates using SDK-native checks.
 
-No "configuration about configuration." If the key is anywhere expected, it works.
+Engine provides one optional utility: `loadProjectEnv()` — reads
+`.agent-engine/.env` into `process.env`. SDK packages call it from their CLI
+entry point. 5 lines, optional, not called by engine core.
+
+If credentials exist in the shell → works. In `.agent-engine/.env` → works.
+Nowhere → preflight gives actionable error with get-your-key URL.
 
 ### `engine init`
 For humans. Detects installed SDK, checks API key, creates `.agent-engine/` with

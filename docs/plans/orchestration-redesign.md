@@ -267,25 +267,35 @@ Output saved to: .agent-engine/outputs/{id}.txt
 ## Previous attempt (if retry)
 Failed with: {previousFailure}. Hint: {retryHint}. Context: {adjustments}
 ```
-**Prompt composition (5 layers):**
-1. Engine context — auto-generated (above). Users never write this.
-2. Project context — `context:` in config → `context.md` with project knowledge
-3. Step skills — `skills: [review, security]` → `.agent-engine/skills/*.md`
-4. Executor context — `executor.getContext()` (SDK-specific tool guidance)
-5. Task prompt — the user's per-step instructions
+**Prompt composition (the engine is a good citizen):**
+
+The engine doesn't create a parallel knowledge system. It REFERENCES the user's
+existing one and adds only what no SDK provides.
 
 ```yaml
-context: context.md                    # project-wide (all agents)
+context: CLAUDE.md                           # use project's existing instructions
 steps:
   - prompt: implement.md
-    skills: [coding, testing]          # reusable knowledge per step
-  - prompt: review.md
-    skills: [code-review, security]
+    skills: [.claude/skills/scheduling-engine]   # existing project skills
 ```
 
-Skills are reusable across steps. Separate from task prompts — update knowledge
-without changing tasks. `engine init` generates starter skills.
-Agent-assisted setup writes `context.md` with discovered project knowledge.
+| Layer | Who provides | Claude SDK | OpenAI/Google |
+|---|---|---|---|
+| User prefs | `~/.claude/CLAUDE.md` | SDK loads | Engine if `context:` |
+| Project knowledge | `CLAUDE.md` | SDK loads | Engine if `context:` |
+| Skills | `.claude/skills/*` | SDK loads | Engine if `skills:` |
+| Engine context | Auto-generated (above) | Engine adds | Engine adds |
+| Task prompt | User writes | Engine provides | Engine provides |
+
+For Claude: engine adds ONE layer (engine context). No duplication.
+For others: engine loads whatever `context:` and `skills:` reference.
+
+`engine init` detects existing knowledge:
+```
+✓ CLAUDE.md found — agents use it automatically
+✓ .claude/skills/ found (8 skills) — reference with skills: in config
+✗ Skipping context.md — CLAUDE.md already provides project knowledge
+```
 
 **CANNOT_PROCEED** → `blocked` (non-retryable). Reason in lastError.
 

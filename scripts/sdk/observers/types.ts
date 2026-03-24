@@ -18,6 +18,7 @@ export interface Observer {
   onNodeComplete(id: string, state: NodeState): void;
   onMerge(triggeringNodeId: string, branch: string, result: string): void;
   onVerify(result: VerifyResult): void;
+  onStall(id: string, idleSeconds: number, severity: 'warning' | 'critical'): void;
   onPipelineComplete(state: PipelineState): void;
 }
 
@@ -31,6 +32,7 @@ export function createCompositeObserver(observers: Observer[]): Observer {
     onMerge: (nodeId, branch, result) =>
       observers.forEach((o) => o.onMerge(nodeId, branch, result)),
     onVerify: (result) => observers.forEach((o) => o.onVerify(result)),
+    onStall: (id, seconds, severity) => observers.forEach((o) => o.onStall(id, seconds, severity)),
     onPipelineComplete: (state) => observers.forEach((o) => o.onPipelineComplete(state)),
   };
 }

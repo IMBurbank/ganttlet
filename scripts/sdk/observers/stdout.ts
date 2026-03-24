@@ -49,6 +49,10 @@ export function createStdoutObserver(): Observer {
       write(`verify ${result.passed ? 'PASSED' : 'FAILED'} ${checks}`);
     },
 
+    onStall(id: string, idleSeconds: number, severity: 'warning' | 'critical'): void {
+      write(`stall:${severity} ${id} idle=${Math.round(idleSeconds)}s`);
+    },
+
     onPipelineComplete(state: PipelineState): void {
       const nodes = Object.values(state.nodes);
       const success = nodes.filter((n) => n.status === 'success').length;

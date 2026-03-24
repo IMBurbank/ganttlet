@@ -126,6 +126,7 @@ export interface NodeState {
   turns: number;
   logFile?: string;
   lastError?: string;
+  lastEventAt?: string;
 }
 
 export interface NodeResult {
@@ -163,6 +164,12 @@ export type AgentEvent =
   | { type: 'result'; status: string; turns: number; costUsd: number };
 
 export type AgentEventCallback = (event: AgentEvent) => void;
+
+export interface RetryContext {
+  attempt: number;
+  maxRetries: number;
+  previousFailure?: FailureReason;
+}
 
 export interface VerifyResult {
   passed: boolean;

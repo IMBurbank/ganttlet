@@ -639,6 +639,15 @@ ganttlet/                        → consumer (this project)
 | OpenAI developer | `agent-engine` + writes own executor | Shell + custom executor |
 | Script-only | `agent-engine` | Shell executor only |
 
+**Validated against competing SDKs:** StepExecutor maps cleanly to OpenAI Agents SDK
+(`@openai/agents` — `run()` + Sessions) and Google ADK (`@google/adk` — `runAsync()` +
+SessionService). Both support execute + resume. Tool implementation varies (Claude has
+built-in coding tools; others require custom tools or MCP). The interface needs zero
+changes for any of them.
+
+Engine ships a `tokensToCost(model, inputTokens, outputTokens)` utility for executors
+that return token counts instead of USD (OpenAI, Google).
+
 Claude executor uses dynamic import — only fails if you call it without the SDK:
 ```typescript
 export async function createClaudeExecutor(): Promise<StepExecutor> {

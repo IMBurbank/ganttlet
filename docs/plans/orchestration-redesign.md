@@ -329,7 +329,34 @@ Reference implementations (ship with this project, not the engine):
 The engine has **zero external dependencies** beyond Node built-ins (+ `yaml` for
 config parsing). All SDK dependencies live in executor implementations.
 
-## 2. Steps and Attempts
+## 2. Labels
+
+Steps can have labels — key-value metadata for grouping, querying, and bulk operations.
+
+```yaml
+groups:
+  - id: sched-accuracy
+    labels: { role: reviewer, skill: scheduling-engine }
+  - id: sched-curator
+    labels: { role: curator, skill: scheduling-engine }
+    depends_on:
+      label: { skill: scheduling-engine, role: reviewer }   # all matching steps
+```
+
+**Bulk commands:**
+```json
+{ "cancel": { "label": { "role": "reviewer" } } }
+```
+
+**State queries:**
+```bash
+jq '.nodes | to_entries[] | select(.value.labels.role == "reviewer") | .value.costUsd'
+```
+
+Labels stored in `GroupSpec` and `NodeState`. Label selectors in `depends_on` and
+`commands` resolved to concrete IDs at parse time (static). ~30 lines.
+
+## 3. Steps and Attempts
 
 Every DAG node is a **step**. Every step has **attempts** tried in order.
 
@@ -426,7 +453,7 @@ interface AttemptRecord {
 }
 ```
 
-## 3. Step Output Flow
+## 4. Step Output Flow
 
 Each step's output text is written to `.agent-engine/outputs/{step_id}.txt`.
 Dependent steps get automatic context telling them where to find previous outputs:
@@ -441,7 +468,7 @@ The agent reads these files naturally. No prompt injection, no context window bl
 works for large outputs. Automatic for `steps:` mode (Level 2). For `groups:` mode
 (Level 3), use `output:` field to specify output path.
 
-## 4. Failure Taxonomy
+## 5. Failure Taxonomy
 
 | FailureReason | Retryable | Meaning |
 |---|---|---|
@@ -470,7 +497,7 @@ function classifyResult(result: AttemptResult, abandoned: boolean): Partial<Step
 }
 ```
 
-## 5. Scheduler — IMPLEMENTED
+## 6. Scheduler — IMPLEMENTED
 
 ```typescript
 function nextActions(nodes, state): { actions, state }
@@ -479,7 +506,7 @@ function nextActions(nodes, state): { actions, state }
 Pure. Never mutates input. Level-triggered. 29 tests. Unchanged by any of the
 architectural evolution — it doesn't know about execution.
 
-## 6. Resource Pools
+## 7. Resource Pools
 
 **Slots** (renewable): concurrency limits. Acquired on dispatch, released on completion.
 **Budgets** (consumable): cumulative limits. Consumed permanently.
@@ -501,7 +528,7 @@ interface ResourcePool {
 }
 ```
 
-## 7. Engine (scheduler + dispatcher)
+## 8. Engine (scheduler + dispatcher)
 
 Simple poll loop. Does NOT execute work — spawns workers, monitors results.
 
@@ -609,7 +636,7 @@ if (fs.existsSync(config.hintPath)) {
 }
 ```
 
-## 8. Worker (`run-step.ts`)
+## 9. Worker (`run-step.ts`)
 
 Each SDK package ships a default worker. Projects can override via config:
 ```yaml
@@ -656,7 +683,7 @@ process.exit(1);
 The engine spawns this script. The script imports executors. The engine never
 touches executor code.
 
-## 9. State
+## 10. State
 
 ### NodeState
 
@@ -674,9 +701,23 @@ interface NodeState {
   logFile?: string;
   lastError?: string;
   retryHint?: string;
+  labels?: Record<string, string>;
+  health?: 'healthy' | 'warning' | 'critical' | 'unknown';
+  healthDetail?: string;
   adjustments?: { maxTurns?: number; model?: string; promptContext?: string };
   attemptHistory: AttemptRecord[];
 }
+```
+
+`health` is computed by the engine on each state save:
+- `healthy`: running, producing events, within timeout and budget
+- `warning`: idle > stallWarnSeconds, or budget > 80%
+- `critical`: about to be killed (idle approaching stallAbandonSeconds)
+- `unknown`: not running
+
+Orchestrator checks one field instead of computing from 5+ fields:
+```bash
+jq '.nodes | to_entries[] | select(.value.health == "warning")' state.json
 ```
 
 ### State updates
@@ -688,7 +729,7 @@ sees retry context.
 `running` → `ready`. `skipped` → `blocked`. Non-retryable → `blocked`.
 `success` → untouched. Config reconciliation if DAG changed.
 
-## 10. Observability
+## 11. Observability
 
 | Channel | File | Updated | Audience |
 |---|---|---|---|
@@ -748,7 +789,7 @@ PARTIAL (5/8) | 45 turns | $6.75
 COMPLETE (8/8) | 31 turns | $4.20 | Cumulative: 76 turns | $10.95
 ```
 
-## 11. DAG Parser — IMPLEMENTED (needs updates)
+## 12. DAG Parser — IMPLEMENTED (needs updates)
 
 - `steps:` shorthand with ID inference
 - `maxRetries` → `maxAttempts` (1-indexed)
@@ -767,7 +808,7 @@ function parseConfig(raw: RawConfig, desugars: Desugar[] = []): ParsedConfig {
 }
 ```
 
-## 12. Project Structure
+## 13. Project Structure
 
 Monorepo of packages. Each SDK gets its own package with dedicated onboarding,
 defaults, and configuration. The engine core has zero external dependencies.
@@ -783,7 +824,7 @@ defaults, and configuration. The engine core has zero external dependencies.
   observers/                     # FileLog, Report, Stdout, Tmux
   executors/shell.ts             # Shell command executor (built-in)
   executors/mock.ts              # Testing executor
-  workspace/git.ts               # Generic git worktree + branch desugar
+  workspace/git.ts               # Git worktree + branch desugar + cleanStale()
   cost.ts                        # tokensToCost utility
   prompts/                       # Orchestrator prompt, fix templates
   types.ts                       # StepExecutor, StepConfig, NodeState, ...
@@ -834,7 +875,7 @@ don't touch others.
 Core ships `tokensToCost(model, input, output)` for executors that return
 token counts instead of USD (OpenAI, Google). Claude returns USD directly.
 
-## 13. Escalation Policy
+## 14. Escalation Policy
 
 Default policy generates attempt sequences when `attempts` not specified:
 
@@ -858,7 +899,7 @@ if (retry.adjustments?.promptContext) prompt += `\n\n## Orchestrator context\n${
 if (retry.attempt > 1) prompt += `\n\nAttempt ${retry.attempt}/${retry.maxAttempts}. Previous: ${retry.previousFailure}.`;
 ```
 
-## 14. CLI
+## 15. CLI
 
 ```bash
 npx engine run --prompt "fix the failing tests"      # Level 0
@@ -872,6 +913,7 @@ npx engine run config.yaml --max-parallel 10         # api resource shorthand
 npx engine run config.yaml --budget 50               # cost_usd shorthand
 npx engine run config.yaml --only a,b                # subset + deps
 npx engine init                                      # generate starter config
+npx engine cleanup                                   # remove stale worktrees + old runs
 ```
 
 ## Onboarding

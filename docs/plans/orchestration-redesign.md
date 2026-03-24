@@ -66,7 +66,16 @@ steps:
 ```
 Sequential by default (`steps:` implies each depends on previous).
 Inline prompts — no prompt files needed. IDs auto-generated.
-For parallel: use explicit `depends_on` or `groups:` (Level 3).
+For parallel within `steps:`, use `parallel:` blocks:
+```yaml
+steps:
+  - parallel:
+    - prompt: "Review for bugs"
+    - prompt: "Review for security"
+    - prompt: "Review for performance"
+  - prompt: "Fix the issues found above"
+```
+For full DAG control, use `groups:` (Level 3).
 
 **Level 3 — full YAML (DAG, resources, branches):**
 ```yaml
@@ -102,9 +111,20 @@ stallAbandonSeconds: 600
 ### `steps:` shorthand
 `steps:` desugars into `groups:` with defaults. IDs inferred from prompt filenames.
 
+### Project directory
+Engine files live in `.agent-engine/` (like `.github/`):
+```
+.agent-engine/
+  config.yaml              # workflow config
+  prompts/                 # agent prompts
+  logs/                    # pipeline-state.json, reports, step logs
+```
+`engine run` looks for `.agent-engine/config.yaml` by default. Explicit path overrides.
+Add `.agent-engine/logs/` to `.gitignore`.
+
 ### `engine init`
-For humans. Detects installed SDK, checks API key, generates starter `config.yaml`
-+ `prompts/` with templates.
+For humans. Detects installed SDK, checks API key, creates `.agent-engine/` with
+starter `config.yaml` + `prompts/`.
 
 ### `engine validate`
 For agents and humans. Validates config without running — critical for agent setup
@@ -630,7 +650,18 @@ interface Observer {
 No agent-level events (workers write to log files, not observer).
 Tmux tails `{nodeId}.log` directly for live activity.
 
-Implementations: FileLog (always), Report (always), Stdout (--ci), Tmux (--watch).
+Implementations:
+- **FileLog** — always active (audit trail)
+- **Report** — always active (completion report, appended per run)
+- **Inline** — default for interactive terminals (single updating status line)
+- **Stdout** — `--ci` mode (non-interactive, no cursor, Actions-compatible)
+- **Tmux** — `--watch` mode (full panes per agent)
+
+Inline observer for interactive use (when stdout is a TTY):
+```
+[2/5 running] review: turn 12 ($1.20) | implement: turn 8 ($0.80) | 3 waiting
+```
+Not the full Tmux UI — just a live status line so the user isn't staring at nothing.
 
 ### Completion report (appended per run)
 

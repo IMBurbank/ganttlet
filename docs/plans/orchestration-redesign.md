@@ -265,6 +265,53 @@ Orchestrator queries one field instead of computing from 5+ fields.
 **Orchestrator prompt** — ships with engine. Instructions for an agent to manage
 the pipeline using files. The "agent API" counterpart to the CLI.
 
+## Patterns (what's newly possible)
+
+These use existing engine features in combinations impossible with traditional workflows.
+
+**Self-healing pipeline:** Agent fails → writes RETRY_HINT → successor starts
+with diagnosis → succeeds. No human or orchestrator needed for self-diagnosable
+failures. The feedback loop closes without leaving the pipeline.
+
+**Review loops:** Agents improve each other's work through step output flow.
+Draft → review → improve → final review. Code gets progressively better.
+Impossible in traditional workflows because tasks can't reason about other tasks.
+
+**Agent quality gates:** A review step that uses judgment, not just test results.
+Catches naming issues, silent error swallowing, security concerns that pass tests
+but fail in production.
+
+**Collaborative debugging:** Attempt sequence where a DIFFERENT agent (debugger)
+analyzes the failure before the retry. Like a senior reviewing a junior's work:
+```yaml
+attempts:
+  - executor: sdk
+    prompt: implement.md              # try
+  - executor: sdk
+    prompt: analyze-failure.md        # different agent diagnoses
+    model: claude-opus-4-6
+  - executor: sdk
+    prompt: implement.md              # retry with diagnosis as RETRY_HINT
+```
+
+**Dynamic decomposition:** Agent outputs CANNOT_PROCEED with a split recommendation.
+Orchestrator reads it, modifies config to add parallel subtasks, engine picks up
+via config watching. Large task → automatic fan-out. No human needed.
+
+**Self-optimizing pipeline:** Orchestrator analyzes historical completion reports
+across runs. Steps that always succeed → reduce maxAttempts. Steps that always
+need opus → skip sonnet. Reviewer angles that find nothing → remove. The pipeline
+gets cheaper and faster without human tuning.
+
+**The closed loop** that no other tool provides:
+```
+Agent fails → RETRY_HINT → smarter retry
+Agent stuck → CANNOT_PROCEED → orchestrator diagnoses → modifies config
+Orchestrator → hint → running agent adjusts approach
+Run completes → report analyzed → config optimized for next run
+```
+No human in the loop until the system truly needs help.
+
 ## Observability
 
 | Channel | Format | Updated | Audience |

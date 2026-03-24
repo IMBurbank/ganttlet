@@ -44,26 +44,31 @@ commands, human tasks: all plug in through the same interface.
 
 Simple things are simple, complex things are possible.
 
-**Level 0 — no config:**
+**Level 0 — one command, no config, no files:**
 ```bash
-npx engine run --prompt "fix the failing tests in src/auth"
+npx @agent-engine/claude --prompt "fix the failing tests in src/auth"
 ```
+npx downloads the package. One agent runs. Result printed. Done.
+If API key not set: clear error with link to get one.
 
-**Level 1 — prompt files:**
+**Level 1 — prompt files, sequential:**
 ```bash
-npx engine run review.md implement.md test.md
+npx agent-engine run review.md implement.md test.md
 ```
+Three agents, sequential (argument order). IDs from filenames.
 
-**Level 2 — simple YAML:**
+**Level 2 — simple YAML with inline prompts:**
 ```yaml
 steps:
-  - prompt: review.md
-  - prompt: implement.md
-  - prompt: test.md
-    depends_on: [implement]
+  - prompt: "Review src/ for bugs and security issues"
+  - prompt: "Fix the issues found in the review"
+  - prompt: "Run tests and verify everything passes"
 ```
+Sequential by default (`steps:` implies each depends on previous).
+Inline prompts — no prompt files needed. IDs auto-generated.
+For parallel: use explicit `depends_on` or `groups:` (Level 3).
 
-**Level 3 — full YAML:**
+**Level 3 — full YAML (DAG, resources, branches):**
 ```yaml
 phase: my-project
 resources:

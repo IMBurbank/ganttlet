@@ -578,7 +578,45 @@ Updates needed:
 - Stage desugar: explicit `depends_on` replaces stage deps (not unions)
 - `branch` desugars into merge + verify steps with attempt sequences
 
-## 10. GitOps — IMPLEMENTED
+## 10. Project Structure
+
+This project is the **reference implementation** of the engine. The engine is the
+product; the project demonstrates how to use it. The structure reflects this:
+engine code is extractable with zero project dependencies, while the project-specific
+code shows the integration pattern for executors, workspace providers, and configs.
+
+```
+engine/                    # EXTRACTABLE
+  types.ts                 # Step, Attempt, NodeState, ResourceConfig
+  scheduler.ts             # Pure DAG scheduler
+  dag.ts                   # YAML → validated DAG
+  pipeline-runner.ts       # Main loop, worker management
+  run-step.ts              # Step worker process
+  resource-pool.ts         # Slots + budgets
+  state.ts                 # Load, save, resume, reconcile
+  observers/               # Observer pattern + implementations
+
+executors/                 # PLUGGABLE (one per executor type)
+  shell.ts                 # Shell command executor
+  sdk.ts                   # Claude SDK executor
+
+workspace/                 # PLUGGABLE (one per workspace type)
+  git.ts                   # Git worktree workspace (current git-ops.ts)
+
+project/                   # PROJECT-SPECIFIC (Ganttlet)
+  setup.ts                 # WASM copy, SDK patch, hook tests
+  escalation.ts            # Default escalation policy
+  entry.ts                 # Wires engine + executors + workspace
+
+configs/                   # WORKFLOW CONFIGS
+  skill-curation.yaml      # 40 reviewers → 8 curators
+  phase-development.yaml   # N parallel → merge → verify
+  single-issue.yaml        # 1 agent → verify → PR
+```
+
+To extract the engine: copy `engine/`. Everything else is project-specific.
+
+## 11. GitOps (workspace provider) — IMPLEMENTED
 
 Workspace provider for git-based workflows. Behind interface — swappable.
 Steps without `branch` don't touch GitOps. The engine works without git.
@@ -647,6 +685,8 @@ npx tsx scripts/sdk/cli.ts config.yaml --budget 50         # (shorthand for cost
 | ReportObserver (completion report, appended) | 80 |
 | RetryContext + attempt history | 30 |
 | Tmux observer | 120 |
+| Workflow configs (curation, phase-dev, single-issue) | 60 |
+| Restructure into engine/ + executors/ + workspace/ + project/ | ~0 net (move files) |
 | Tests | 150 |
 
 ### Delete (replaced by worker model)

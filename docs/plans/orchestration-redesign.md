@@ -94,6 +94,16 @@ npx agent-engine cleanup        # remove stale artifacts
   config.yaml       prompts/       .env.example       .gitignore (logs/, .env)
 ```
 
+**CLI flags:**
+```bash
+npx agent-engine run config.yaml --watch          # Tmux panes per agent
+npx agent-engine run config.yaml --ci             # non-interactive stdout
+npx agent-engine run config.yaml --max-parallel 10
+npx agent-engine run config.yaml --budget 50
+npx agent-engine run config.yaml --only a,b       # subset + transitive deps
+npx agent-engine run config.yaml --executor claude # when multiple SDKs installed
+```
+
 `engine validate` catches everything before spending money:
 ```
 Preflight:  ✓ API key valid   ✗ GITHUB_TOKEN not set   ✓ gh available

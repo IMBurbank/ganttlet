@@ -409,7 +409,22 @@ interface AttemptRecord {
 }
 ```
 
-## 3. Failure Taxonomy
+## 3. Step Output Flow
+
+Each step's output text is written to `.agent-engine/outputs/{step_id}.txt`.
+Dependent steps get automatic context telling them where to find previous outputs:
+
+```
+Previous step outputs available in .agent-engine/outputs/:
+  - review-for-bugs.txt
+  - review-for-security.txt
+```
+
+The agent reads these files naturally. No prompt injection, no context window bloat,
+works for large outputs. Automatic for `steps:` mode (Level 2). For `groups:` mode
+(Level 3), use `output:` field to specify output path.
+
+## 4. Failure Taxonomy
 
 | FailureReason | Retryable | Meaning |
 |---|---|---|
@@ -438,7 +453,7 @@ function classifyResult(result: AttemptResult, abandoned: boolean): Partial<Step
 }
 ```
 
-## 4. Scheduler — IMPLEMENTED
+## 5. Scheduler — IMPLEMENTED
 
 ```typescript
 function nextActions(nodes, state): { actions, state }
@@ -447,7 +462,7 @@ function nextActions(nodes, state): { actions, state }
 Pure. Never mutates input. Level-triggered. 29 tests. Unchanged by any of the
 architectural evolution — it doesn't know about execution.
 
-## 5. Resource Pools
+## 6. Resource Pools
 
 **Slots** (renewable): concurrency limits. Acquired on dispatch, released on completion.
 **Budgets** (consumable): cumulative limits. Consumed permanently.
@@ -469,7 +484,7 @@ interface ResourcePool {
 }
 ```
 
-## 6. Engine (scheduler + dispatcher)
+## 7. Engine (scheduler + dispatcher)
 
 Simple poll loop. Does NOT execute work — spawns workers, monitors results.
 
@@ -577,9 +592,15 @@ if (fs.existsSync(config.hintPath)) {
 }
 ```
 
-## 7. Worker (`run-step.ts`)
+## 8. Worker (`run-step.ts`)
 
-Project-provided, not engine-provided. Imports engine types + project executors.
+Each SDK package ships a default worker. Projects can override via config:
+```yaml
+engine:
+  worker: ./scripts/worker.ts    # project-specific (Level 3)
+```
+If not specified, the SDK package's built-in worker is used. Level 0-2 never
+need to configure this.
 
 ```typescript
 // Project's worker script:
@@ -618,7 +639,7 @@ process.exit(1);
 The engine spawns this script. The script imports executors. The engine never
 touches executor code.
 
-## 8. State
+## 9. State
 
 ### NodeState
 
@@ -650,7 +671,7 @@ sees retry context.
 `running` → `ready`. `skipped` → `blocked`. Non-retryable → `blocked`.
 `success` → untouched. Config reconciliation if DAG changed.
 
-## 9. Observability
+## 10. Observability
 
 | Channel | File | Updated | Audience |
 |---|---|---|---|
@@ -710,7 +731,7 @@ PARTIAL (5/8) | 45 turns | $6.75
 COMPLETE (8/8) | 31 turns | $4.20 | Cumulative: 76 turns | $10.95
 ```
 
-## 10. DAG Parser — IMPLEMENTED (needs updates)
+## 11. DAG Parser — IMPLEMENTED (needs updates)
 
 - `steps:` shorthand with ID inference
 - `maxRetries` → `maxAttempts` (1-indexed)
@@ -729,7 +750,7 @@ function parseConfig(raw: RawConfig, desugars: Desugar[] = []): ParsedConfig {
 }
 ```
 
-## 11. Project Structure
+## 12. Project Structure
 
 Monorepo of packages. Each SDK gets its own package with dedicated onboarding,
 defaults, and configuration. The engine core has zero external dependencies.
@@ -796,7 +817,7 @@ don't touch others.
 Core ships `tokensToCost(model, input, output)` for executors that return
 token counts instead of USD (OpenAI, Google). Claude returns USD directly.
 
-## 12. Escalation Policy
+## 13. Escalation Policy
 
 Default policy generates attempt sequences when `attempts` not specified:
 
@@ -820,13 +841,14 @@ if (retry.adjustments?.promptContext) prompt += `\n\n## Orchestrator context\n${
 if (retry.attempt > 1) prompt += `\n\nAttempt ${retry.attempt}/${retry.maxAttempts}. Previous: ${retry.previousFailure}.`;
 ```
 
-## 13. CLI
+## 14. CLI
 
 ```bash
 npx engine run --prompt "fix the failing tests"      # Level 0
 npx engine run review.md implement.md                # Level 1
 npx engine run config.yaml                           # Level 2-3
-npx engine run config.yaml --resume                  # retry from state
+npx engine run --resume                              # finds latest failed run in .agent-engine/logs/
+npx engine run config.yaml --resume                  # explicit config path
 npx engine run config.yaml --watch                   # + Tmux
 npx engine run config.yaml --ci                      # + Stdout
 npx engine run config.yaml --max-parallel 10         # api resource shorthand

@@ -1,15 +1,16 @@
 # Agent Orchestration Engine
 
 **Date:** 2026-03-24
-**Status:** v11 — worker model, resource pools, unified execution strategy
+**Status:** v12 — progressive UX, agent-first conventions, orchestrator prompt
 
 ## Problem
 
-Build a general-purpose agent orchestration engine. It runs DAGs of steps — shell
-commands, SDK agent sessions, or sequences of both — with automatic retry, capability
-escalation, cost tracking, and observable state. It must work for any workflow (curation,
-feature development, deployment) and scale from 5 concurrent steps to 100+ on one machine
-with a clear path to multi-machine via shared filesystem.
+Build a general-purpose agent orchestration engine that's easy to start with and
+powerful to scale. A single prompt file should "just work." A 40-agent curation
+pipeline should be configurable without a manual. The engine runs DAGs of steps —
+shell commands, SDK agent sessions, or sequences of both — with automatic retry,
+capability escalation, cost tracking, and observable state. It must scale from 1 to
+100+ concurrent steps on one machine with a clear path to multi-machine.
 
 ## Principles
 
@@ -42,6 +43,144 @@ with a clear path to multi-machine via shared filesystem.
 8. **Observable by default.** Every step records attempt history. State file updated every
    30 seconds. Completion report persisted and cumulative. Log files are the real-time
    event stream AND the IPC channel between workers and scheduler.
+
+## Progressive UX
+
+Four levels of configuration. Simple things are simple, complex things are possible.
+
+**Level 0 — no config file:**
+```bash
+npx engine run --prompt "fix the failing tests in src/auth"
+```
+One agent, current directory, default model (sonnet), default turns (30). Done.
+
+**Level 1 — prompt files:**
+```bash
+npx engine run review.md implement.md test.md
+```
+Three agents. Sequential (argument order). IDs inferred from filenames.
+
+**Level 2 — simple YAML:**
+```yaml
+steps:
+  - prompt: review.md
+  - prompt: implement.md
+  - prompt: test.md
+    depends_on: [implement]
+```
+IDs inferred. `review` and `implement` parallel (no deps). `test` waits for `implement`.
+Resources, model, turns all defaulted.
+
+**Level 3 — full YAML:**
+```yaml
+phase: my-project
+resources:
+  api: 10
+  cost_usd: 50.00
+groups:
+  - id: feature-A
+    prompt: feature-a.md
+    branch: feature/A
+    max_attempts: 3
+    attempts:
+      - executor: shell
+        command: "npm test"
+      - executor: sdk
+        model: claude-opus-4-6
+        max_turns: 60
+```
+Full control — attempt sequences, resources, branches, timeouts.
+
+### Sane defaults
+
+Everything has a default. Users only override what they need.
+
+```
+model:              claude-sonnet-4-6
+maxTurns:           30
+maxAttempts:        2 (one retry)
+resources:          [api]
+api concurrency:    5
+timeoutSeconds:     1800 (30 min)
+stallWarnSeconds:   120
+stallAbandonSeconds: 600
+```
+
+### ID inference
+
+When `id` is omitted, inferred from prompt path:
+`docs/prompts/review.md` → `review`. Collision → error with clear message.
+
+### `steps:` shorthand
+
+`steps:` desugars into `groups:` with defaults applied. Same parser, less boilerplate.
+
+### `engine init`
+
+```bash
+npx engine init
+```
+Generates `config.yaml` with commented examples + `prompts/` directory with templates.
+
+## Agent-First Conventions
+
+Agents are not just workers — they produce structured signals that the engine acts on.
+
+### `CANNOT_PROCEED`
+
+Agent output contains `CANNOT_PROCEED: <reason>`. The worker classifies this as
+`failureReason: 'blocked'` (non-retryable). The orchestrator reads the reason and
+fixes the root cause.
+
+### `RETRY_HINT`
+
+Agent output contains `RETRY_HINT: <advice>`. The worker extracts it and stores in
+`StepResult.retryHint`. The runner stores it in `NodeState.retryHint`. The escalation
+policy includes it in the next attempt's prompt:
+
+```
+## Previous Attempt Context
+Attempt 2/3. Previous failure: timeout.
+Retry hint from previous agent: "The auth module was refactored. Use /v2/auth endpoint."
+```
+
+This closes the feedback loop: failed agent → structured advice → retry agent starts
+with the right information. No orchestrator intervention needed for self-diagnosable
+failures.
+
+### Orchestrator Prompt
+
+The engine ships with an orchestrator prompt — instructions for an agent that manages
+the pipeline. This is the "agent API" counterpart to the CLI for humans.
+
+```markdown
+# Pipeline Orchestrator
+
+You manage a DAG pipeline. Monitor progress, diagnose failures, fix and resume.
+
+## Monitoring
+- pipeline-state.json: structured status (jq-queryable)
+- pipeline.log: real-time lifecycle events (tail)
+- {nodeId}.log: per-step agent activity
+- pipeline-report.md: human-readable summary (cumulative)
+
+## On failure
+1. Read pipeline-report.md for the summary
+2. For each failure: read lastError and retryHint in state file
+3. Determine: config problem, prompt problem, or genuinely hard task?
+4. Fix:
+   - Edit YAML config (engine picks up changes automatically)
+   - Write commands.json to cancel/adjust running steps
+   - Modify prompt files for retry attempts
+5. No restart needed — changes are picked up within seconds
+
+## Report to human when
+- Budget exhausted and you need approval
+- All retries exhausted and you can't determine the fix
+- Pipeline complete — summarize results, cost, and next steps
+```
+
+This prompt is part of the engine. It makes the engine agent-operable out of the box.
 
 ## Architecture
 
@@ -159,8 +298,9 @@ interface RetryContext {
   previousFailure?: FailureReason;
   previousSessionId?: string;
   previousLogFile?: string;
+  retryHint?: string;        // advice from the failed agent (RETRY_HINT:)
   workspacePreserved: boolean;  // previous attempt's workspace still exists
-  adjustments?: {
+  adjustments?: {            // from orchestrator commands
     maxTurns?: number;
     model?: string;
     promptContext?: string;  // appended to prompt
@@ -178,6 +318,7 @@ interface StepResult {
   turns: number;
   sessionId?: string;
   lastError?: string;
+  retryHint?: string;             // extracted from agent output (RETRY_HINT:)
   attemptHistory: AttemptRecord[];
 }
 
@@ -217,12 +358,13 @@ The worker classifies agent output before writing the result:
 function classifyResult(agentResult, abandoned): StepResult {
   if (abandoned) → timeout
   if (output contains 'CANNOT_PROCEED:') → blocked (with reason extracted)
+  if (output contains 'RETRY_HINT:') → extract and attach to result
   if (SDK failure) → map to failure taxonomy
   if (success) → success
 }
 ```
 
-Single function, all outcomes, no special cases scattered across the codebase.
+Single function, all outcomes and agent signals, no special cases scattered.
 
 ## 3. Scheduler (pure) — IMPLEMENTED
 
@@ -473,6 +615,7 @@ interface NodeState {
     model?: string;
     promptContext?: string;
   };
+  retryHint?: string;              // advice from failed agent for its successor
   attemptHistory: AttemptRecord[];  // full forensic trail
 }
 ```
@@ -568,6 +711,7 @@ Tmux gets live agent activity by tailing `{nodeId}.log` directly, not via Observ
 ## 9. DAG Parser — IMPLEMENTED (needs updates)
 
 Updates needed:
+- `steps:` shorthand (desugar to `groups:` with defaults + ID inference)
 - `maxRetries` → `maxAttempts` (1-indexed)
 - `attempts` field in GroupSpec (optional — generated from escalation policy if absent)
 - `resources` field in GroupSpec
@@ -666,17 +810,37 @@ function defaultAttempts(spec: GroupSpec, retry: RetryContext): Attempt[] {
 
 Steps with explicit `attempts` skip the policy — the config is the complete strategy.
 
+When generating an SDK attempt, the policy appends context from `RetryContext`:
+```typescript
+let prompt = basePrompt;
+if (retry.retryHint) prompt += `\n\n## Hint from previous attempt\n${retry.retryHint}`;
+if (retry.adjustments?.promptContext) prompt += `\n\n## Orchestrator context\n${retry.adjustments.promptContext}`;
+if (retry.attempt > 1) prompt += `\n\nAttempt ${retry.attempt}/${retry.maxAttempts}. Previous: ${retry.previousFailure}.`;
+```
+
 ## 13. CLI
 
 ```bash
-npx tsx scripts/sdk/cli.ts config.yaml                    # FileLog + Report
-npx tsx scripts/sdk/cli.ts config.yaml --watch             # + Tmux
-npx tsx scripts/sdk/cli.ts config.yaml --ci                # + Stdout
-npx tsx scripts/sdk/cli.ts config.yaml --resume            # retry from state
-npx tsx scripts/sdk/cli.ts config.yaml --max-parallel 10   # (shorthand for api resource)
-npx tsx scripts/sdk/cli.ts config.yaml --only a,b          # subset + transitive deps
-npx tsx scripts/sdk/cli.ts config.yaml --budget 50         # (shorthand for cost_usd resource)
+# Level 0: inline prompt (one agent, no config)
+npx engine run --prompt "fix the failing tests"
+
+# Level 1: prompt files (sequential agents, no config)
+npx engine run review.md implement.md test.md
+
+# Level 2-3: YAML config (steps: or groups:)
+npx engine run config.yaml
+npx engine run config.yaml --watch           # + Tmux observer
+npx engine run config.yaml --ci              # + Stdout observer
+npx engine run config.yaml --resume          # retry from state
+npx engine run config.yaml --max-parallel 10 # shorthand for api resource
+npx engine run config.yaml --budget 50       # shorthand for cost_usd resource
+npx engine run config.yaml --only a,b        # subset + transitive deps
+
+# Scaffolding
+npx engine init                              # generate starter config + prompts
 ```
+
+CLI detects input type: `.yaml` → config, `.md` → prompt file, quoted string → inline.
 
 ## What Needs Building / Changing
 
@@ -712,6 +876,12 @@ npx tsx scripts/sdk/cli.ts config.yaml --budget 50         # (shorthand for cost
 | ReportObserver (completion report, appended) | 80 |
 | RetryContext + attempt history | 30 |
 | Tmux observer | 120 |
+| `RETRY_HINT` extraction in classifyResult | 10 |
+| CLI multi-mode (inline, prompt files, YAML) | 40 |
+| `steps:` shorthand in DAG parser | 20 |
+| ID inference from prompt filenames | 10 |
+| `engine init` scaffolding | 40 |
+| Orchestrator prompt document | 50 |
 | Workflow configs (curation, phase-dev, single-issue) | 60 |
 | Restructure into engine/ + executors/ + workspace/ + project/ | ~0 net (move files) |
 | Tests | 150 |
@@ -754,17 +924,31 @@ The engine is never the bottleneck:
 
 ## Success Criteria
 
-- [ ] Curation (40 reviewers → 8 curators) runs with one command
+### UX
+- [ ] `engine run --prompt "..."` works with zero config
+- [ ] `engine run review.md fix.md` runs two agents sequentially
+- [ ] `engine init` generates working starter config + prompts
+- [ ] `steps:` shorthand works with ID inference
+
+### Engine
 - [ ] Steps use attempt sequences (shell → agent → escalated agent)
 - [ ] Resource pools control concurrency + budget
 - [ ] Workers are subprocesses (setsid, killable, isolated)
 - [ ] Stall detection: warn at 120s, kill at 600s (configurable)
 - [ ] Start-to-close timeout per step
-- [ ] `commands.json` cancel/adjust picked up within 30s
-- [ ] Config changes picked up within 30s (no restart)
-- [ ] `CANNOT_PROCEED` → `blocked` failure, non-retryable
-- [ ] Completion report: per-attempt history, cumulative across runs
-- [ ] State file: turns, cost, lastEventAt queryable during execution
+- [ ] Config changes picked up within seconds (no restart)
+- [ ] `commands.json` cancel/adjust picked up within seconds
 - [ ] `--resume` recovers from any failure state
 - [ ] Budget cap stops scheduling when pipeline cost exceeded
+
+### Agent-first
+- [ ] `CANNOT_PROCEED` → `blocked` failure, non-retryable
+- [ ] `RETRY_HINT` → extracted, stored, included in retry prompt automatically
+- [ ] Orchestrator prompt ships with the engine
+- [ ] Completion report: per-attempt history, cumulative across runs
+
+### Reference implementation
+- [ ] Curation config (40 reviewers → 8 curators) runs with one command
+- [ ] Phase-development config runs with one command
+- [ ] Engine extractable with zero project dependencies
 - [ ] 550+ tests, tsc clean

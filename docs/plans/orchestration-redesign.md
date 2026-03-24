@@ -267,8 +267,25 @@ Output saved to: .agent-engine/outputs/{id}.txt
 ## Previous attempt (if retry)
 Failed with: {previousFailure}. Hint: {retryHint}. Context: {adjustments}
 ```
-SDK packages extend with executor-specific guidance (`executor.getContext()`).
-Users never write this. Every agent has full situational awareness from Level 0.
+**Prompt composition (5 layers):**
+1. Engine context — auto-generated (above). Users never write this.
+2. Project context — `context:` in config → `context.md` with project knowledge
+3. Step skills — `skills: [review, security]` → `.agent-engine/skills/*.md`
+4. Executor context — `executor.getContext()` (SDK-specific tool guidance)
+5. Task prompt — the user's per-step instructions
+
+```yaml
+context: context.md                    # project-wide (all agents)
+steps:
+  - prompt: implement.md
+    skills: [coding, testing]          # reusable knowledge per step
+  - prompt: review.md
+    skills: [code-review, security]
+```
+
+Skills are reusable across steps. Separate from task prompts — update knowledge
+without changing tasks. `engine init` generates starter skills.
+Agent-assisted setup writes `context.md` with discovered project knowledge.
 
 **CANNOT_PROCEED** → `blocked` (non-retryable). Reason in lastError.
 

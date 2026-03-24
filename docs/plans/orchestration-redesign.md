@@ -59,14 +59,12 @@ Config (YAML)           Commands              State File
 │  └───────────┘  └───────────┘  └──────────┘            │
 │                                                          │
 │  Main loop:                                              │
-│    1. Check completions (result files)                   │
-│    2. Check stalls (log file mtimes)                     │
-│    3. Process commands (commands.json)                   │
-│    4. Check config changes (mtime)                       │
-│    5. Run scheduler (pure)                               │
-│    6. Dispatch ready steps (spawn workers)               │
-│    7. Save state                                         │
-│    8. Sleep 1s                                           │
+│    1. Monitor workers (completions, crashes, stalls)     │
+│    2. Process external signals (commands, config)        │
+│    3. Save state (throttled 30s)                         │
+│    4. Run scheduler (pure)                               │
+│    5. Dispatch ready steps (resource-aware)              │
+│    6. Sleep 1s                                           │
 └──────────────┬───────────────────────────────────────────┘
                │ spawn (setsid)
                ▼
@@ -161,7 +159,7 @@ interface RetryContext {
   previousFailure?: FailureReason;
   previousSessionId?: string;
   previousLogFile?: string;
-  worktreePreserved: boolean;
+  workspacePreserved: boolean;  // previous attempt's workspace still exists
   adjustments?: {
     maxTurns?: number;
     model?: string;
@@ -207,8 +205,7 @@ Every failure is classified. The scheduler decides retryability per-type.
 | `agent` | Yes | execution error, crash | Better model on final attempt |
 | `infra` | Yes | worktree creation, npm install | Retry same config |
 | `budget` | **No** | maxBudgetUsd exhausted | Orchestrator adjusts budget |
-| `blocked` | **No** | agent output `CANNOT_PROCEED:` | Orchestrator fixes dependency |
-| `merge_conflict` | **No** | merge handler exhausted attempts | Orchestrator resolves conflict |
+| `blocked` | **No** | agent `CANNOT_PROCEED:`, unresolvable conflict, etc. | Orchestrator fixes root cause |
 
 Non-retryable within a run. All reset to `blocked` on resume (orchestrator fixed it).
 
@@ -576,7 +573,37 @@ Updates needed:
 - `resources` field in GroupSpec
 - `timeoutSeconds` field
 - Stage desugar: explicit `depends_on` replaces stage deps (not unions)
-- `branch` desugars into merge + verify steps with attempt sequences
+- `branch` desugars into merge + verify steps:
+
+```yaml
+# User writes:
+- id: feature-A
+  prompt: implement.md
+  branch: feature/A
+  resources: [api]
+
+# Parser generates:
+- id: feature-A
+  prompt: implement.md
+  resources: [api]
+- id: merge:feature-A
+  attempts:
+    - executor: shell
+      command: "git merge --no-ff origin/feature/A"
+    - executor: sdk
+      prompt: resolve-merge-conflict.md
+  resources: [merge_lock]
+  depends_on: [feature-A]
+- id: verify:feature-A
+  attempts:
+    - executor: shell
+      command: "./scripts/full-verify.sh"
+    - executor: sdk
+      prompt: fix-verify.md
+  resources: [merge_lock]
+  depends_on: [merge:feature-A]
+# Downstream deps on feature-A are rewritten to depend on verify:feature-A
+```
 
 ## 10. Project Structure
 
@@ -616,12 +643,12 @@ configs/                   # WORKFLOW CONFIGS
 
 To extract the engine: copy `engine/`. Everything else is project-specific.
 
-## 11. GitOps (workspace provider) — IMPLEMENTED
+## 11. Workspace Provider (GitOps) — IMPLEMENTED
 
 Workspace provider for git-based workflows. Behind interface — swappable.
 Steps without `branch` don't touch GitOps. The engine works without git.
 
-## 11. Escalation Policy
+## 12. Escalation Policy
 
 Default policy generates attempt sequences when `attempts` not specified:
 
@@ -639,7 +666,7 @@ function defaultAttempts(spec: GroupSpec, retry: RetryContext): Attempt[] {
 
 Steps with explicit `attempts` skip the policy — the config is the complete strategy.
 
-## 12. CLI
+## 13. CLI
 
 ```bash
 npx tsx scripts/sdk/cli.ts config.yaml                    # FileLog + Report

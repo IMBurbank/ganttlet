@@ -246,71 +246,72 @@ Success nodes untouched. Config reconciliation if DAG changed.
 **classifyResult** — single function, all outcomes: CANNOT_PROCEED → blocked,
 RETRY_HINT → extracted for successor, SDK failures → mapped to taxonomy.
 
-## Agent-First Features
+## Agent-First
 
-**CANNOT_PROCEED** — agent signals non-retryable failure with reason.
-Extracted, stored in lastError. Orchestrator reads and fixes.
+**Agent protocol** — the worker appends to EVERY prompt automatically:
+```
+If you cannot complete this task, output CANNOT_PROCEED: followed by the reason.
+If you fail but have advice for a retry, output RETRY_HINT: followed by your advice.
+```
+Users never write this. Every agent knows the signals from Level 0.
 
-**RETRY_HINT** — failed agent advises its successor. Extracted by worker,
-included in next attempt's prompt automatically. Self-healing without orchestrator.
+**CANNOT_PROCEED** → `blocked` (non-retryable). Reason in lastError.
 
-**Hints to running agents** — orchestrator writes hint to `commands.json` →
-engine writes hint file to worker's workdir → worker detects on next turn →
-injects as conversation message via `executor.resume`. If unsupported, deferred.
-Types: guidance, context, warning, critical, cancel.
+**RETRY_HINT** → extracted, stored, included in next attempt automatically.
+
+**Default diagnosis step** — on SDK failures, the escalation policy automatically
+inserts a 10-turn diagnosis agent before the retry:
+```
+Attempt 1: sdk sonnet 30t → task fails
+Attempt 2: sdk sonnet 10t → analyze-failure (reads previous log, outputs RETRY_HINT)
+Attempt 3: sdk sonnet 60t → retry with diagnosis as context
+```
+Collaborative debugging as a default, not an expert pattern. Skipped for shell failures.
+
+**Hints to running agents** — orchestrator writes `commands.json` → engine writes
+hint file → worker injects via `executor.resume`. Types: guidance, context,
+warning, critical, cancel. If resume unsupported, deferred to next attempt.
 
 **Health summary** — computed per-step: healthy/warning/critical/unknown.
-Orchestrator queries one field instead of computing from 5+ fields.
 
-**Orchestrator prompt** — ships with engine. Instructions for an agent to manage
-the pipeline using files. The "agent API" counterpart to the CLI.
+**Orchestrator prompt** — ships with engine, includes playbook:
+- Failure diagnosis (read logs, understand code, modify config)
+- Decomposition (handle CANNOT_PROCEED split recommendations)
+- Optimization (analyze historical reports, tune config for next run)
+- Cost management (identify expensive steps, suggest cheaper routing)
+
+**`engine init` pattern selection:**
+```bash
+$ npx agent-engine init
+What kind of workflow?
+  ❯ Simple pipeline — steps run in sequence
+    Review loop — implement → review → improve → verify
+    Parallel reviews — multiple agents review from different angles
+    Custom — blank config
+```
+Patterns are DISCOVERABLE at first use, not buried in docs.
 
 ## Patterns (what's newly possible)
 
-These use existing engine features in combinations impossible with traditional workflows.
-
-**Self-healing pipeline:** Agent fails → writes RETRY_HINT → successor starts
-with diagnosis → succeeds. No human or orchestrator needed for self-diagnosable
-failures. The feedback loop closes without leaving the pipeline.
-
-**Review loops:** Agents improve each other's work through step output flow.
-Draft → review → improve → final review. Code gets progressively better.
-Impossible in traditional workflows because tasks can't reason about other tasks.
-
-**Agent quality gates:** A review step that uses judgment, not just test results.
-Catches naming issues, silent error swallowing, security concerns that pass tests
-but fail in production.
-
-**Collaborative debugging:** Attempt sequence where a DIFFERENT agent (debugger)
-analyzes the failure before the retry. Like a senior reviewing a junior's work:
-```yaml
-attempts:
-  - executor: sdk
-    prompt: implement.md              # try
-  - executor: sdk
-    prompt: analyze-failure.md        # different agent diagnoses
-    model: claude-opus-4-6
-  - executor: sdk
-    prompt: implement.md              # retry with diagnosis as RETRY_HINT
+**The closed loop** — no other tool provides this:
+```
+Agent fails → RETRY_HINT → smarter retry (self-healing)
+Agent stuck → CANNOT_PROCEED → orchestrator diagnoses → modifies config (self-adapting)
+Orchestrator → hint → running agent adjusts (active supervision)
+Run completes → report analyzed → config optimized (self-improving)
 ```
 
-**Dynamic decomposition:** Agent outputs CANNOT_PROCEED with a split recommendation.
-Orchestrator reads it, modifies config to add parallel subtasks, engine picks up
-via config watching. Large task → automatic fan-out. No human needed.
+**Review loops:** Draft → review → improve → verify. Agents improve each other's
+work through step output flow. `engine init` offers this as a template.
 
-**Self-optimizing pipeline:** Orchestrator analyzes historical completion reports
-across runs. Steps that always succeed → reduce maxAttempts. Steps that always
-need opus → skip sonnet. Reviewer angles that find nothing → remove. The pipeline
-gets cheaper and faster without human tuning.
+**Agent quality gates:** Review step using judgment. Catches what tests miss.
 
-**The closed loop** that no other tool provides:
-```
-Agent fails → RETRY_HINT → smarter retry
-Agent stuck → CANNOT_PROCEED → orchestrator diagnoses → modifies config
-Orchestrator → hint → running agent adjusts approach
-Run completes → report analyzed → config optimized for next run
-```
-No human in the loop until the system truly needs help.
+**Dynamic decomposition:** Agent recommends split. Orchestrator restructures config.
+Engine picks up via config watching. No human needed.
+
+**Self-optimizing:** Orchestrator analyzes historical reports. Steps always
+succeeding → reduce attempts. Steps needing opus → skip sonnet. Pipeline gets
+cheaper without human tuning.
 
 ## Observability
 

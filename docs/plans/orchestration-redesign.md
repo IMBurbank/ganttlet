@@ -1,64 +1,58 @@
 # Agent Orchestration Engine
 
 **Date:** 2026-03-24
-**Status:** v12 — progressive UX, agent-first conventions, orchestrator prompt
+**Status:** v13 — runner-agnostic core, StepExecutor interface
 
 ## Problem
 
-Build a general-purpose agent orchestration engine that's easy to start with and
-powerful to scale. A single prompt file should "just work." A 40-agent curation
-pipeline should be configurable without a manual. The engine runs DAGs of steps —
-shell commands, SDK agent sessions, or sequences of both — with automatic retry,
-capability escalation, cost tracking, and observable state. It must scale from 1 to
-100+ concurrent steps on one machine with a clear path to multi-machine.
+Build a general-purpose orchestration engine for AI agents. A single prompt should
+"just work." A 40-agent pipeline should be configurable without a manual. The engine
+coordinates work — it doesn't know or care what executes it. Claude, OpenAI, shell
+commands, human tasks: all plug in through the same interface.
 
 ## Principles
 
-1. **The scheduler never executes work.** The scheduler makes decisions. Workers execute
-   steps. The scheduler is one process. Workers are N processes. (K8s, Temporal, Airflow
-   all do this.)
+1. **The engine never executes work.** It schedules, dispatches, monitors, and records.
+   Workers execute. The engine is one process. Workers are N processes.
 
-2. **State is files.** State file, log files, config file, commands file, result files.
-   Any process can read them. The scheduler is the only state file writer. Files work on
-   shared filesystems (NFS/EFS) — multi-machine with zero code changes.
+2. **State is files.** State, logs, config, commands, results — all files. Any process
+   can read them. Works on shared filesystems for multi-machine with zero code changes.
 
-3. **Pure scheduling.** Scheduler is a pure function: `(dag, state) → (actions, newState)`.
-   Level-triggered reconciliation — re-derives full diff each iteration, never misses an
-   event. (K8s controller pattern.)
+3. **Pure scheduling.** `(dag, state) → (actions, newState)`. Level-triggered
+   reconciliation. Never misses an event. (K8s controller pattern.)
 
-4. **Steps are attempt sequences.** A step tries attempts in order (shell → agent → better
-   agent). "Script with fallback" and "agent with escalation" are the same pattern: try
-   something, if it fails, try something more capable.
+4. **Steps are attempt sequences.** Try something cheap, if it fails try something
+   capable. Shell → agent → better agent is the same pattern as agent → more turns →
+   better model.
 
-5. **Resources are named pools.** Slots (renewable: concurrency limits) and budgets
-   (consumable: cost caps). The engine never hardcodes concurrency logic — it checks pools.
+5. **Resources are named pools.** Slots (concurrency) and budgets (cost caps).
+   No hardcoded concurrency logic.
 
-6. **Config is the live source of truth.** The engine watches the config file. Changes are
-   picked up within 30 seconds — no restart needed. (K8s desired-state pattern.)
+6. **Config is live.** Engine watches the config file. Changes picked up within seconds.
+   (K8s desired-state pattern.)
 
-7. **Three-tier supervision.** Pipeline handles recoverable failures (retry + escalate).
-   Orchestrator handles unrecoverable failures (diagnose + fix + modify config).
-   Human reviews the final result.
+7. **Runner-agnostic.** The engine defines a `StepExecutor` interface. Claude is one
+   implementation. The engine has zero external dependencies beyond Node built-ins.
 
-8. **Observable by default.** Every step records attempt history. State file updated every
-   30 seconds. Completion report persisted and cumulative. Log files are the real-time
-   event stream AND the IPC channel between workers and scheduler.
+8. **Three-tier supervision.** Engine handles recoverable failures. Orchestrator handles
+   unrecoverable failures. Human reviews the result.
+
+9. **Observable by default.** Attempt history, live state, cumulative reports.
+   Log files are the event stream AND the IPC channel.
 
 ## Progressive UX
 
-Four levels of configuration. Simple things are simple, complex things are possible.
+Simple things are simple, complex things are possible.
 
-**Level 0 — no config file:**
+**Level 0 — no config:**
 ```bash
 npx engine run --prompt "fix the failing tests in src/auth"
 ```
-One agent, current directory, default model (sonnet), default turns (30). Done.
 
 **Level 1 — prompt files:**
 ```bash
 npx engine run review.md implement.md test.md
 ```
-Three agents. Sequential (argument order). IDs inferred from filenames.
 
 **Level 2 — simple YAML:**
 ```yaml
@@ -68,8 +62,6 @@ steps:
   - prompt: test.md
     depends_on: [implement]
 ```
-IDs inferred. `review` and `implement` parallel (no deps). `test` waits for `implement`.
-Resources, model, turns all defaulted.
 
 **Level 3 — full YAML:**
 ```yaml
@@ -89,108 +81,62 @@ groups:
         model: claude-opus-4-6
         max_turns: 60
 ```
-Full control — attempt sequences, resources, branches, timeouts.
 
 ### Sane defaults
-
-Everything has a default. Users only override what they need.
-
 ```
-model:              claude-sonnet-4-6
-maxTurns:           30
-maxAttempts:        2 (one retry)
-resources:          [api]
-api concurrency:    5
-timeoutSeconds:     1800 (30 min)
-stallWarnSeconds:   120
+model:               claude-sonnet-4-6
+maxTurns:            30
+maxAttempts:         2
+resources:           [api]
+api concurrency:     5
+timeoutSeconds:      1800
+stallWarnSeconds:    120
 stallAbandonSeconds: 600
 ```
 
-### ID inference
-
-When `id` is omitted, inferred from prompt path:
-`docs/prompts/review.md` → `review`. Collision → error with clear message.
-
 ### `steps:` shorthand
-
-`steps:` desugars into `groups:` with defaults applied. Same parser, less boilerplate.
+`steps:` desugars into `groups:` with defaults. IDs inferred from prompt filenames.
 
 ### `engine init`
-
-```bash
-npx engine init
-```
-Generates `config.yaml` with commented examples + `prompts/` directory with templates.
+Generates starter `config.yaml` + `prompts/` with templates.
 
 ## Agent-First Conventions
 
-Agents are not just workers — they produce structured signals that the engine acts on.
-
 ### `CANNOT_PROCEED`
-
-Agent output contains `CANNOT_PROCEED: <reason>`. The worker classifies this as
-`failureReason: 'blocked'` (non-retryable). The orchestrator reads the reason and
-fixes the root cause.
+Agent output contains `CANNOT_PROCEED: <reason>`. Classified as `blocked`
+(non-retryable). Orchestrator reads reason, fixes root cause.
 
 ### `RETRY_HINT`
+Agent output contains `RETRY_HINT: <advice>`. Extracted by worker, stored in
+result, included in next attempt's prompt automatically. Failed agent directly
+helps its successor — no orchestrator needed for self-diagnosable failures.
 
-Agent output contains `RETRY_HINT: <advice>`. The worker extracts it and stores in
-`StepResult.retryHint`. The runner stores it in `NodeState.retryHint`. The escalation
-policy includes it in the next attempt's prompt:
+### Hints to running agents
+Orchestrator writes hint file → engine writes to worker's workdir → worker detects
+on next turn → injects as conversation message via executor's `resume` capability.
+If executor doesn't support resume, hints are deferred to next attempt.
 
-```
-## Previous Attempt Context
-Attempt 2/3. Previous failure: timeout.
-Retry hint from previous agent: "The auth module was refactored. Use /v2/auth endpoint."
-```
-
-This closes the feedback loop: failed agent → structured advice → retry agent starts
-with the right information. No orchestrator intervention needed for self-diagnosable
-failures.
-
-### Orchestrator Prompt
-
-The engine ships with an orchestrator prompt — instructions for an agent that manages
-the pipeline. This is the "agent API" counterpart to the CLI for humans.
-
-```markdown
-# Pipeline Orchestrator
-
-You manage a DAG pipeline. Monitor progress, diagnose failures, fix and resume.
-
-## Monitoring
-- pipeline-state.json: structured status (jq-queryable)
-- pipeline.log: real-time lifecycle events (tail)
-- {nodeId}.log: per-step agent activity
-- pipeline-report.md: human-readable summary (cumulative)
-
-## On failure
-1. Read pipeline-report.md for the summary
-2. For each failure: read lastError and retryHint in state file
-3. Determine: config problem, prompt problem, or genuinely hard task?
-4. Fix:
-   - Edit YAML config (engine picks up changes automatically)
-   - Write commands.json to cancel/adjust running steps
-   - Modify prompt files for retry attempts
-5. No restart needed — changes are picked up within seconds
-
-## Report to human when
-- Budget exhausted and you need approval
-- All retries exhausted and you can't determine the fix
-- Pipeline complete — summarize results, cost, and next steps
+```typescript
+interface AgentHint {
+  type: 'guidance' | 'context' | 'warning' | 'critical' | 'cancel';
+  message: string;
+  source?: string;
+}
 ```
 
-This prompt is part of the engine. It makes the engine agent-operable out of the box.
+### Orchestrator prompt
+Ships with the engine. Instructions for an agent to manage the pipeline using
+files (state, logs, commands, config). The "agent API" counterpart to the CLI.
 
 ## Architecture
 
 ```
 Config (YAML)           Commands              State File
-  │ (watched)             │ (consumed)           │ (written by scheduler)
+  │ (watched)             │ (consumed)           │ (written by engine)
   ▼                       ▼                      ▼
 ┌──────────────────────────────────────────────────────────┐
-│                    Pipeline Runner                        │
-│                  (scheduler + dispatcher)                 │
+│                         Engine                            │
+│               (scheduler + dispatcher)                    │
 │                                                          │
 │  ┌───────────┐  ┌───────────┐  ┌──────────┐            │
 │  │ Scheduler │  │ Resource  │  │ Observer │            │
@@ -199,8 +145,8 @@ Config (YAML)           Commands              State File
 │                                                          │
 │  Main loop:                                              │
 │    1. Monitor workers (completions, crashes, stalls)     │
-│    2. Process external signals (commands, config)        │
-│    3. Save state (throttled 30s)                         │
+│    2. Process signals (commands, config, hints)          │
+│    3. Save state (throttled)                             │
 │    4. Run scheduler (pure)                               │
 │    5. Dispatch ready steps (resource-aware)              │
 │    6. Sleep 1s                                           │
@@ -208,28 +154,56 @@ Config (YAML)           Commands              State File
                │ spawn (setsid)
                ▼
 ┌──────────────────────────┐  ┌──────────────────────────┐
-│ Step Worker              │  │ Step Worker              │
+│ Worker                   │  │ Worker                   │
 │                          │  │                          │
 │ reads: step-config.json  │  │ reads: step-config.json  │
-│ tries: attempt sequence  │  │ tries: attempt sequence  │
+│ uses: StepExecutor       │  │ uses: StepExecutor       │
 │ writes: {id}.log         │  │ writes: {id}.log         │
 │ writes: {id}-result.json │  │ writes: {id}-result.json │
 │ exits                    │  │ exits                    │
 └──────────────────────────┘  └──────────────────────────┘
 ```
 
-Workers are subprocesses (setsid for process group isolation).
-Kill = `kill(-pgid)`. No orphans. No `stallKilled` guards.
-Multi-machine = change spawn from local to `ssh remote ...` (shared FS).
+## 1. StepExecutor Interface
 
-## 1. Steps and Attempts
+The engine's only extension point for execution. The engine never imports an SDK.
 
-Every node in the DAG is a **step**. Every step has an ordered sequence of **attempts**.
-Each attempt has an **executor** (shell or sdk) and configuration. The step tries attempts
-in order until one succeeds or all are exhausted.
+```typescript
+interface StepExecutor {
+  // Run an attempt. Returns when complete.
+  execute(attempt: Attempt, workdir: string, logFile: string): Promise<AttemptResult>;
+
+  // Optional: resume a session with a new message (enables hint injection).
+  // If not implemented, hints are deferred to the next attempt.
+  resume?(sessionId: string, message: string, workdir: string, logFile: string): Promise<AttemptResult>;
+}
+
+interface AttemptResult {
+  status: 'success' | 'failure';
+  output: string | null;
+  costUsd: number;
+  turns: number;
+  sessionId: string | null;
+  failureMode: string;        // executor-specific, mapped by classifyResult
+}
+```
+
+Reference implementations (ship with this project, not the engine):
+
+| Executor | Dependency | `resume` | Purpose |
+|---|---|---|---|
+| `ShellExecutor` | node:child_process | No | Run commands |
+| `ClaudeExecutor` | @anthropic-ai/claude-agent-sdk | Yes | Run Claude agents |
+| `MockExecutor` | none | No | Testing |
+
+The engine has **zero external dependencies** beyond Node built-ins (+ `yaml` for
+config parsing). All SDK dependencies live in executor implementations.
+
+## 2. Steps and Attempts
+
+Every DAG node is a **step**. Every step has **attempts** tried in order.
 
 ```yaml
-# A merge step: try shell first, fall back to agent
 - id: merge-A
   attempts:
     - executor: shell
@@ -244,29 +218,12 @@ in order until one succeeds or all are exhausted.
       max_turns: 60
   resources: [merge_lock]
   depends_on: [feature-A]
-
-# An agent step: escalation across attempts
-- id: feature-A
-  prompt: implement-feature.md
-  max_attempts: 3
-  resources: [api]
-  # Default attempt sequence (generated by escalation policy):
-  #   attempt 1: sdk sonnet 30t
-  #   attempt 2: sdk sonnet 60t (if timeout)
-  #   attempt 3: sdk opus 60t (final attempt)
 ```
 
-When `attempts` is not specified, the engine generates a default sequence from the
-escalation policy + `prompt` + `max_attempts`. Simple configs stay simple:
+When `attempts` is omitted, generated by the escalation policy from `prompt` +
+`max_attempts`. Simple configs stay simple.
 
-```yaml
-- id: review-accuracy
-  prompt: reviewer-template.md
-  prompt_vars: { SKILL: scheduling-engine, ANGLE: accuracy }
-  resources: [api]
-```
-
-### Step config (written by scheduler, read by worker)
+### Step config (engine → worker, JSON file)
 
 ```typescript
 interface StepConfig {
@@ -275,40 +232,41 @@ interface StepConfig {
   workdir: string;
   logFile: string;
   resultPath: string;
+  hintPath: string;           // worker checks this for mid-execution hints
   retry: RetryContext;
   env?: Record<string, string>;
 }
 
 interface Attempt {
-  number: number;            // 1-indexed
-  executor: 'shell' | 'sdk';
-  command?: string;          // shell
-  prompt?: string;           // sdk
-  model?: string;            // sdk
-  maxTurns?: number;         // sdk
-  policy?: string;           // sdk (agent-runner internal policy)
-  agent?: string;            // sdk (agent definition)
+  number: number;
+  executor: string;           // key into executor registry (not an enum — extensible)
+  command?: string;
+  prompt?: string;
+  model?: string;
+  maxTurns?: number;
+  policy?: string;
+  agent?: string;
   promptVars?: Record<string, string>;
-  timeoutSeconds?: number;   // per-attempt timeout
+  timeoutSeconds?: number;
 }
 
 interface RetryContext {
-  attempt: number;           // 1-indexed (which pipeline-level retry this is)
+  attempt: number;            // 1-indexed
   maxAttempts: number;
   previousFailure?: FailureReason;
   previousSessionId?: string;
   previousLogFile?: string;
-  retryHint?: string;        // advice from the failed agent (RETRY_HINT:)
-  workspacePreserved: boolean;  // previous attempt's workspace still exists
-  adjustments?: {            // from orchestrator commands
+  retryHint?: string;         // from previous agent's RETRY_HINT
+  workspacePreserved: boolean;
+  adjustments?: {
     maxTurns?: number;
     model?: string;
-    promptContext?: string;  // appended to prompt
+    promptContext?: string;
   };
 }
 ```
 
-### Step result (written by worker, read by scheduler)
+### Step result (worker → engine, JSON file)
 
 ```typescript
 interface StepResult {
@@ -318,13 +276,13 @@ interface StepResult {
   turns: number;
   sessionId?: string;
   lastError?: string;
-  retryHint?: string;             // extracted from agent output (RETRY_HINT:)
+  retryHint?: string;
   attemptHistory: AttemptRecord[];
 }
 
 interface AttemptRecord {
   number: number;
-  executor: 'shell' | 'sdk';
+  executor: string;
   startedAt: string;
   completedAt: string;
   durationSeconds: number;
@@ -336,58 +294,54 @@ interface AttemptRecord {
 }
 ```
 
-## 2. Failure Taxonomy
+## 3. Failure Taxonomy
 
-Every failure is classified. The scheduler decides retryability per-type.
+| FailureReason | Retryable | Meaning |
+|---|---|---|
+| `timeout` | Yes | max_turns, stall, or start-to-close exceeded |
+| `agent` | Yes | execution error, crash |
+| `infra` | Yes | workspace creation, setup failure |
+| `budget` | **No** | cost limit exhausted |
+| `blocked` | **No** | agent `CANNOT_PROCEED` or orchestrator cancel |
 
-| FailureReason | Retryable | Meaning | Escalation |
-|---|---|---|---|
-| `timeout` | Yes | max_turns, stall, or start-to-close exceeded | More turns |
-| `agent` | Yes | execution error, crash | Better model on final attempt |
-| `infra` | Yes | worktree creation, npm install | Retry same config |
-| `budget` | **No** | maxBudgetUsd exhausted | Orchestrator adjusts budget |
-| `blocked` | **No** | agent `CANNOT_PROCEED:`, unresolvable conflict, etc. | Orchestrator fixes root cause |
+5 types. Non-retryable within a run. All reset to `blocked` on resume.
 
-Non-retryable within a run. All reset to `blocked` on resume (orchestrator fixed it).
-
-### Output classification
-
-The worker classifies agent output before writing the result:
+### classifyResult (in worker)
 
 ```typescript
-function classifyResult(agentResult, abandoned): StepResult {
-  if (abandoned) → timeout
-  if (output contains 'CANNOT_PROCEED:') → blocked (with reason extracted)
-  if (output contains 'RETRY_HINT:') → extract and attach to result
-  if (SDK failure) → map to failure taxonomy
-  if (success) → success
+function classifyResult(result: AttemptResult, abandoned: boolean): Partial<StepResult> {
+  if (abandoned) return { status: 'failure', failureReason: 'timeout' };
+  if (result.output?.includes('CANNOT_PROCEED:'))
+    return { status: 'failure', failureReason: 'blocked',
+             lastError: extractAfter(result.output, 'CANNOT_PROCEED:') };
+  if (result.output?.includes('RETRY_HINT:'))
+    // Extract hint — included in result, engine stores for next attempt
+    retryHint = extractAfter(result.output, 'RETRY_HINT:');
+  if (result.status === 'failure')
+    return { status: 'failure', failureReason: mapFailureMode(result.failureMode) };
+  return { status: 'success' };
 }
 ```
 
-Single function, all outcomes and agent signals, no special cases scattered.
-
-## 3. Scheduler (pure) — IMPLEMENTED
+## 4. Scheduler — IMPLEMENTED
 
 ```typescript
-function nextActions(nodes, state) → { actions, state }
+function nextActions(nodes, state): { actions, state }
 ```
 
-Never mutates input. Level-triggered. 29 tests. No changes needed for the worker model —
-the scheduler doesn't know about execution. It just resolves dependencies and emits
-`execute` actions.
+Pure. Never mutates input. Level-triggered. 29 tests. Unchanged by any of the
+architectural evolution — it doesn't know about execution.
 
-## 4. Resource Pools
-
-Two resource types:
+## 5. Resource Pools
 
 **Slots** (renewable): concurrency limits. Acquired on dispatch, released on completion.
 **Budgets** (consumable): cumulative limits. Consumed permanently.
 
 ```yaml
 resources:
-  api: 10              # max 10 concurrent SDK agents
-  merge_lock: 1        # serialize merge operations
-  cost_usd: 50.00      # pipeline budget cap
+  api: 10
+  merge_lock: 1
+  cost_usd: 50.00
 ```
 
 ```typescript
@@ -400,70 +354,46 @@ interface ResourcePool {
 }
 ```
 
-When budget is exhausted, no new steps are dispatched. Running steps finish. Pipeline
-completes as `partial` with remaining nodes failed as `budget`.
+## 6. Engine (scheduler + dispatcher)
 
-## 5. Pipeline Runner (scheduler + dispatcher)
+Simple poll loop. Does NOT execute work — spawns workers, monitors results.
 
-The runner is a simple loop. It does NOT execute work — it spawns workers and monitors
-their output via the filesystem.
-
-**I/O model:** All worker monitoring uses ONE `readdir` per iteration (O(1) syscall)
-instead of per-worker `stat` calls (O(N) syscalls). This scales to 1000+ workers on
-NFS with constant filesystem overhead. Per-worker `stat` is only used for stall
-detection on workers that haven't completed — and only when the `readdir` didn't
-find their result file.
+**I/O model:** ONE `readdir` per iteration for completion detection. Per-worker
+`stat` only for stall detection on running workers.
 
 ```typescript
-const workers = new Map<string, WorkerHandle>();
-
 while (!aborted) {
-  // ── Monitor workers (batched I/O) ───────────────────
   const dirSnapshot = new Set(fs.readdirSync(run.logDir));
   processWorkers(dirSnapshot, workers, state, resourcePool, observer, options);
-
-  // ── External signals ────────────────────────────────
   processCommands(run.logDir, dirSnapshot, workers, state);
   checkConfigChanges(run.configPath, dag, state, observer);
-  saveState(statePath, state);     // throttled to every 30s
+  saveState(statePath, state);
 
-  // ── Schedule ────────────────────────────────────────
   const { actions, state: newState } = scheduler.nextActions(dag, state.nodes);
   state.nodes = newState;
   if (actions.find(a => a.type === 'complete')) break;
 
-  // ── Dispatch ────────────────────────────────────────
   for (const action of actions.filter(a => a.type === 'execute')) {
     const node = getNode(action.nodeId);
     if (workers.has(node.id)) continue;
     if (!resourcePool.canAcquire(node.spec.resources)) continue;
-
     resourcePool.acquire(node.spec.resources);
     state.nodes[node.id].status = 'running';
     state.nodes[node.id].startedAt = new Date().toISOString();
     workers.set(node.id, spawnStep(node, run));
   }
 
-  // ── Wait ────────────────────────────────────────────
-  // 1s poll. Latency is acceptable — agent runs take minutes.
-  // Batched readdir means the poll cost is O(1), not O(workers).
   await sleep(1000);
 }
 ```
 
 ### Worker monitoring (single pass, batched I/O)
 
-Completions, crash detection, stall detection, and live state updates in ONE loop
-over the workers map. The `dirSnapshot` from `readdir` tells us which result files
-exist without per-file `stat` calls. Only workers without results get a `stat` on
-their log file (for stall detection).
-
 ```typescript
 function processWorkers(dirSnapshot, workers, state, resourcePool, observer, options) {
   const now = Date.now();
-
   for (const [nodeId, worker] of workers) {
-    // ── Completed? (set lookup, no syscall)
+    // Completed? (set lookup, no syscall)
     if (dirSnapshot.has(`${nodeId}-result.json`)) {
       const result = JSON.parse(fs.readFileSync(worker.resultPath, 'utf-8'));
       updateNodeState(state, nodeId, result);
@@ -473,127 +403,107 @@ function processWorkers(dirSnapshot, workers, state, resourcePool, observer, opt
       observer.onNodeComplete(nodeId, state.nodes[nodeId]);
       continue;
     }
-
-    // ── Crashed? (kill(pid,0) — one syscall, no filesystem)
+    // Crashed? (kill(pid,0) — no filesystem)
     if (!isProcessAlive(worker.pid)) {
-      handleFailure(state, nodeId, 'infra', 'worker process died unexpectedly');
+      handleFailure(state, nodeId, 'infra', 'worker process died');
       resourcePool.release(worker.resources);
       workers.delete(nodeId);
-      observer.onNodeComplete(nodeId, state.nodes[nodeId]);
       continue;
     }
-
-    // ── Still running — check stall + timeout (one stat for log mtime)
+    // Still running — check stall + timeout (one stat)
     const logMtime = fs.statSync(worker.logFile).mtimeMs;
-    const idleSeconds = (now - logMtime) / 1000;
-    const elapsedSeconds = (now - worker.startedAt) / 1000;
+    const idle = (now - logMtime) / 1000;
+    const elapsed = (now - worker.startedAt) / 1000;
     state.nodes[nodeId].lastEventAt = new Date(logMtime).toISOString();
 
-    if (worker.timeoutSeconds && elapsedSeconds > worker.timeoutSeconds) {
+    if (worker.timeoutSeconds && elapsed > worker.timeoutSeconds) {
       killWorker(worker);
-      handleFailure(state, nodeId, 'timeout', `exceeded ${worker.timeoutSeconds}s total`);
-      resourcePool.release(worker.resources);
-      workers.delete(nodeId);
-    } else if (idleSeconds > options.stallAbandonSeconds) {
+      handleFailure(state, nodeId, 'timeout', `exceeded ${worker.timeoutSeconds}s`);
+    } else if (idle > options.stallAbandonSeconds) {
       killWorker(worker);
-      handleFailure(state, nodeId, 'timeout', `stalled: no output for ${Math.round(idleSeconds)}s`);
-      resourcePool.release(worker.resources);
-      workers.delete(nodeId);
-    } else if (idleSeconds > options.stallWarnSeconds) {
-      observer.onStall(nodeId, idleSeconds, 'warning');
+      handleFailure(state, nodeId, 'timeout', `stalled ${Math.round(idle)}s`);
+    } else if (idle > options.stallWarnSeconds) {
+      observer.onStall(nodeId, idle, 'warning');
     }
   }
 }
+```
 
-function isProcessAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+### Hints to running workers
+
+Engine writes hint file to worker's workdir. Worker checks after each stream message.
+If executor supports `resume`, hint is injected as a conversation message. Otherwise
+deferred to next attempt.
+
+```typescript
+// Engine (in processCommands):
+for (const h of commands.hint ?? []) {
+  const worker = workers.get(h.nodeId);
+  if (worker) {
+    const queue = fs.existsSync(worker.hintPath)
+      ? JSON.parse(fs.readFileSync(worker.hintPath, 'utf-8')) : [];
+    queue.push(h);
+    fs.writeFileSync(worker.hintPath, JSON.stringify(queue));
+  }
 }
 
-function killWorker(worker: WorkerHandle): void {
-  try { process.kill(-worker.pgid, 'SIGTERM'); } catch { /* already dead */ }
+// Worker (in stream loop):
+if (fs.existsSync(config.hintPath)) {
+  const hints = JSON.parse(fs.readFileSync(config.hintPath, 'utf-8'));
+  fs.unlinkSync(config.hintPath);
+  const cancelHint = hints.find(h => h.type === 'cancel');
+  if (cancelHint) { writeFailureResult('blocked', cancelHint.message); process.exit(1); }
+  if (executor.resume && sessionId) {
+    const message = hints.map(formatHint).join('\n\n');
+    stream = await executor.resume(sessionId, message, config.workdir, config.logFile);
+  } else {
+    pendingHints.push(...hints); // deferred to next attempt context
+  }
 }
 ```
 
-**Scaling:**
-- 10 workers: 1 readdir + ~10 stat (running workers only) = ~11 syscalls/iteration
-- 100 workers: 1 readdir + ~100 stat = ~101 syscalls/iteration (~100μs local, ~100ms NFS)
-- 1000 workers: 1 readdir + ~1000 stat = ~1001 syscalls/iteration (~1ms local, ~1-10s NFS)
-- Beyond 1000 on NFS: batch log mtimes via single `ls -lt` subprocess, or switch to
-  UDP notification from workers (worker sends nodeId to runner on completion).
+## 7. Worker (`run-step.ts`)
 
-### External signals
-
-**Commands** — orchestrator → pipeline, one-way, consumed on read:
-```typescript
-interface PipelineCommands {
-  cancel?: { nodeId: string; reason: string; retryable?: boolean }[];
-  adjust?: { nodeId: string; maxTurns?: number; model?: string; promptContext?: string }[];
-}
-```
-
-The `dirSnapshot` from the main loop's `readdir` already tells us if `commands.json`
-exists — no additional syscall needed.
-
-Cancel kills the worker process group. Adjust stores in `NodeState.adjustments`,
-applied on next attempt via `RetryContext`.
-
-**Config watching** — detects YAML changes, reconciles live:
-```typescript
-function checkConfigChanges(configPath, dag, state, observer) {
-  const mtime = fs.statSync(configPath).mtimeMs;
-  if (mtime <= lastConfigMtime) return;
-  lastConfigMtime = mtime;
-  const newConfig = parseConfig(loadYaml(configPath));
-  reconcileState(state, newConfig.nodes);
-  dag.length = 0;
-  dag.push(...newConfig.nodes);
-  observer.onDagChanged(dag);
-}
-```
-
-Orchestrator edits YAML → engine picks up within 1s → no restart.
-
-## 6. Step Worker (`run-step.ts`)
-
-Simple process. Reads config, tries attempts in order, writes events to log, writes
-result file, exits.
+Project-provided, not engine-provided. Imports engine types + project executors.
 
 ```typescript
+// Project's worker script:
+import { ShellExecutor } from './executors/shell.js';
+import { ClaudeExecutor } from './executors/claude.js';
+import type { StepConfig, StepExecutor, AttemptResult } from 'engine/types.js';
+
+const executors: Record<string, StepExecutor> = {
+  shell: new ShellExecutor(),
+  sdk: ClaudeExecutor.create(),
+};
+
 const config: StepConfig = JSON.parse(fs.readFileSync(process.argv[2], 'utf-8'));
-
-const attemptHistory: AttemptRecord[] = [];
+const attemptHistory = [];
 
 for (const attempt of config.attempts) {
-  const record = { number: attempt.number, startedAt: now(), ... };
+  const executor = executors[attempt.executor];
+  if (!executor) { writeFailure('infra', `unknown executor: ${attempt.executor}`); process.exit(1); }
+
   log(`[attempt ${attempt.number}] ${attempt.executor}`);
+  const result = await executor.execute(attempt, config.workdir, config.logFile);
 
-  const result = attempt.executor === 'shell'
-    ? runShell(attempt.command, config.workdir)
-    : await runSDKAgent(attempt, config.workdir, config.logFile);
-
-  record.completedAt = now();
-  record.status = result.status;
-  record.costUsd = result.costUsd;
-  record.turns = result.turns;
-  attemptHistory.push(record);
-
+  attemptHistory.push({ number: attempt.number, ..., status: result.status });
   const classified = classifyResult(result, false);
+
   if (classified.status === 'success' || isNonRetryable(classified.failureReason)) {
     writeResult({ ...classified, attemptHistory });
     process.exit(classified.status === 'success' ? 0 : 1);
   }
-
-  log(`[attempt ${attempt.number}] failed: ${classified.failureReason}`);
 }
 
-writeResult({ status: 'failure', ..., attemptHistory });
+writeResult({ status: 'failure', attemptHistory });
 process.exit(1);
 ```
 
-The worker doesn't know about the DAG, other steps, or the scheduler. It just executes
-and reports.
+The engine spawns this script. The script imports executors. The engine never
+touches executor code.
 
-## 7. State
+## 8. State
 
 ### NodeState
 
@@ -601,91 +511,38 @@ and reports.
 interface NodeState {
   status: 'blocked' | 'ready' | 'running' | 'success' | 'failure' | 'skipped';
   failureReason?: FailureReason;
-  attempt: number;             // 1-indexed, current pipeline-level attempt
+  attempt: number;
   maxAttempts: number;
   sessionId?: string;
-  costUsd: number;             // cumulative across all attempts
-  turns: number;               // cumulative across all attempts
-  startedAt?: string;          // when current execution started
-  lastEventAt?: string;        // last log file activity
+  costUsd: number;
+  turns: number;
+  startedAt?: string;
+  lastEventAt?: string;
   logFile?: string;
   lastError?: string;
-  adjustments?: {              // from orchestrator commands
-    maxTurns?: number;
-    model?: string;
-    promptContext?: string;
-  };
-  retryHint?: string;              // advice from failed agent for its successor
-  attemptHistory: AttemptRecord[];  // full forensic trail
-}
-```
-
-### PipelineState
-
-```typescript
-interface PipelineState {
-  run: RunIdentity;
-  nodes: Record<string, NodeState>;
-  status: 'running' | 'complete' | 'partial' | 'failed' | 'deadlock';
-  createdAt: string;
-  updatedAt: string;
-  totalCostUsd: number;
-  resumeCommand: string;
+  retryHint?: string;
+  adjustments?: { maxTurns?: number; model?: string; promptContext?: string };
+  attemptHistory: AttemptRecord[];
 }
 ```
 
 ### State updates
-
-When a worker completes, the runner reads the result file and updates `NodeState`:
-- `attemptHistory`: APPEND new records (accumulates across pipeline-level retries)
-- `costUsd`, `turns`: cumulative (add, not replace)
-- `attempt`: increment (1-indexed pipeline-level counter)
-- `sessionId`: last session (for potential SDK resume)
-
-The runner constructs `RetryContext` from `NodeState` when writing step configs —
-the scheduler is pure and never sees retry context.
+On completion: append `attemptHistory`, accumulate `costUsd`/`turns`, increment
+`attempt`. Runner constructs `RetryContext` from `NodeState` — scheduler never
+sees retry context.
 
 ### Resume
+`running` → `ready`. `skipped` → `blocked`. Non-retryable → `blocked`.
+`success` → untouched. Config reconciliation if DAG changed.
 
-Loads state file. Validates DAG (or reconciles with `--allow-dag-changes`).
-- `running` → `ready` (crash recovery — worker died)
-- `skipped` → `blocked` (re-evaluate)
-- All non-retryable failures → `blocked` (orchestrator fixed it)
-- `success` → untouched
-
-## 8. Observability
-
-### Four channels
+## 9. Observability
 
 | Channel | File | Updated | Audience |
 |---|---|---|---|
-| State file | `pipeline-state.json` | Every 30s + on completion | Orchestrator (jq queries) |
-| Pipeline log | `pipeline.log` | Real-time (observer) | Debugging, orchestrator (tail) |
-| Step logs | `{nodeId}.log` | Real-time (worker) | Deep debugging, stall detection |
-| Completion report | `pipeline-report.md` | On pipeline completion (appended) | Human, orchestrator |
-
-### Completion report (ReportObserver)
-
-Appended per run — cumulative across resumes:
-
-```markdown
-## Run 1 — 2026-03-24T08:15:00Z
-PARTIAL (5/8 succeeded) | 45 turns | $6.75
-
-  ✓ sched-accuracy          8 turns    $1.20
-  ✓ sched-structure          12 turns   $1.80
-  ✗ merge-sched              FAILED (3 attempts, $11.70)
-    #1  shell "git merge"        → conflict (0.2s, $0)
-    #2  sdk sonnet 30t           → agent error (45t, $3.20)
-    #3  sdk opus 60t             → timeout (60t, $8.50)
-  ⊘ verify-sched              SKIPPED (dependency failed)
-
-## Run 2 (resumed) — 2026-03-24T09:45:00Z
-COMPLETE (8/8) | 31 turns | $4.20 | Cumulative: 76 turns | $10.95
-
-  ✓ merge-sched              1 attempt
-    #1  shell "git merge"        → merged (0.3s, $0)
-```
+| State file | `pipeline-state.json` | 30s + on completion | Orchestrator (jq) |
+| Pipeline log | `pipeline.log` | Real-time | Debugging |
+| Step logs | `{nodeId}.log` | Real-time (worker) | Deep debug, stall detection |
+| Completion report | `pipeline-report.md` | On completion (appended) | Human, orchestrator |
 
 ### Observer interface
 
@@ -701,106 +558,88 @@ interface Observer {
 }
 ```
 
-No `onAgentEvent` — the runner doesn't see individual turns (workers write to log files).
-No `onMerge` — merge is just a step; results come through `onNodeComplete`.
-`onError` — non-fatal errors (config parse failures, stale worktrees, unexpected states).
-
 Implementations: FileLog (always), Report (always), Stdout (--ci), Tmux (--watch).
-Tmux gets live agent activity by tailing `{nodeId}.log` directly, not via Observer.
 
-## 9. DAG Parser — IMPLEMENTED (needs updates)
+### Completion report (appended per run)
 
-Updates needed:
-- `steps:` shorthand (desugar to `groups:` with defaults + ID inference)
+```markdown
+## Run 1 — 2026-03-24T08:15:00Z
+PARTIAL (5/8) | 45 turns | $6.75
+  ✓ review            8 turns    $1.20
+  ✗ merge-A           FAILED (3 attempts, $11.70)
+    #1  shell "git merge"     → conflict (0.2s, $0)
+    #2  sdk sonnet 30t        → agent error (45t, $3.20)
+    #3  sdk opus 60t          → timeout (60t, $8.50)
+
+## Run 2 (resumed) — 2026-03-24T09:45:00Z
+COMPLETE (8/8) | 31 turns | $4.20 | Cumulative: 76 turns | $10.95
+```
+
+## 10. DAG Parser — IMPLEMENTED (needs updates)
+
+- `steps:` shorthand with ID inference
 - `maxRetries` → `maxAttempts` (1-indexed)
-- `attempts` field in GroupSpec (optional — generated from escalation policy if absent)
-- `resources` field in GroupSpec
-- `timeoutSeconds` field
-- Stage desugar: explicit `depends_on` replaces stage deps (not unions)
-- `branch` desugars into merge + verify steps:
+- `attempts`, `resources`, `timeoutSeconds` fields
+- Stage desugar: explicit `depends_on` replaces stage deps
+- Desugar functions as extension point (not hardcoded)
+- `branch` desugar provided by git workspace module, not the parser
 
-```yaml
-# User writes:
-- id: feature-A
-  prompt: implement.md
-  branch: feature/A
-  resources: [api]
+```typescript
+type Desugar = (groups: GroupSpec[]) => GroupSpec[];
 
-# Parser generates:
-- id: feature-A
-  prompt: implement.md
-  resources: [api]
-- id: merge:feature-A
-  attempts:
-    - executor: shell
-      command: "git merge --no-ff origin/feature/A"
-    - executor: sdk
-      prompt: resolve-merge-conflict.md
-  resources: [merge_lock]
-  depends_on: [feature-A]
-- id: verify:feature-A
-  attempts:
-    - executor: shell
-      command: "./scripts/full-verify.sh"
-    - executor: sdk
-      prompt: fix-verify.md
-  resources: [merge_lock]
-  depends_on: [merge:feature-A]
-# Downstream deps on feature-A are rewritten to depend on verify:feature-A
+function parseConfig(raw: RawConfig, desugars: Desugar[] = []): ParsedConfig {
+  let groups = parseGroups(raw);    // steps: → groups:, ID inference, defaults
+  for (const desugar of desugars) groups = desugar(groups);
+  return buildDAG(groups);          // validate, detect cycles, build nodes
+}
 ```
 
-## 10. Project Structure
+## 11. Project Structure
 
-This project is the **reference implementation** of the engine. The engine is the
-product; the project demonstrates how to use it. The structure reflects this:
-engine code is extractable with zero project dependencies, while the project-specific
-code shows the integration pattern for executors, workspace providers, and configs.
+This project is the **reference implementation**. The engine is the product.
 
 ```
-engine/                    # EXTRACTABLE
-  types.ts                 # Step, Attempt, NodeState, ResourceConfig
-  scheduler.ts             # Pure DAG scheduler
-  dag.ts                   # YAML → validated DAG
-  pipeline-runner.ts       # Main loop, worker management
-  run-step.ts              # Step worker process
-  resource-pool.ts         # Slots + budgets
-  state.ts                 # Load, save, resume, reconcile
-  observers/               # Observer pattern + implementations
+engine/                      # ZERO external dependencies — extractable
+  types.ts                   # StepExecutor, StepConfig, StepResult, NodeState, ...
+  scheduler.ts               # Pure DAG scheduler
+  dag.ts                     # YAML → validated DAG (accepts desugars)
+  pipeline-runner.ts         # Main loop, worker management
+  resource-pool.ts           # Slots + budgets
+  state.ts                   # Load, save, resume, reconcile
+  observers/                 # FileLog, Report, Stdout, Tmux, composite
+  prompts/                   # Orchestrator prompt, fix templates
+  cli.ts                     # CLI framework
 
-executors/                 # PLUGGABLE (one per executor type)
-  shell.ts                 # Shell command executor
-  sdk.ts                   # Claude SDK executor
+executors/                   # Each depends on its specific SDK
+  shell.ts                   # node:child_process (built-in)
+  claude.ts                  # @anthropic-ai/claude-agent-sdk
+  mock.ts                    # For testing
 
-workspace/                 # PLUGGABLE (one per workspace type)
-  git.ts                   # Git worktree workspace (current git-ops.ts)
+workspace/                   # Domain-specific workspace providers
+  git.ts                     # Git worktree workspace + branch desugar
 
-project/                   # PROJECT-SPECIFIC (Ganttlet)
-  setup.ts                 # WASM copy, SDK patch, hook tests
-  escalation.ts            # Default escalation policy
-  entry.ts                 # Wires engine + executors + workspace
-
-configs/                   # WORKFLOW CONFIGS
-  skill-curation.yaml      # 40 reviewers → 8 curators
-  phase-development.yaml   # N parallel → merge → verify
-  single-issue.yaml        # 1 agent → verify → PR
+project/                     # Reference implementation (Ganttlet-specific)
+  setup.ts                   # WASM copy, SDK patch, hook tests
+  escalation.ts              # Default escalation policy
+  worker.ts                  # Worker script (registers executors)
+  entry.ts                   # Wires engine + executors + workspace
+  configs/
+    skill-curation.yaml
+    phase-development.yaml
+    single-issue.yaml
 ```
 
-To extract the engine: copy `engine/`. Everything else is project-specific.
-
-## 11. Workspace Provider (GitOps) — IMPLEMENTED
-
-Workspace provider for git-based workflows. Behind interface — swappable.
-Steps without `branch` don't touch GitOps. The engine works without git.
+To extract: `engine/` is a standalone npm package.
+To use: `npm install engine`, write a worker that registers executors, write configs.
 
 ## 12. Escalation Policy
 
 Default policy generates attempt sequences when `attempts` not specified:
 
 ```typescript
-function defaultAttempts(spec: GroupSpec, retry: RetryContext): Attempt[] {
+function defaultAttempts(spec, retry): Attempt[] {
   const base = spec.maxTurns ?? 30;
   const model = spec.model ?? 'claude-sonnet-4-6';
-
   if (retry.attempt === 1) return [{ executor: 'sdk', model, maxTurns: base }];
   if (retry.previousFailure === 'timeout') return [{ executor: 'sdk', model, maxTurns: base * 2 }];
   if (retry.attempt >= retry.maxAttempts) return [{ executor: 'sdk', model: 'claude-opus-4-6', maxTurns: base * 2 }];
@@ -808,11 +647,10 @@ function defaultAttempts(spec: GroupSpec, retry: RetryContext): Attempt[] {
 }
 ```
 
-Steps with explicit `attempts` skip the policy — the config is the complete strategy.
-
-When generating an SDK attempt, the policy appends context from `RetryContext`:
+The worker (not the policy) builds the final prompt by appending `RetryContext`:
 ```typescript
-let prompt = basePrompt;
+// In worker — policy chooses WHAT attempt, worker builds HOW to prompt it:
+let prompt = readPromptFile(attempt.prompt);
 if (retry.retryHint) prompt += `\n\n## Hint from previous attempt\n${retry.retryHint}`;
 if (retry.adjustments?.promptContext) prompt += `\n\n## Orchestrator context\n${retry.adjustments.promptContext}`;
 if (retry.attempt > 1) prompt += `\n\nAttempt ${retry.attempt}/${retry.maxAttempts}. Previous: ${retry.previousFailure}.`;
@@ -821,134 +659,114 @@ if (retry.attempt > 1) prompt += `\n\nAttempt ${retry.attempt}/${retry.maxAttemp
 ## 13. CLI
 
 ```bash
-# Level 0: inline prompt (one agent, no config)
-npx engine run --prompt "fix the failing tests"
-
-# Level 1: prompt files (sequential agents, no config)
-npx engine run review.md implement.md test.md
-
-# Level 2-3: YAML config (steps: or groups:)
-npx engine run config.yaml
-npx engine run config.yaml --watch           # + Tmux observer
-npx engine run config.yaml --ci              # + Stdout observer
-npx engine run config.yaml --resume          # retry from state
-npx engine run config.yaml --max-parallel 10 # shorthand for api resource
-npx engine run config.yaml --budget 50       # shorthand for cost_usd resource
-npx engine run config.yaml --only a,b        # subset + transitive deps
-
-# Scaffolding
-npx engine init                              # generate starter config + prompts
+npx engine run --prompt "fix the failing tests"      # Level 0
+npx engine run review.md implement.md                # Level 1
+npx engine run config.yaml                           # Level 2-3
+npx engine run config.yaml --resume                  # retry from state
+npx engine run config.yaml --watch                   # + Tmux
+npx engine run config.yaml --ci                      # + Stdout
+npx engine run config.yaml --max-parallel 10         # api resource shorthand
+npx engine run config.yaml --budget 50               # cost_usd shorthand
+npx engine run config.yaml --only a,b                # subset + deps
+npx engine init                                      # generate starter config
 ```
-
-CLI detects input type: `.yaml` → config, `.md` → prompt file, quoted string → inline.
-
-## What Needs Building / Changing
-
-### Keep (correct, no changes)
-- Scheduler (pure, 29 tests)
-- DAG parser core (38 tests) — needs field additions
-- GitOps (16 tests)
-- Observer pattern + composite dispatch
-- State file atomic writes
-
-### Restructure (logic correct, abstraction changes)
-| Current | Change to | Why |
-|---|---|---|
-| `Handlers { agent, merge, verify }` | `StepExecutor` (spawn worker) | Workers execute, scheduler dispatches |
-| Phase 1/2 loop with Promise.race | Single poll loop with sleep(1s) | Simpler, no async IIFEs |
-| `FixAgentFn` narrow seam | Attempt sequence (shell → agent) | Unified escalation model |
-| `maxRetries` | `maxAttempts` (1-indexed) | Clearer naming |
-| `maxParallel` | `resources.api` slot | One of many resources |
-
-### New
-| Component | Lines est |
-|---|---|
-| Resource pool (slots + budgets) | 40 |
-| Step worker (`run-step.ts`) | 80 |
-| Step config / result file I/O | 30 |
-| Worker spawn + process group management | 30 |
-| Completion check (poll result files) | 30 |
-| Stall detection (log mtime + start-to-close) | 30 |
-| Config watching (mtime + reconcile) | 20 |
-| Commands processing (cancel + adjust) | 30 |
-| `classifyResult` (unified outcome classification) | 20 |
-| Default escalation policy | 20 |
-| ReportObserver (completion report, appended) | 80 |
-| RetryContext + attempt history | 30 |
-| Tmux observer | 120 |
-| `RETRY_HINT` extraction in classifyResult | 10 |
-| CLI multi-mode (inline, prompt files, YAML) | 40 |
-| `steps:` shorthand in DAG parser | 20 |
-| ID inference from prompt filenames | 10 |
-| `engine init` scaffolding | 40 |
-| Orchestrator prompt document | 50 |
-| Workflow configs (curation, phase-dev, single-issue) | 60 |
-| Restructure into engine/ + executors/ + workspace/ + project/ | ~0 net (move files) |
-| Tests | 150 |
-
-### Delete (replaced by worker model)
-- `handlers.ts` (Handlers interface, FixAgentFn, createMergeHandler, createVerifyHandler)
-- Phase 1/2 loop logic in pipeline-runner.ts
-- `stallKilled` Set, async IIFEs, Promise.race patterns
-- `runAgentWithInlinePrompt` (worker handles inline prompts directly)
 
 ## Scaling
 
 ```
-Single machine (current target):
-  ≤ 10 concurrent: comfortable on 16GB RAM
-  ≤ 50 concurrent: needs 32GB RAM, symlinked node_modules
-  ≤ 100 concurrent: needs 64GB RAM, fast SSD
+Single machine:
+  ≤ 10 concurrent: 16GB RAM
+  ≤ 50 concurrent: 32GB RAM, symlinked node_modules
+  ≤ 100 concurrent: 64GB RAM, fast SSD
 
-Multi-machine (shared filesystem):
-  Change spawnStep from local spawn to ssh/k8s/cloud-run
-  Zero changes to scheduler, state, observers, config
-  Shared FS: NFS, EFS, GCS FUSE
+Multi-machine (shared FS):
+  Change spawnStep to ssh/k8s/cloud-run. Zero engine changes.
 
-The engine is never the bottleneck:
-  Scheduler: O(N × deps) per iteration, negligible CPU
-  I/O: O(1) readdir + O(running workers) stat per iteration
-  State file: <1MB for 1000 nodes, one write per 30s
-  Workers: independent processes, own memory
-
-  Local: 1000 workers → ~15ms per iteration (engine uses <2% of each tick)
-  NFS: 1000 workers → ~1-10s per iteration (stall-detection stat calls)
-  Beyond 1000 on NFS: batch log stats or worker-side heartbeat files
-
-  State file growth: ~200 bytes per attempt record. 1000 nodes × 10 attempts
-  = ~2MB state file. stringify ~20ms (within 30s save interval).
-
-  Scheduler: marks dispatched nodes 'running' immediately, so it only emits
-  execute for genuinely undispatched ready nodes. No redundant actions.
+Engine overhead:
+  Local: 1000 workers → ~15ms/iteration (<2% of tick)
+  NFS: 1000 workers → batched readdir + per-worker stat
+  State: ~200 bytes per attempt record, stringify ~20ms at 1000 nodes
 ```
+
+## What Needs Building
+
+### Keep (validated, no changes)
+- Scheduler (pure, 29 tests)
+- DAG parser core (38 tests) — needs field additions
+- Observer pattern + composite dispatch (12 tests)
+- State file atomic writes
+- E2E tests (9 tests)
+
+### Restructure
+| Current | Change to |
+|---|---|
+| `Handlers { agent, merge, verify }` | `StepExecutor` interface |
+| Phase 1/2 loop with Promise.race | Single poll loop |
+| `maxRetries` | `maxAttempts` (1-indexed) |
+| `maxParallel` | `resources.api` slot |
+| In-process execution | Worker subprocesses (setsid) |
+| `git-ops.ts` in engine | `workspace/git.ts` (project, not engine) |
+| Branch desugar in parser | Desugar function from git module |
+
+### New
+| Component | Est |
+|---|---|
+| `StepExecutor` interface + shell/claude/mock impls | 100 |
+| Resource pool (slots + budgets) | 40 |
+| Worker script (project-provided) | 80 |
+| Step config/result file I/O | 30 |
+| Worker spawn + process group mgmt | 30 |
+| Worker monitoring (batched readdir + crash detection) | 40 |
+| Stall detection + start-to-close timeout | 30 |
+| Hint injection (file + resume) | 40 |
+| Config watching + reconciliation | 20 |
+| Commands processing (cancel, adjust, hint) | 30 |
+| `classifyResult` (CANNOT_PROCEED, RETRY_HINT) | 20 |
+| Default escalation policy | 20 |
+| ReportObserver (completion report) | 80 |
+| RetryContext + attempt history | 30 |
+| Tmux observer | 120 |
+| CLI multi-mode (inline, files, YAML) | 40 |
+| `steps:` shorthand + ID inference | 30 |
+| `engine init` scaffolding | 40 |
+| Orchestrator prompt | 50 |
+| Workflow configs (curation, phase-dev, single-issue) | 60 |
+| File restructure (engine/ executors/ workspace/ project/) | 0 net |
+| Tests | 150 |
+
+### Delete
+- `handlers.ts`
+- Phase 1/2 loop, Promise.race, stallKilled, async IIFEs
+- `runAgentWithInlinePrompt`
+- Git-specific code from engine (moves to workspace/git.ts)
 
 ## Success Criteria
 
 ### UX
 - [ ] `engine run --prompt "..."` works with zero config
 - [ ] `engine run review.md fix.md` runs two agents sequentially
-- [ ] `engine init` generates working starter config + prompts
-- [ ] `steps:` shorthand works with ID inference
+- [ ] `engine init` generates working starter config
+- [ ] `steps:` shorthand with ID inference
 
 ### Engine
-- [ ] Steps use attempt sequences (shell → agent → escalated agent)
-- [ ] Resource pools control concurrency + budget
-- [ ] Workers are subprocesses (setsid, killable, isolated)
-- [ ] Stall detection: warn at 120s, kill at 600s (configurable)
-- [ ] Start-to-close timeout per step
-- [ ] Config changes picked up within seconds (no restart)
-- [ ] `commands.json` cancel/adjust picked up within seconds
+- [ ] `StepExecutor` interface — engine has zero SDK dependencies
+- [ ] Workers are subprocesses (setsid, killable)
+- [ ] Resource pools: slots + budgets
+- [ ] Stall detection + start-to-close timeout
+- [ ] Config watching (live reconciliation)
+- [ ] Commands: cancel, adjust, hint
 - [ ] `--resume` recovers from any failure state
-- [ ] Budget cap stops scheduling when pipeline cost exceeded
+- [ ] Budget cap stops scheduling
 
 ### Agent-first
-- [ ] `CANNOT_PROCEED` → `blocked` failure, non-retryable
-- [ ] `RETRY_HINT` → extracted, stored, included in retry prompt automatically
-- [ ] Orchestrator prompt ships with the engine
-- [ ] Completion report: per-attempt history, cumulative across runs
+- [ ] `CANNOT_PROCEED` → `blocked`, non-retryable
+- [ ] `RETRY_HINT` → extracted, stored, included in retry prompt
+- [ ] Hints injected into running agents via executor resume
+- [ ] Orchestrator prompt ships with engine
+- [ ] Completion report with per-attempt history
 
 ### Reference implementation
-- [ ] Curation config (40 reviewers → 8 curators) runs with one command
-- [ ] Phase-development config runs with one command
+- [ ] Curation config runs with one command
+- [ ] Phase-dev config runs with one command
 - [ ] Engine extractable with zero project dependencies
 - [ ] 550+ tests, tsc clean

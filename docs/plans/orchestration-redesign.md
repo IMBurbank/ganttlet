@@ -122,19 +122,37 @@ Engine files live in `.agent-engine/` (like `.github/`):
 `engine run` looks for `.agent-engine/config.yaml` by default. Explicit path overrides.
 Add `.agent-engine/logs/` to `.gitignore`.
 
+### Credential loading
+Engine loads env vars from (priority order):
+1. Process environment (already set in shell)
+2. `.agent-engine/.env` (project-scoped)
+3. `.env` in project root (common convention)
+
+No "configuration about configuration." If the key is anywhere expected, it works.
+
 ### `engine init`
 For humans. Detects installed SDK, checks API key, creates `.agent-engine/` with
-starter `config.yaml` + `prompts/`.
+starter `config.yaml` + `prompts/` + `.env.example` (SDK-specific) + `.gitignore`.
 
 ### `engine validate`
-For agents and humans. Validates config without running — critical for agent setup
-workflows where the agent generates config and needs fast feedback:
+Validates credentials AND config without running. Catches every problem before
+spending a dollar.
 ```bash
 $ npx agent-engine validate config.yaml
-✓ Valid (3 steps, 0 branches)
-⚠ No resources.cost_usd — no budget cap
-ℹ Estimated: 3 steps × 30 turns × ~$0.10/turn = ~$9.00
+
+Preflight:
+  ✓ Credentials valid (org: my-company)
+  ✓ Model claude-sonnet-4-6 accessible
+  ⚠ Escalation model opus — access not verified
+
+Config:
+  ✓ Valid (3 steps, 0 branches)
+  ⚠ No resources.cost_usd — no budget cap
+  ℹ Estimated: 3 steps × ~30 turns × ~$0.10/turn = ~$9.00
+
+Ready to run.
 ```
+`--json` for structured output (agent consumption).
 
 ### Validation errors (agent-actionable)
 
@@ -255,8 +273,18 @@ interface StepExecutor {
   execute(attempt: Attempt, context: ExecutionContext): Promise<AttemptResult>;
 
   // Optional: resume a session with a new message (enables hint injection).
-  // If not implemented, hints are deferred to the next attempt.
   resume?(sessionId: string, message: string, context: ExecutionContext): Promise<AttemptResult>;
+
+  // Optional: validate credentials, model access, billing before any work.
+  // Called once at pipeline start. Errors block execution with actionable messages.
+  preflight?(): Promise<PreflightResult>;
+}
+
+interface PreflightResult {
+  ready: boolean;
+  errors: { message: string; fix: string }[];
+  warnings: { message: string }[];
+  info: Record<string, string>;       // "model: sonnet", "org: my-company"
 }
 
 interface AttemptResult {

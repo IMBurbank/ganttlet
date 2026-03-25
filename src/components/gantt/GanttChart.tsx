@@ -1,7 +1,7 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { parseISO, isValid } from 'date-fns';
 import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { useUIStore } from '../../hooks';
 import {
   dateToX,
   getTimelineRange,
@@ -14,13 +14,13 @@ import {
 } from '../../utils/dateUtils';
 import { buildTaskYPositions, ROW_HEIGHT } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
+import type { CriticalPathScope } from '../../types';
 import {
   computeCriticalPathScoped,
   computeEarliestStart,
   detectConflicts,
 } from '../../utils/schedulerWasm';
 import SlackIndicator from './SlackIndicator';
-import CascadeHighlight from './CascadeHighlight';
 import TimelineHeader from './TimelineHeader';
 import GridLines from './GridLines';
 import TodayLine from './TodayLine';
@@ -50,37 +50,12 @@ export default function GanttChart({
   isCollabConnected,
   onDependencyClick,
 }: GanttChartProps) {
-  const {
-    showOwnerOnBar,
-    showAreaOnBar,
-    showOkrsOnBar,
-    showCriticalPath,
-    criticalPathScope,
-    collapseWeekends,
-    lastCascadeIds,
-    cascadeShifts,
-  } = useGanttState();
-  const dispatch = useGanttDispatch();
-
-  // Auto-clear cascade IDs after 2 seconds
-  useEffect(() => {
-    if (lastCascadeIds.length > 0) {
-      const timer = setTimeout(() => {
-        dispatch({ type: 'SET_LAST_CASCADE_IDS', taskIds: [] });
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [lastCascadeIds, dispatch]);
-
-  // Auto-clear cascade shifts after 2 seconds
-  useEffect(() => {
-    if (cascadeShifts.length > 0) {
-      const timer = setTimeout(() => {
-        dispatch({ type: 'SET_CASCADE_SHIFTS', shifts: [] });
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [cascadeShifts, dispatch]);
+  const showOwnerOnBar = useUIStore((s) => s.showOwnerOnBar);
+  const showAreaOnBar = useUIStore((s) => s.showAreaOnBar);
+  const showOkrsOnBar = useUIStore((s) => s.showOkrsOnBar);
+  const showCriticalPath = useUIStore((s) => s.showCriticalPath);
+  const criticalPathScope = useUIStore((s) => s.criticalPathScope);
+  const collapseWeekends = useUIStore((s) => s.collapseWeekends);
 
   const viewingMap = useMemo(() => {
     const map = new Map<string, { color: string; name: string }>();
@@ -100,13 +75,19 @@ export default function GanttChart({
     return map;
   }, [users, collabUsers, isCollabConnected]);
 
-  const criticalPathResult = useMemo(
-    () =>
-      showCriticalPath
-        ? computeCriticalPathScoped(allTasks, criticalPathScope)
-        : { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> },
-    [allTasks, showCriticalPath, criticalPathScope]
-  );
+  const criticalPathResult = useMemo(() => {
+    if (!showCriticalPath)
+      return { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> };
+    // 'all' scope: use first project name or fall back to project scope with empty name
+    if (criticalPathScope.type === 'all') {
+      const firstProject = allTasks.find((t) => t.project)?.project ?? '';
+      return computeCriticalPathScoped(allTasks, {
+        type: 'project',
+        name: firstProject,
+      } as CriticalPathScope);
+    }
+    return computeCriticalPathScoped(allTasks, criticalPathScope as CriticalPathScope);
+  }, [allTasks, showCriticalPath, criticalPathScope]);
   const criticalPathIds = criticalPathResult.taskIds;
   const criticalEdges = criticalPathResult.edges;
 
@@ -158,7 +139,7 @@ export default function GanttChart({
             totalHeight={totalHeight}
           />
           <TodayLine timelineStart={timelineStart} zoom={zoom} totalHeight={totalHeight} />
-          {/* Slack indicators and cascade highlights */}
+          {/* Slack indicators */}
           {visibleTasks.map((task) => {
             if (task.isSummary || task.isMilestone) return null;
             const yPos = taskYPositions.get(task.id);
@@ -166,50 +147,16 @@ export default function GanttChart({
 
             const earliest = computeEarliestStart(allTasks, task.id);
             const taskX = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const taskEndX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const taskWidth = Math.max(taskEndX - taskX + dayPx, 0);
 
-            const shift = cascadeShifts.find((s) => s.taskId === task.id);
-
-            return (
-              <React.Fragment key={`indicators-${task.id}`}>
-                {earliest && (
-                  <SlackIndicator
-                    earliestX={dateToX(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
-                    actualX={taskX}
-                    y={yPos}
-                    height={ROW_HEIGHT}
-                  />
-                )}
-                {shift && (
-                  <CascadeHighlight
-                    originalX={dateToX(
-                      shift.fromStartDate,
-                      timelineStart,
-                      colWidth,
-                      zoom,
-                      collapseWeekends
-                    )}
-                    currentX={taskX}
-                    y={yPos}
-                    originalWidth={Math.max(
-                      dateToX(shift.fromEndDate, timelineStart, colWidth, zoom, collapseWeekends) -
-                        dateToX(
-                          shift.fromStartDate,
-                          timelineStart,
-                          colWidth,
-                          zoom,
-                          collapseWeekends
-                        ) +
-                        dayPx,
-                      0
-                    )}
-                    currentWidth={taskWidth}
-                    height={ROW_HEIGHT}
-                  />
-                )}
-              </React.Fragment>
-            );
+            return earliest ? (
+              <SlackIndicator
+                key={`slack-${task.id}`}
+                earliestX={dateToX(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
+                actualX={taskX}
+                y={yPos}
+                height={ROW_HEIGHT}
+              />
+            ) : null;
           })}
           {/* Render bars */}
           {visibleTasks.map((task) => {

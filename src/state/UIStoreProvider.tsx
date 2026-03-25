@@ -70,10 +70,10 @@ export function UIStoreProvider({ children, dataSource }: UIStoreProviderProps) 
 
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        // TODO Phase 4: Y.UndoManager.undo()
+        window.dispatchEvent(new Event('ganttlet:undo'));
       } else if ((e.key === 'z' && e.shiftKey) || e.key === 'Z') {
         e.preventDefault();
-        // TODO Phase 4: Y.UndoManager.redo()
+        window.dispatchEvent(new Event('ganttlet:redo'));
       } else if (e.key === 'b') {
         e.preventDefault();
         const state = uiStore.getState();

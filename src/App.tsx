@@ -15,6 +15,7 @@ import DependencyEditorModal from './components/shared/DependencyEditorModal';
 import ReparentPickerModal from './components/shared/ReparentPickerModal';
 import EmptyState from './components/onboarding/EmptyState';
 import ConflictResolutionModal from './components/onboarding/ConflictResolutionModal';
+import { DataSafeErrorBoundary } from './components/shared/DataSafeErrorBoundary';
 
 function AppContent() {
   const theme = useUIStore((s) => s.theme);
@@ -194,15 +195,17 @@ function AppContent() {
           }`}
           onScroll={handleTableScroll}
         >
-          <TaskTable
-            tasks={visibleTasks}
-            columns={columns}
-            colorBy={colorBy}
-            taskMap={taskMap}
-            users={[]}
-            collabUsers={[]}
-            isCollabConnected={false}
-          />
+          <DataSafeErrorBoundary panelName="table">
+            <TaskTable
+              tasks={visibleTasks}
+              columns={columns}
+              colorBy={colorBy}
+              taskMap={taskMap}
+              users={[]}
+              collabUsers={[]}
+              isCollabConnected={false}
+            />
+          </DataSafeErrorBoundary>
         </div>
         {/* Pane divider toggle */}
         <button
@@ -221,18 +224,20 @@ function AppContent() {
           </svg>
         </button>
         {/* Gantt Chart - right panel (virtualized) */}
-        <VirtualizedGanttChart
-          ref={ganttScrollRef}
-          visibleTasks={visibleTasks}
-          allTasks={allTasks}
-          zoom={zoomLevel}
-          colorBy={colorBy}
-          users={[]}
-          collabUsers={[]}
-          isCollabConnected={false}
-          onDependencyClick={handleDependencyClick}
-          onScroll={handleGanttScroll}
-        />
+        <DataSafeErrorBoundary panelName="chart">
+          <VirtualizedGanttChart
+            ref={ganttScrollRef}
+            visibleTasks={visibleTasks}
+            allTasks={allTasks}
+            zoom={zoomLevel}
+            colorBy={colorBy}
+            users={[]}
+            collabUsers={[]}
+            isCollabConnected={false}
+            onDependencyClick={handleDependencyClick}
+            onScroll={handleGanttScroll}
+          />
+        </DataSafeErrorBoundary>
       </div>
 
       {/* Context Menu */}
@@ -265,9 +270,11 @@ export default function App() {
   return (
     <UIStoreProvider>
       <TaskStoreProvider spreadsheetId={sheetId} roomId={roomId}>
-        <WelcomeGate>
-          <AppContent />
-        </WelcomeGate>
+        <DataSafeErrorBoundary>
+          <WelcomeGate>
+            <AppContent />
+          </WelcomeGate>
+        </DataSafeErrorBoundary>
       </TaskStoreProvider>
     </UIStoreProvider>
   );

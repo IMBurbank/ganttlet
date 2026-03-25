@@ -1,0 +1,227 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as Y from 'yjs';
+import { initSchema, taskToYMap } from '../../schema/ydoc';
+import type { Task } from '../../types';
+
+// Mock WASM-dependent modules
+vi.mock('../../utils/schedulerWasm', () => ({
+  computeCriticalPathScoped: vi.fn(() => ({ taskIds: new Set<string>(), edges: [] })),
+  detectConflicts: vi.fn(() => []),
+  cascadeDependents: vi.fn(() => []),
+}));
+
+function makeTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'task-1',
+    name: 'Test Task',
+    startDate: '2026-03-11',
+    endDate: '2026-03-13',
+    duration: 3,
+    owner: '',
+    workStream: '',
+    project: '',
+    functionalArea: '',
+    done: false,
+    description: '',
+    isMilestone: false,
+    isSummary: false,
+    parentId: null,
+    childIds: [],
+    dependencies: [],
+    isExpanded: true,
+    isHidden: false,
+    notes: '',
+    okrs: [],
+    ...overrides,
+  };
+}
+
+describe('Y.UndoManager', () => {
+  let doc: Y.Doc;
+  let undoManager: Y.UndoManager;
+  let ytasks: Y.Map<Y.Map<unknown>>;
+
+  beforeEach(() => {
+    doc = new Y.Doc();
+    const schema = initSchema(doc);
+    ytasks = schema.tasks;
+    undoManager = new Y.UndoManager(ytasks, {
+      trackedOrigins: new Set(['local']),
+      captureTimeout: 0, // no grouping delay in tests
+    });
+  });
+
+  afterEach(() => {
+    undoManager.destroy();
+    doc.destroy();
+  });
+
+  describe('per-client scope', () => {
+    it('undoes local-origin changes', () => {
+      const task = makeTask();
+      doc.transact(() => {
+        ytasks.set(task.id, taskToYMap(task));
+      }, 'local');
+
+      expect(ytasks.has('task-1')).toBe(true);
+      expect(undoManager.canUndo()).toBe(true);
+
+      undoManager.undo();
+      expect(ytasks.has('task-1')).toBe(false);
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('does not undo sheets-origin changes', () => {
+      const task = makeTask();
+      doc.transact(() => {
+        ytasks.set(task.id, taskToYMap(task));
+      }, 'sheets');
+
+      expect(ytasks.has('task-1')).toBe(true);
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('does not undo remote (null origin) changes', () => {
+      const task = makeTask();
+      doc.transact(() => {
+        ytasks.set(task.id, taskToYMap(task));
+      });
+
+      expect(ytasks.has('task-1')).toBe(true);
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('redo restores undone changes', () => {
+      const task = makeTask();
+      doc.transact(() => {
+        ytasks.set(task.id, taskToYMap(task));
+      }, 'local');
+
+      undoManager.undo();
+      expect(ytasks.has('task-1')).toBe(false);
+      expect(undoManager.canRedo()).toBe(true);
+
+      undoManager.redo();
+      expect(ytasks.has('task-1')).toBe(true);
+    });
+  });
+
+  describe('cascade undo', () => {
+    it('undoes a field update atomically', () => {
+      const task = makeTask();
+      doc.transact(() => {
+        ytasks.set(task.id, taskToYMap(task));
+      }, 'local');
+
+      // Update name and dates in single transaction (simulating move + cascade)
+      doc.transact(() => {
+        const ymap = ytasks.get('task-1')!;
+        ymap.set('startDate', '2026-03-15');
+        ymap.set('endDate', '2026-03-17');
+        ymap.set('name', 'Updated Task');
+      }, 'local');
+
+      const ymap = ytasks.get('task-1')!;
+      expect(ymap.get('startDate')).toBe('2026-03-15');
+      expect(ymap.get('name')).toBe('Updated Task');
+
+      // Undo should revert the entire transaction
+      undoManager.undo();
+      const ymapAfter = ytasks.get('task-1')!;
+      expect(ymapAfter.get('startDate')).toBe('2026-03-11');
+      expect(ymapAfter.get('endDate')).toBe('2026-03-13');
+      expect(ymapAfter.get('name')).toBe('Test Task');
+    });
+
+    it('undoes multi-task cascade as single step', () => {
+      const task1 = makeTask({ id: 'task-1', startDate: '2026-03-11', endDate: '2026-03-13' });
+      const task2 = makeTask({ id: 'task-2', startDate: '2026-03-14', endDate: '2026-03-16' });
+
+      doc.transact(() => {
+        ytasks.set(task1.id, taskToYMap(task1));
+        ytasks.set(task2.id, taskToYMap(task2));
+      }, 'local');
+
+      // Simulate move + cascade: both tasks move in one transaction
+      doc.transact(() => {
+        const ym1 = ytasks.get('task-1')!;
+        ym1.set('startDate', '2026-03-15');
+        ym1.set('endDate', '2026-03-17');
+        const ym2 = ytasks.get('task-2')!;
+        ym2.set('startDate', '2026-03-18');
+        ym2.set('endDate', '2026-03-20');
+      }, 'local');
+
+      // One undo reverts both tasks
+      undoManager.undo();
+      expect(ytasks.get('task-1')!.get('startDate')).toBe('2026-03-11');
+      expect(ytasks.get('task-2')!.get('startDate')).toBe('2026-03-14');
+    });
+  });
+
+  describe('sandbox clear', () => {
+    it('clear() empties undo/redo stacks', () => {
+      const task = makeTask();
+      doc.transact(() => {
+        ytasks.set(task.id, taskToYMap(task));
+      }, 'local');
+
+      expect(undoManager.canUndo()).toBe(true);
+
+      undoManager.clear();
+
+      expect(undoManager.canUndo()).toBe(false);
+      expect(undoManager.canRedo()).toBe(false);
+      // Data is still present
+      expect(ytasks.has('task-1')).toBe(true);
+    });
+
+    it('after clear, new changes can still be undone', () => {
+      const task1 = makeTask({ id: 'task-1' });
+      doc.transact(() => {
+        ytasks.set(task1.id, taskToYMap(task1));
+      }, 'local');
+
+      undoManager.clear();
+
+      const task2 = makeTask({ id: 'task-2' });
+      doc.transact(() => {
+        ytasks.set(task2.id, taskToYMap(task2));
+      }, 'local');
+
+      expect(undoManager.canUndo()).toBe(true);
+      undoManager.undo();
+      expect(ytasks.has('task-2')).toBe(false);
+      expect(ytasks.has('task-1')).toBe(true);
+    });
+  });
+
+  describe('delete and undo', () => {
+    it('undoes task deletion restoring all fields', () => {
+      const task = makeTask({
+        name: 'Important Task',
+        owner: 'Alice',
+        startDate: '2026-03-11',
+        endDate: '2026-03-13',
+      });
+
+      doc.transact(() => {
+        ytasks.set(task.id, taskToYMap(task));
+      }, 'local');
+
+      // Delete task
+      doc.transact(() => {
+        ytasks.delete(task.id);
+      }, 'local');
+
+      expect(ytasks.has('task-1')).toBe(false);
+
+      // Undo delete
+      undoManager.undo();
+      expect(ytasks.has('task-1')).toBe(true);
+      const restored = ytasks.get('task-1')!;
+      expect(restored.get('name')).toBe('Important Task');
+      expect(restored.get('owner')).toBe('Alice');
+    });
+  });
+});

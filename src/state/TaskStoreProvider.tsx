@@ -1,5 +1,6 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import * as Y from 'yjs';
+import { IndexeddbPersistence } from 'y-indexeddb';
 import { TaskStore, TaskStoreContext } from '../store/TaskStore';
 import { MutateContext } from '../hooks/useMutate';
 import { setupObserver } from '../collab/observer';
@@ -21,6 +22,18 @@ import { SheetsAdapter } from '../sheets/SheetsAdapter';
 import { getAccessToken, setAuthChangeCallback, removeAuthChangeCallback } from '../sheets/oauth';
 import { UIStoreContext } from '../store/UIStore';
 import type { MutateAction, Task, CriticalPathScope, ConflictRecord } from '../types';
+
+export interface UndoManagerState {
+  undoManager: Y.UndoManager | null;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export const UndoManagerContext = createContext<UndoManagerState>({
+  undoManager: null,
+  canUndo: false,
+  canRedo: false,
+});
 
 interface TaskStoreProviderProps {
   children: React.ReactNode;
@@ -54,6 +67,12 @@ export function TaskStoreProvider({
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
   const uiStore = useContext(UIStoreContext);
   const adapterRef = useRef<SheetsAdapter | null>(null);
+  const undoManagerRef = useRef<Y.UndoManager | null>(null);
+  const persistenceRef = useRef<IndexeddbPersistence | null>(null);
+  const [undoState, setUndoState] = React.useState<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false,
+  });
 
   const doc = docRef.current;
 
@@ -62,6 +81,65 @@ export function TaskStoreProvider({
     const cleanup = setupObserver(doc, taskStore, { criticalPathScope });
     return cleanup;
   }, [doc, taskStore, criticalPathScope]);
+
+  // Y.UndoManager: scoped to 'local' origin, captureTimeout 500ms
+  useEffect(() => {
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+    const um = new Y.UndoManager(ytasks, {
+      trackedOrigins: new Set(['local']),
+      captureTimeout: 500,
+    });
+    undoManagerRef.current = um;
+
+    const updateState = () => {
+      setUndoState({ canUndo: um.canUndo(), canRedo: um.canRedo() });
+    };
+    um.on('stack-item-added', updateState);
+    um.on('stack-item-popped', updateState);
+    um.on('stack-cleared', updateState);
+
+    return () => {
+      um.destroy();
+      undoManagerRef.current = null;
+    };
+  }, [doc]);
+
+  // Listen for undo/redo events from UIStoreProvider keyboard handler
+  useEffect(() => {
+    const handleUndo = () => {
+      if (undoManagerRef.current?.canUndo()) {
+        undoManagerRef.current.undo();
+      }
+    };
+    const handleRedo = () => {
+      if (undoManagerRef.current?.canRedo()) {
+        undoManagerRef.current.redo();
+      }
+    };
+    window.addEventListener('ganttlet:undo', handleUndo);
+    window.addEventListener('ganttlet:redo', handleRedo);
+    return () => {
+      window.removeEventListener('ganttlet:undo', handleUndo);
+      window.removeEventListener('ganttlet:redo', handleRedo);
+    };
+  }, []);
+
+  // y-indexeddb persistence for crash recovery
+  useEffect(() => {
+    if (!roomId) return;
+
+    const persistence = new IndexeddbPersistence(`ganttlet-${roomId}`, doc);
+    persistenceRef.current = persistence;
+
+    persistence.on('synced', () => {
+      console.log('IndexedDB persistence synced for room:', roomId);
+    });
+
+    return () => {
+      persistence.destroy();
+      persistenceRef.current = null;
+    };
+  }, [doc, roomId]);
 
   // Sandbox initialization
   useEffect(() => {
@@ -84,6 +162,12 @@ export function TaskStoreProvider({
   // SheetsAdapter: init on sheet mode, cleanup on disconnect
   useEffect(() => {
     if (!spreadsheetId || !uiStore) return;
+
+    // Clear undo stack on sandbox→sheet promotion
+    if (undoManagerRef.current) {
+      undoManagerRef.current.clear();
+      setUndoState({ canUndo: false, canRedo: false });
+    }
 
     const adapter = new SheetsAdapter(
       doc,
@@ -187,9 +271,19 @@ export function TaskStoreProvider({
     [doc]
   );
 
+  const undoManagerState = useMemo<UndoManagerState>(
+    () => ({
+      undoManager: undoManagerRef.current,
+      ...undoState,
+    }),
+    [undoState]
+  );
+
   return (
     <TaskStoreContext.Provider value={taskStore}>
-      <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+      <UndoManagerContext.Provider value={undoManagerState}>
+        <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+      </UndoManagerContext.Provider>
     </TaskStoreContext.Provider>
   );
 }

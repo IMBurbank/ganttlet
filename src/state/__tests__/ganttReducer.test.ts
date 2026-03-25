@@ -12,7 +12,7 @@ function makeTask(overrides: Partial<Task>): Task {
   return {
     id: 'test',
     name: 'Test',
-    startDate: '2026-03-01',
+    startDate: '2026-03-02',
     endDate: '2026-03-10',
     duration: 7,
     owner: '',
@@ -101,7 +101,7 @@ describe('ganttReducer', () => {
       });
       const task = result.tasks.find((t) => t.id === 'a')!;
       expect(task.endDate).toBe('2026-03-20');
-      // Duration uses inclusive convention: taskDuration('2026-03-01', '2026-03-20') = 15
+      // Duration uses inclusive convention: taskDuration('2026-03-02', '2026-03-20') = 15
       expect(task.duration).toBe(15);
     });
   });
@@ -163,7 +163,7 @@ describe('ganttReducer', () => {
       // Mar 11 < Mar 18 → violation → B cascades to Mar 18 (shift 5 biz days).
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-17' }), // already moved
+          makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-17' }), // already moved
           makeTask({
             id: 'b',
             startDate: '2026-03-11',
@@ -273,7 +273,7 @@ describe('ganttReducer', () => {
 
   describe('ADD_TASK weekend snapping', () => {
     it('snaps Saturday start to Monday and uses taskEndDate for endDate', () => {
-      // Simulate ADD_TASK when today is Saturday 2026-03-14
+      // Simulate ADD_TASK when today is Saturday 2026-03-13
       // ensureBusinessDay(Sat) → Mon 2026-03-16
       // duration = 5, taskEndDate('2026-03-16', 5) = '2026-03-20'
       const state = makeState({ tasks: [] });
@@ -630,7 +630,7 @@ describe('ganttReducer', () => {
       // creates a violation and B cascades.
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-13', duration: 9 }), // moved +3 biz
+          makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-13', duration: 9 }), // moved +3 biz
           makeTask({
             id: 'b',
             startDate: '2026-03-10',
@@ -657,8 +657,8 @@ describe('ganttReducer', () => {
     it('does not include unchanged tasks in cascadeShifts', () => {
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
-          makeTask({ id: 'c', startDate: '2026-03-01', endDate: '2026-03-05', duration: 4 }),
+          makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 9 }),
+          makeTask({ id: 'c', startDate: '2026-03-02', endDate: '2026-03-05', duration: 4 }),
         ],
       });
       const result = ganttReducer(state, {
@@ -675,7 +675,7 @@ describe('ganttReducer', () => {
     it('cascades dependents when end date increases (positive delta)', () => {
       const parent = makeTask({
         id: 'A',
-        startDate: '2026-03-01',
+        startDate: '2026-03-02',
         endDate: '2026-03-10',
         duration: 9,
       });
@@ -709,7 +709,7 @@ describe('ganttReducer', () => {
     it('does not cascade dependents on backward move (asymmetric cascade)', () => {
       const parent = makeTask({
         id: 'A',
-        startDate: '2026-03-01',
+        startDate: '2026-03-02',
         endDate: '2026-03-10',
         duration: 9,
       });
@@ -722,20 +722,20 @@ describe('ganttReducer', () => {
       });
       let state = makeState({ tasks: [parent, child] });
 
-      // Simulate duration decrease: A's end date moves from Mar 10 to Mar 7 (-3 day delta)
+      // Simulate duration decrease: A's end date moves from Mar 10 to Mar 6 (-2 biz day delta)
       state = ganttReducer(state, {
         type: 'UPDATE_TASK_FIELD',
         taskId: 'A',
         field: 'endDate',
-        value: '2026-03-07',
+        value: '2026-03-06',
       });
       state = ganttReducer(state, {
         type: 'UPDATE_TASK_FIELD',
         taskId: 'A',
         field: 'duration',
-        value: 6,
+        value: 5,
       });
-      state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: -3 });
+      state = ganttReducer(state, { type: 'CASCADE_DEPENDENTS', taskId: 'A', daysDelta: -2 });
 
       // Asymmetric cascade: backward moves do NOT pull dependents — they expose slack instead
       const childTask = state.tasks.find((t) => t.id === 'B')!;
@@ -747,14 +747,14 @@ describe('ganttReducer', () => {
   describe('SET_CASCADE_SHIFTS', () => {
     it('sets cascade shifts', () => {
       const state = makeState({ cascadeShifts: [] });
-      const shifts = [{ taskId: 't1', fromStartDate: '2026-03-01', fromEndDate: '2026-03-10' }];
+      const shifts = [{ taskId: 't1', fromStartDate: '2026-03-02', fromEndDate: '2026-03-10' }];
       const result = ganttReducer(state, { type: 'SET_CASCADE_SHIFTS', shifts });
       expect(result.cascadeShifts).toEqual(shifts);
     });
 
     it('clears cascade shifts', () => {
       const state = makeState({
-        cascadeShifts: [{ taskId: 't1', fromStartDate: '2026-03-01', fromEndDate: '2026-03-10' }],
+        cascadeShifts: [{ taskId: 't1', fromStartDate: '2026-03-02', fromEndDate: '2026-03-10' }],
       });
       const result = ganttReducer(state, { type: 'SET_CASCADE_SHIFTS', shifts: [] });
       expect(result.cascadeShifts).toEqual([]);
@@ -884,18 +884,18 @@ describe('ganttReducer', () => {
 
   describe('Phase 15 integration: constraints + SF', () => {
     it('SNET constraint floors task start date via RECALCULATE_EARLIEST', () => {
-      // A (Mar 1-10) → FS → B (Mar 11-20). B has SNET Apr 1.
-      // Recalculate should respect SNET and move B to Apr 1.
+      // A (Apr 6-14) → FS → B (Apr 15-23). B has SNET May 1.
+      // Recalculate should respect SNET and move B to May 1.
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 7 }),
+          makeTask({ id: 'a', startDate: '2026-04-06', endDate: '2026-04-14', duration: 7 }),
           makeTask({
             id: 'b',
-            startDate: '2026-03-11',
-            endDate: '2026-03-20',
+            startDate: '2026-04-15',
+            endDate: '2026-04-23',
             duration: 7,
             constraintType: 'SNET',
-            constraintDate: '2026-04-01',
+            constraintDate: '2026-05-01',
             dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
           }),
         ],
@@ -905,19 +905,19 @@ describe('ganttReducer', () => {
         scope: {},
       });
       const b = result.tasks.find((t) => t.id === 'b')!;
-      // SNET Apr 1 is later than FS-required Mar 11, so B starts Apr 1
-      expect(b.startDate).toBe('2026-04-01');
+      // SNET May 1 is later than FS-required Apr 15, so B starts May 1
+      expect(b.startDate).toBe('2026-05-01');
     });
 
     it('ALAP constraint schedules task as late as possible', () => {
-      // A (Mar 1-10) → FS → B (Mar 11-20, ALAP). B should stay at latest possible.
+      // A (Apr 6-14) → FS → B (Apr 15-23, ALAP). B should stay at latest possible.
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 7 }),
+          makeTask({ id: 'a', startDate: '2026-04-06', endDate: '2026-04-14', duration: 7 }),
           makeTask({
             id: 'b',
-            startDate: '2026-03-11',
-            endDate: '2026-03-20',
+            startDate: '2026-04-15',
+            endDate: '2026-04-23',
             duration: 7,
             constraintType: 'ALAP',
             dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
@@ -937,14 +937,14 @@ describe('ganttReducer', () => {
     });
 
     it('SF dependency cascade: predecessor start change cascades to successor', () => {
-      // A (Mar 1-10) -SF-> B (Mar 1-10). SF means A.start drives B.end.
+      // A (Mar 2-10) -SF-> B (Mar 2-10). SF means A.start drives B.end.
       // Move A forward, cascade should adjust B.
       const state = makeState({
         tasks: [
-          makeTask({ id: 'a', startDate: '2026-03-05', endDate: '2026-03-14', duration: 7 }), // already moved +2 biz
+          makeTask({ id: 'a', startDate: '2026-03-05', endDate: '2026-03-13', duration: 7 }), // already moved +2 biz
           makeTask({
             id: 'b',
-            startDate: '2026-03-01',
+            startDate: '2026-03-02',
             endDate: '2026-03-10',
             duration: 7,
             dependencies: [{ fromId: 'a', toId: 'b', type: 'SF', lag: 0 }],
@@ -969,14 +969,14 @@ describe('ganttReducer', () => {
       // First do an action that creates an undo snapshot
       const state = makeState({
         tasks: [makeTask({ id: 'a' })],
-        cascadeShifts: [{ taskId: 'a', fromStartDate: '2026-03-01', fromEndDate: '2026-03-10' }],
+        cascadeShifts: [{ taskId: 'a', fromStartDate: '2026-03-02', fromEndDate: '2026-03-10' }],
       });
       // COMPLETE_DRAG to create undo entry (MOVE_TASK is no longer undoable)
       const afterDrag = ganttReducer(state, {
         type: 'COMPLETE_DRAG',
         taskId: 'a',
         newStartDate: '2026-03-05',
-        newEndDate: '2026-03-14',
+        newEndDate: '2026-03-13',
         daysDelta: 4,
       });
       const afterUndo = ganttReducer(afterDrag, { type: 'UNDO' });

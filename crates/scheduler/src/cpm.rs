@@ -357,7 +357,7 @@ mod tests {
     fn only_summary_tasks_returns_empty() {
         let tasks = vec![Task {
             is_summary: true,
-            ..make_task("summary", "2026-03-01", "2026-03-10", 9)
+            ..make_task("summary", "2026-03-02", "2026-03-10", 9)
         }];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.is_empty());
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn single_task_is_critical() {
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 9)];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 9)];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
     }
@@ -376,9 +376,9 @@ mod tests {
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
         let tasks = vec![
-            make_task("a", "2026-03-01", "2026-03-10", 9),
+            make_task("a", "2026-03-02", "2026-03-10", 9),
             b,
-            make_task("c", "2026-03-01", "2026-03-05", 5), // standalone, shorter
+            make_task("c", "2026-03-02", "2026-03-05", 5), // standalone, shorter
         ];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
@@ -390,10 +390,10 @@ mod tests {
     fn linear_fs_chain() {
         let mut b = make_task("b", "2026-03-10", "2026-03-19", 9);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-19", "2026-03-28", 9);
+        let mut c = make_task("c", "2026-03-19", "2026-03-27", 9);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 9), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 9), b, c];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"b".to_string()));
@@ -403,14 +403,14 @@ mod tests {
     #[test]
     fn linear_chain_four_tasks() {
         // A→B→C→D, all duration 5. All must be critical.
-        let mut b = make_task("b", "2026-03-01", "2026-03-06", 5);
+        let mut b = make_task("b", "2026-03-02", "2026-03-06", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-01", "2026-03-06", 5);
+        let mut c = make_task("c", "2026-03-02", "2026-03-06", 5);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
-        let mut d = make_task("d", "2026-03-01", "2026-03-06", 5);
+        let mut d = make_task("d", "2026-03-02", "2026-03-06", 5);
         d.dependencies = vec![make_dep("c", "d", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c, d];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c, d];
         let result = compute_critical_path(&tasks);
         assert_eq!(result.task_ids.len(), 4);
         assert!(result.task_ids.contains(&"a".to_string()));
@@ -424,10 +424,10 @@ mod tests {
         // Tasks with deliberately wrong stored dates — CPM must compute from first principles
         let mut b = make_task("b", "2026-03-20", "2026-03-25", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-01", "2026-03-06", 5);
+        let mut c = make_task("c", "2026-03-02", "2026-03-06", 5);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-15", "2026-03-20", 5), b, c];
+        let tasks = vec![make_task("a", "2026-03-16", "2026-03-20", 5), b, c];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"b".to_string()));
@@ -438,17 +438,17 @@ mod tests {
     fn diamond_critical_path() {
         // A→B, A→C, B→D, C→D. B duration 10, C duration 5.
         // Critical path: A→B→D (longest path). C has float.
-        let mut b = make_task("b", "2026-03-01", "2026-03-11", 10);
+        let mut b = make_task("b", "2026-03-02", "2026-03-11", 10);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-01", "2026-03-06", 5);
+        let mut c = make_task("c", "2026-03-02", "2026-03-06", 5);
         c.dependencies = vec![make_dep("a", "c", DepType::FS, 0)];
-        let mut d = make_task("d", "2026-03-01", "2026-03-06", 5);
+        let mut d = make_task("d", "2026-03-02", "2026-03-06", 5);
         d.dependencies = vec![
             make_dep("b", "d", DepType::FS, 0),
             make_dep("c", "d", DepType::FS, 0),
         ];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c, d];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c, d];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"b".to_string()));
@@ -462,9 +462,9 @@ mod tests {
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
 
         let tasks = vec![
-            make_task("a", "2026-03-01", "2026-03-10", 10),
+            make_task("a", "2026-03-02", "2026-03-10", 10),
             b,
-            make_task("c", "2026-03-01", "2026-03-05", 5),
+            make_task("c", "2026-03-02", "2026-03-05", 5),
         ];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
@@ -474,10 +474,10 @@ mod tests {
 
     #[test]
     fn ss_dependency() {
-        let mut b = make_task("b", "2026-03-06", "2026-03-15", 10);
+        let mut b = make_task("b", "2026-03-06", "2026-03-16", 10);
         b.dependencies = vec![make_dep("a", "b", DepType::SS, 5)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 10), b];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"b".to_string()));
@@ -485,10 +485,10 @@ mod tests {
 
     #[test]
     fn ff_dependency() {
-        let mut b = make_task("b", "2026-03-01", "2026-03-10", 10);
+        let mut b = make_task("b", "2026-03-02", "2026-03-10", 10);
         b.dependencies = vec![make_dep("a", "b", DepType::FF, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 10), b];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"b".to_string()));
@@ -500,7 +500,7 @@ mod tests {
         ms.is_milestone = true;
         ms.dependencies = vec![make_dep("a", "ms", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-10", 10), ms];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-10", 10), ms];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"ms".to_string()));
@@ -513,9 +513,9 @@ mod tests {
         let tasks = vec![
             Task {
                 is_summary: true,
-                ..make_task("summary", "2026-03-01", "2026-03-10", 10)
+                ..make_task("summary", "2026-03-02", "2026-03-10", 10)
             },
-            make_task("a", "2026-03-01", "2026-03-10", 10),
+            make_task("a", "2026-03-02", "2026-03-10", 10),
             b,
         ];
         let result = compute_critical_path(&tasks);
@@ -528,15 +528,15 @@ mod tests {
     fn parallel_paths_longest_is_critical() {
         // Path 1: a1→a2 (5+10=15) — longer, critical
         // Path 2: b1→b2 (5+5=10) — shorter, has float
-        let mut a2 = make_task("a2", "2026-03-01", "2026-03-11", 10);
+        let mut a2 = make_task("a2", "2026-03-02", "2026-03-11", 10);
         a2.dependencies = vec![make_dep("a1", "a2", DepType::FS, 0)];
-        let mut b2 = make_task("b2", "2026-03-01", "2026-03-06", 5);
+        let mut b2 = make_task("b2", "2026-03-02", "2026-03-06", 5);
         b2.dependencies = vec![make_dep("b1", "b2", DepType::FS, 0)];
 
         let tasks = vec![
-            make_task("a1", "2026-03-01", "2026-03-06", 5),
+            make_task("a1", "2026-03-02", "2026-03-06", 5),
             a2,
-            make_task("b1", "2026-03-01", "2026-03-06", 5),
+            make_task("b1", "2026-03-02", "2026-03-06", 5),
             b2,
         ];
         let result = compute_critical_path(&tasks);
@@ -550,12 +550,12 @@ mod tests {
     fn lag_changes_critical_path() {
         // A→B (FS, lag 0): B ES=5, EF=10
         // A→C (FS, lag 10): C ES=15, EF=20 — C path becomes critical due to lag
-        let mut b = make_task("b", "2026-03-01", "2026-03-06", 5);
+        let mut b = make_task("b", "2026-03-02", "2026-03-06", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-01", "2026-03-06", 5);
+        let mut c = make_task("c", "2026-03-02", "2026-03-06", 5);
         c.dependencies = vec![make_dep("a", "c", DepType::FS, 10)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"c".to_string()));
@@ -566,12 +566,12 @@ mod tests {
 
     #[test]
     fn critical_edges_linear_chain() {
-        let mut b = make_task("b", "2026-03-01", "2026-03-06", 5);
+        let mut b = make_task("b", "2026-03-02", "2026-03-06", 5);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-01", "2026-03-06", 5);
+        let mut c = make_task("c", "2026-03-02", "2026-03-06", 5);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c];
         let result = compute_critical_path(&tasks);
         assert_eq!(result.edges.len(), 2);
         assert!(result.edges.contains(&("a".to_string(), "b".to_string())));
@@ -582,17 +582,17 @@ mod tests {
     fn critical_edges_diamond() {
         // Critical path A→B→D. C is not critical.
         // Edges: (A,B) and (B,D) are critical. (A,C) and (C,D) are not.
-        let mut b = make_task("b", "2026-03-01", "2026-03-11", 10);
+        let mut b = make_task("b", "2026-03-02", "2026-03-11", 10);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
-        let mut c = make_task("c", "2026-03-01", "2026-03-06", 5);
+        let mut c = make_task("c", "2026-03-02", "2026-03-06", 5);
         c.dependencies = vec![make_dep("a", "c", DepType::FS, 0)];
-        let mut d = make_task("d", "2026-03-01", "2026-03-06", 5);
+        let mut d = make_task("d", "2026-03-02", "2026-03-06", 5);
         d.dependencies = vec![
             make_dep("b", "d", DepType::FS, 0),
             make_dep("c", "d", DepType::FS, 0),
         ];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c, d];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c, d];
         let result = compute_critical_path(&tasks);
         assert_eq!(result.edges.len(), 2);
         assert!(result.edges.contains(&("a".to_string(), "b".to_string())));
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn critical_edges_single_task() {
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5)];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5)];
         let result = compute_critical_path(&tasks);
         assert!(result.edges.is_empty());
     }
@@ -621,7 +621,7 @@ mod tests {
         let mut b = make_project_task("b", "2026-03-10", "2026-03-19", 9, "Alpha");
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         let tasks = vec![
-            make_project_task("a", "2026-03-01", "2026-03-10", 9, "Alpha"),
+            make_project_task("a", "2026-03-02", "2026-03-10", 9, "Alpha"),
             b,
         ];
 
@@ -646,9 +646,9 @@ mod tests {
         b2.dependencies = vec![make_dep("b1", "b2", DepType::FS, 0)];
 
         let tasks = vec![
-            make_project_task("a1", "2026-03-01", "2026-03-10", 10, "Alpha"),
+            make_project_task("a1", "2026-03-02", "2026-03-10", 10, "Alpha"),
             a2,
-            make_project_task("b1", "2026-03-01", "2026-03-10", 10, "Beta"),
+            make_project_task("b1", "2026-03-02", "2026-03-10", 10, "Beta"),
             b2,
         ];
 
@@ -676,9 +676,9 @@ mod tests {
         d2.dependencies = vec![make_dep("d1", "d2", DepType::FS, 0)];
 
         let tasks = vec![
-            make_workstream_task("e1", "2026-03-01", "2026-03-10", 10, "Alpha", "Engineering"),
+            make_workstream_task("e1", "2026-03-02", "2026-03-10", 10, "Alpha", "Engineering"),
             e2,
-            make_workstream_task("d1", "2026-03-01", "2026-03-10", 10, "Alpha", "Design"),
+            make_workstream_task("d1", "2026-03-02", "2026-03-10", 10, "Alpha", "Design"),
             d2,
         ];
 
@@ -698,7 +698,7 @@ mod tests {
     fn workstream_scope_empty_returns_empty() {
         let tasks = vec![make_workstream_task(
             "a",
-            "2026-03-01",
+            "2026-03-02",
             "2026-03-10",
             10,
             "Alpha",
@@ -724,7 +724,7 @@ mod tests {
         e1.dependencies = vec![make_dep("d1", "e1", DepType::FS, 0)];
 
         let tasks = vec![
-            make_workstream_task("d1", "2026-03-01", "2026-03-10", 10, "Alpha", "Design"),
+            make_workstream_task("d1", "2026-03-02", "2026-03-10", 10, "Alpha", "Design"),
             e1,
         ];
 
@@ -742,16 +742,16 @@ mod tests {
     fn scoped_project_internal_deps() {
         // Alpha: a1→a2→a3 (5+5+5=15) — longest overall, critical
         // Beta: b1 (dur 10) — shorter, has float
-        let mut a2 = make_project_task("a2", "2026-03-01", "2026-03-06", 5, "Alpha");
+        let mut a2 = make_project_task("a2", "2026-03-02", "2026-03-06", 5, "Alpha");
         a2.dependencies = vec![make_dep("a1", "a2", DepType::FS, 0)];
-        let mut a3 = make_project_task("a3", "2026-03-01", "2026-03-06", 5, "Alpha");
+        let mut a3 = make_project_task("a3", "2026-03-02", "2026-03-06", 5, "Alpha");
         a3.dependencies = vec![make_dep("a2", "a3", DepType::FS, 0)];
 
         let tasks = vec![
-            make_project_task("a1", "2026-03-01", "2026-03-06", 5, "Alpha"),
+            make_project_task("a1", "2026-03-02", "2026-03-06", 5, "Alpha"),
             a2,
             a3,
-            make_project_task("b1", "2026-03-01", "2026-03-10", 10, "Beta"),
+            make_project_task("b1", "2026-03-02", "2026-03-10", 10, "Beta"),
         ];
 
         let alpha_critical = compute_critical_path_scoped(
@@ -774,10 +774,10 @@ mod tests {
         // ES_A = 0, EF_A = 3. ES_B should be = ES_A + 0 - 2 = -2, floored at 0.
         // So B: ES=0, EF=2. A: ES=0, EF=3. Project end=3.
         // Both critical (same ES).
-        let mut b = make_task("b", "2026-03-01", "2026-03-03", 2);
+        let mut b = make_task("b", "2026-03-02", "2026-03-03", 2);
         b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-04", 3), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-04", 3), b];
         let result = compute_critical_path(&tasks);
         // A is critical (longer). B has float since EF_B=2 < project_end=3.
         assert!(result.task_ids.contains(&"a".to_string()));
@@ -789,16 +789,16 @@ mod tests {
         // A: ES=0, EF=5. B: SF from A → ES=max(0, 0+0-2)=0, EF=2.
         // C: FS from A → ES=5. FS from B → ES=2. Max=5, EF=8.
         // Critical path: A→C via FS.
-        let mut b = make_task("b", "2026-03-01", "2026-03-03", 2);
+        let mut b = make_task("b", "2026-03-02", "2026-03-03", 2);
         b.dependencies = vec![make_dep("a", "b", DepType::SF, 0)];
 
-        let mut c = make_task("c", "2026-03-01", "2026-03-04", 3);
+        let mut c = make_task("c", "2026-03-02", "2026-03-04", 3);
         c.dependencies = vec![
             make_dep("a", "c", DepType::FS, 0),
             make_dep("b", "c", DepType::FS, 0),
         ];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"c".to_string()));
@@ -812,14 +812,14 @@ mod tests {
         // Forward: A ES=0 EF=5. B ES=5 EF=8. C ES=8 EF=10.
         // Backward: project_end=10. C LS=8 LF=10. B LS=5 LF=8. A LS=0 LF=5.
         // ALAP on B: ES set to LS=5. Still critical (float=0).
-        let mut b = make_task("b", "2026-03-01", "2026-03-04", 3);
+        let mut b = make_task("b", "2026-03-02", "2026-03-04", 3);
         b.dependencies = vec![make_dep("a", "b", DepType::FS, 0)];
         b.constraint_type = Some(ConstraintType::ALAP);
 
-        let mut c = make_task("c", "2026-03-01", "2026-03-03", 2);
+        let mut c = make_task("c", "2026-03-02", "2026-03-03", 2);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b, c];
         let result = compute_critical_path(&tasks);
         // All on critical path since it's a linear chain
         assert!(result.task_ids.contains(&"a".to_string()));
@@ -833,10 +833,10 @@ mod tests {
         // Forward: A ES=0 EF=5, B ES=0 EF=3.
         // project_end=5. Backward: A LS=0 LF=5, B LS=2 LF=5.
         // ALAP resolution: B ES=LS=2, EF=2+3=5. Float=LS-ES=2-2=0 → B becomes critical.
-        let mut b = make_task("b", "2026-03-01", "2026-03-04", 3);
+        let mut b = make_task("b", "2026-03-02", "2026-03-04", 3);
         b.constraint_type = Some(ConstraintType::ALAP);
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-06", 5), b];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-06", 5), b];
         let result = compute_critical_path(&tasks);
         assert!(result.task_ids.contains(&"a".to_string()));
         assert!(result.task_ids.contains(&"b".to_string()));
@@ -854,12 +854,12 @@ mod tests {
         // CPM doesn't re-run forward pass after ALAP — it just sets ES.
         // C's ES in forward pass is 3 (from B FS). After ALAP, B's ES becomes 5,
         // but C's ES is still 3 from forward pass. The float check: C LS=8, ES=3 → float=5.
-        let mut b = make_task("b", "2026-03-01", "2026-03-04", 3);
+        let mut b = make_task("b", "2026-03-02", "2026-03-04", 3);
         b.constraint_type = Some(ConstraintType::ALAP);
-        let mut c = make_task("c", "2026-03-01", "2026-03-03", 2);
+        let mut c = make_task("c", "2026-03-02", "2026-03-03", 2);
         c.dependencies = vec![make_dep("b", "c", DepType::FS, 0)];
 
-        let tasks = vec![make_task("a", "2026-03-01", "2026-03-11", 10), b, c];
+        let tasks = vec![make_task("a", "2026-03-02", "2026-03-11", 10), b, c];
         let result = compute_critical_path(&tasks);
         // A is critical (longest). B becomes critical via ALAP (float=0).
         assert!(result.task_ids.contains(&"a".to_string()));

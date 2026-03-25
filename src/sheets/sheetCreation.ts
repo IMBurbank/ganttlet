@@ -1,9 +1,8 @@
 import { getAccessToken } from './oauth';
 import { updateSheet } from './sheetsClient';
-import { HEADER_ROW, SHEET_COLUMNS, taskToRow } from './sheetsMapper';
+import { HEADER_ROW, SHEET_COLUMNS, taskToRow, columnLetter } from './sheetsMapper';
 import { addRecentSheet } from '../utils/recentSheets';
 import { getTemplate } from '../data/templates';
-import { columnLetter } from './sheetsSync';
 import type { MutateAction } from '../types';
 
 export async function createSheet(title: string): Promise<string> {

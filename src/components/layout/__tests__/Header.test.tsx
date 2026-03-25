@@ -6,10 +6,6 @@ import { UIStore, UIStoreContext } from '../../../store/UIStore';
 import { TaskStore, TaskStoreContext } from '../../../store/TaskStore';
 import { MutateContext } from '../../../hooks/useMutate';
 
-const { mockStopPolling } = vi.hoisted(() => ({
-  mockStopPolling: vi.fn(),
-}));
-
 vi.mock('../../../utils/schedulerWasm', () => ({
   cascadeDependents: (tasks: unknown[]) => tasks,
   recalculateEarliest: () => [],
@@ -33,15 +29,6 @@ vi.mock('../../../collab/awareness', () => ({
   setLocalAwareness: vi.fn(),
   updateViewingTask: vi.fn(),
   getCollabUsers: () => [],
-}));
-
-vi.mock('../../../sheets/sheetsSync', () => ({
-  initSync: vi.fn(),
-  loadFromSheet: vi.fn().mockResolvedValue([]),
-  scheduleSave: vi.fn(),
-  startPolling: vi.fn(),
-  stopPolling: mockStopPolling,
-  getSpreadsheetId: () => null,
 }));
 
 vi.mock('../../../sheets/oauth', () => ({
@@ -143,7 +130,7 @@ describe('Header', () => {
     expect(screen.getByTestId('disconnect-confirm-btn')).toBeTruthy();
   });
 
-  it('disconnect calls stopPolling and resets UI state', () => {
+  it('disconnect resets UI state', () => {
     const uiStore = new UIStore({ theme: 'dark', dataSource: 'sheet' });
     const taskStore = new TaskStore();
     render(
@@ -160,17 +147,7 @@ describe('Header', () => {
     fireEvent.click(screen.getByTestId('menu-disconnect'));
     fireEvent.click(screen.getByTestId('disconnect-confirm-btn'));
 
-    expect(mockStopPolling).toHaveBeenCalled();
     expect(uiStore.getState().dataSource).toBeUndefined();
-  });
-
-  it('switch sheet tears down current connection', () => {
-    renderWithProviders(<Header />);
-
-    fireEvent.click(screen.getByTestId('sheet-dropdown-trigger'));
-    fireEvent.click(screen.getByTestId('menu-switch-sheet'));
-
-    expect(mockStopPolling).toHaveBeenCalled();
   });
 
   it('fetches and displays sheet title', async () => {

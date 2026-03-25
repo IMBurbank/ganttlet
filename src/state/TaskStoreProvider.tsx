@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import * as Y from 'yjs';
 import { TaskStore, TaskStoreContext } from '../store/TaskStore';
 import { MutateContext } from '../hooks/useMutate';
@@ -17,7 +17,10 @@ import {
   setConstraint,
 } from '../mutations';
 import { connectCollab, disconnectCollab } from '../collab/yjsProvider';
-import type { MutateAction, Task, CriticalPathScope } from '../types';
+import { SheetsAdapter } from '../sheets/SheetsAdapter';
+import { getAccessToken, setAuthChangeCallback, removeAuthChangeCallback } from '../sheets/oauth';
+import { UIStoreContext } from '../store/UIStore';
+import type { MutateAction, Task, CriticalPathScope, ConflictRecord } from '../types';
 
 interface TaskStoreProviderProps {
   children: React.ReactNode;
@@ -33,6 +36,8 @@ interface TaskStoreProviderProps {
   accessToken?: string;
   /** Critical path scope for cold derivations */
   criticalPathScope?: CriticalPathScope;
+  /** Spreadsheet ID for sheet mode (enables SheetsAdapter) */
+  spreadsheetId?: string;
 }
 
 export function TaskStoreProvider({
@@ -43,9 +48,12 @@ export function TaskStoreProvider({
   roomId,
   accessToken,
   criticalPathScope = { type: 'project', name: '' },
+  spreadsheetId,
 }: TaskStoreProviderProps) {
   const taskStore = useMemo(() => new TaskStore(), []);
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
+  const uiStore = useContext(UIStoreContext);
+  const adapterRef = useRef<SheetsAdapter | null>(null);
 
   const doc = docRef.current;
 
@@ -72,6 +80,68 @@ export function TaskStoreProvider({
       disconnectCollab();
     };
   }, [roomId, accessToken]);
+
+  // SheetsAdapter: init on sheet mode, cleanup on disconnect
+  useEffect(() => {
+    if (!spreadsheetId || !uiStore) return;
+
+    const adapter = new SheetsAdapter(
+      doc,
+      spreadsheetId,
+      {
+        onConflict: (conflicts: ConflictRecord[]) => {
+          uiStore.setState({ pendingConflicts: conflicts });
+        },
+        onSyncError: (error) => {
+          uiStore.setState({ syncError: error });
+        },
+        onSyncing: (syncing) => {
+          uiStore.setState({ isSyncing: syncing });
+        },
+        onSyncComplete: () => {
+          uiStore.setState({ syncComplete: true, dataSource: 'sheet' });
+        },
+      },
+      getAccessToken
+    );
+
+    adapterRef.current = adapter;
+    uiStore.setState({ dataSource: 'loading' });
+    adapter.start();
+
+    // beforeunload guard for sheet mode
+    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+      if (adapter.isSavePending()) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnloadHandler);
+
+    // Auth token refresh: restart adapter polling on token change
+    const authChangeHandler = () => {
+      // Token refreshed — adapter will pick it up on next poll/write via getAccessToken
+      // Reconnect collab if needed
+      if (roomId && accessToken) {
+        connectCollab(roomId, accessToken);
+      }
+    };
+    setAuthChangeCallback(authChangeHandler);
+
+    // Conflict resolution event handler
+    const conflictResolveHandler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { taskId: string; field: string; value: unknown };
+      updateTaskField(doc, detail.taskId, detail.field, detail.value);
+    };
+    window.addEventListener('ganttlet:conflict-resolve', conflictResolveHandler);
+
+    return () => {
+      adapter.stop();
+      adapterRef.current = null;
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      removeAuthChangeCallback(authChangeHandler);
+      window.removeEventListener('ganttlet:conflict-resolve', conflictResolveHandler);
+    };
+  }, [spreadsheetId, doc, uiStore, roomId, accessToken]);
 
   // Mutate dispatcher
   const mutate = useCallback(

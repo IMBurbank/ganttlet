@@ -2,6 +2,16 @@ import type { Task, Dependency, DependencyType } from '../types';
 import { taskDuration, ensureBusinessDay, prevBusinessDay } from '../utils/dateUtils';
 import { parseISO, format } from 'date-fns';
 
+export function columnLetter(n: number): string {
+  let s = '';
+  while (n > 0) {
+    n--;
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26);
+  }
+  return s;
+}
+
 // Column order in the Google Sheet (row 1 = headers)
 export const SHEET_COLUMNS = [
   'id',
@@ -24,6 +34,8 @@ export const SHEET_COLUMNS = [
   'okrs',
   'constraintType',
   'constraintDate',
+  'lastModifiedBy',
+  'lastModifiedAt',
 ] as const;
 
 export const HEADER_ROW = SHEET_COLUMNS.map((c) => c as string);
@@ -50,6 +62,8 @@ export function taskToRow(task: Task): string[] {
     task.okrs.join('|'),
     task.constraintType ?? '',
     task.constraintDate ?? '',
+    '', // lastModifiedBy — written by SheetsAdapter
+    '', // lastModifiedAt — written by SheetsAdapter
   ];
 }
 
@@ -182,8 +196,8 @@ function parseDependencies(str: string): Dependency[] {
 
 /**
  * Validate that the header row matches the expected SHEET_COLUMNS.
- * Case-insensitive, order-sensitive. All 20 required columns must be present.
- * Extra columns after column T are ignored.
+ * Case-insensitive, order-sensitive. All 22 required columns must be present.
+ * Extra columns after column V are ignored.
  */
 export function validateHeaders(headerRow: string[]): boolean {
   if (headerRow.length < SHEET_COLUMNS.length) return false;

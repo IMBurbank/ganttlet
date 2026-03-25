@@ -16,11 +16,53 @@ Ganttlet is a free, open-source Gantt chart with real-time collaboration and two
 Browser client + thin relay server. All business logic (scheduling, rendering, Sheets I/O) runs in the browser. The relay server only forwards CRDT updates over WebSocket.
 See `docs/completed-phases.md` for detailed architecture notes (auth, sync, deployment).
 
+## Frontend State Architecture (Phase 20)
+
+```
+Y.Doc (live session state — all task mutations here)
+  ├─> TaskStore (O(1) per-task subscriptions via useSyncExternalStore)
+  │    ├─> Critical path (recomputed via WASM, requestIdleCallback)
+  │    ├─> Conflicts (detected via WASM, requestIdleCallback)
+  │    └─> Per-task listeners — only changed tasks notify
+  └─> Three mutation sources → one consumption path:
+       ├─ Local user action ('local' origin) — undoable via Y.UndoManager
+       ├─ Remote Yjs peer (no origin) — batched via requestAnimationFrame
+       └─ Sheets injection ('sheets' origin) — not undoable, no cascade
+
+UIStore (per-user, local-only, persisted to localStorage)
+  └─> zoom, theme, panels, searchQuery, expandedTasks
+
+SheetsAdapter (service class)
+  └─> Three-way merge with base values in IndexedDB
+
+Y.UndoManager (per-client, scoped to 'local' origin)
+y-indexeddb (crash recovery persistence)
+```
+
+### Five State Domains
+1. **Task data** — Y.Doc `tasks` map + `taskOrder` array → TaskStore
+2. **Display state** — UIStore (zoom, theme, expanded tasks, columns)
+3. **Derived state** — Critical path, conflicts (computed via WASM, stored in TaskStore)
+4. **Collaboration** — Yjs awareness (cursors, presence, drag intent)
+5. **Sync state** — SheetsAdapter (dirty flag, base values, conflict queue)
+
+### Key Files
+- `src/schema/ydoc.ts` — Y.Doc schema (19 collaborative fields per task)
+- `src/store/TaskStore.ts` — O(1) per-task subscriptions
+- `src/store/UIStore.ts` — Per-user display state
+- `src/mutations/` — Compute-first + atomic transact mutations
+- `src/collab/observer.ts` — Y.Doc → TaskStore observation pipeline
+- `src/state/TaskStoreProvider.tsx` — Root provider (Y.Doc, stores, undo, collab, SheetsAdapter lifecycle)
+- `src/state/UIStoreProvider.tsx` — Per-user state with localStorage persistence
+- `src/sheets/SheetsAdapter.ts` — Bidirectional Y.Doc ↔ Sheets sync
+
 ## Architecture Principles
 - Scheduling engine is a pure Rust→WASM module, separate from UI
 - Relay server is stateless and credential-free
 - Google Sheets sync layer is its own module, not coupled to UI
 - Write tests for scheduling logic first — correctness is critical
+- All mutations use compute-first + atomic transact (read → WASM compute → single `doc.transact()`)
+- Drag uses CSS transforms during interaction, writes once on drop (commit-on-drop pattern)
 
 ## Architecture Constraints (do not violate these)
 - **Thin server**: The relay server forwards CRDT messages and validates OAuth tokens. It must not contain business logic, store persistent state, or access Google Sheets data.
@@ -108,9 +150,10 @@ See `.claude/skills/hooks/SKILL.md` for full details: adding new checks, stdin J
 schema, testing locally, and ENXIO history.
 
 ## Completed Work
-Phases 0-14 are done, plus plugin adoption. Details in `docs/completed-phases.md`.
+Phases 0-16, 18, 20 are done, plus plugin adoption. Details in `docs/completed-phases.md`.
 
 ## Roadmap (Future)
 - Resource assignment and leveling
 - Baseline tracking
 - Export to PDF/PNG/CSV
+- Semantic zoom (day/week/month detail levels)

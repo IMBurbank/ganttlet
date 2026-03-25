@@ -1,5 +1,5 @@
 import React, { useCallback, useState, lazy, Suspense } from 'react';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { useUIStore } from '../../hooks';
 import { isSignedIn } from '../../sheets/oauth';
 import { getRecentSheets } from '../../utils/recentSheets';
 import FirstVisitWelcome from './FirstVisitWelcome';
@@ -12,36 +12,32 @@ import ErrorBanner from './ErrorBanner';
 const PromotionFlow = lazy(() => import('./PromotionFlow'));
 
 export default function WelcomeGate({ children }: { children: React.ReactNode }) {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
+  const dataSource = useUIStore((s) => s.dataSource);
+  const syncError = useUIStore((s) => s.syncError);
   // Track if user just signed in from FirstVisit (show ChoosePath instead of FirstVisit)
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [showPromotion, setShowPromotion] = useState(false);
 
-  const onSelectSheet = useCallback(
-    (sheetId: string) => {
-      const url = new URL(window.location.href);
-      url.searchParams.set('sheet', sheetId);
-      url.searchParams.set('room', sheetId);
-      window.history.replaceState({}, '', url.toString());
-      dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'loading' });
-      // Force re-render by reloading — the GanttContext useEffect picks up the URL params
-      window.location.reload();
-    },
-    [dispatch]
-  );
+  const onSelectSheet = useCallback((sheetId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('sheet', sheetId);
+    url.searchParams.set('room', sheetId);
+    window.history.replaceState({}, '', url.toString());
+    // Force re-render by reloading — the providers pick up the URL params
+    window.location.reload();
+  }, []);
 
   // If dataSource is defined, the app is initialized — render children
-  if (state.dataSource !== undefined) {
+  if (dataSource !== undefined) {
     // Header mismatch error takes priority over loading skeleton
-    if (state.dataSource === 'loading' && state.syncError?.type === 'header_mismatch') {
+    if (dataSource === 'loading' && syncError?.type === 'header_mismatch') {
       return <HeaderMismatchError />;
     }
     // Loading skeleton for loading state — show ErrorBanner if sync error exists
-    if (state.dataSource === 'loading') {
+    if (dataSource === 'loading') {
       return (
         <div className="flex flex-col h-screen bg-surface-base" data-testid="loading-skeleton">
-          {state.syncError && <ErrorBanner />}
+          {syncError && <ErrorBanner />}
           {/* Skeleton header */}
           <div className="h-12 border-b border-border-default bg-surface-raised animate-pulse" />
           {/* Skeleton toolbar */}
@@ -67,7 +63,7 @@ export default function WelcomeGate({ children }: { children: React.ReactNode })
     }
     return (
       <>
-        {state.dataSource === 'sandbox' && (
+        {dataSource === 'sandbox' && (
           <div
             className="bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-4 py-2 text-sm flex items-center justify-center gap-2"
             data-testid="sandbox-banner"
@@ -98,7 +94,7 @@ export default function WelcomeGate({ children }: { children: React.ReactNode })
 
   if (hasSheetOrRoom) {
     if (isSignedIn()) {
-      // Signed in with URL params — render children; GanttContext useEffect handles loading
+      // Signed in with URL params — render children; providers handle loading
       return <>{children}</>;
     }
     // Not signed in with URL params — show collaborator welcome

@@ -1,32 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import React from 'react';
 import ReturnVisitorWelcome from '../ReturnVisitorWelcome';
-import { GanttProvider } from '../../../state/GanttContext';
-
-vi.mock('../../../utils/schedulerWasm', () => ({
-  cascadeDependents: (tasks: unknown[]) => tasks,
-  recalculateEarliest: () => [],
-  initScheduler: () => Promise.resolve(),
-}));
-
-vi.mock('../../../collab/yjsProvider', () => ({
-  connectCollab: vi.fn(),
-  disconnectCollab: vi.fn(),
-  getDoc: () => null,
-}));
-
-vi.mock('../../../collab/yjsBinding', () => ({
-  bindYjsToDispatch: vi.fn(),
-  applyTasksToYjs: vi.fn(),
-  applyActionToYjs: vi.fn(),
-  hydrateYjsFromTasks: vi.fn(),
-}));
-
-vi.mock('../../../collab/awareness', () => ({
-  setLocalAwareness: vi.fn(),
-  updateViewingTask: vi.fn(),
-  getCollabUsers: () => [],
-}));
+import { UIStore, UIStoreContext } from '../../../store/UIStore';
+import { TaskStore, TaskStoreContext } from '../../../store/TaskStore';
+import { MutateContext } from '../../../hooks/useMutate';
 
 vi.mock('../../../sheets/oauth', () => ({
   isSignedIn: () => true,
@@ -35,15 +13,6 @@ vi.mock('../../../sheets/oauth', () => ({
   setAuthChangeCallback: vi.fn(),
   removeAuthChangeCallback: vi.fn(),
   signIn: vi.fn(),
-}));
-
-vi.mock('../../../sheets/sheetsSync', () => ({
-  initSync: vi.fn(),
-  loadFromSheet: vi.fn().mockResolvedValue([]),
-  scheduleSave: vi.fn(),
-  startPolling: vi.fn(),
-  stopPolling: vi.fn(),
-  getSpreadsheetId: () => null,
 }));
 
 vi.mock('../../../utils/recentSheets', () => ({
@@ -57,6 +26,20 @@ vi.mock('../../../sheets/sheetsBrowser', () => ({
   listUserSheets: vi.fn().mockResolvedValue([]),
 }));
 
+const mockMutate = vi.fn();
+const uiStore = new UIStore();
+const taskStore = new TaskStore();
+
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <UIStoreContext.Provider value={uiStore}>
+      <TaskStoreContext.Provider value={taskStore}>
+        <MutateContext.Provider value={mockMutate}>{children}</MutateContext.Provider>
+      </TaskStoreContext.Provider>
+    </UIStoreContext.Provider>
+  );
+}
+
 describe('ReturnVisitorWelcome', () => {
   const mockOnSelectSheet = vi.fn();
 
@@ -66,9 +49,9 @@ describe('ReturnVisitorWelcome', () => {
 
   it('renders welcome back message with user name', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ReturnVisitorWelcome onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('return-visitor-title').textContent).toContain(
@@ -78,9 +61,9 @@ describe('ReturnVisitorWelcome', () => {
 
   it('lists recent projects', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ReturnVisitorWelcome onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('recent-projects')).toBeTruthy();
@@ -90,9 +73,9 @@ describe('ReturnVisitorWelcome', () => {
 
   it('calls onSelectSheet when clicking a recent project', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ReturnVisitorWelcome onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByTestId('recent-sheet-sheet-1'));
@@ -101,9 +84,9 @@ describe('ReturnVisitorWelcome', () => {
 
   it('opens SheetSelector modal when Connect Existing Sheet is clicked', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ReturnVisitorWelcome onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByTestId('connect-existing-button'));
@@ -112,9 +95,9 @@ describe('ReturnVisitorWelcome', () => {
 
   it('shows action buttons', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ReturnVisitorWelcome onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('new-project-button')).toBeTruthy();

@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 
-const mockState = {
+const mockUIState = {
   syncError: null as import('../../../types').SyncError | null,
   dataSource: 'loading' as string | undefined,
 };
 
-vi.mock('../../../state/GanttContext', () => ({
-  useGanttState: () => mockState,
+vi.mock('../../../hooks', () => ({
+  useUIStore: (selector: (s: typeof mockUIState) => unknown) => selector(mockUIState),
 }));
 
 vi.mock('../../../sheets/sheetsMapper', () => ({
@@ -19,8 +19,8 @@ import HeaderMismatchError from '../HeaderMismatchError';
 
 describe('HeaderMismatchError', () => {
   beforeEach(() => {
-    mockState.syncError = null;
-    mockState.dataSource = 'loading';
+    mockUIState.syncError = null;
+    mockUIState.dataSource = 'loading';
   });
 
   it('renders nothing when no header_mismatch error', () => {
@@ -29,21 +29,21 @@ describe('HeaderMismatchError', () => {
   });
 
   it('renders nothing when header_mismatch but dataSource is not loading', () => {
-    mockState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
-    mockState.dataSource = 'sheet';
+    mockUIState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
+    mockUIState.dataSource = 'sheet';
     const { container } = render(<HeaderMismatchError />);
     expect(container.firstChild).toBeNull();
   });
 
   it('renders mismatch screen when header_mismatch + loading', () => {
-    mockState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
+    mockUIState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
     render(<HeaderMismatchError />);
     expect(screen.getByTestId('header-mismatch-error')).toBeTruthy();
     expect(screen.getByText('Column Mismatch')).toBeTruthy();
   });
 
   it('shows expected columns', () => {
-    mockState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
+    mockUIState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
     render(<HeaderMismatchError />);
     const list = screen.getByTestId('expected-columns');
     expect(list.textContent).toContain('id');
@@ -52,15 +52,14 @@ describe('HeaderMismatchError', () => {
   });
 
   it('has Create a new sheet button', () => {
-    mockState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
+    mockUIState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
     render(<HeaderMismatchError />);
     expect(screen.getByTestId('create-new-sheet-btn')).toBeTruthy();
   });
 
   it('has Download header template button that creates CSV', () => {
-    mockState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
+    mockUIState.syncError = { type: 'header_mismatch', message: 'Mismatch', since: Date.now() };
 
-    // Mock URL.createObjectURL and document.createElement
     const mockUrl = 'blob:test';
     const revokeObjectURL = vi.fn();
     const createObjectURL = vi.fn().mockReturnValue(mockUrl);

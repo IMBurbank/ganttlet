@@ -1,8 +1,10 @@
 import React from 'react';
-import { useGanttState } from '../../state/GanttContext';
+import { useUIStore } from '../../hooks';
 
 export default function SyncStatus() {
-  const { isSyncing, syncComplete, syncError } = useGanttState();
+  const isSyncing = useUIStore((s) => s.isSyncing);
+  const syncComplete = useUIStore((s) => s.syncComplete);
+  const syncError = useUIStore((s) => s.syncError);
 
   const isRateLimited = syncError?.type === 'rate_limit';
 

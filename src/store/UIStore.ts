@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { ColorByField, ColumnConfig } from '../types';
+import type { ColorByField, ColumnConfig, SyncError } from '../types';
 import type { ConflictRecord } from '../types';
 
 export interface UIState {
@@ -22,6 +22,9 @@ export interface UIState {
   reparentPicker: { taskId: string } | null;
   focusNewTaskId: string | null;
   pendingConflicts: ConflictRecord[] | null;
+  syncError: SyncError | null;
+  isSyncing: boolean;
+  syncComplete: boolean;
 }
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
@@ -54,6 +57,9 @@ export function createDefaultUIState(): UIState {
     reparentPicker: null,
     focusNewTaskId: null,
     pendingConflicts: null,
+    syncError: null,
+    isSyncing: false,
+    syncComplete: false,
   };
 }
 

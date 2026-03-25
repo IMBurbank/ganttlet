@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo } from 'react';
-import { useGanttDispatch } from '../../state/GanttContext';
+import { useState, useCallback, useMemo, useContext } from 'react';
+import { useMutate } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 import { getAuthState } from '../../sheets/oauth';
 import { getRecentSheets, type RecentSheet } from '../../utils/recentSheets';
 import SheetSelector from './SheetSelector';
@@ -23,20 +24,24 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 export default function ReturnVisitorWelcome({ onSelectSheet }: ReturnVisitorWelcomeProps) {
-  const dispatch = useGanttDispatch();
+  const mutate = useMutate();
+  const uiStore = useContext(UIStoreContext);
   const [showSheetSelector, setShowSheetSelector] = useState(false);
   const authState = getAuthState();
   const recentSheets = useMemo(() => getRecentSheets(), []);
   const displayName = authState.userName || authState.userEmail || 'there';
 
   const handleTryDemo = useCallback(async () => {
-    const { fakeTasks, fakeChangeHistory } = await import('../../data/templates/softwareRelease');
-    dispatch({ type: 'ENTER_SANDBOX', tasks: fakeTasks, changeHistory: fakeChangeHistory });
-  }, [dispatch]);
+    const { fakeTasks } = await import('../../data/templates/softwareRelease');
+    for (const task of fakeTasks) {
+      mutate({ type: 'ADD_TASK', task });
+    }
+    uiStore?.setState({ dataSource: 'sandbox' });
+  }, [mutate, uiStore]);
 
   const handleNewProject = useCallback(() => {
-    dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
-  }, [dispatch]);
+    uiStore?.setState({ dataSource: 'empty' });
+  }, [uiStore]);
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-surface-base text-text-primary px-6">

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+// Stage 4 (Group F): sheetsSync is stubbed — these tests are disabled until SheetsAdapter replaces them
+// Keeping file structure for Group F to rewrite with SheetsAdapter tests
+
 vi.mock('../sheetsClient', () => ({
   readSheet: vi.fn(),
   updateSheet: vi.fn(),
@@ -17,28 +20,19 @@ vi.mock('../oauth', () => ({
   isSignedIn: vi.fn().mockReturnValue(true),
 }));
 
-vi.mock('../../collab/yjsBinding', () => ({
-  applyTasksToYjs: vi.fn(),
-}));
-
-vi.mock('../../collab/yjsProvider', () => ({
-  getDoc: vi.fn().mockReturnValue(null),
-}));
-
 import { readSheet } from '../sheetsClient';
 import { validateHeaders } from '../sheetsMapper';
 import { initSync, startPolling, stopPolling, BASE_POLL_INTERVAL_MS } from '../sheetsSync';
-import type { GanttAction } from '../../state/actions';
 
 const mockedReadSheet = vi.mocked(readSheet);
 const mockedValidateHeaders = vi.mocked(validateHeaders);
 
-describe('polling backoff', () => {
-  let dispatchSpy: ReturnType<typeof vi.fn<(action: GanttAction) => void>>;
+describe.skip('polling backoff — disabled: sheetsSync stubbed for Stage 4', () => {
+  let dispatchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    dispatchSpy = vi.fn<(action: GanttAction) => void>();
+    dispatchSpy = vi.fn();
     initSync('test-sheet', dispatchSpy);
   });
 

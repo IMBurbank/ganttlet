@@ -1,10 +1,12 @@
 import React from 'react';
-import { useGanttState } from '../../state/GanttContext';
 import Avatar from '../shared/Avatar';
 import Tooltip from '../shared/Tooltip';
 
 export default function UserPresence() {
-  const { collabUsers, isCollabConnected } = useGanttState();
+  // Phase 2+: wire to CollabStore. For Phase 1, stub with empty state.
+  const collabUsers: { clientId: number; name: string; color: string; viewingTaskId?: string }[] =
+    [];
+  const isCollabConnected = false;
 
   if (!(isCollabConnected && collabUsers.length > 0)) {
     return null;
@@ -12,10 +14,10 @@ export default function UserPresence() {
 
   return (
     <div className="flex items-center -space-x-2">
-      {collabUsers.map(user => {
+      {collabUsers.map((user) => {
         const initials = user.name
           .split(' ')
-          .map(part => part[0])
+          .map((part) => part[0])
           .join('')
           .toUpperCase()
           .slice(0, 2);
@@ -35,12 +37,7 @@ export default function UserPresence() {
               </div>
             }
           >
-            <Avatar
-              initials={initials || '?'}
-              color={user.color}
-              size={28}
-              isOnline={true}
-            />
+            <Avatar initials={initials || '?'} color={user.color} size={28} isOnline={true} />
           </Tooltip>
         );
       })}

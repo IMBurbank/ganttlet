@@ -1,5 +1,6 @@
-import { useCallback } from 'react';
-import { useGanttDispatch } from '../../state/GanttContext';
+import { useCallback, useContext } from 'react';
+import { useMutate } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 import { signIn } from '../../sheets/oauth';
 
 interface FirstVisitWelcomeProps {
@@ -7,12 +8,17 @@ interface FirstVisitWelcomeProps {
 }
 
 export default function FirstVisitWelcome({ onSignInComplete }: FirstVisitWelcomeProps) {
-  const dispatch = useGanttDispatch();
+  const mutate = useMutate();
+  const uiStore = useContext(UIStoreContext);
 
   const handleTryDemo = useCallback(async () => {
-    const { fakeTasks, fakeChangeHistory } = await import('../../data/templates/softwareRelease');
-    dispatch({ type: 'ENTER_SANDBOX', tasks: fakeTasks, changeHistory: fakeChangeHistory });
-  }, [dispatch]);
+    const { fakeTasks } = await import('../../data/templates/softwareRelease');
+    // Add demo tasks to Y.Doc via mutations
+    for (const task of fakeTasks) {
+      mutate({ type: 'ADD_TASK', task });
+    }
+    uiStore?.setState({ dataSource: 'sandbox' });
+  }, [mutate, uiStore]);
 
   const handleSignIn = useCallback(() => {
     signIn();

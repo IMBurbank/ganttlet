@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState, lazy, Suspense } from 'react';
-import { useGanttDispatch } from '../../state/GanttContext';
+import { useMutate } from '../../hooks';
 
 const TemplatePicker = lazy(() => import('./TemplatePicker'));
 
@@ -8,7 +8,7 @@ interface EmptyStateProps {
 }
 
 export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
-  const dispatch = useGanttDispatch();
+  const mutate = useMutate();
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -19,10 +19,9 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
   const handleAddTask = useCallback(
     (name: string) => {
       if (!name.trim()) return;
-      // Dispatch ADD_TASK — the reducer handles startDate/endDate with ensureBusinessDay + taskEndDate
-      dispatch({ type: 'ADD_TASK', parentId: null, afterTaskId: null, name: name.trim() });
+      mutate({ type: 'ADD_TASK', task: { name: name.trim() } });
     },
-    [dispatch]
+    [mutate]
   );
 
   const handleKeyDown = useCallback(
@@ -126,7 +125,7 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
                 onSelectTemplate();
               }
               import('../../sheets/sheetCreation').then(({ createProjectFromTemplate }) => {
-                createProjectFromTemplate('Ganttlet Project', templateId, dispatch);
+                createProjectFromTemplate('Ganttlet Project', templateId, mutate);
               });
             }}
             onClose={() => setShowTemplatePicker(false)}

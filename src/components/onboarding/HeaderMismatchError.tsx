@@ -1,9 +1,10 @@
 import React, { useCallback } from 'react';
 import { SHEET_COLUMNS } from '../../sheets/sheetsMapper';
-import { useGanttState } from '../../state/GanttContext';
+import { useUIStore } from '../../hooks';
 
 export default function HeaderMismatchError() {
-  const { syncError, dataSource } = useGanttState();
+  const syncError = useUIStore((s) => s.syncError);
+  const dataSource = useUIStore((s) => s.dataSource);
 
   const handleDownloadTemplate = useCallback(() => {
     const csvContent = SHEET_COLUMNS.join(',') + '\n';

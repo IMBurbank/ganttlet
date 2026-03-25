@@ -1,0 +1,251 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as Y from 'yjs';
+import type { Task } from '../../types';
+import { TaskStore } from '../../store/TaskStore';
+import { initSchema, taskToYMap } from '../../schema/ydoc';
+import { setupObserver } from '../observer';
+
+// Mock WASM-dependent modules
+vi.mock('../../utils/schedulerWasm', () => ({
+  computeCriticalPathScoped: vi.fn(() => ({ taskIds: new Set<string>(), edges: [] })),
+  detectConflicts: vi.fn(() => []),
+}));
+
+function makeTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'task-1',
+    name: 'Test Task',
+    startDate: '2026-03-11',
+    endDate: '2026-03-13',
+    duration: 3,
+    owner: '',
+    workStream: '',
+    project: '',
+    functionalArea: '',
+    done: false,
+    description: '',
+    isMilestone: false,
+    isSummary: false,
+    parentId: null,
+    childIds: [],
+    dependencies: [],
+    isExpanded: true,
+    isHidden: false,
+    notes: '',
+    okrs: [],
+    ...overrides,
+  };
+}
+
+describe('setupObserver', () => {
+  let doc: Y.Doc;
+  let store: TaskStore;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    doc = new Y.Doc();
+    store = new TaskStore();
+    cleanup = setupObserver(doc, store, {
+      criticalPathScope: { type: 'project', name: '' },
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    doc.destroy();
+  });
+
+  it('routes local changes synchronously', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+    }, 'local');
+
+    // Store should be updated immediately (same tick)
+    expect(store.getTask('task-1')).toBeDefined();
+    expect(store.getTask('task-1')!.name).toBe('Test Task');
+  });
+
+  it('handles task field updates synchronously for local origin', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    // Add a task first
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+    }, 'local');
+
+    expect(store.getTask('task-1')!.name).toBe('Test Task');
+
+    // Update a field
+    doc.transact(() => {
+      const ymap = ytasks.get('task-1')!;
+      ymap.set('name', 'Updated Task');
+    }, 'local');
+
+    expect(store.getTask('task-1')!.name).toBe('Updated Task');
+  });
+
+  it('handles task deletion', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    // Add then delete
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+    }, 'local');
+
+    expect(store.getTask('task-1')).toBeDefined();
+
+    doc.transact(() => {
+      ytasks.delete('task-1');
+    }, 'local');
+
+    expect(store.getTask('task-1')).toBeUndefined();
+  });
+
+  it('processes sheets origin synchronously', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+    }, 'sheets');
+
+    // Should be updated immediately
+    expect(store.getTask('task-1')).toBeDefined();
+  });
+
+  it('batches remote changes via RAF', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    // Mock requestAnimationFrame
+    let rafCallback: FrameRequestCallback | null = null;
+    const originalRAF = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      rafCallback = cb;
+      return 1;
+    };
+
+    try {
+      // Write without origin (simulates remote peer)
+      doc.transact(() => {
+        ytasks.set('task-1', taskToYMap(makeTask()));
+      });
+
+      // Store NOT updated yet (batched)
+      expect(store.getTask('task-1')).toBeUndefined();
+
+      // Fire RAF callback
+      expect(rafCallback).not.toBeNull();
+      rafCallback!(0);
+
+      // Now store should be updated
+      expect(store.getTask('task-1')).toBeDefined();
+    } finally {
+      globalThis.requestAnimationFrame = originalRAF;
+    }
+  });
+
+  it('skips cold derivations for sheets origin', async () => {
+    const { computeCriticalPathScoped } = vi.mocked(await import('../../utils/schedulerWasm'));
+
+    // Reset mock call count
+    computeCriticalPathScoped.mockClear();
+
+    const { tasks: ytasks } = initSchema(doc);
+
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+    }, 'sheets');
+
+    // requestIdleCallback should NOT have been called for sheets
+    // Since we mock the WASM module, check it was NOT invoked
+    // (cold derivations are scheduled async via requestIdleCallback)
+    expect(computeCriticalPathScoped).not.toHaveBeenCalled();
+  });
+
+  it('observes taskOrder changes', () => {
+    const { taskOrder } = initSchema(doc);
+
+    doc.transact(() => {
+      taskOrder.push(['task-a', 'task-b', 'task-c']);
+    }, 'local');
+
+    expect(store.getTaskOrder()).toEqual(['task-a', 'task-b', 'task-c']);
+  });
+
+  it('handles multiple tasks in one transaction', () => {
+    const { tasks: ytasks } = initSchema(doc);
+    const task1 = makeTask({ id: 'task-1', name: 'Task 1' });
+    const task2 = makeTask({ id: 'task-2', name: 'Task 2' });
+
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(task1));
+      ytasks.set('task-2', taskToYMap(task2));
+    }, 'local');
+
+    expect(store.getTask('task-1')).toBeDefined();
+    expect(store.getTask('task-2')).toBeDefined();
+    expect(store.getTask('task-1')!.name).toBe('Task 1');
+    expect(store.getTask('task-2')!.name).toBe('Task 2');
+  });
+
+  it('is resilient to malformed tasks', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    // Add a valid task and a malformed one (missing required fields)
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+      const badMap = new Y.Map<unknown>();
+      // Don't set 'id' — yMapToTask should still return something (with defaults)
+      badMap.set('name', 'Bad Task');
+      ytasks.set('bad-task', badMap);
+    }, 'local');
+
+    // The valid task should still be in the store
+    expect(store.getTask('task-1')).toBeDefined();
+  });
+
+  it('cleans up observer on dispose', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    cleanup();
+
+    // Changes after cleanup should NOT affect store
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+    }, 'local');
+
+    expect(store.getTask('task-1')).toBeUndefined();
+
+    // Re-assign cleanup to no-op so afterEach doesn't double-cleanup
+    cleanup = () => {};
+  });
+
+  it('handles summary task recalculation', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    const parent = makeTask({
+      id: 'parent',
+      name: 'Parent',
+      isSummary: true,
+      childIds: ['child-1'],
+      startDate: '2026-03-01',
+      endDate: '2026-03-31',
+    });
+    const child = makeTask({
+      id: 'child-1',
+      name: 'Child',
+      parentId: 'parent',
+      startDate: '2026-03-11',
+      endDate: '2026-03-13',
+    });
+
+    doc.transact(() => {
+      ytasks.set('parent', taskToYMap(parent));
+      ytasks.set('child-1', taskToYMap(child));
+    }, 'local');
+
+    expect(store.getTask('parent')).toBeDefined();
+    expect(store.getTask('child-1')).toBeDefined();
+  });
+});

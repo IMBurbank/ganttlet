@@ -202,6 +202,70 @@ export class SheetsAdapter {
     this.debounceTimer = setTimeout(() => this.flushWrite(), DEBOUNCE_MS);
   }
 
+  /**
+   * Pre-write validation: log warnings for orphaned references and invalid dates.
+   * Does NOT block writes — blocking risks data loss.
+   */
+  private validateBeforeWrite(): void {
+    const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+    const taskIds = new Set<string>();
+    ytasks.forEach((_, id) => taskIds.add(id));
+
+    ytasks.forEach((ymap, taskId) => {
+      // Check orphaned dependencies (fromId references deleted task)
+      try {
+        const depsRaw = ymap.get('dependencies');
+        if (typeof depsRaw === 'string') {
+          const deps = JSON.parse(depsRaw) as Array<{ fromId?: string }>;
+          for (const dep of deps) {
+            if (dep.fromId && !taskIds.has(dep.fromId)) {
+              console.warn(
+                `SheetsAdapter validation: task ${taskId} has orphaned dependency fromId="${dep.fromId}"`
+              );
+            }
+          }
+        }
+      } catch {
+        /* skip malformed */
+      }
+
+      // Check orphaned parentId
+      const parentId = ymap.get('parentId') as string | null;
+      if (parentId && !taskIds.has(parentId)) {
+        console.warn(
+          `SheetsAdapter validation: task ${taskId} has orphaned parentId="${parentId}"`
+        );
+      }
+
+      // Check orphaned childIds
+      try {
+        const childIdsRaw = ymap.get('childIds');
+        if (typeof childIdsRaw === 'string') {
+          const childIds = JSON.parse(childIdsRaw) as string[];
+          for (const childId of childIds) {
+            if (!taskIds.has(childId)) {
+              console.warn(
+                `SheetsAdapter validation: task ${taskId} has orphaned childId="${childId}"`
+              );
+            }
+          }
+        }
+      } catch {
+        /* skip malformed */
+      }
+
+      // Check invalid dates (end < start for non-milestones)
+      const startDate = ymap.get('startDate') as string | undefined;
+      const endDate = ymap.get('endDate') as string | undefined;
+      const isMilestone = ymap.get('isMilestone') as boolean | undefined;
+      if (startDate && endDate && !isMilestone && endDate < startDate) {
+        console.warn(
+          `SheetsAdapter validation: task ${taskId} has endDate (${endDate}) before startDate (${startDate})`
+        );
+      }
+    });
+  }
+
   private async flushWrite(): Promise<void> {
     if (this.stopped || this.saving || !this.saveDirty) return;
 
@@ -219,6 +283,7 @@ export class SheetsAdapter {
     this.callbacks.onSyncing(true);
 
     try {
+      this.validateBeforeWrite();
       const rows = this.buildRowsFromYDoc();
       const endCol = columnLetter(SHEET_COLUMNS.length);
       const range = `Sheet1!A1:${endCol}${rows.length}`;

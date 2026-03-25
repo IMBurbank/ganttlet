@@ -21,6 +21,9 @@ export interface CollabConnection {
  * Connect to the collaboration server for a given room.
  * The room ID is typically a Google Sheet ID.
  * The access token is sent as a WebSocket message after connection.
+ *
+ * Schema: The Y.Doc uses Y.Map<Y.Map<unknown>>('tasks') (not Y.Array).
+ * See src/schema/ydoc.ts initSchema() for the full structure.
  */
 export function connectCollab(roomId: string, accessToken: string): CollabConnection {
   disconnectCollab();

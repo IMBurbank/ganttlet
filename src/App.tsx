@@ -9,7 +9,7 @@ import { getVisibleTasks } from './utils/layoutUtils';
 import Header from './components/layout/Header';
 import Toolbar from './components/layout/Toolbar';
 import TaskTable from './components/table/TaskTable';
-import GanttChart from './components/gantt/GanttChart';
+import VirtualizedGanttChart from './components/gantt/VirtualizedGanttChart';
 import ContextMenu from './components/shared/ContextMenu';
 import DependencyEditorModal from './components/shared/DependencyEditorModal';
 import ReparentPickerModal from './components/shared/ReparentPickerModal';
@@ -220,23 +220,19 @@ function AppContent() {
             <path d="M3 1 L8 5 L3 9 Z" />
           </svg>
         </button>
-        {/* Gantt Chart - right panel */}
-        <div
+        {/* Gantt Chart - right panel (virtualized) */}
+        <VirtualizedGanttChart
           ref={ganttScrollRef}
-          className="flex-1 overflow-auto min-w-0"
+          visibleTasks={visibleTasks}
+          allTasks={allTasks}
+          zoom={zoomLevel}
+          colorBy={colorBy}
+          users={[]}
+          collabUsers={[]}
+          isCollabConnected={false}
+          onDependencyClick={handleDependencyClick}
           onScroll={handleGanttScroll}
-        >
-          <GanttChart
-            visibleTasks={visibleTasks}
-            allTasks={allTasks}
-            zoom={zoomLevel}
-            colorBy={colorBy}
-            users={[]}
-            collabUsers={[]}
-            isCollabConnected={false}
-            onDependencyClick={handleDependencyClick}
-          />
-        </div>
+        />
       </div>
 
       {/* Context Menu */}

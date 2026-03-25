@@ -38,6 +38,8 @@ interface GanttChartProps {
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
   onDependencyClick?: (dep: Dependency, successorId: string) => void;
+  virtualStartIndex?: number;
+  virtualEndIndex?: number;
 }
 
 export default function GanttChart({
@@ -49,6 +51,8 @@ export default function GanttChart({
   collabUsers,
   isCollabConnected,
   onDependencyClick,
+  virtualStartIndex,
+  virtualEndIndex,
 }: GanttChartProps) {
   const showOwnerOnBar = useUIStore((s) => s.showOwnerOnBar);
   const showAreaOnBar = useUIStore((s) => s.showAreaOnBar);
@@ -109,6 +113,19 @@ export default function GanttChart({
   const dayPx = getDayPx(zoom);
   const taskYPositions = useMemo(() => buildTaskYPositions(visibleTasks), [visibleTasks]);
 
+  // Virtualization: slice tasks to only those in the visible range
+  const isVirtualized = virtualStartIndex !== undefined && virtualEndIndex !== undefined;
+  const renderedTasks = useMemo(() => {
+    if (!isVirtualized) return visibleTasks;
+    return visibleTasks.slice(virtualStartIndex, virtualEndIndex);
+  }, [visibleTasks, virtualStartIndex, virtualEndIndex, isVirtualized]);
+
+  // Set of task IDs in the virtual viewport (for dependency arrow filtering)
+  const virtualVisibleIds = useMemo(() => {
+    if (!isVirtualized) return undefined;
+    return new Set(renderedTasks.map((t) => t.id));
+  }, [renderedTasks, isVirtualized]);
+
   const totalDays = useMemo(() => {
     if (zoom === 'day') {
       return collapseWeekends
@@ -140,7 +157,7 @@ export default function GanttChart({
           />
           <TodayLine timelineStart={timelineStart} zoom={zoom} totalHeight={totalHeight} />
           {/* Slack indicators */}
-          {visibleTasks.map((task) => {
+          {renderedTasks.map((task) => {
             if (task.isSummary || task.isMilestone) return null;
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
@@ -159,7 +176,7 @@ export default function GanttChart({
             ) : null;
           })}
           {/* Render bars */}
-          {visibleTasks.map((task) => {
+          {renderedTasks.map((task) => {
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
             const color = getTaskColor(colorBy, task[colorBy] as string);
@@ -277,6 +294,7 @@ export default function GanttChart({
             criticalPathIds={criticalPathIds}
             criticalEdges={criticalEdges}
             collapseWeekends={collapseWeekends}
+            virtualVisibleIds={virtualVisibleIds}
           />
         </svg>
       </div>

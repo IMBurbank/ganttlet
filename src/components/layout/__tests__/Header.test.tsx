@@ -18,13 +18,6 @@ vi.mock('../../../collab/yjsProvider', () => ({
   getDoc: () => null,
 }));
 
-vi.mock('../../../collab/yjsBinding', () => ({
-  bindYjsToDispatch: vi.fn(),
-  applyTasksToYjs: vi.fn(),
-  applyActionToYjs: vi.fn(),
-  hydrateYjsFromTasks: vi.fn(),
-}));
-
 vi.mock('../../../collab/awareness', () => ({
   setLocalAwareness: vi.fn(),
   updateViewingTask: vi.fn(),

@@ -47,6 +47,7 @@ function mockObserver(): Observer {
     onMerge: vi.fn(),
     onVerify: vi.fn(),
     onPipelineComplete: vi.fn(),
+    onStall: vi.fn(),
   };
 }
 

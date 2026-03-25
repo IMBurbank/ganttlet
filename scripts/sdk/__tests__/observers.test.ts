@@ -156,6 +156,7 @@ describe('CompositeObserver', () => {
       onMerge: vi.fn(),
       onVerify: vi.fn(),
       onPipelineComplete: vi.fn(),
+      onStall: vi.fn(),
     };
     const obs2: Observer = {
       onPipelineStart: vi.fn(),
@@ -165,6 +166,7 @@ describe('CompositeObserver', () => {
       onMerge: vi.fn(),
       onVerify: vi.fn(),
       onPipelineComplete: vi.fn(),
+      onStall: vi.fn(),
     };
 
     const composite = createCompositeObserver([obs1, obs2]);
@@ -184,6 +186,7 @@ describe('CompositeObserver', () => {
       onMerge: vi.fn(),
       onVerify: vi.fn(),
       onPipelineComplete: vi.fn(),
+      onStall: vi.fn(),
     };
     const obs2: Observer = {
       onPipelineStart: vi.fn(),
@@ -193,6 +196,7 @@ describe('CompositeObserver', () => {
       onMerge: vi.fn(),
       onVerify: vi.fn(),
       onPipelineComplete: vi.fn(),
+      onStall: vi.fn(),
     };
 
     const composite = createCompositeObserver([obs1, obs2]);

@@ -42,16 +42,19 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - When you discover a non-obvious gotcha or debugging insight, write a debrief report (the verify hook will remind you and point to the template at `docs/prompts/curation/debrief-template.md`).
 
 ## Architecture Constraints (do not violate)
+- **Y.Doc is live session state**: All task mutations flow through Y.Doc transactions. Three mutation sources (local, remote peer, Sheets injection) → one consumption path via Y.Doc observation → TaskStore.
+- **Google Sheets is durable truth**: Sheets is the single source of truth for persistence. Y.Doc is the live collaborative session; Sheets survives beyond sessions.
 - **Thin server**: Relay forwards CRDT messages + validates OAuth. No business logic, no persistent state, no Sheets access.
-- **Google Sheets as durable store**: Sheets is the single source of truth. No application database.
 - **Browser-first**: All scheduling, rendering, Sheets I/O, and data transformation runs in the browser.
+- **Compute-first + atomic transact**: Mutations read current state, compute cascade in WASM (outside transaction), then write all changes in one `doc.transact()` call. One undo step per user action.
+- **Commit-on-drop pattern**: During drag, only CSS transforms are applied (zero Y.Doc writes). On mouseup, `moveTask()` writes once atomically.
 - **Promotable artifacts**: Images identical across environments. Config injected at deploy time via env vars / Secret Manager.
 - **Minimal dependencies**: Keep the dependency tree small on both client and server.
 
 ## Reference Docs & Skills
 - `docs/architecture.md` — Tech stack, architecture principles/constraints, E2E testing, deployment
 - `docs/multi-agent-guide.md` — launch-phase.sh usage, Claude CLI reference, phase setup
-- `docs/completed-phases.md` — Detailed notes on phases 0-14 (auth, sync, deployment, agent infra, drag reliability)
+- `docs/completed-phases.md` — Detailed notes on phases 0-16, 18, 20 (auth, sync, deployment, agent infra, drag reliability, frontend redesign)
 - `docs/cloud-verification-plan.md` — Cloud-based verification stages and GCP layout
 - `docs/TASKS.md` — Task queue index; structured data in `docs/tasks/phaseN.yaml`
 - `.claude/skills/` — Domain-specific skills (loaded on demand):
@@ -75,5 +78,5 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 See `docs/TASKS.md` for the task index. Structured task data lives in `docs/tasks/phaseN.yaml`.
 
 ## Project Status
-- **Completed**: Phases 0-15. See `docs/completed-phases.md`.
+- **Completed**: Phases 0-16, 18, 20. See `docs/completed-phases.md`.
 - **Roadmap**: Resource assignment/leveling, baseline tracking, export (PDF/PNG/CSV).

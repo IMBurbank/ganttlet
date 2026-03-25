@@ -17,7 +17,10 @@ modify files — you only read, search, and analyze.
 - `crates/bizday/` — Rust CLI + library: business-day date arithmetic tool (taskEndDate, taskDuration, verify subcommand)
 - `crates/guard/` — Rust Claude hook guard binary: blocks destructive git ops, workspace isolation, protected file writes
 - `src/types/index.ts` — TypeScript type definitions (mirror of Rust types)
-- `src/state/` — React state management (actions.ts, ganttReducer.ts, GanttContext.tsx)
+- `src/state/` — Provider components (TaskStoreProvider.tsx, UIStoreProvider.tsx)
+- `src/store/` — Observable stores (TaskStore.ts — O(1) per-task subscriptions, UIStore.ts — per-user display state)
+- `src/mutations/` — Y.Doc mutation functions (taskMutations, dependencyMutations, constraintMutations)
+- `src/schema/` — Y.Doc schema definition and task serialization (ydoc.ts)
 - `src/utils/schedulerWasm.ts` — WASM bridge (TS ↔ Rust)
 - `src/components/gantt/` — Gantt chart UI components
 - `src/components/table/` — Task table (inline editing, predecessors, column headers)
@@ -25,7 +28,7 @@ modify files — you only read, search, and analyze.
 - `src/components/layout/` — App chrome (Header, Toolbar)
 - `src/components/panels/` — Side panels (change history, sync status, user presence)
 - `src/sheets/` — Google Sheets sync (mapper, client, sync loop, oauth)
-- `src/collab/` — Real-time collaboration (Yjs/CRDT, awareness, binding)
+- `src/collab/` — Real-time collaboration (Yjs/CRDT, awareness, observer.ts converts Y.Doc mutations to TaskStore updates)
 - `src/data/` — Static data (color palettes, fake/demo data)
 - `server/src/` — Relay server (Axum, WebSocket, room management, auth)
 - `server/tests/` — Relay server integration tests (WebSocket auth, awareness)
@@ -36,7 +39,7 @@ modify files — you only read, search, and analyze.
   - `scripts/check-curation.sh` — Curation reminder hook (count + age thresholds)
   - `scripts/generate-retry-config.sh` — Partial failure recovery for launch-phase
 - `.claude/agents/` — Subagents: `codebase-explorer.md`, `rust-scheduler.md`, `verify-and-diagnose.md`, `plan-reviewer.md`, `skill-reviewer.md`
-- `.claude/skills/` — Domain-specific reference guides (9 skills including `curation/`)
+- `.claude/skills/` — Domain-specific reference guides (10 skills including curation)
 - `.claude/settings.json` — Hook registration (PreToolUse guard, PostToolUse verify + bizday lint)
 - `.claude/worktrees/CLAUDE.md` — Canonical worktree procedures (PR workflow, cleanup, parallel awareness)
 - `.claude/metrics/` — Agent performance metrics schema

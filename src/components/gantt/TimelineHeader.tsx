@@ -1,7 +1,17 @@
 import React from 'react';
 import type { ZoomLevel } from '../../types';
-import { useGanttState } from '../../state/GanttContext';
-import { getTimelineDays, getTimelineDaysFiltered, getTimelineWeeks, getTimelineMonths, getColumnWidth, formatTimelineHeader, formatTimelineSubHeader, getMonthLabel, isWeekendDay } from '../../utils/dateUtils';
+import { useUIStore } from '../../hooks';
+import {
+  getTimelineDays,
+  getTimelineDaysFiltered,
+  getTimelineWeeks,
+  getTimelineMonths,
+  getColumnWidth,
+  formatTimelineHeader,
+  formatTimelineSubHeader,
+  getMonthLabel,
+  isWeekendDay,
+} from '../../utils/dateUtils';
 import { format } from 'date-fns';
 
 interface TimelineHeaderProps {
@@ -11,9 +21,14 @@ interface TimelineHeaderProps {
   totalWidth: number;
 }
 
-export default function TimelineHeader({ timelineStart, timelineEnd, zoom, totalWidth }: TimelineHeaderProps) {
+export default function TimelineHeader({
+  timelineStart,
+  timelineEnd,
+  zoom,
+  totalWidth,
+}: TimelineHeaderProps) {
   const colWidth = getColumnWidth(zoom);
-  const { collapseWeekends } = useGanttState();
+  const collapseWeekends = useUIStore((s) => s.collapseWeekends);
 
   if (zoom === 'day') {
     const days = collapseWeekends
@@ -33,7 +48,10 @@ export default function TimelineHeader({ timelineStart, timelineEnd, zoom, total
     }
 
     return (
-      <div className="sticky top-0 z-10 bg-surface-raised border-b border-border-default" style={{ width: totalWidth }}>
+      <div
+        className="sticky top-0 z-10 bg-surface-raised border-b border-border-default"
+        style={{ width: totalWidth }}
+      >
         {/* Month row */}
         <div className="flex h-6 border-b border-border-subtle">
           {months.map((m, i) => (
@@ -70,7 +88,10 @@ export default function TimelineHeader({ timelineStart, timelineEnd, zoom, total
   if (zoom === 'week') {
     const weeks = getTimelineWeeks(timelineStart, timelineEnd);
     return (
-      <div className="sticky top-0 z-10 bg-surface-raised border-b border-border-default flex h-[50px]" style={{ width: totalWidth }}>
+      <div
+        className="sticky top-0 z-10 bg-surface-raised border-b border-border-default flex h-[50px]"
+        style={{ width: totalWidth }}
+      >
         {weeks.map((week, i) => (
           <div
             key={i}
@@ -87,7 +108,10 @@ export default function TimelineHeader({ timelineStart, timelineEnd, zoom, total
   // Month
   const months = getTimelineMonths(timelineStart, timelineEnd);
   return (
-    <div className="sticky top-0 z-10 bg-surface-raised border-b border-border-default flex h-[50px]" style={{ width: totalWidth }}>
+    <div
+      className="sticky top-0 z-10 bg-surface-raised border-b border-border-default flex h-[50px]"
+      style={{ width: totalWidth }}
+    >
       {months.map((month, i) => (
         <div
           key={i}

@@ -1,26 +1,16 @@
 import React, { useRef, useCallback, useState } from 'react';
 import type { ZoomLevel } from '../../types';
-import {
-  useGanttDispatch,
-  useLocalDispatch,
-  useActiveDrag,
-  useAwareness,
-  useSetViewingTask,
-} from '../../state/GanttContext';
-import { setDragIntent } from '../../collab/awareness';
+import { useMutate } from '../../hooks';
 import {
   dateToX,
   xToDate,
-  formatDate,
-  daysBetween,
-  businessDaysDelta,
   getColumnWidth,
   getDayPx,
   ensureBusinessDay,
   prevBusinessDay,
   taskDuration,
 } from '../../utils/dateUtils';
-import { parseISO, format } from 'date-fns';
+import { format } from 'date-fns';
 import Tooltip from '../shared/Tooltip';
 import TaskBarPopover from './TaskBarPopover';
 
@@ -81,11 +71,7 @@ export default function TaskBar({
   earliestStart,
   conflictMessage,
 }: TaskBarProps) {
-  const dispatch = useGanttDispatch();
-  const localDispatch = useLocalDispatch();
-  const activeDragRef = useActiveDrag();
-  const awareness = useAwareness();
-  const setViewingTask = useSetViewingTask();
+  const mutate = useMutate();
   const dragRef = useRef<{
     startX: number;
     origStartDate: string;
@@ -94,8 +80,7 @@ export default function TaskBar({
     lastStartDate: string;
     lastEndDate: string;
   } | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const lastCrdtBroadcast = useRef<number>(0);
+  const gRef = useRef<SVGGElement>(null);
   const clipId = useRef(`task-clip-${++clipIdCounter}`);
 
   const barHeight = 28;
@@ -118,7 +103,6 @@ export default function TaskBar({
         lastStartDate: startDate,
         lastEndDate: endDate,
       };
-      activeDragRef.current = taskId;
 
       function onMouseMove(ev: MouseEvent) {
         if (!dragRef.current) return;
@@ -143,23 +127,23 @@ export default function TaskBar({
           let newStartStr = format(newStart, 'yyyy-MM-dd');
 
           // Clamp to earliest start constraint
-          let clampedDx = dx;
           if (earliestStart && newStartStr < earliestStart) {
             newStartStr = earliestStart;
-            newStart = parseISO(earliestStart);
-            // Recompute the effective dx so end shifts by the same clamped amount
-            clampedDx =
-              dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends) -
-              dateToX(
-                dragRef.current.origStartDate,
-                timelineStart,
-                colWidth,
-                zoom,
-                collapseWeekends
-              );
           }
 
-          // Shift end by same (possibly clamped) pixel delta as start to preserve visual width
+          // Shift end by same pixel delta to preserve visual width
+          const clampedDx =
+            earliestStart && format(newStart, 'yyyy-MM-dd') < earliestStart
+              ? dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends) -
+                dateToX(
+                  dragRef.current.origStartDate,
+                  timelineStart,
+                  colWidth,
+                  zoom,
+                  collapseWeekends
+                )
+              : dx;
+
           const newEnd = prevBusinessDay(
             xToDate(
               dateToX(
@@ -186,32 +170,11 @@ export default function TaskBar({
           dragRef.current.lastStartDate = newStartStr;
           dragRef.current.lastEndDate = newEndStr;
 
-          const moveAction = {
-            type: 'MOVE_TASK' as const,
-            taskId,
-            newStartDate: newStartStr,
-            newEndDate: newEndStr,
-          };
-
-          // RAF-throttled local render
-          if (rafRef.current) cancelAnimationFrame(rafRef.current);
-          rafRef.current = requestAnimationFrame(() => {
-            localDispatch(moveAction);
-            rafRef.current = null;
-          });
-
-          // 100ms-throttled CRDT broadcast + drag intent
-          const now = performance.now();
-          if (now - lastCrdtBroadcast.current >= 100) {
-            lastCrdtBroadcast.current = now;
-            // Cancel pending RAF to avoid double render — dispatch() updates React state directly
-            if (rafRef.current) {
-              cancelAnimationFrame(rafRef.current);
-              rafRef.current = null;
-            }
-            dispatch(moveAction);
-            if (awareness)
-              setDragIntent(awareness, { taskId, startDate: newStartStr, endDate: newEndStr });
+          // Apply CSS transform for visual feedback during drag
+          if (gRef.current) {
+            const origX = dateToX(startDate, timelineStart, colWidth, zoom, collapseWeekends);
+            const newX = dateToX(newStartStr, timelineStart, colWidth, zoom, collapseWeekends);
+            gRef.current.style.transform = `translateX(${newX - origX}px)`;
           }
         } else {
           const newEndX =
@@ -241,69 +204,41 @@ export default function TaskBar({
           if (newEndStr === dragRef.current.lastEndDate) return;
           dragRef.current.lastEndDate = newEndStr;
 
-          const resizeAction = {
-            type: 'RESIZE_TASK' as const,
-            taskId,
-            newEndDate: newEndStr,
-            newDuration,
-          };
-
-          // RAF-throttled local render
-          if (rafRef.current) cancelAnimationFrame(rafRef.current);
-          rafRef.current = requestAnimationFrame(() => {
-            localDispatch(resizeAction);
-            rafRef.current = null;
-          });
-
-          // 100ms-throttled CRDT broadcast + drag intent
-          const now = performance.now();
-          if (now - lastCrdtBroadcast.current >= 100) {
-            lastCrdtBroadcast.current = now;
-            if (rafRef.current) {
-              cancelAnimationFrame(rafRef.current);
-              rafRef.current = null;
-            }
-            dispatch(resizeAction);
-            if (awareness)
-              setDragIntent(awareness, {
-                taskId,
-                startDate: dragRef.current!.origStartDate,
-                endDate: newEndStr,
-              });
+          // Apply CSS transform for visual feedback (approximate width change)
+          if (gRef.current) {
+            // For resize, we don't translate — the bar grows/shrinks. No transform needed
+            // since the final position is committed on mouseup.
           }
         }
       }
 
       function onMouseUp() {
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
-          rafRef.current = null;
-        }
-        // Clear drag guard before COMPLETE_DRAG dispatch. Safe because applyActionToYjs
-        // sets isLocalUpdate=true, so the Yjs observer won't echo back a SET_TASKS.
-        activeDragRef.current = null;
-        if (awareness) setDragIntent(awareness, null);
         if (dragRef.current) {
           const finalTask = dragRef.current;
           dragRef.current = null;
-          // Only dispatch if the task actually moved — a click-without-drag
-          // (e.g. first click of a dblclick) should not trigger a re-render
+          // Clear CSS transform
+          if (gRef.current) {
+            gRef.current.style.transform = '';
+          }
+          // Only dispatch if the task actually moved
           const moved =
             finalTask.lastStartDate !== finalTask.origStartDate ||
             finalTask.lastEndDate !== finalTask.origEndDate;
           if (moved) {
-            const daysDelta =
-              finalTask.mode === 'move'
-                ? businessDaysDelta(finalTask.origStartDate, finalTask.lastStartDate)
-                : businessDaysDelta(finalTask.origEndDate, finalTask.lastEndDate);
-            // Atomic: set final position + cascade in one dispatch
-            dispatch({
-              type: 'COMPLETE_DRAG',
-              taskId,
-              newStartDate: finalTask.lastStartDate,
-              newEndDate: finalTask.lastEndDate,
-              daysDelta,
-            });
+            if (finalTask.mode === 'move') {
+              mutate({
+                type: 'MOVE_TASK',
+                taskId,
+                newStart: finalTask.lastStartDate,
+                newEnd: finalTask.lastEndDate,
+              });
+            } else {
+              mutate({
+                type: 'RESIZE_TASK',
+                taskId,
+                newEnd: finalTask.lastEndDate,
+              });
+            }
           }
         }
         document.removeEventListener('mousemove', onMouseMove);
@@ -314,10 +249,7 @@ export default function TaskBar({
       document.addEventListener('mouseup', onMouseUp);
     },
     [
-      dispatch,
-      localDispatch,
-      activeDragRef,
-      awareness,
+      mutate,
       taskId,
       startDate,
       endDate,
@@ -327,6 +259,7 @@ export default function TaskBar({
       minWidth,
       collapseWeekends,
       earliestStart,
+      dayPx,
     ]
   );
 
@@ -358,11 +291,7 @@ export default function TaskBar({
 
   return (
     <Tooltip content={tooltipContent} delay={300} svg>
-      <g
-        opacity={done ? 0.4 : 1}
-        onMouseEnter={() => setViewingTask(taskId, null)}
-        onMouseLeave={() => setViewingTask(null, null)}
-      >
+      <g ref={gRef} opacity={done ? 0.4 : 1}>
         <defs>
           <clipPath id={clipId.current}>
             <rect x={x + 4} y={barY} width={Math.max(width - 8, 0)} height={barHeight} />

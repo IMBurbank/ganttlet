@@ -1,7 +1,9 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
-import type { Task, Dependency, DependencyType } from '../../types';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import type { Dependency, DependencyType } from '../../types';
+import { useUIStore, useMutate } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
+import { TaskStoreContext } from '../../store/TaskStore';
 import { wouldCreateCycle } from '../../utils/schedulerWasm';
 import { validateDependencyHierarchy } from '../../utils/dependencyValidation';
 
@@ -13,13 +15,14 @@ const DEP_TYPE_LABELS: Record<DependencyType, string> = {
 };
 
 export default function DependencyEditorModal() {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
-  const editor = state.dependencyEditor;
+  const editor = useUIStore((s) => s.dependencyEditor);
+  const uiStore = useContext(UIStoreContext)!;
+  const taskStore = useContext(TaskStoreContext)!;
+  const mutate = useMutate();
 
   const close = useCallback(() => {
-    dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: null });
-  }, [dispatch]);
+    uiStore.setState({ dependencyEditor: null });
+  }, [uiStore]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -31,16 +34,17 @@ export default function DependencyEditorModal() {
 
   if (!editor) return null;
 
-  const task = state.tasks.find((t) => t.id === editor.taskId);
+  const allTasks = taskStore.getAllTasksArray();
+  const task = taskStore.getTask(editor.taskId);
   if (!task) return null;
 
-  const nonSummaryTasks = state.tasks.filter((t) => !t.isSummary && t.id !== task.id);
+  const nonSummaryTasks = allTasks.filter((t) => !t.isSummary && t.id !== task.id);
 
   // Tasks that can be added as predecessors (not already a predecessor, no cycle, no hierarchy violation)
   const availablePredecessors = nonSummaryTasks.filter((t) => {
     if (task.dependencies.some((d) => d.fromId === t.id)) return false;
-    if (wouldCreateCycle(state.tasks, task.id, t.id)) return false;
-    if (validateDependencyHierarchy(state.tasks, task.id, t.id)) return false;
+    if (wouldCreateCycle(allTasks, task.id, t.id)) return false;
+    if (validateDependencyHierarchy(allTasks, task.id, t.id)) return false;
     return true;
   });
 
@@ -53,75 +57,40 @@ export default function DependencyEditorModal() {
       type: 'FS',
       lag: 0,
     };
-    dispatch({ type: 'ADD_DEPENDENCY', taskId: task!.id, dependency: newDep });
-    dispatch({
-      type: 'ADD_CHANGE_RECORD',
-      taskId: task!.id,
-      taskName: task!.name,
-      field: 'dependency',
-      oldValue: '',
-      newValue: `Added ${firstAvailable.id} FS`,
-      user: 'You',
-    });
+    mutate({ type: 'ADD_DEPENDENCY', taskId: task!.id, dep: newDep });
   }
 
   function handleChangePredecessor(oldFromId: string, newFromId: string, dep: Dependency) {
-    dispatch({ type: 'REMOVE_DEPENDENCY', taskId: task!.id, fromId: oldFromId });
+    mutate({ type: 'REMOVE_DEPENDENCY', taskId: task!.id, fromId: oldFromId });
     const newDep: Dependency = {
       fromId: newFromId,
       toId: task!.id,
       type: dep.type,
       lag: dep.lag,
     };
-    dispatch({ type: 'ADD_DEPENDENCY', taskId: task!.id, dependency: newDep });
-    dispatch({
-      type: 'ADD_CHANGE_RECORD',
-      taskId: task!.id,
-      taskName: task!.name,
-      field: 'dependency',
-      oldValue: `${oldFromId} ${dep.type}`,
-      newValue: `${newFromId} ${dep.type}`,
-      user: 'You',
-    });
+    mutate({ type: 'ADD_DEPENDENCY', taskId: task!.id, dep: newDep });
   }
 
   function handleChangeType(fromId: string, newType: DependencyType, dep: Dependency) {
-    dispatch({ type: 'UPDATE_DEPENDENCY', taskId: task!.id, fromId, newType, newLag: dep.lag });
-    dispatch({
-      type: 'ADD_CHANGE_RECORD',
+    mutate({
+      type: 'UPDATE_DEPENDENCY',
       taskId: task!.id,
-      taskName: task!.name,
-      field: 'dependency type',
-      oldValue: `${fromId} ${dep.type}`,
-      newValue: `${fromId} ${newType}`,
-      user: 'You',
+      fromId,
+      update: { type: newType, lag: dep.lag },
     });
   }
 
   function handleChangeLag(fromId: string, newLag: number, dep: Dependency) {
-    dispatch({ type: 'UPDATE_DEPENDENCY', taskId: task!.id, fromId, newType: dep.type, newLag });
-    dispatch({
-      type: 'ADD_CHANGE_RECORD',
+    mutate({
+      type: 'UPDATE_DEPENDENCY',
       taskId: task!.id,
-      taskName: task!.name,
-      field: 'dependency lag',
-      oldValue: `${fromId} lag ${dep.lag}`,
-      newValue: `${fromId} lag ${newLag}`,
-      user: 'You',
+      fromId,
+      update: { type: dep.type, lag: newLag },
     });
   }
 
-  function handleRemove(fromId: string, dep: Dependency) {
-    dispatch({ type: 'REMOVE_DEPENDENCY', taskId: task!.id, fromId });
-    dispatch({
-      type: 'ADD_CHANGE_RECORD',
-      taskId: task!.id,
-      taskName: task!.name,
-      field: 'dependency',
-      oldValue: `${fromId} ${dep.type}`,
-      newValue: '',
-      user: 'You',
-    });
+  function handleRemove(fromId: string) {
+    mutate({ type: 'REMOVE_DEPENDENCY', taskId: task!.id, fromId });
   }
 
   // Build list of valid predecessors for a given dependency row
@@ -129,8 +98,8 @@ export default function DependencyEditorModal() {
     return nonSummaryTasks.filter((t) => {
       if (t.id === currentFromId) return true; // current selection always valid
       if (task!.dependencies.some((d) => d.fromId === t.id)) return false; // already used
-      if (wouldCreateCycle(state.tasks, task!.id, t.id)) return false;
-      if (validateDependencyHierarchy(state.tasks, task!.id, t.id)) return false;
+      if (wouldCreateCycle(allTasks, task!.id, t.id)) return false;
+      if (validateDependencyHierarchy(allTasks, task!.id, t.id)) return false;
       return true;
     });
   }
@@ -232,7 +201,7 @@ export default function DependencyEditorModal() {
                       </td>
                       <td className="py-2">
                         <button
-                          onClick={() => handleRemove(dep.fromId, dep)}
+                          onClick={() => handleRemove(dep.fromId)}
                           className="text-red-400 hover:text-red-300 transition-colors cursor-pointer text-xs"
                           title="Remove dependency"
                         >

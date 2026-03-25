@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task, ColumnConfig, ColorByField } from '../../types';
 
@@ -13,20 +13,15 @@ const CONSTRAINT_OPTIONS: { value: NonNullable<Task['constraintType']>; label: s
   { value: 'MFO', label: 'MFO' },
 ];
 import type { ViewerInfo } from './TaskTable';
-import { useGanttDispatch, useSetViewingTask } from '../../state/GanttContext';
+import { useMutate } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 import { getTaskDepth } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
 import { getHierarchyRole, findWorkstreamAncestor } from '../../utils/hierarchyUtils';
 import InlineEdit from './InlineEdit';
 import PredecessorsCell from './PredecessorsCell';
 import OKRPickerModal from '../shared/OKRPickerModal';
-import {
-  formatDisplayDate,
-  businessDaysDelta,
-  taskEndDate,
-  taskDuration,
-  isWeekendDate,
-} from '../../utils/dateUtils';
+import { formatDisplayDate, taskEndDate, taskDuration, isWeekendDate } from '../../utils/dateUtils';
 import {
   validateTaskName,
   validateDuration,
@@ -50,9 +45,9 @@ export default function TaskRow({
   viewer,
   autoFocusName,
 }: TaskRowProps) {
-  const dispatch = useGanttDispatch();
+  const mutate = useMutate();
+  const uiStore = useContext(UIStoreContext)!;
   const rowRef = useRef<HTMLDivElement>(null);
-  const setViewingTask = useSetViewingTask();
   const [okrPickerOpen, setOkrPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -67,93 +62,44 @@ export default function TaskRow({
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
-    dispatch({ type: 'SET_CONTEXT_MENU', menu: { x: e.clientX, y: e.clientY, taskId: task.id } });
+    uiStore.setState({ contextMenu: { x: e.clientX, y: e.clientY, taskId: task.id } });
   }
 
   function handleFieldUpdate(field: string, value: string | boolean) {
-    const oldValue = String((task as unknown as Record<string, unknown>)[field] ?? '');
     let parsedValue: string | number | boolean = value;
     if (field === 'duration') {
       parsedValue = parseInt(value as string, 10) || 0;
     }
-    dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field, value: parsedValue });
-    dispatch({
-      type: 'ADD_CHANGE_RECORD',
-      taskId: task.id,
-      taskName: task.name,
-      field,
-      oldValue,
-      newValue: String(value),
-      user: 'You',
-    });
+    mutate({ type: 'UPDATE_FIELD', taskId: task.id, field, value: parsedValue });
   }
 
   function handleDateUpdate(field: 'startDate' | 'endDate', value: string) {
-    const oldValue = task[field];
     if (field === 'startDate') {
       const newEndDate = taskEndDate(value, task.duration);
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'startDate', value });
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
-      dispatch({
-        type: 'ADD_CHANGE_RECORD',
-        taskId: task.id,
-        taskName: task.name,
-        field: 'startDate',
-        oldValue,
-        newValue: value,
-        user: 'You',
-      });
-      const delta = businessDaysDelta(oldValue, value);
-      if (delta !== 0) {
-        dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: delta });
-      }
+      mutate({ type: 'MOVE_TASK', taskId: task.id, newStart: value, newEnd: newEndDate });
     } else {
       const newDuration = taskDuration(task.startDate, value);
       if (newDuration < 1) return;
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value });
-      dispatch({
-        type: 'UPDATE_TASK_FIELD',
-        taskId: task.id,
-        field: 'duration',
-        value: newDuration,
-      });
-      dispatch({
-        type: 'ADD_CHANGE_RECORD',
-        taskId: task.id,
-        taskName: task.name,
-        field: 'endDate',
-        oldValue,
-        newValue: value,
-        user: 'You',
-      });
-      const endDelta = businessDaysDelta(oldValue, value);
-      if (endDelta !== 0) {
-        dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
-      }
+      mutate({ type: 'RESIZE_TASK', taskId: task.id, newEnd: value });
     }
   }
 
   function handleDurationUpdate(value: string) {
     const newDuration = parseInt(value, 10);
     if (isNaN(newDuration) || newDuration < 1) return;
-    const oldEndDate = task.endDate;
-    const oldValue = String(task.duration);
     const newEndDate = taskEndDate(task.startDate, newDuration);
-    dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'duration', value: newDuration });
-    dispatch({ type: 'UPDATE_TASK_FIELD', taskId: task.id, field: 'endDate', value: newEndDate });
-    dispatch({
-      type: 'ADD_CHANGE_RECORD',
-      taskId: task.id,
-      taskName: task.name,
-      field: 'duration',
-      oldValue,
-      newValue: value,
-      user: 'You',
-    });
-    const endDelta = businessDaysDelta(oldEndDate, newEndDate);
-    if (endDelta !== 0) {
-      dispatch({ type: 'CASCADE_DEPENDENTS', taskId: task.id, daysDelta: endDelta });
+    mutate({ type: 'RESIZE_TASK', taskId: task.id, newEnd: newEndDate });
+  }
+
+  function handleToggleExpand() {
+    const state = uiStore.getState();
+    const expanded = new Set(state.expandedTasks);
+    if (expanded.has(task.id)) {
+      expanded.delete(task.id);
+    } else {
+      expanded.add(task.id);
     }
+    uiStore.setState({ expandedTasks: expanded });
   }
 
   function renderCell(col: ColumnConfig) {
@@ -165,7 +111,7 @@ export default function TaskRow({
           <div className="flex items-center gap-1 min-w-0" style={{ paddingLeft: depth * 16 }}>
             {task.isSummary ? (
               <button
-                onClick={() => dispatch({ type: 'TOGGLE_EXPAND', taskId: task.id })}
+                onClick={handleToggleExpand}
                 className="shrink-0 w-4 h-4 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
               >
                 <svg
@@ -312,21 +258,11 @@ export default function TaskRow({
                 currentOkrs={task.okrs}
                 availableOkrs={availableOkrs}
                 onSave={(okrs) => {
-                  const oldValue = task.okrs.join(', ');
-                  dispatch({
-                    type: 'UPDATE_TASK_FIELD',
+                  mutate({
+                    type: 'UPDATE_FIELD',
                     taskId: task.id,
                     field: 'okrs',
                     value: okrs,
-                  });
-                  dispatch({
-                    type: 'ADD_CHANGE_RECORD',
-                    taskId: task.id,
-                    taskName: task.name,
-                    field: 'okrs',
-                    oldValue,
-                    newValue: okrs.join(', '),
-                    user: 'You',
                   });
                 }}
                 onClose={() => setOkrPickerOpen(false)}
@@ -343,7 +279,7 @@ export default function TaskRow({
             value={task.constraintType ?? 'ASAP'}
             onChange={(e) => {
               const ct = e.target.value as NonNullable<Task['constraintType']>;
-              dispatch({
+              mutate({
                 type: 'SET_CONSTRAINT',
                 taskId: task.id,
                 constraintType: ct,
@@ -380,8 +316,6 @@ export default function TaskRow({
         borderLeft: isViewed ? `3px solid ${viewerColor}` : '3px solid transparent',
       }}
       onContextMenu={handleContextMenu}
-      onMouseEnter={() => setViewingTask(task.id, null)}
-      onMouseLeave={() => setViewingTask(null, null)}
     >
       {visibleColumns.map((col) => {
         const isCellViewed = isViewed && viewerCellColumn === col.key;
@@ -392,7 +326,6 @@ export default function TaskRow({
             isHighlighted={isCellViewed}
             viewerColor={viewerColor}
             viewerName={viewer?.name}
-            onCellClick={() => setViewingTask(task.id, col.key)}
           >
             {renderCell(col)}
           </PresenceCell>
@@ -407,14 +340,12 @@ function PresenceCell({
   isHighlighted,
   viewerColor,
   viewerName,
-  onCellClick,
   children,
 }: {
   width: number;
   isHighlighted: boolean;
   viewerColor?: string;
   viewerName?: string;
-  onCellClick?: () => void;
   children: React.ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -440,7 +371,6 @@ function PresenceCell({
         boxShadow: isHighlighted ? `inset 0 0 0 2px ${viewerColor}` : undefined,
         borderRadius: isHighlighted ? 2 : undefined,
       }}
-      onClick={onCellClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >

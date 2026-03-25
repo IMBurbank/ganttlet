@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useContext } from 'react';
 import type { Task, ColumnConfig, ColorByField, FakeUser, CollabUser } from '../../types';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { useUIStore } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 import ColumnHeader from './ColumnHeader';
 import TaskRow from './TaskRow';
 
@@ -20,37 +21,52 @@ export interface ViewerInfo {
   viewingCellColumn: string | null;
 }
 
-export default function TaskTable({ tasks, columns, colorBy, taskMap, users, collabUsers, isCollabConnected }: TaskTableProps) {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
-  const focusNewTaskId = state.focusNewTaskId;
+export default function TaskTable({
+  tasks,
+  columns,
+  colorBy,
+  taskMap,
+  users,
+  collabUsers,
+  isCollabConnected,
+}: TaskTableProps) {
+  const focusNewTaskId = useUIStore((s) => s.focusNewTaskId);
+  const uiStore = useContext(UIStoreContext)!;
 
   useEffect(() => {
     if (focusNewTaskId) {
       const timer = setTimeout(() => {
-        dispatch({ type: 'CLEAR_FOCUS_NEW_TASK' });
+        uiStore.setState({ focusNewTaskId: null });
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [focusNewTaskId, dispatch]);
+  }, [focusNewTaskId, uiStore]);
 
   const viewingMap = new Map<string, ViewerInfo>();
 
   if (isCollabConnected && collabUsers && collabUsers.length > 0) {
-    collabUsers.forEach(u => {
+    collabUsers.forEach((u) => {
       if (u.viewingTaskId) {
-        viewingMap.set(u.viewingTaskId, { name: u.name, color: u.color, viewingCellColumn: u.viewingCellColumn });
+        viewingMap.set(u.viewingTaskId, {
+          name: u.name,
+          color: u.color,
+          viewingCellColumn: u.viewingCellColumn,
+        });
       }
     });
   } else {
-    users.forEach(u => {
+    users.forEach((u) => {
       if (u.viewingTaskId && u.isOnline) {
-        viewingMap.set(u.viewingTaskId, { name: u.name, color: u.color, viewingCellColumn: u.viewingCellColumn });
+        viewingMap.set(u.viewingTaskId, {
+          name: u.name,
+          color: u.color,
+          viewingCellColumn: u.viewingCellColumn,
+        });
       }
     });
   }
 
-  const totalWidth = columns.filter(c => c.visible).reduce((sum, c) => sum + c.width, 0);
+  const totalWidth = columns.filter((c) => c.visible).reduce((sum, c) => sum + c.width, 0);
 
   return (
     <div className="min-w-0" style={{ width: totalWidth }}>
@@ -58,7 +74,7 @@ export default function TaskTable({ tasks, columns, colorBy, taskMap, users, col
         <ColumnHeader columns={columns} />
       </div>
       <div>
-        {tasks.map(task => {
+        {tasks.map((task) => {
           const viewer = viewingMap.get(task.id);
           return (
             <TaskRow

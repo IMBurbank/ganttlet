@@ -198,8 +198,8 @@ test.describe('Gantt Chart @gantt', () => {
     await test.step('drag task bar to the right', async () => {
       // The table panel overlaps SVG task bars, so Playwright's page.mouse
       // hits the table layer instead. Dispatch the entire drag sequence via
-      // evaluate on the SVG rect's native events (React picks them up via
-      // delegation, and the mousemove/mouseup handlers attach to document).
+      // evaluate on the SVG rect's native pointer events (React picks them up
+      // via delegation, and pointer capture routes move/up to the element).
       await gantt.page.evaluate(() => {
         const el = document.querySelector('[data-testid^="task-bar-"]');
         if (!el) throw new Error('No task bar found');
@@ -207,35 +207,38 @@ test.describe('Gantt Chart @gantt', () => {
         const cx = rect.x + rect.width / 2;
         const cy = rect.y + rect.height / 2;
 
-        // mousedown on the rect (React's onMouseDown attaches doc listeners)
+        // pointerdown on the rect (React's onPointerDown captures the pointer)
         el.dispatchEvent(
-          new MouseEvent('mousedown', {
+          new PointerEvent('pointerdown', {
             clientX: cx,
             clientY: cy,
             button: 0,
             detail: 1,
+            pointerId: 1,
             bubbles: true,
             cancelable: true,
           })
         );
 
-        // mousemove on document (drag handler listens here)
+        // pointermove on element (pointer capture routes events here)
         for (let i = 1; i <= 10; i++) {
-          document.dispatchEvent(
-            new MouseEvent('mousemove', {
+          el.dispatchEvent(
+            new PointerEvent('pointermove', {
               clientX: cx + i * 10,
               clientY: cy,
+              pointerId: 1,
               bubbles: true,
               cancelable: true,
             })
           );
         }
 
-        // mouseup on document (completes the drag)
-        document.dispatchEvent(
-          new MouseEvent('mouseup', {
+        // pointerup on element (completes the drag)
+        el.dispatchEvent(
+          new PointerEvent('pointerup', {
             clientX: cx + 100,
             clientY: cy,
+            pointerId: 1,
             bubbles: true,
             cancelable: true,
           })
@@ -266,31 +269,34 @@ test.describe('Gantt Chart @gantt', () => {
         const cy = rect.y + rect.height / 2;
 
         handle.dispatchEvent(
-          new MouseEvent('mousedown', {
+          new PointerEvent('pointerdown', {
             clientX: cx,
             clientY: cy,
             button: 0,
             detail: 1,
+            pointerId: 1,
             bubbles: true,
             cancelable: true,
           })
         );
 
         for (let i = 1; i <= 10; i++) {
-          document.dispatchEvent(
-            new MouseEvent('mousemove', {
+          handle.dispatchEvent(
+            new PointerEvent('pointermove', {
               clientX: cx + i * 10,
               clientY: cy,
+              pointerId: 1,
               bubbles: true,
               cancelable: true,
             })
           );
         }
 
-        document.dispatchEvent(
-          new MouseEvent('mouseup', {
+        handle.dispatchEvent(
+          new PointerEvent('pointerup', {
             clientX: cx + 100,
             clientY: cy,
+            pointerId: 1,
             bubbles: true,
             cancelable: true,
           })

@@ -1,4 +1,5 @@
 import React, { useRef, useCallback, useState } from 'react';
+import type { Awareness } from 'y-protocols/awareness';
 import type { ZoomLevel } from '../../types';
 import { useMutate } from '../../hooks';
 import {
@@ -11,6 +12,7 @@ import {
   taskDuration,
 } from '../../utils/dateUtils';
 import { format } from 'date-fns';
+import { setDragIntent } from '../../collab/awareness';
 import Tooltip from '../shared/Tooltip';
 import TaskBarPopover from './TaskBarPopover';
 
@@ -40,6 +42,7 @@ interface TaskBarProps {
   collapseWeekends?: boolean;
   earliestStart?: string;
   conflictMessage?: string;
+  awareness?: Awareness | null;
 }
 
 let clipIdCounter = 0;
@@ -70,6 +73,7 @@ export default function TaskBar({
   collapseWeekends = false,
   earliestStart,
   conflictMessage,
+  awareness,
 }: TaskBarProps) {
   const mutate = useMutate();
   const dragRef = useRef<{
@@ -79,6 +83,7 @@ export default function TaskBar({
     mode: 'move' | 'resize';
     lastStartDate: string;
     lastEndDate: string;
+    lastBroadcastTime: number;
   } | null>(null);
   const gRef = useRef<SVGGElement>(null);
   const clipId = useRef(`task-clip-${++clipIdCounter}`);
@@ -89,12 +94,31 @@ export default function TaskBar({
   const dayPx = getDayPx(zoom);
   const minWidth = colWidth * 0.5;
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent, mode: 'move' | 'resize') => {
+  const broadcastDragIntent = useCallback(
+    (dragState: { lastStartDate: string; lastEndDate: string; lastBroadcastTime: number }) => {
+      if (!awareness) return;
+      const now = performance.now();
+      if (now - dragState.lastBroadcastTime < 100) return;
+      dragState.lastBroadcastTime = now;
+      setDragIntent(awareness, {
+        taskId,
+        startDate: dragState.lastStartDate,
+        endDate: dragState.lastEndDate,
+      });
+    },
+    [awareness, taskId]
+  );
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent, mode: 'move' | 'resize') => {
       // Don't initiate drag on double-click (detail >= 2) — let onDoubleClick handle it
       if (e.detail >= 2) return;
       e.preventDefault();
       e.stopPropagation();
+
+      // Capture pointer — all subsequent move/up events route to this element
+      (e.target as Element).setPointerCapture(e.pointerId);
+
       dragRef.current = {
         startX: e.clientX,
         origStartDate: startDate,
@@ -102,166 +126,181 @@ export default function TaskBar({
         mode,
         lastStartDate: startDate,
         lastEndDate: endDate,
+        lastBroadcastTime: 0,
       };
+    },
+    [startDate, endDate]
+  );
 
-      function onMouseMove(ev: MouseEvent) {
-        if (!dragRef.current) return;
-        const dx = ev.clientX - dragRef.current.startX;
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragRef.current) return;
+      const dx = e.clientX - dragRef.current.startX;
 
-        if (dragRef.current.mode === 'move') {
-          let newStart = ensureBusinessDay(
-            xToDate(
+      if (dragRef.current.mode === 'move') {
+        const newStart = ensureBusinessDay(
+          xToDate(
+            dateToX(
+              dragRef.current.origStartDate,
+              timelineStart,
+              colWidth,
+              zoom,
+              collapseWeekends
+            ) + dx,
+            timelineStart,
+            colWidth,
+            zoom,
+            collapseWeekends
+          )
+        );
+        let newStartStr = format(newStart, 'yyyy-MM-dd');
+
+        // Clamp to earliest start constraint
+        if (earliestStart && newStartStr < earliestStart) {
+          newStartStr = earliestStart;
+        }
+
+        // Shift end by same pixel delta to preserve visual width
+        const clampedDx =
+          earliestStart && format(newStart, 'yyyy-MM-dd') < earliestStart
+            ? dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends) -
               dateToX(
                 dragRef.current.origStartDate,
                 timelineStart,
                 colWidth,
                 zoom,
                 collapseWeekends
-              ) + dx,
-              timelineStart,
-              colWidth,
-              zoom,
-              collapseWeekends
-            )
-          );
-          let newStartStr = format(newStart, 'yyyy-MM-dd');
+              )
+            : dx;
 
-          // Clamp to earliest start constraint
-          if (earliestStart && newStartStr < earliestStart) {
-            newStartStr = earliestStart;
-          }
-
-          // Shift end by same pixel delta to preserve visual width
-          const clampedDx =
-            earliestStart && format(newStart, 'yyyy-MM-dd') < earliestStart
-              ? dateToX(earliestStart, timelineStart, colWidth, zoom, collapseWeekends) -
-                dateToX(
-                  dragRef.current.origStartDate,
-                  timelineStart,
-                  colWidth,
-                  zoom,
-                  collapseWeekends
-                )
-              : dx;
-
-          const newEnd = prevBusinessDay(
-            xToDate(
-              dateToX(
-                dragRef.current.origEndDate,
-                timelineStart,
-                colWidth,
-                zoom,
-                collapseWeekends
-              ) + clampedDx,
-              timelineStart,
-              colWidth,
-              zoom,
-              collapseWeekends
-            )
-          );
-          const newEndStr = format(newEnd, 'yyyy-MM-dd');
-
-          // Skip if dates haven't changed
-          if (
-            newStartStr === dragRef.current.lastStartDate &&
-            newEndStr === dragRef.current.lastEndDate
-          )
-            return;
-          dragRef.current.lastStartDate = newStartStr;
-          dragRef.current.lastEndDate = newEndStr;
-
-          // Apply CSS transform for visual feedback during drag
-          if (gRef.current) {
-            const origX = dateToX(startDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const newX = dateToX(newStartStr, timelineStart, colWidth, zoom, collapseWeekends);
-            gRef.current.style.transform = `translateX(${newX - origX}px)`;
-          }
-        } else {
-          const newEndX =
+        const newEnd = prevBusinessDay(
+          xToDate(
             dateToX(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) +
-            dayPx +
-            dx;
-          const origStartX = dateToX(
-            dragRef.current.origStartDate,
+              clampedDx,
             timelineStart,
             colWidth,
             zoom,
             collapseWeekends
-          );
-          if (newEndX - origStartX < minWidth) return;
-          const newEnd = prevBusinessDay(
-            xToDate(newEndX, timelineStart, colWidth, zoom, collapseWeekends)
-          );
-          let newEndStr = format(newEnd, 'yyyy-MM-dd');
-          // Enforce minimum 1-day duration
-          if (newEndStr < dragRef.current.origStartDate) {
-            newEndStr = dragRef.current.origStartDate;
-          }
-          const newDuration = taskDuration(dragRef.current.origStartDate, newEndStr);
-          if (newDuration < 1) return;
+          )
+        );
+        const newEndStr = format(newEnd, 'yyyy-MM-dd');
 
-          // Skip if end date hasn't changed
-          if (newEndStr === dragRef.current.lastEndDate) return;
-          dragRef.current.lastEndDate = newEndStr;
+        // Skip if dates haven't changed
+        if (
+          newStartStr === dragRef.current.lastStartDate &&
+          newEndStr === dragRef.current.lastEndDate
+        )
+          return;
+        dragRef.current.lastStartDate = newStartStr;
+        dragRef.current.lastEndDate = newEndStr;
 
-          // Apply CSS transform for visual feedback (approximate width change)
-          if (gRef.current) {
-            // For resize, we don't translate — the bar grows/shrinks. No transform needed
-            // since the final position is committed on mouseup.
-          }
+        // CSS transform — GPU composited, zero React re-renders
+        if (gRef.current) {
+          const origX = dateToX(startDate, timelineStart, colWidth, zoom, collapseWeekends);
+          const newX = dateToX(newStartStr, timelineStart, colWidth, zoom, collapseWeekends);
+          gRef.current.style.transform = `translate(${newX - origX}px, 0)`;
         }
-      }
 
-      function onMouseUp() {
-        if (dragRef.current) {
-          const finalTask = dragRef.current;
-          dragRef.current = null;
-          // Clear CSS transform
-          if (gRef.current) {
-            gRef.current.style.transform = '';
-          }
-          // Only dispatch if the task actually moved
-          const moved =
-            finalTask.lastStartDate !== finalTask.origStartDate ||
-            finalTask.lastEndDate !== finalTask.origEndDate;
-          if (moved) {
-            if (finalTask.mode === 'move') {
-              mutate({
-                type: 'MOVE_TASK',
-                taskId,
-                newStart: finalTask.lastStartDate,
-                newEnd: finalTask.lastEndDate,
-              });
-            } else {
-              mutate({
-                type: 'RESIZE_TASK',
-                taskId,
-                newEnd: finalTask.lastEndDate,
-              });
-            }
-          }
+        // Broadcast drag intent (throttled 100ms)
+        broadcastDragIntent(dragRef.current);
+      } else {
+        const newEndX =
+          dateToX(dragRef.current.origEndDate, timelineStart, colWidth, zoom, collapseWeekends) +
+          dayPx +
+          dx;
+        const origStartX = dateToX(
+          dragRef.current.origStartDate,
+          timelineStart,
+          colWidth,
+          zoom,
+          collapseWeekends
+        );
+        if (newEndX - origStartX < minWidth) return;
+        const newEnd = prevBusinessDay(
+          xToDate(newEndX, timelineStart, colWidth, zoom, collapseWeekends)
+        );
+        let newEndStr = format(newEnd, 'yyyy-MM-dd');
+        // Enforce minimum 1-day duration
+        if (newEndStr < dragRef.current.origStartDate) {
+          newEndStr = dragRef.current.origStartDate;
         }
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-      }
+        const newDuration = taskDuration(dragRef.current.origStartDate, newEndStr);
+        if (newDuration < 1) return;
 
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
+        // Skip if end date hasn't changed
+        if (newEndStr === dragRef.current.lastEndDate) return;
+        dragRef.current.lastEndDate = newEndStr;
+
+        // Broadcast drag intent (throttled 100ms)
+        broadcastDragIntent(dragRef.current);
+      }
     },
     [
-      mutate,
-      taskId,
       startDate,
-      endDate,
       timelineStart,
       colWidth,
       zoom,
-      minWidth,
       collapseWeekends,
       earliestStart,
       dayPx,
+      minWidth,
+      broadcastDragIntent,
     ]
   );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragRef.current) return;
+      (e.target as Element).releasePointerCapture(e.pointerId);
+
+      const finalTask = dragRef.current;
+      dragRef.current = null;
+
+      // Clear CSS transform
+      if (gRef.current) {
+        gRef.current.style.transform = '';
+      }
+
+      // Clear awareness drag intent
+      if (awareness) {
+        setDragIntent(awareness, null);
+      }
+
+      // Only commit if the task actually moved
+      const moved =
+        finalTask.lastStartDate !== finalTask.origStartDate ||
+        finalTask.lastEndDate !== finalTask.origEndDate;
+      if (moved) {
+        if (finalTask.mode === 'move') {
+          mutate({
+            type: 'MOVE_TASK',
+            taskId,
+            newStart: finalTask.lastStartDate,
+            newEnd: finalTask.lastEndDate,
+          });
+        } else {
+          mutate({
+            type: 'RESIZE_TASK',
+            taskId,
+            newEnd: finalTask.lastEndDate,
+          });
+        }
+      }
+    },
+    [mutate, taskId, awareness]
+  );
+
+  const handleLostPointerCapture = useCallback(() => {
+    // Safety net: browser stole capture (e.g. alert dialog, permission prompt)
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    if (gRef.current) {
+      gRef.current.style.transform = '';
+    }
+    if (awareness) {
+      setDragIntent(awareness, null);
+    }
+  }, [awareness]);
 
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -380,7 +419,11 @@ export default function TaskBar({
           className="task-bar"
           data-testid={`task-bar-${taskId}`}
           data-critical={isCritical ? 'true' : undefined}
-          onMouseDown={(e) => handleMouseDown(e, 'move')}
+          style={{ touchAction: 'none' }}
+          onPointerDown={(e) => handlePointerDown(e, 'move')}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onLostPointerCapture={handleLostPointerCapture}
           onDoubleClick={handleDoubleClick}
         />
         {/* Full bar stroke */}
@@ -397,7 +440,11 @@ export default function TaskBar({
           className="task-bar"
           data-testid={`task-bar-${taskId}`}
           data-critical={isCritical ? 'true' : undefined}
-          onMouseDown={(e) => handleMouseDown(e, 'move')}
+          style={{ touchAction: 'none' }}
+          onPointerDown={(e) => handlePointerDown(e, 'move')}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onLostPointerCapture={handleLostPointerCapture}
           onDoubleClick={handleDoubleClick}
         />
         {/* Task name label with clipPath */}
@@ -489,7 +536,11 @@ export default function TaskBar({
           fill="transparent"
           className="resize-handle"
           data-testid={`resize-handle-${taskId}`}
-          onMouseDown={(e) => handleMouseDown(e, 'resize')}
+          style={{ touchAction: 'none' }}
+          onPointerDown={(e) => handlePointerDown(e, 'resize')}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onLostPointerCapture={handleLostPointerCapture}
         />
       </g>
       {popoverPos && (

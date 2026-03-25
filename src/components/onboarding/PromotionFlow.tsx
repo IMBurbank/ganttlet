@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useContext } from 'react';
 import {
   isSignedIn,
   signIn,
@@ -6,8 +6,7 @@ import {
   removeAuthChangeCallback,
 } from '../../sheets/oauth';
 import { createSheet } from '../../sheets/sheetCreation';
-import { initSync, scheduleSave, startPolling } from '../../sheets/sheetsSync';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { UIStoreContext } from '../../store/UIStore';
 import SheetSelector from './SheetSelector';
 import TargetSheetCheck, { type TargetSheetAction } from './TargetSheetCheck';
 
@@ -24,8 +23,7 @@ interface PromotionFlowProps {
 }
 
 export default function PromotionFlow({ onClose }: PromotionFlowProps) {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
+  const uiStore = useContext(UIStoreContext);
   const [step, setStep] = useState<FlowStep>(
     isSignedIn() ? { type: 'destination' } : { type: 'sign-in' }
   );
@@ -40,20 +38,10 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
         url.searchParams.set('room', spreadsheetId);
         window.history.replaceState({}, '', url.toString());
 
-        // (2) initSync
-        initSync(spreadsheetId, dispatch);
+        // Stage 4 (Group F): wire to SheetsAdapter — initSync, startPolling, scheduleSave
 
-        // (3) startPolling
-        startPolling();
-
-        // (4) scheduleSave — writes data + sets lastWriteHash
-        scheduleSave(state.tasks);
-
-        // (5) SET_DATA_SOURCE('sheet') — activates auto-save, resets sandboxDirty
-        dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
-
-        // (6) Clear any sync errors
-        dispatch({ type: 'SET_SYNC_ERROR', error: null });
+        // Set data source to sheet + clear sync errors
+        uiStore?.setState({ dataSource: 'sheet', syncError: null });
 
         onClose();
       } catch (err) {
@@ -61,7 +49,7 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
         setStep({ type: 'error', message });
       }
     },
-    [state.tasks, dispatch, onClose]
+    [uiStore, onClose]
   );
 
   const handleSignIn = useCallback(() => {

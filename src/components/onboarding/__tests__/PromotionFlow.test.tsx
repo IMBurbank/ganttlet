@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
 
 // Mock oauth
 const mockIsSignedIn = vi.fn();
@@ -20,47 +21,6 @@ vi.mock('../../../sheets/oauth', () => ({
 const mockCreateSheet = vi.fn();
 vi.mock('../../../sheets/sheetCreation', () => ({
   createSheet: (...args: unknown[]) => mockCreateSheet(...args),
-}));
-
-// Mock sheetsSync
-const mockInitSync = vi.fn();
-const mockScheduleSave = vi.fn();
-const mockStartPolling = vi.fn();
-
-vi.mock('../../../sheets/sheetsSync', () => ({
-  initSync: (...args: unknown[]) => mockInitSync(...args),
-  scheduleSave: (...args: unknown[]) => mockScheduleSave(...args),
-  startPolling: (...args: unknown[]) => mockStartPolling(...args),
-  stopPolling: vi.fn(),
-  loadFromSheet: vi.fn().mockResolvedValue([]),
-  getSpreadsheetId: () => null,
-}));
-
-// Mock schedulerWasm
-vi.mock('../../../utils/schedulerWasm', () => ({
-  cascadeDependents: (tasks: unknown[]) => tasks,
-  recalculateEarliest: () => [],
-  initScheduler: () => Promise.resolve(),
-}));
-
-// Mock collab modules
-vi.mock('../../../collab/yjsProvider', () => ({
-  connectCollab: vi.fn(),
-  disconnectCollab: vi.fn(),
-  getDoc: () => null,
-}));
-
-vi.mock('../../../collab/yjsBinding', () => ({
-  bindYjsToDispatch: vi.fn(),
-  applyTasksToYjs: vi.fn(),
-  applyActionToYjs: vi.fn(),
-  hydrateYjsFromTasks: vi.fn(),
-}));
-
-vi.mock('../../../collab/awareness', () => ({
-  setLocalAwareness: vi.fn(),
-  updateViewingTask: vi.fn(),
-  getCollabUsers: () => [],
 }));
 
 // Mock SheetSelector
@@ -96,13 +56,15 @@ vi.mock('../TargetSheetCheck', () => ({
 }));
 
 import PromotionFlow from '../PromotionFlow';
-import { GanttProvider } from '../../../state/GanttContext';
+import { UIStore, UIStoreContext } from '../../../store/UIStore';
+
+const uiStore = new UIStore();
 
 function renderWithProvider(onClose = vi.fn()) {
   return render(
-    <GanttProvider>
+    <UIStoreContext.Provider value={uiStore}>
       <PromotionFlow onClose={onClose} />
-    </GanttProvider>
+    </UIStoreContext.Provider>
   );
 }
 
@@ -153,9 +115,6 @@ describe('PromotionFlow', () => {
     });
 
     await waitFor(() => {
-      expect(mockInitSync).toHaveBeenCalled();
-      expect(mockStartPolling).toHaveBeenCalled();
-      expect(mockScheduleSave).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
     });
   });
@@ -186,9 +145,6 @@ describe('PromotionFlow', () => {
     fireEvent.click(screen.getByTestId('mock-proceed'));
 
     await waitFor(() => {
-      expect(mockInitSync).toHaveBeenCalled();
-      expect(mockStartPolling).toHaveBeenCalled();
-      expect(mockScheduleSave).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
     });
   });
@@ -203,23 +159,5 @@ describe('PromotionFlow', () => {
       expect(screen.getByTestId('promotion-error')).toBeTruthy();
       expect(screen.getByText('API error')).toBeTruthy();
     });
-  });
-
-  it('calls scheduleSave before SET_DATA_SOURCE', async () => {
-    mockCreateSheet.mockResolvedValue('new-id');
-    const callOrder: string[] = [];
-    mockScheduleSave.mockImplementation(() => callOrder.push('scheduleSave'));
-    const onClose = vi.fn();
-    renderWithProvider(onClose);
-
-    fireEvent.click(screen.getByTestId('create-new-sheet-button'));
-
-    await waitFor(() => {
-      expect(onClose).toHaveBeenCalled();
-    });
-
-    // scheduleSave must have been called (dispatch ordering tested by call order)
-    expect(callOrder).toContain('scheduleSave');
-    expect(mockScheduleSave).toHaveBeenCalled();
   });
 });

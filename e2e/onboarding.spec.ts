@@ -130,7 +130,10 @@ test.describe('Journey 8: Header', () => {
 });
 
 test.describe('Error states', () => {
-  test('HeaderMismatchError shows when sheet has wrong columns', async ({ mockAuthContext }) => {
+  // Stage 4 (Group F): requires SheetsAdapter
+  test.skip('HeaderMismatchError shows when sheet has wrong columns', async ({
+    mockAuthContext,
+  }) => {
     const rawPage = await mockAuthContext.newPage();
     const app = new BasePage(rawPage);
 
@@ -163,7 +166,8 @@ test.describe('Error states', () => {
     });
   });
 
-  test('ErrorBanner shows on sheet not found and offers navigation', async ({
+  // Stage 4 (Group F): requires SheetsAdapter
+  test.skip('ErrorBanner shows on sheet not found and offers navigation', async ({
     mockAuthContext,
   }) => {
     const rawPage = await mockAuthContext.newPage();

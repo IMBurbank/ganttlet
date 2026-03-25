@@ -1,32 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
 import FirstVisitWelcome from '../FirstVisitWelcome';
-import { GanttProvider } from '../../../state/GanttContext';
-
-vi.mock('../../../utils/schedulerWasm', () => ({
-  cascadeDependents: (tasks: unknown[]) => tasks,
-  recalculateEarliest: () => [],
-  initScheduler: () => Promise.resolve(),
-}));
-
-vi.mock('../../../collab/yjsProvider', () => ({
-  connectCollab: vi.fn(),
-  disconnectCollab: vi.fn(),
-  getDoc: () => null,
-}));
-
-vi.mock('../../../collab/yjsBinding', () => ({
-  bindYjsToDispatch: vi.fn(),
-  applyTasksToYjs: vi.fn(),
-  applyActionToYjs: vi.fn(),
-  hydrateYjsFromTasks: vi.fn(),
-}));
-
-vi.mock('../../../collab/awareness', () => ({
-  setLocalAwareness: vi.fn(),
-  updateViewingTask: vi.fn(),
-  getCollabUsers: () => [],
-}));
+import { UIStore, UIStoreContext } from '../../../store/UIStore';
+import { TaskStore, TaskStoreContext } from '../../../store/TaskStore';
+import { MutateContext } from '../../../hooks/useMutate';
 
 vi.mock('../../../sheets/oauth', () => ({
   isSignedIn: () => false,
@@ -37,14 +15,19 @@ vi.mock('../../../sheets/oauth', () => ({
   signIn: vi.fn(),
 }));
 
-vi.mock('../../../sheets/sheetsSync', () => ({
-  initSync: vi.fn(),
-  loadFromSheet: vi.fn().mockResolvedValue([]),
-  scheduleSave: vi.fn(),
-  startPolling: vi.fn(),
-  stopPolling: vi.fn(),
-  getSpreadsheetId: () => null,
-}));
+const mockMutate = vi.fn();
+const uiStore = new UIStore();
+const taskStore = new TaskStore();
+
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <UIStoreContext.Provider value={uiStore}>
+      <TaskStoreContext.Provider value={taskStore}>
+        <MutateContext.Provider value={mockMutate}>{children}</MutateContext.Provider>
+      </TaskStoreContext.Provider>
+    </UIStoreContext.Provider>
+  );
+}
 
 describe('FirstVisitWelcome', () => {
   const mockOnSignInComplete = vi.fn();
@@ -55,9 +38,9 @@ describe('FirstVisitWelcome', () => {
 
   it('renders title and action buttons', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <FirstVisitWelcome onSignInComplete={mockOnSignInComplete} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('first-visit-title')).toBeTruthy();
@@ -65,28 +48,26 @@ describe('FirstVisitWelcome', () => {
     expect(screen.getByTestId('sign-in-button')).toBeTruthy();
   });
 
-  it('dispatches ENTER_SANDBOX when Try the demo is clicked', async () => {
+  it('calls mutate when Try the demo is clicked', async () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <FirstVisitWelcome onSignInComplete={mockOnSignInComplete} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByTestId('try-demo-button'));
 
-    // After sandbox loads, the component will no longer render (parent switches to children)
     await waitFor(() => {
-      // The demo button should still exist or the sandbox should be loading
-      expect(screen.getByTestId('try-demo-button')).toBeTruthy();
+      expect(mockMutate).toHaveBeenCalled();
     });
   });
 
   it('calls signIn and onSignInComplete when Sign in is clicked', async () => {
     const oauth = await import('../../../sheets/oauth');
     render(
-      <GanttProvider>
+      <TestWrapper>
         <FirstVisitWelcome onSignInComplete={mockOnSignInComplete} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByTestId('sign-in-button'));

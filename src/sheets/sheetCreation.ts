@@ -1,10 +1,10 @@
 import { getAccessToken } from './oauth';
 import { updateSheet } from './sheetsClient';
 import { HEADER_ROW, SHEET_COLUMNS, taskToRow } from './sheetsMapper';
-import { initSync, startPolling, scheduleSave, columnLetter } from './sheetsSync';
 import { addRecentSheet } from '../utils/recentSheets';
 import { getTemplate } from '../data/templates';
-import type { GanttAction } from '../state/actions';
+import { columnLetter } from './sheetsSync';
+import type { MutateAction } from '../types';
 
 export async function createSheet(title: string): Promise<string> {
   const token = getAccessToken();
@@ -29,7 +29,7 @@ export async function createSheet(title: string): Promise<string> {
 export async function createProjectFromTemplate(
   name: string,
   templateId: string,
-  dispatch: (action: GanttAction) => void
+  mutate: (action: MutateAction) => void
 ): Promise<void> {
   const template = getTemplate(templateId);
   if (!template) throw new Error(`Template not found: ${templateId}`);
@@ -65,17 +65,13 @@ export async function createProjectFromTemplate(
   // Track in recent sheets
   addRecentSheet({ sheetId: spreadsheetId, title: name, lastOpened: Date.now() });
 
-  // Init sync for ALL templates (including Blank — auto-save needs a target)
-  initSync(spreadsheetId, dispatch);
-  startPolling();
+  // Stage 4 (Group F): wire to SheetsAdapter — initSync, startPolling
 
   if (tasks.length > 0) {
-    // Non-blank: set tasks and mark as sheet-connected
-    dispatch({ type: 'SET_TASKS', tasks });
-    scheduleSave(tasks);
-    dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
-  } else {
-    // Blank: show empty state (initSync/startPolling already called)
-    dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
+    // Add tasks via mutations
+    for (const task of tasks) {
+      mutate({ type: 'ADD_TASK', task });
+    }
+    // Stage 4 (Group F): wire to SheetsAdapter — scheduleSave
   }
 }

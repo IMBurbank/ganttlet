@@ -1,32 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import React from 'react';
 import ChoosePath from '../ChoosePath';
-import { GanttProvider } from '../../../state/GanttContext';
-
-vi.mock('../../../utils/schedulerWasm', () => ({
-  cascadeDependents: (tasks: unknown[]) => tasks,
-  recalculateEarliest: () => [],
-  initScheduler: () => Promise.resolve(),
-}));
-
-vi.mock('../../../collab/yjsProvider', () => ({
-  connectCollab: vi.fn(),
-  disconnectCollab: vi.fn(),
-  getDoc: () => null,
-}));
-
-vi.mock('../../../collab/yjsBinding', () => ({
-  bindYjsToDispatch: vi.fn(),
-  applyTasksToYjs: vi.fn(),
-  applyActionToYjs: vi.fn(),
-  hydrateYjsFromTasks: vi.fn(),
-}));
-
-vi.mock('../../../collab/awareness', () => ({
-  setLocalAwareness: vi.fn(),
-  updateViewingTask: vi.fn(),
-  getCollabUsers: () => [],
-}));
+import { UIStore, UIStoreContext } from '../../../store/UIStore';
+import { TaskStore, TaskStoreContext } from '../../../store/TaskStore';
+import { MutateContext } from '../../../hooks/useMutate';
 
 vi.mock('../../../sheets/oauth', () => ({
   isSignedIn: () => true,
@@ -37,15 +15,6 @@ vi.mock('../../../sheets/oauth', () => ({
   signIn: vi.fn(),
 }));
 
-vi.mock('../../../sheets/sheetsSync', () => ({
-  initSync: vi.fn(),
-  loadFromSheet: vi.fn().mockResolvedValue([]),
-  scheduleSave: vi.fn(),
-  startPolling: vi.fn(),
-  stopPolling: vi.fn(),
-  getSpreadsheetId: () => null,
-}));
-
 vi.mock('../../../utils/recentSheets', () => ({
   getRecentSheets: () => [],
 }));
@@ -53,6 +22,20 @@ vi.mock('../../../utils/recentSheets', () => ({
 vi.mock('../../../sheets/sheetsBrowser', () => ({
   listUserSheets: vi.fn().mockResolvedValue([]),
 }));
+
+const mockMutate = vi.fn();
+const uiStore = new UIStore();
+const taskStore = new TaskStore();
+
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <UIStoreContext.Provider value={uiStore}>
+      <TaskStoreContext.Provider value={taskStore}>
+        <MutateContext.Provider value={mockMutate}>{children}</MutateContext.Provider>
+      </TaskStoreContext.Provider>
+    </UIStoreContext.Provider>
+  );
+}
 
 describe('ChoosePath', () => {
   const mockOnSelectSheet = vi.fn();
@@ -63,9 +46,9 @@ describe('ChoosePath', () => {
 
   it('renders title and action buttons', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ChoosePath onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('choose-path-title')).toBeTruthy();
@@ -76,9 +59,9 @@ describe('ChoosePath', () => {
 
   it('opens SheetSelector when Existing Sheet is clicked', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ChoosePath onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByTestId('existing-sheet-button'));
@@ -87,9 +70,9 @@ describe('ChoosePath', () => {
 
   it('does not show recent projects when empty', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <ChoosePath onSelectSheet={mockOnSelectSheet} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.queryByTestId('recent-projects')).toBeNull();

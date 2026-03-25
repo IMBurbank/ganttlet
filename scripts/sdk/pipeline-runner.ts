@@ -151,7 +151,7 @@ function createWriteQueue(): { enqueue: (fn: () => void) => Promise<void> } {
   let pending: Promise<void> = Promise.resolve();
   return {
     enqueue(fn: () => void): Promise<void> {
-      pending = pending.then(fn, fn);
+      pending = pending.then(fn, () => fn());
       return pending;
     },
   };

@@ -14,19 +14,54 @@ stages:
   - name: "Review"
     groups:
       # scheduling-engine (5 angles)
-      - id: scheduling-engine-accuracy- id: scheduling-engine-structure- id: scheduling-engine-scope- id: scheduling-engine-history- id: scheduling-engine-adversarial# hooks (5 angles)
-      - id: hooks-accuracy- id: hooks-structure- id: hooks-scope- id: hooks-history- id: hooks-adversarial# multi-agent-orchestration (5 angles)
-      - id: multi-agent-orchestration-accuracy- id: multi-agent-orchestration-structure- id: multi-agent-orchestration-scope- id: multi-agent-orchestration-history- id: multi-agent-orchestration-adversarial# e2e-testing (5 angles)
+      - id: scheduling-engine-accuracy
+      - id: scheduling-engine-structure
+      - id: scheduling-engine-scope
+      - id: scheduling-engine-history
+      - id: scheduling-engine-adversarial
+      # hooks (5 angles)
+      - id: hooks-accuracy
+      - id: hooks-structure
+      - id: hooks-scope
+      - id: hooks-history
+      - id: hooks-adversarial
+      # multi-agent-orchestration (5 angles)
+      - id: multi-agent-orchestration-accuracy
+      - id: multi-agent-orchestration-structure
+      - id: multi-agent-orchestration-scope
+      - id: multi-agent-orchestration-history
+      - id: multi-agent-orchestration-adversarial
+      # e2e-testing (5 angles)
       - id: e2e-testing-accuracy
       - id: e2e-testing-structure
       - id: e2e-testing-scope
       - id: e2e-testing-history
       - id: e2e-testing-adversarial
       # shell-scripting (5 angles)
-      - id: shell-scripting-accuracy- id: shell-scripting-structure- id: shell-scripting-scope- id: shell-scripting-history- id: shell-scripting-adversarial# issue-workflow (5 angles)
-      - id: issue-workflow-accuracy- id: issue-workflow-structure- id: issue-workflow-scope- id: issue-workflow-history- id: issue-workflow-adversarial# cloud-deployment (5 angles)
-      - id: cloud-deployment-accuracy- id: cloud-deployment-structure- id: cloud-deployment-scope- id: cloud-deployment-history- id: cloud-deployment-adversarial# google-sheets-sync (5 angles)
-      - id: google-sheets-sync-accuracy- id: google-sheets-sync-structure- id: google-sheets-sync-scope- id: google-sheets-sync-history- id: google-sheets-sync-adversarial# ── Stage 2: Curate ─────────────────────────────────────────────
+      - id: shell-scripting-accuracy
+      - id: shell-scripting-structure
+      - id: shell-scripting-scope
+      - id: shell-scripting-history
+      - id: shell-scripting-adversarial
+      # issue-workflow (5 angles)
+      - id: issue-workflow-accuracy
+      - id: issue-workflow-structure
+      - id: issue-workflow-scope
+      - id: issue-workflow-history
+      - id: issue-workflow-adversarial
+      # cloud-deployment (5 angles)
+      - id: cloud-deployment-accuracy
+      - id: cloud-deployment-structure
+      - id: cloud-deployment-scope
+      - id: cloud-deployment-history
+      - id: cloud-deployment-adversarial
+      # google-sheets-sync (5 angles)
+      - id: google-sheets-sync-accuracy
+      - id: google-sheets-sync-structure
+      - id: google-sheets-sync-scope
+      - id: google-sheets-sync-history
+      - id: google-sheets-sync-adversarial
+  # ── Stage 2: Curate ─────────────────────────────────────────────
   # 1 curator per skill. Reads reviewer output from disk.
   # Scores findings, validates, rewrites, commits.
   - name: "Curate"

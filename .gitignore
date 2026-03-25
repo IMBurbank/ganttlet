@@ -55,3 +55,4 @@ tsconfig.tsbuildinfo
 # Logs & test artifacts
 logs/
 test-results/
+playwright-report/

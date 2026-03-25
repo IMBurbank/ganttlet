@@ -103,6 +103,26 @@ export interface SyncError {
   since: number;
 }
 
+export interface ConflictRecord {
+  taskId: string;
+  field: string;
+  localValue: unknown;
+  remoteValue: unknown;
+  baseValue: unknown;
+}
+
+export type MutateAction =
+  | { type: 'MOVE_TASK'; taskId: string; newStart: string; newEnd: string }
+  | { type: 'RESIZE_TASK'; taskId: string; newEnd: string }
+  | { type: 'UPDATE_FIELD'; taskId: string; field: string; value: unknown }
+  | { type: 'SET_CONSTRAINT'; taskId: string; constraintType: string; constraintDate?: string }
+  | { type: 'ADD_TASK'; task: Partial<Task>; afterTaskId?: string }
+  | { type: 'DELETE_TASK'; taskId: string }
+  | { type: 'REPARENT_TASK'; taskId: string; newParentId: string }
+  | { type: 'ADD_DEPENDENCY'; taskId: string; dep: Dependency }
+  | { type: 'UPDATE_DEPENDENCY'; taskId: string; fromId: string; update: Partial<Dependency> }
+  | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string };
+
 export interface GanttState {
   tasks: Task[];
   columns: ColumnConfig[];

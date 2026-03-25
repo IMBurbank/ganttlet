@@ -47,12 +47,16 @@ function recalcAffectedSummaries(
     const affectedSummaryIds = findAffectedSummaries(changedIds, allTasks);
     if (affectedSummaryIds.size === 0) return allTasks;
 
-    // For affected summaries, recompute from children
-    const tasksArray = Array.from(allTasks.values());
-    const recalced = recalcSummaryDates(tasksArray);
-    const result = new Map<string, Task>();
+    // Only recalculate affected summary tasks from their children
+    const affectedTasks = Array.from(allTasks.values()).filter(
+      (t) => affectedSummaryIds.has(t.id) || changedIds.has(t.id)
+    );
+    const recalced = recalcSummaryDates(affectedTasks);
+    const result = new Map(allTasks);
     for (const t of recalced) {
-      result.set(t.id, t);
+      if (affectedSummaryIds.has(t.id)) {
+        result.set(t.id, t);
+      }
     }
     return result;
   } catch (e) {
@@ -291,9 +295,12 @@ export function setupObserver(
   return () => {
     ytasks.unobserveDeep(deepHandler);
     taskOrder.unobserve(orderHandler);
+    // Cancel pending RAF and clear batch to prevent stale scope processing
     if (rafScheduled) {
       cancelAnimationFrame(rafId);
+      rafScheduled = false;
     }
+    pendingRemote = { changed: new Set(), deleted: new Set() };
   };
 }
 

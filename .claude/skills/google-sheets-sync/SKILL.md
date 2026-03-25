@@ -61,8 +61,8 @@ Dependencies serialize as `fromId:type:lag` joined by `;`. Example: `task-1:FS:0
 
 ### Sync Mechanism
 - **Write path**: SheetsAdapter marks dirty on Y.Doc `'local'` origin observation, debounces writes by 2000ms. Pre-write validation logs orphaned refs and invalid dates as warnings (non-blocking). After writing, base values updated in IndexedDB. `clearSheet` removes orphaned rows below the data range.
-- **Read path**: Polls the sheet every 30s. Three-way merge per task resolves changes. Changes injected into Y.Doc via `doc.transact({}, 'sheets')`. Conflicts surfaced to UIStore. Backoff: doubles interval after 3 consecutive errors (max 300s).
-- **Write range**: `Sheet1!A1:T{rowCount}` — column T is the 20th column matching the 20 `SHEET_COLUMNS` fields.
+- **Read path**: Polls the sheet every 30s. Three-way merge per task resolves changes. Changes injected into Y.Doc via `doc.transact(() => { ... }, 'sheets')`. Conflicts surfaced to UIStore. Polling uses a fixed 30s interval; errors are logged but do not adjust the interval.
+- **Write range**: `Sheet1!A1:V{rowCount}` — column V is the 22nd column (20 task fields + lastModifiedBy + lastModifiedAt).
 - **Read range**: `Sheet1` (entire sheet).
 - **Transaction origins**: `'local'` writes are undoable and trigger cascade; `'sheets'` injections are not undoable and skip cascade.
 

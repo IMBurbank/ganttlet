@@ -82,14 +82,6 @@ export default function GanttChart({
   const criticalPathResult = useMemo(() => {
     if (!showCriticalPath)
       return { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> };
-    // 'all' scope: use first project name or fall back to project scope with empty name
-    if (criticalPathScope.type === 'all') {
-      const firstProject = allTasks.find((t) => t.project)?.project ?? '';
-      return computeCriticalPathScoped(allTasks, {
-        type: 'project',
-        name: firstProject,
-      } as CriticalPathScope);
-    }
     return computeCriticalPathScoped(allTasks, criticalPathScope as CriticalPathScope);
   }, [allTasks, showCriticalPath, criticalPathScope]);
   const criticalPathIds = criticalPathResult.taskIds;

@@ -12,7 +12,7 @@ import {
   taskDuration,
 } from '../../utils/dateUtils';
 import { format } from 'date-fns';
-import { setDragIntent } from '../../collab/awareness';
+import { setDragIntent, updateViewingTask } from '../../collab/awareness';
 import Tooltip from '../shared/Tooltip';
 import TaskBarPopover from './TaskBarPopover';
 
@@ -330,7 +330,12 @@ export default function TaskBar({
 
   return (
     <Tooltip content={tooltipContent} delay={300} svg>
-      <g ref={gRef} opacity={done ? 0.4 : 1}>
+      <g
+        ref={gRef}
+        opacity={done ? 0.4 : 1}
+        onMouseEnter={() => awareness && updateViewingTask(awareness, taskId, null)}
+        onMouseLeave={() => awareness && updateViewingTask(awareness, null, null)}
+      >
         <defs>
           <clipPath id={clipId.current}>
             <rect x={x + 4} y={barY} width={Math.max(width - 8, 0)} height={barHeight} />

@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import type { Task, ConflictRecord, SyncError } from '../types';
-import { readSheet, writeSheet } from './sheetsClient';
+import { readSheet, writeSheet, clearSheet } from './sheetsClient';
 import {
   SHEET_COLUMNS,
   HEADER_ROW,
@@ -46,6 +46,15 @@ function idbPut(db: IDBDatabase, key: string, value: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const txn = db.transaction('base', 'readwrite');
     const req = txn.objectStore('base').put(value, key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbDelete(db: IDBDatabase, key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const txn = db.transaction('base', 'readwrite');
+    const req = txn.objectStore('base').delete(key);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
@@ -289,6 +298,10 @@ export class SheetsAdapter {
       const range = `Sheet1!A1:${endCol}${rows.length}`;
       await writeSheet(this.spreadsheetId, range, rows);
 
+      // Clear orphaned rows below the data range
+      const clearRange = `Sheet1!A${rows.length + 1}:${endCol}`;
+      await clearSheet(this.spreadsheetId, clearRange);
+
       // Only clear dirty on SUCCESS
       this.saveDirty = false;
 
@@ -498,9 +511,15 @@ export class SheetsAdapter {
     // Check for tasks in Y.Doc but not in Sheet (deleted externally)
     for (const ydocId of ydocTaskIds) {
       if (!sheetTasks.has(ydocId)) {
-        // Task was deleted externally — remove base value, but don't auto-delete from Y.Doc.
-        // The user may have pending local edits. Mark as needing write instead.
-        needsWrite = true;
+        // Task was deleted externally — remove base value from IndexedDB.
+        // Do NOT set needsWrite: that would re-write the deleted task back to the Sheet.
+        if (this.db) {
+          try {
+            await idbDelete(this.db, ydocId);
+          } catch (e) {
+            console.warn(`Failed to delete base value for externally-deleted task ${ydocId}:`, e);
+          }
+        }
       }
     }
 

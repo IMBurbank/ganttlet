@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect, useContext } from 'react';
+import { useMemo, useCallback, useRef, useEffect, useContext } from 'react';
 import { UIStoreProvider } from './state/UIStoreProvider';
 import { TaskStoreProvider } from './state/TaskStoreProvider';
 import { useUIStore, useMutate, useTaskOrder } from './hooks';
@@ -14,6 +14,7 @@ import ContextMenu from './components/shared/ContextMenu';
 import DependencyEditorModal from './components/shared/DependencyEditorModal';
 import ReparentPickerModal from './components/shared/ReparentPickerModal';
 import EmptyState from './components/onboarding/EmptyState';
+import ConflictResolutionModal from './components/onboarding/ConflictResolutionModal';
 
 function AppContent() {
   const theme = useUIStore((s) => s.theme);
@@ -253,14 +254,21 @@ function AppContent() {
 
       {/* Reparent Picker Modal */}
       {reparentPicker && <ReparentPickerModal />}
+
+      {/* Conflict Resolution Modal */}
+      <ConflictResolutionModal />
     </div>
   );
 }
 
 export default function App() {
+  const params = new URLSearchParams(window.location.search);
+  const sheetId = params.get('sheet') || undefined;
+  const roomId = params.get('room') || sheetId;
+
   return (
     <UIStoreProvider>
-      <TaskStoreProvider>
+      <TaskStoreProvider spreadsheetId={sheetId} roomId={roomId}>
         <WelcomeGate>
           <AppContent />
         </WelcomeGate>

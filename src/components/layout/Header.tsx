@@ -14,7 +14,6 @@ import {
   removeAuthChangeCallback,
   type AuthState,
 } from '../../sheets/oauth';
-import { stopPolling } from '../../sheets/sheetsSync';
 import { disconnectCollab } from '../../collab/yjsProvider';
 
 const SheetSelector = lazy(() => import('../onboarding/SheetSelector'));
@@ -94,8 +93,7 @@ export default function Header() {
   }, [sheetId]);
 
   const handleSwitchSheet = useCallback(() => {
-    // Teardown current connection first
-    stopPolling();
+    // Teardown current connection first (SheetsAdapter cleanup handled by React unmount)
     disconnectCollab();
     setDropdownOpen(false);
     setShowSheetSelector(true);
@@ -127,8 +125,7 @@ export default function Header() {
     url.searchParams.delete('sheet');
     url.searchParams.delete('room');
     window.history.replaceState({}, '', url.toString());
-    // Teardown
-    stopPolling();
+    // Teardown (SheetsAdapter cleanup handled by React unmount)
     disconnectCollab();
     // Reset UI state
     uiStore.setState({ dataSource: undefined });

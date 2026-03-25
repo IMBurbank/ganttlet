@@ -121,7 +121,7 @@ setup_merge_worktree() {
   # Install dependencies so tsc/vitest can run in the worktree
   (cd "$MERGE_WORKTREE" && npm install --silent >/dev/null 2>&1) || true
 
-  # WASM artifacts come from the invoker's worktree (orchestrator responsibility)
+  # Copy WASM build artifacts from the invoker's worktree
   local launch_dir="${_LAUNCH_DIR:-.}"
   if [[ -d "${launch_dir}/src/wasm/scheduler" && ! -d "${MERGE_WORKTREE}/src/wasm/scheduler" ]]; then
     mkdir -p "${MERGE_WORKTREE}/src/wasm" >/dev/null 2>&1
@@ -148,6 +148,8 @@ cleanup_worktrees() {
   for i in "${!_groups[@]}"; do
     local group="${_groups[$i]}"
     local branch="${_branches[$i]}"
+    # Skip read-only groups (no branch = no worktree)
+    [[ -z "$branch" ]] && continue
     local worktree="${WORKTREE_BASE}/${branch//\//-}"
     if [[ -d "$worktree" ]]; then
       rm -rf "$worktree"

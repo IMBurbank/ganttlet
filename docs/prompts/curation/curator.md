@@ -23,6 +23,15 @@ system, the 5 reviewer angles, scoring, and what you're producing. Then read
 You curate one skill file for the Ganttlet project. Do NOT enter plan mode.
 Do NOT ask for confirmation. Execute all steps sequentially.
 
+**IMPORTANT — File writes:** Use Bash (cat with heredoc, or sed) to write
+`.claude/skills/` files. The Edit/Write tools are blocked for `.claude/` paths
+in SDK mode due to a known bug (#37157). Bash is not affected.
+
+**IMPORTANT — Result marker:** End your final response with exactly one of:
+- `CURATION_RESULT: COMMITTED <sha>` (after committing changes)
+- `CURATION_RESULT: NO_CHANGES <reason>` (if no changes needed)
+This marker is required for the pipeline to detect success.
+
 ## Step 1: Context
 
 **Your target skill** is specified in the wrapper prompt that launched you
@@ -121,8 +130,14 @@ patches. See the curation skill for the full model.
 - Integrate new observations into existing sections (weave, don't append)
 - Remove stale/wrong/redundant content — code is the source of truth
 - Compress verbose content
-- Eliminate `## Lessons Learned` sections (integrate valuable content into body)
-- Remove `<!-- curator cleanup pending -->` and similar comments
+- **Eliminate `## Lessons Learned` sections entirely.** This is not optional.
+  For each item: (1) if the body already covers it, delete it. (2) If it adds
+  unique operational knowledge, integrate it into the relevant body section as
+  a bullet or sentence — don't just move the heading. (3) If it belongs in
+  another skill (e.g., shell-scripting), delete it and verify the cross-ref
+  pointer exists. The section heading itself must be removed from the output.
+  A skill file with a Lessons Learned section has not been fully curated.
+- Remove `<!-- curator cleanup pending -->` and similar HTML comments
 - Check cross-skill coherence: is the skill still complete? Any new duplication?
 - Preserve `[reviewed: keep]` content verbatim
 - Result should be equal or smaller than the original
@@ -134,6 +149,17 @@ grep "^## " .claude/skills/$SKILL/SKILL.md  # sections intact?
 ```
 
 If broken, fix. If unfixable after 2 attempts, revert and note in debrief.
+
+**Cross-check findings coverage:** Before committing, verify every finding
+that scored above threshold is accounted for — either reflected in the diff
+or listed in "Not Acted On" with a reason. Walk through your scored findings
+list and for each one:
+- If you changed something for it → it goes in "Changes Made"
+- If you deliberately kept the original → it goes in "Not Acted On" with why
+- If it's missing from both lists → you dropped it. Fix the rewrite or add it
+  to "Not Acted On"
+
+No finding above threshold should be silently absent from the commit message.
 
 ## Step 5: Commit
 
@@ -161,7 +187,10 @@ Threshold: {value} | {N above} / {M total} | {K filtered}
 - Kept despite flag: "{claim}" — {why overridden}
 
 ## Not Acted On
-- "{finding}" (scored {N}) — {why: false positive / overridden}
+- "{finding}" (scored {N}) — {why: false positive / context preserved / already covered}
+
+## Coverage Check
+{N acted} + {M not acted} = {total above threshold} ← must match
 
 ## Cross-Skill Notes
 - {duplication, moves, conflicts}
@@ -202,6 +231,8 @@ that every curator would see):
 - Cross-skill patterns unique to your skill's domain
 - Issues in CLAUDE.md files or instruction context discovered during review
   (as `wrong_documentation` observations — preserved for future scope)
+- Findings that failed the coverage check (as `workflow_gap` — explains why
+  the rewrite missed a scored finding, so the process can improve)
 
 Generate the filename per `docs/prompts/curation/debrief-template.md`.
 

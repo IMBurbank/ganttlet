@@ -73,7 +73,13 @@ load_config() {
 
     for ((g=0; g<num_groups; g++)); do
       STAGE_GROUP_IDS["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].id" "$config_file")
-      STAGE_BRANCHES["${s}:${g}"]="$(yq -r ".stages[$s].groups[$g].branch" "$config_file")-${run_suffix}"
+      local branch_raw
+      branch_raw=$(yq -r ".stages[$s].groups[$g].branch // \"\"" "$config_file")
+      if [[ -n "$branch_raw" && "$branch_raw" != "null" ]]; then
+        STAGE_BRANCHES["${s}:${g}"]="${branch_raw}-${run_suffix}"
+      else
+        STAGE_BRANCHES["${s}:${g}"]=""  # read-only group, no worktree
+      fi
       STAGE_MERGE_MSGS["${s}:${g}"]=$(yq -r ".stages[$s].groups[$g].merge_message" "$config_file")
     done
   done

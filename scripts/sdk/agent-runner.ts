@@ -33,6 +33,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
       sessionId: null,
       failureMode: 'crash',
       totalCostUsd: 0,
+      totalTurns: 0,
     };
   }
 
@@ -45,6 +46,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
   const maxCrashRetries = options.maxCrashRetries ?? 2;
   const crashRetryDelayMs = options.crashRetryDelayMs ?? 1000;
   let cumulativeCostUsd = 0;
+  let cumulativeTurns = 0;
   let crashCount = 0;
   let attemptIndex = 0;
   let resultType: AttemptResultType = 'success';
@@ -98,9 +100,13 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
           maxBudgetUsd: fixRemainingBudget,
           model: policy.attempts[action.attemptIndex].model,
           agent: options.agent,
+          logFile: options.logFile
+            ? `${options.logFile.replace(/\.log$/, '')}-attempt${attemptIndex + 1}-fix.log`
+            : undefined,
         });
         outputFixAttempted = true; // Only mark after fix call completes
         cumulativeCostUsd += fixResult.costUsd;
+        cumulativeTurns += fixResult.turns;
         if (fixResult.output !== null) {
           lastOutput = fixResult.output;
           lastNonNullOutput = fixResult.output;
@@ -174,9 +180,13 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         effort: attemptConfig.effort,
         maxBudgetUsd: remainingBudget,
         agent: options.agent,
+        logFile: options.logFile
+          ? `${options.logFile.replace(/\.log$/, '')}-attempt${attemptIndex + 1}.log`
+          : undefined,
       });
 
       cumulativeCostUsd += callResult.costUsd;
+      cumulativeTurns += callResult.turns;
       if (callResult.output !== null) {
         lastOutput = callResult.output;
         lastNonNullOutput = callResult.output;
@@ -241,6 +251,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
     sessionId: lastSessionId,
     failureMode: action.kind === 'done' ? action.failureMode : 'success',
     totalCostUsd: cumulativeCostUsd,
+    totalTurns: cumulativeTurns,
   };
 
   // Log metrics
@@ -290,6 +301,7 @@ interface CallQueryOpts {
   effort?: 'low' | 'medium' | 'high' | 'max';
   maxBudgetUsd?: number;
   agent?: string;
+  logFile?: string;
 }
 
 interface CallQueryResult {
@@ -298,6 +310,7 @@ interface CallQueryResult {
   sessionId: string | null;
   costUsd: number;
   durationMs: number;
+  turns: number;
 }
 
 async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQueryResult> {
@@ -310,6 +323,19 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
     persistSession: opts.persistSession,
     maxTurns: opts.maxTurns,
     model: opts.model,
+    includePartialMessages: true,
+    // Auto-approve permission prompts (needed for .claude/skills/ edits
+    // until upstream fixes #37157). Also approves Bash commands targeting
+    // .claude/ paths when bypassPermissions mode is active.
+    canUseTool: async (
+      _toolName: string,
+      _input: Record<string, unknown>,
+      options: Record<string, unknown>
+    ) => ({
+      behavior: 'allow' as const,
+      toolUseID: (options as { toolUseID?: string }).toolUseID,
+      updatedPermissions: (options as { suggestions?: unknown[] }).suggestions ?? [],
+    }),
   };
 
   if (opts.effort) queryOpts.effort = opts.effort;
@@ -328,10 +354,53 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
   let costUsd = 0;
   let gotResult = false;
 
+  let turnCount = 0;
+
   for await (const message of stream) {
     const msg = message as Record<string, unknown>;
     if (msg.type === 'system' && msg.subtype === 'init' && !sessionId) {
       sessionId = msg.session_id as string;
+    }
+    // Log stream events to the log file for monitoring/debugging.
+    // Full text is preserved — orchestrators need to read content for
+    // correctness checks, not just confirm liveness.
+    if (opts.logFile) {
+      if (msg.type === 'assistant') {
+        turnCount++;
+        fs.appendFileSync(opts.logFile, `[turn ${turnCount}]\n`);
+        const content = (
+          msg as {
+            message?: {
+              content?: Array<{
+                type: string;
+                name?: string;
+                text?: string;
+                input?: Record<string, unknown>;
+              }>;
+            };
+          }
+        ).message?.content;
+        if (content) {
+          for (const block of content) {
+            if (block.type === 'tool_use') {
+              const input = (block as { input?: Record<string, unknown> }).input;
+              const path = input?.file_path ?? input?.command ?? '';
+              const pathStr = typeof path === 'string' ? path.substring(0, 200) : '';
+              fs.appendFileSync(
+                opts.logFile,
+                `[tool] ${block.name}${pathStr ? ' ' + pathStr : ''}\n`
+              );
+            } else if (block.type === 'text' && block.text) {
+              fs.appendFileSync(opts.logFile, `[text] ${block.text}\n`);
+            }
+          }
+        }
+      } else if (msg.type === 'tool_use_summary') {
+        fs.appendFileSync(
+          opts.logFile,
+          `[summary] ${(msg as { summary?: string }).summary ?? ''}\n`
+        );
+      }
     }
     if (msg.type === 'result') {
       gotResult = true;
@@ -346,6 +415,13 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
         output = (msg.result as string) ?? null;
       }
       costUsd = (msg.total_cost_usd as number) ?? 0;
+      const numTurns = (msg as { num_turns?: number }).num_turns;
+      if (opts.logFile) {
+        fs.appendFileSync(
+          opts.logFile,
+          `[result] ${subtype} turns=${numTurns ?? turnCount} cost=$${costUsd.toFixed(2)}\n`
+        );
+      }
     }
   }
 
@@ -359,6 +435,7 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
     sessionId,
     costUsd,
     durationMs: Date.now() - start,
+    turns: turnCount,
   };
 }
 
@@ -511,6 +588,59 @@ Optional:
   process.stdout.write(usage + '\n');
 }
 
+/**
+ * Run an agent with an inline prompt string instead of a file path.
+ * Used by fix agents (merge conflict resolution, verify failure fixes).
+ * Bypasses the normal prompt file reading — passes the string directly to the SDK.
+ */
+export async function runAgentWithInlinePrompt(
+  queryFn: QueryFn,
+  options: RunnerOptions,
+  inlinePrompt: string,
+  onEvent?: (event: import('./types.js').AgentEvent) => void
+): Promise<AgentResult> {
+  // Create a temporary RunnerOptions that uses the inline prompt directly
+  const opts: RunnerOptions = {
+    ...options,
+    prompt: '__inline__', // marker — not read from disk
+  };
+
+  // We need to use callQuery directly since runAgent reads from disk
+  const result = await callQuery(queryFn, {
+    prompt: inlinePrompt,
+    cwd: opts.workdir,
+    persistSession: false,
+    maxTurns: opts.maxTurns ?? 30,
+    model: opts.model ?? 'claude-sonnet-4-6',
+    maxBudgetUsd: opts.maxBudget,
+    agent: opts.agent,
+    logFile: opts.logFile,
+  });
+
+  if (onEvent && result.turns > 0) {
+    onEvent({
+      type: 'result',
+      status: result.resultType,
+      turns: result.turns,
+      costUsd: result.costUsd,
+    });
+  }
+
+  return {
+    group: opts.group,
+    phase: opts.phase,
+    attempt: 1,
+    totalAttempts: 1,
+    partial: false,
+    failed: result.resultType !== 'success',
+    output: result.output,
+    sessionId: result.sessionId,
+    failureMode: result.resultType === 'success' ? 'success' : result.resultType,
+    totalCostUsd: result.costUsd,
+    totalTurns: result.turns,
+  };
+}
+
 // CLI entry point
 if (
   typeof process !== 'undefined' &&
@@ -526,6 +656,7 @@ if (
 
     await import('./policies/default.js');
     await import('./policies/reviewer.js');
+    await import('./policies/curator.js');
 
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
     const opts = parseCliArgs(process.argv.slice(2));

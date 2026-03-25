@@ -60,6 +60,20 @@ preflight_check() {
     fi
   fi
 
+  # Ensure WASM artifacts exist in the invoker's worktree.
+  # Worktrees are created from git (WASM is gitignored), so they won't have
+  # build artifacts. Copy from the main repo if missing.
+  local launch_dir="${_LAUNCH_DIR:-.}"
+  if [[ ! -d "${launch_dir}/src/wasm/scheduler" ]]; then
+    local main_repo
+    main_repo="$(git worktree list --porcelain | head -1 | sed 's/^worktree //')"
+    if [[ -d "${main_repo}/src/wasm/scheduler" ]]; then
+      log "Copying WASM artifacts from main repo to orchestrator worktree"
+      mkdir -p "${launch_dir}/src/wasm"
+      cp -r "${main_repo}/src/wasm/scheduler" "${launch_dir}/src/wasm/scheduler"
+    fi
+  fi
+
   # Only check WASM build if Rust source files differ from main
   if git diff main --name-only 2>/dev/null | grep -q '^crates/'; then
     log "Rust files changed — checking WASM build..."
@@ -77,6 +91,17 @@ preflight_check() {
   fi
 
   ok "Preflight check passed"
+}
+
+# Kill a process and all its descendants.
+kill_tree() {
+  local pid=$1 signal=${2:-TERM}
+  local children
+  children=$(ps -o pid= --ppid "$pid" 2>/dev/null | tr -d ' ') || true
+  for child in $children; do
+    kill_tree "$child" "$signal"
+  done
+  kill -"$signal" "$pid" 2>/dev/null || true
 }
 
 # Run a parallel stage in pipe mode (background processes).
@@ -105,20 +130,26 @@ run_parallel_stage() {
     local group="${rps_groups[$i]}"
     local branch="${rps_branches[$i]}"
 
-    local worktree
-    worktree=$(setup_worktree "$group" "$branch")
-    if [[ $? -ne 0 ]]; then
-      err "${group}: worktree setup failed — skipping"
-      setup_failures=$((setup_failures + 1))
-      continue
+    local workdir
+    if [[ -z "$branch" ]]; then
+      # Read-only group — no worktree, share the orchestrator's directory
+      workdir="${_LAUNCH_DIR:-.}"
+      log "${group}: read-only (shared CWD: ${workdir})"
+    else
+      workdir=$(setup_worktree "$group" "$branch")
+      if [[ $? -ne 0 ]]; then
+        err "${group}: worktree setup failed — skipping"
+        setup_failures=$((setup_failures + 1))
+        continue
+      fi
     fi
 
-    run_agent "$group" "$worktree" &
+    run_agent "$group" "$workdir" &
     local agent_pid=$!
     pids+=($agent_pid)
     groups_list+=("$group")
 
-    monitor_agent "$agent_pid" "$worktree" "$group" &
+    monitor_agent "$agent_pid" "$workdir" "$group" &
     monitor_pids+=($!)
 
     log "${group} launched (PID: ${agent_pid})"
@@ -140,11 +171,11 @@ run_parallel_stage() {
       sleep "$MAX_STAGE_DURATION"
       warn "=== ${stage_label}: stage timeout (${MAX_STAGE_DURATION}s) reached — killing agents ==="
       for pid in "${pids[@]}"; do
-        kill -TERM "$pid" 2>/dev/null || true
+        kill_tree "$pid" TERM
       done
       sleep 5
       for pid in "${pids[@]}"; do
-        kill -9 "$pid" 2>/dev/null || true
+        kill_tree "$pid" KILL
       done
     ) &
     timeout_pid=$!

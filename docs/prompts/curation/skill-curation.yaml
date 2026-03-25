@@ -10,98 +10,57 @@ stages:
   # 5 reviewers per skill, all running in parallel (40 groups total).
   # Group IDs ending in an angle name trigger the reviewer convention
   # in run_agent(): policy=reviewer, output-file derived, template prompt.
-  # Each reviewer gets a unique branch (git worktrees require it).
+  # Reviewers are read-only — no branch/worktree needed (shared CWD).
   - name: "Review"
     groups:
       # scheduling-engine (5 angles)
       - id: scheduling-engine-accuracy
-        branch: curation/scheduling-engine-accuracy
       - id: scheduling-engine-structure
-        branch: curation/scheduling-engine-structure
       - id: scheduling-engine-scope
-        branch: curation/scheduling-engine-scope
       - id: scheduling-engine-history
-        branch: curation/scheduling-engine-history
       - id: scheduling-engine-adversarial
-        branch: curation/scheduling-engine-adversarial
       # hooks (5 angles)
       - id: hooks-accuracy
-        branch: curation/hooks-accuracy
       - id: hooks-structure
-        branch: curation/hooks-structure
       - id: hooks-scope
-        branch: curation/hooks-scope
       - id: hooks-history
-        branch: curation/hooks-history
       - id: hooks-adversarial
-        branch: curation/hooks-adversarial
       # multi-agent-orchestration (5 angles)
       - id: multi-agent-orchestration-accuracy
-        branch: curation/multi-agent-orchestration-accuracy
       - id: multi-agent-orchestration-structure
-        branch: curation/multi-agent-orchestration-structure
       - id: multi-agent-orchestration-scope
-        branch: curation/multi-agent-orchestration-scope
       - id: multi-agent-orchestration-history
-        branch: curation/multi-agent-orchestration-history
       - id: multi-agent-orchestration-adversarial
-        branch: curation/multi-agent-orchestration-adversarial
       # e2e-testing (5 angles)
       - id: e2e-testing-accuracy
-        branch: curation/e2e-testing-accuracy
       - id: e2e-testing-structure
-        branch: curation/e2e-testing-structure
       - id: e2e-testing-scope
-        branch: curation/e2e-testing-scope
       - id: e2e-testing-history
-        branch: curation/e2e-testing-history
       - id: e2e-testing-adversarial
-        branch: curation/e2e-testing-adversarial
       # shell-scripting (5 angles)
       - id: shell-scripting-accuracy
-        branch: curation/shell-scripting-accuracy
       - id: shell-scripting-structure
-        branch: curation/shell-scripting-structure
       - id: shell-scripting-scope
-        branch: curation/shell-scripting-scope
       - id: shell-scripting-history
-        branch: curation/shell-scripting-history
       - id: shell-scripting-adversarial
-        branch: curation/shell-scripting-adversarial
       # issue-workflow (5 angles)
       - id: issue-workflow-accuracy
-        branch: curation/issue-workflow-accuracy
       - id: issue-workflow-structure
-        branch: curation/issue-workflow-structure
       - id: issue-workflow-scope
-        branch: curation/issue-workflow-scope
       - id: issue-workflow-history
-        branch: curation/issue-workflow-history
       - id: issue-workflow-adversarial
-        branch: curation/issue-workflow-adversarial
       # cloud-deployment (5 angles)
       - id: cloud-deployment-accuracy
-        branch: curation/cloud-deployment-accuracy
       - id: cloud-deployment-structure
-        branch: curation/cloud-deployment-structure
       - id: cloud-deployment-scope
-        branch: curation/cloud-deployment-scope
       - id: cloud-deployment-history
-        branch: curation/cloud-deployment-history
       - id: cloud-deployment-adversarial
-        branch: curation/cloud-deployment-adversarial
       # google-sheets-sync (5 angles)
       - id: google-sheets-sync-accuracy
-        branch: curation/google-sheets-sync-accuracy
       - id: google-sheets-sync-structure
-        branch: curation/google-sheets-sync-structure
       - id: google-sheets-sync-scope
-        branch: curation/google-sheets-sync-scope
       - id: google-sheets-sync-history
-        branch: curation/google-sheets-sync-history
       - id: google-sheets-sync-adversarial
-        branch: curation/google-sheets-sync-adversarial
-
   # ── Stage 2: Curate ─────────────────────────────────────────────
   # 1 curator per skill. Reads reviewer output from disk.
   # Scores findings, validates, rewrites, commits.

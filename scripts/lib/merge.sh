@@ -263,12 +263,31 @@ do_merge() {
   local succeeded=""
   [[ -f "${LOG_DIR}/stage-succeeded.txt" ]] && succeeded=$(cat "${LOG_DIR}/stage-succeeded.txt")
 
+  # Check if any groups have branches to merge
+  local has_branches=false
+  for i in "${!dm_branches[@]}"; do
+    if [[ -n "${dm_branches[$i]}" ]]; then
+      has_branches=true
+      break
+    fi
+  done
+  if ! $has_branches; then
+    log "All groups are read-only (no branches) — skipping merge"
+    ok "=== ${merge_label} complete (no branches to merge) ==="
+    return 0
+  fi
+
   local merge_failures=0
   local merged_count=0
   for i in "${!dm_branches[@]}"; do
     local group="${dm_groups[$i]}"
     local branch="${dm_branches[$i]}"
     local msg="${dm_messages[$i]}"
+
+    # Skip read-only groups (no branch)
+    if [[ -z "$branch" ]]; then
+      continue
+    fi
 
     if [[ -n "$succeeded" ]] && ! echo " $succeeded " | grep -q " $group "; then
       warn "Skipping merge of ${group} (failed in parallel stage)"

@@ -5,3 +5,4 @@ scope:
 
 Read docs/prompts/curation/curator.md and follow its instructions.
 Your target skill is: scheduling-engine
+Reviewer reports directory: {LOG_DIR}/reviews/scheduling-engine/

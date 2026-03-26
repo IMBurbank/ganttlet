@@ -91,7 +91,7 @@ export class SheetsAdapter {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private saveDirty = false;
-  private saving = false;
+  private syncLock: Promise<void> = Promise.resolve();
   private db: IDBDatabase | null = null;
   private observer:
     | ((events: Y.YEvent<Y.AbstractType<unknown>>[], txn: Y.Transaction) => void)
@@ -100,6 +100,7 @@ export class SheetsAdapter {
   private onlineHandler: (() => void) | null = null;
   private offlineHandler: (() => void) | null = null;
   private initialLoadDone = false;
+  private notifiedConflicts = new Set<string>();
 
   constructor(
     doc: Y.Doc,
@@ -113,7 +114,25 @@ export class SheetsAdapter {
     this.getToken = getToken;
   }
 
+  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    let release: () => void;
+    const prev = this.syncLock;
+    this.syncLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release!();
+    }
+  }
+
   async start(): Promise<void> {
+    if (!this.stopped && this.pollTimer) {
+      console.warn('SheetsAdapter.start() called while already running');
+      return;
+    }
     this.stopped = false;
 
     // Open IndexedDB for base values
@@ -198,7 +217,7 @@ export class SheetsAdapter {
   }
 
   isSavePending(): boolean {
-    return this.saveDirty || this.saving;
+    return this.saveDirty;
   }
 
   // ------------------------------------------------------------------
@@ -276,7 +295,7 @@ export class SheetsAdapter {
   }
 
   private async flushWrite(): Promise<void> {
-    if (this.stopped || this.saving || !this.saveDirty) return;
+    if (this.stopped || !this.saveDirty) return;
 
     const token = this.getToken();
     if (!token) {
@@ -288,36 +307,38 @@ export class SheetsAdapter {
       return;
     }
 
-    this.saving = true;
-    this.callbacks.onSyncing(true);
+    await this.withLock(async () => {
+      if (this.stopped || !this.saveDirty) return;
 
-    try {
-      this.validateBeforeWrite();
-      const rows = this.buildRowsFromYDoc();
-      const endCol = columnLetter(SHEET_COLUMNS.length);
-      const range = `Sheet1!A1:${endCol}${rows.length}`;
-      await writeSheet(this.spreadsheetId, range, rows);
+      this.callbacks.onSyncing(true);
 
-      // Clear orphaned rows below the data range
-      const clearRange = `Sheet1!A${rows.length + 1}:${endCol}`;
-      await clearSheet(this.spreadsheetId, clearRange);
+      try {
+        this.validateBeforeWrite();
+        const rows = this.buildRowsFromYDoc();
+        const endCol = columnLetter(SHEET_COLUMNS.length);
+        const range = `Sheet1!A1:${endCol}${rows.length}`;
+        await writeSheet(this.spreadsheetId, range, rows);
 
-      // Only clear dirty on SUCCESS
-      this.saveDirty = false;
+        // Clear orphaned rows below the data range
+        const clearRange = `Sheet1!A${rows.length + 1}:${endCol}`;
+        await clearSheet(this.spreadsheetId, clearRange);
 
-      // Update base values in IndexedDB
-      await this.updateBaseValues(rows);
+        // Only clear dirty on SUCCESS
+        this.saveDirty = false;
 
-      this.callbacks.onSyncError(null);
-      this.callbacks.onSyncComplete();
-    } catch (e) {
-      const syncError = this.classifySyncError(e);
-      this.callbacks.onSyncError(syncError);
-      // saveDirty NOT cleared — will retry
-    } finally {
-      this.saving = false;
-      this.callbacks.onSyncing(false);
-    }
+        // Update base values in IndexedDB
+        await this.updateBaseValues(rows);
+
+        this.callbacks.onSyncError(null);
+        this.callbacks.onSyncComplete();
+      } catch (e) {
+        const syncError = this.classifySyncError(e);
+        this.callbacks.onSyncError(syncError);
+        // saveDirty NOT cleared — will retry
+      } finally {
+        this.callbacks.onSyncing(false);
+      }
+    });
   }
 
   private buildRowsFromYDoc(): string[][] {
@@ -374,7 +395,7 @@ export class SheetsAdapter {
   // ------------------------------------------------------------------
 
   private async poll(): Promise<void> {
-    if (this.stopped || this.saving) return;
+    if (this.stopped) return;
     try {
       await this.loadFromSheet();
     } catch (e) {
@@ -387,63 +408,67 @@ export class SheetsAdapter {
     const token = this.getToken();
     if (!token) return;
 
-    this.callbacks.onSyncing(true);
+    await this.withLock(async () => {
+      if (this.stopped) return;
 
-    try {
-      const endCol = columnLetter(SHEET_COLUMNS.length);
-      const range = `Sheet1!A1:${endCol}`;
-      const rawRows = await readSheet(this.spreadsheetId, range);
+      this.callbacks.onSyncing(true);
 
-      if (rawRows.length === 0) {
-        // Empty sheet — write current Y.Doc
-        if (this.getYDocTaskCount() > 0) {
-          this.markDirty();
+      try {
+        const endCol = columnLetter(SHEET_COLUMNS.length);
+        const range = `Sheet1!A1:${endCol}`;
+        const rawRows = await readSheet(this.spreadsheetId, range);
+
+        if (rawRows.length === 0) {
+          // Empty sheet — write current Y.Doc
+          if (this.getYDocTaskCount() > 0) {
+            this.markDirty();
+          }
+          this.callbacks.onSyncing(false);
+          if (!this.initialLoadDone) {
+            this.initialLoadDone = true;
+            this.callbacks.onSyncComplete();
+          }
+          return;
         }
-        this.callbacks.onSyncing(false);
+
+        // Validate headers
+        if (!validateHeaders(rawRows[0])) {
+          this.callbacks.onSyncError({
+            type: 'header_mismatch',
+            message: 'Sheet columns do not match expected format.',
+            since: Date.now(),
+          });
+          this.callbacks.onSyncing(false);
+          return;
+        }
+
+        // Parse sheet rows into tasks
+        const sheetTasks = new Map<string, { task: Task; row: string[] }>();
+        for (let i = 1; i < rawRows.length; i++) {
+          const row = rawRows[i];
+          const task = rowToTask(row);
+          if (task) {
+            // Fix dependency toId references
+            task.dependencies = task.dependencies.map((d) => ({ ...d, toId: task.id }));
+            sheetTasks.set(task.id, { task, row });
+          }
+        }
+
+        // Three-way merge
+        await this.threeWayMerge(sheetTasks);
+
+        this.callbacks.onSyncError(null);
         if (!this.initialLoadDone) {
           this.initialLoadDone = true;
           this.callbacks.onSyncComplete();
         }
-        return;
-      }
-
-      // Validate headers
-      if (!validateHeaders(rawRows[0])) {
-        this.callbacks.onSyncError({
-          type: 'header_mismatch',
-          message: 'Sheet columns do not match expected format.',
-          since: Date.now(),
-        });
+      } catch (e) {
+        const syncError = this.classifySyncError(e);
+        this.callbacks.onSyncError(syncError);
+      } finally {
         this.callbacks.onSyncing(false);
-        return;
       }
-
-      // Parse sheet rows into tasks
-      const sheetTasks = new Map<string, { task: Task; row: string[] }>();
-      for (let i = 1; i < rawRows.length; i++) {
-        const row = rawRows[i];
-        const task = rowToTask(row);
-        if (task) {
-          // Fix dependency toId references
-          task.dependencies = task.dependencies.map((d) => ({ ...d, toId: task.id }));
-          sheetTasks.set(task.id, { task, row });
-        }
-      }
-
-      // Three-way merge
-      await this.threeWayMerge(sheetTasks);
-
-      this.callbacks.onSyncError(null);
-      if (!this.initialLoadDone) {
-        this.initialLoadDone = true;
-        this.callbacks.onSyncComplete();
-      }
-    } catch (e) {
-      const syncError = this.classifySyncError(e);
-      this.callbacks.onSyncError(syncError);
-    } finally {
-      this.callbacks.onSyncing(false);
-    }
+    });
   }
 
   private async threeWayMerge(
@@ -511,8 +536,19 @@ export class SheetsAdapter {
     // Check for tasks in Y.Doc but not in Sheet (deleted externally)
     for (const ydocId of ydocTaskIds) {
       if (!sheetTasks.has(ydocId)) {
-        // Task was deleted externally — remove base value from IndexedDB.
-        // Do NOT set needsWrite: that would re-write the deleted task back to the Sheet.
+        // Task was deleted externally — remove from Y.Doc and base value store.
+        // Use 'sheets' origin so observers don't cascade and UndoManager ignores it.
+        this.doc.transact(() => {
+          ytasks.delete(ydocId);
+          const taskOrder = this.doc.getArray<string>('taskOrder');
+          for (let i = taskOrder.length - 1; i >= 0; i--) {
+            if (taskOrder.get(i) === ydocId) {
+              taskOrder.delete(i, 1);
+              break;
+            }
+          }
+        }, 'sheets');
+
         if (this.db) {
           try {
             await idbDelete(this.db, ydocId);
@@ -523,8 +559,16 @@ export class SheetsAdapter {
       }
     }
 
-    if (conflicts.length > 0) {
-      this.callbacks.onConflict(conflicts);
+    // Dedup conflicts — only notify for new ones
+    const newConflicts = conflicts.filter((c) => {
+      const key = `${c.taskId}:${c.field}`;
+      return !this.notifiedConflicts.has(key);
+    });
+    for (const c of newConflicts) {
+      this.notifiedConflicts.add(`${c.taskId}:${c.field}`);
+    }
+    if (newConflicts.length > 0) {
+      this.callbacks.onConflict(newConflicts);
     }
 
     if (needsWrite) {
@@ -662,6 +706,10 @@ export class SheetsAdapter {
   // ------------------------------------------------------------------
   // Public: clear base values (on disconnect/sheet switch)
   // ------------------------------------------------------------------
+
+  clearConflict(taskId: string, field: string): void {
+    this.notifiedConflicts.delete(`${taskId}:${field}`);
+  }
 
   async clearBaseValues(): Promise<void> {
     if (this.db) {

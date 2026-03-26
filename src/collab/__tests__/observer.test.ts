@@ -123,11 +123,14 @@ describe('setupObserver', () => {
       return 1;
     };
 
+    // Simulate a WebSocket provider origin (object with 'ws' property)
+    const fakeProvider = { ws: {} };
+
     try {
-      // Write without origin (simulates remote peer)
+      // Write with provider origin (simulates remote peer via WebSocket)
       doc.transact(() => {
         ytasks.set('task-1', taskToYMap(makeTask()));
-      });
+      }, fakeProvider);
 
       // Store NOT updated yet (batched)
       expect(store.getTask('task-1')).toBeUndefined();
@@ -141,6 +144,19 @@ describe('setupObserver', () => {
     } finally {
       globalThis.requestAnimationFrame = originalRAF;
     }
+  });
+
+  it('processes null-origin (undo/init) changes synchronously', () => {
+    const { tasks: ytasks } = initSchema(doc);
+
+    // Write without origin (null) — should be processed synchronously
+    // This covers undo/redo and initialization transactions
+    doc.transact(() => {
+      ytasks.set('task-1', taskToYMap(makeTask()));
+    });
+
+    // Store should be updated immediately (not batched)
+    expect(store.getTask('task-1')).toBeDefined();
   });
 
   it('skips cold derivations for sheets origin', async () => {

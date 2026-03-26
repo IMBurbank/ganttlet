@@ -35,6 +35,7 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { key: 'endDate', label: 'End Date', width: 100, visible: true },
   { key: 'duration', label: 'Duration', width: 80, visible: true },
   { key: 'owner', label: 'Owner', width: 120, visible: true },
+  { key: 'predecessors', label: 'Predecessors', width: 120, visible: true },
   { key: 'done', label: 'Done', width: 60, visible: true },
 ];
 

@@ -10,6 +10,8 @@ import { initSchema, taskToYMap } from '../schema/ydoc';
 export function initializeYDoc(doc: Y.Doc, tasks: Task[]): void {
   const { tasks: ytasks, taskOrder } = initSchema(doc);
 
+  // Use 'init' origin (not 'local') so UndoManager does not track this setup operation.
+  // Users should not be able to undo the initial task population.
   doc.transact(() => {
     // Clear existing data
     ytasks.forEach((_val, key) => ytasks.delete(key));
@@ -24,7 +26,7 @@ export function initializeYDoc(doc: Y.Doc, tasks: Task[]): void {
 
     // Write task order (preserve input order)
     taskOrder.push(tasks.map((t) => t.id));
-  }, 'local');
+  }, 'init');
 }
 
 /**

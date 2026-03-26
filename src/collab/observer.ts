@@ -229,22 +229,30 @@ export function setupObserver(
   const deepHandler = (events: Y.YEvent<Y.AbstractType<unknown>>[], txn: Y.Transaction) => {
     try {
       const changes = extractChanges(events, ytasks);
-      const origin = txn.origin as string | null;
+      const origin = txn.origin;
 
-      if (origin === 'local') {
-        // Process synchronously (same frame)
-        processBatch(changes, ytasks, taskStore, {
-          scheduleCold: true,
-          scope: uiState.criticalPathScope,
-        });
-      } else if (origin === 'sheets') {
+      // Determine if this is a remote change from a WebSocket provider.
+      // WebSocket providers set origin to the provider instance (object with 'ws' property).
+      // UndoManager sets origin to itself (UndoManager instance).
+      // Local mutations use origin 'local' (string). Sheets sync uses 'sheets'.
+      // Initialization uses null.
+      const isRemote =
+        origin != null && typeof origin === 'object' && 'ws' in (origin as Record<string, unknown>);
+
+      if (origin === 'sheets') {
         // Process synchronously, skip cold derivations
         processBatch(changes, ytasks, taskStore, {
           scheduleCold: false,
           scope: uiState.criticalPathScope,
         });
+      } else if (!isRemote) {
+        // Local mutations, undo/redo, initialization: process synchronously
+        processBatch(changes, ytasks, taskStore, {
+          scheduleCold: true,
+          scope: uiState.criticalPathScope,
+        });
       } else {
-        // Remote: batch via requestAnimationFrame
+        // Remote (WebSocket provider): batch via requestAnimationFrame
         // Filter out the locally-dragged task to prevent remote updates from
         // fighting the user's in-progress drag operation.
         if (getDraggedTaskId) {

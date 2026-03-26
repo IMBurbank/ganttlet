@@ -328,13 +328,17 @@ test.describe('Gantt Chart @gantt', () => {
       await expect(undoBtn).toBeEnabled({ timeout: 5_000 });
 
       // Click undo and poll until constraint reverts (may need 1-3 clicks)
+      // Use dismiss() (no assertion) inside toPass to avoid inner-timeout burning budget.
+      // Always dismiss any leftover popover before each iteration.
       await expect(async () => {
+        await gantt.page.keyboard.press('Escape');
         await undoBtn.click();
+        await gantt.page.waitForTimeout(300);
         const pop = await gantt.openPopover(0);
         const val = await pop.constraintType.inputValue();
-        await pop.close();
+        await pop.dismiss();
         expect(val).toBe('ASAP');
-      }).toPass({ timeout: 10_000 });
+      }).toPass({ timeout: 15_000 });
     });
   });
 
@@ -347,22 +351,26 @@ test.describe('Gantt Chart @gantt', () => {
 
     await test.step('undo until ASAP', async () => {
       await expect(async () => {
+        await gantt.page.keyboard.press('Escape');
         await gantt.undoButton.click();
+        await gantt.page.waitForTimeout(300);
         const pop = await gantt.openPopover(0);
         const val = await pop.constraintType.inputValue();
-        await pop.close();
+        await pop.dismiss();
         expect(val).toBe('ASAP');
-      }).toPass({ timeout: 10_000 });
+      }).toPass({ timeout: 15_000 });
     });
 
     await test.step('redo until SNET restored', async () => {
       await expect(async () => {
+        await gantt.page.keyboard.press('Escape');
         await gantt.redoButton.click();
+        await gantt.page.waitForTimeout(300);
         const pop = await gantt.openPopover(0);
         const val = await pop.constraintType.inputValue();
-        await pop.close();
+        await pop.dismiss();
         expect(val).toBe('SNET');
-      }).toPass({ timeout: 10_000 });
+      }).toPass({ timeout: 15_000 });
     });
   });
 });

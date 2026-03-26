@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import type { Task } from '../types';
 import { taskToYMap, yMapToTask } from '../schema/ydoc';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
-import { daysBetween } from '../utils/dateUtils';
+import { daysBetween, formatDate, taskEndDate } from '../utils/dateUtils';
 
 /**
  * Read all tasks from the Y.Doc tasks map as a Task[].
@@ -118,11 +118,14 @@ export function resizeTask(doc: Y.Doc, taskId: string, newEnd: string): void {
  */
 export function addTask(doc: Y.Doc, task: Partial<Task>, afterTaskId?: string): string {
   const id = crypto.randomUUID();
+  // Default to today + 5 business days when no dates provided
+  const defaultStart = task.startDate || formatDate(new Date());
+  const defaultEnd = task.endDate || taskEndDate(defaultStart, 5);
   const fullTask: Task = {
     id,
     name: task.name ?? 'New Task',
-    startDate: task.startDate ?? '',
-    endDate: task.endDate ?? '',
+    startDate: defaultStart,
+    endDate: defaultEnd,
     duration: 0, // computed, not stored in Y.Doc
     owner: task.owner ?? '',
     workStream: task.workStream ?? '',

@@ -93,12 +93,14 @@ describe('Observer pipeline integration', () => {
     const task = makeTask('t2');
     const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
 
-    // No origin = remote
+    // Simulate a WebSocket provider origin (object with 'ws' property)
+    const fakeProvider = { ws: {} };
+
     doc.transact(() => {
       ytasks.set('t2', taskToYMap(task));
-    });
+    }, fakeProvider);
 
-    // Should NOT be available immediately
+    // Should NOT be available immediately (batched)
     expect(taskStore.getTask('t2')).toBeUndefined();
 
     // After RAF fires (16ms)
@@ -148,18 +150,21 @@ describe('Observer pipeline integration', () => {
   it('multiple remote changes batch correctly', () => {
     const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
 
-    // Add 3 tasks in separate remote transactions
+    // Simulate a WebSocket provider origin (object with 'ws' property)
+    const fakeProvider = { ws: {} };
+
+    // Add 3 tasks in separate remote transactions (provider origin)
     doc.transact(() => {
       ytasks.set('r1', taskToYMap(makeTask('r1')));
-    });
+    }, fakeProvider);
     doc.transact(() => {
       ytasks.set('r2', taskToYMap(makeTask('r2')));
-    });
+    }, fakeProvider);
     doc.transact(() => {
       ytasks.set('r3', taskToYMap(makeTask('r3')));
-    });
+    }, fakeProvider);
 
-    // None available yet
+    // None available yet (batched via RAF)
     expect(taskStore.getTask('r1')).toBeUndefined();
     expect(taskStore.getTask('r2')).toBeUndefined();
     expect(taskStore.getTask('r3')).toBeUndefined();

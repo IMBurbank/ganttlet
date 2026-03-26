@@ -1,5 +1,6 @@
-import { useCallback, useRef, useEffect, useState, lazy, Suspense } from 'react';
+import { useCallback, useRef, useEffect, useState, useContext, lazy, Suspense } from 'react';
 import { useMutate } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 
 const TemplatePicker = lazy(() => import('./TemplatePicker'));
 
@@ -9,6 +10,7 @@ interface EmptyStateProps {
 
 export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
   const mutate = useMutate();
+  const uiStore = useContext(UIStoreContext);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -20,8 +22,10 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
     (name: string) => {
       if (!name.trim()) return;
       mutate({ type: 'ADD_TASK', task: { name: name.trim() } });
+      // Transition from empty state to sandbox so the Gantt chart renders
+      uiStore?.setState({ dataSource: 'sandbox' });
     },
-    [mutate]
+    [mutate, uiStore]
   );
 
   const handleKeyDown = useCallback(

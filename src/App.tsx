@@ -56,9 +56,10 @@ function AppContent() {
   const allTasks = taskStore.getAllTasksArray();
   const taskMap = useMemo(() => new Map(allTasks.map((t) => [t.id, t])), [allTasks]);
 
+  const collapsedTasks = useUIStore((s) => s.expandedTasks);
   const visibleTasks = useMemo(
-    () => getVisibleTasks(allTasks, searchQuery),
-    [allTasks, searchQuery]
+    () => getVisibleTasks(allTasks, searchQuery, collapsedTasks),
+    [allTasks, searchQuery, collapsedTasks]
   );
 
   const handleCloseContextMenu = useCallback(
@@ -105,7 +106,7 @@ function AppContent() {
       ...(task.isSummary
         ? [
             {
-              label: task.isExpanded ? 'Collapse group' : 'Expand group',
+              label: collapsedTasks.has(task.id) ? 'Expand group' : 'Collapse group',
               onClick: () => {
                 const expanded = new Set(uiStore.getState().expandedTasks);
                 if (expanded.has(task.id)) {
@@ -174,7 +175,7 @@ function AppContent() {
         danger: true,
       },
     ];
-  }, [contextMenu, taskMap, uiStore, mutate]);
+  }, [contextMenu, taskMap, uiStore, mutate, allTasks, collapsedTasks]);
 
   if (dataSource === 'empty') {
     return (

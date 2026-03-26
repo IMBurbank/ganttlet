@@ -4,15 +4,21 @@ export const ROW_HEIGHT = 44;
 export const HEADER_HEIGHT = 56;
 export const TIMELINE_HEADER_HEIGHT = 50;
 
-export function getVisibleTasks(tasks: Task[], searchQuery: string): Task[] {
+export function getVisibleTasks(
+  tasks: Task[],
+  searchQuery: string,
+  collapsedTasks?: Set<string>
+): Task[] {
   const result: Task[] = [];
-  const taskMap = new Map(tasks.map(t => [t.id, t]));
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   function isAncestorExpanded(task: Task): boolean {
     if (!task.parentId) return true;
     const parent = taskMap.get(task.parentId);
     if (!parent) return true;
-    if (!parent.isExpanded) return false;
+    // Check UIStore collapsed state (collapsedTasks set) rather than task.isExpanded
+    // which is always true from yMapToTask defaults
+    if (collapsedTasks?.has(parent.id)) return false;
     return isAncestorExpanded(parent);
   }
 
@@ -23,7 +29,7 @@ export function getVisibleTasks(tasks: Task[], searchQuery: string): Task[] {
       // If it's a summary and has matching children, still show it
       if (task.isSummary) {
         const hasMatchingChild = tasks.some(
-          t => t.parentId === task.id && t.name.toLowerCase().includes(searchQuery.toLowerCase())
+          (t) => t.parentId === task.id && t.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
         if (!hasMatchingChild) continue;
       } else {

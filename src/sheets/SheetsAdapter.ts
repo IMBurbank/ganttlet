@@ -148,11 +148,14 @@ export class SheetsAdapter {
     // Initial load from Sheet
     await this.loadFromSheet();
 
-    // Observe Y.Doc for local changes
+    // Observe Y.Doc for local changes (including undo/redo)
     const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
     this.observer = (_events, txn) => {
-      // Only track local mutations for write-back
-      if (txn.origin === 'local') {
+      // Mark dirty for local mutations and undo/redo operations.
+      // Y.UndoManager uses itself as txn.origin (not 'local'),
+      // so we check both. 'sheets' origin is excluded to prevent
+      // write-back of data we just read from the Sheet.
+      if (txn.origin === 'local' || txn.origin instanceof Y.UndoManager) {
         this.markDirty();
       }
     };

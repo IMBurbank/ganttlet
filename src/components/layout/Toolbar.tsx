@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useContext } from 'react';
-import { useUIStore, useMutate } from '../../hooks';
+import { useUIStore, useMutate, useAllTasks, useTaskOrder } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
-import { TaskStoreContext } from '../../store/TaskStore';
 import type { ColorByField, ZoomLevel } from '../../types';
 import { getPaletteEntries } from '../../data/colorPalettes';
 import UndoRedoButtons from '../shared/UndoRedoButtons';
@@ -32,8 +31,9 @@ export default function Toolbar() {
   const columns = useUIStore((s) => s.columns);
 
   const uiStore = useContext(UIStoreContext)!;
-  const taskStore = useContext(TaskStoreContext)!;
   const mutate = useMutate();
+  const allTasks = useAllTasks();
+  const taskOrder = useTaskOrder();
 
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
@@ -60,7 +60,6 @@ export default function Toolbar() {
 
   const legendEntries = getPaletteEntries(colorBy);
 
-  const allTasks = taskStore.getAllTasksArray();
   const projectNames = useMemo(
     () => [...new Set(allTasks.map((t) => t.project).filter(Boolean))],
     [allTasks]
@@ -373,8 +372,7 @@ export default function Toolbar() {
       {/* Recalculate All */}
       <button
         onClick={() => {
-          const allIds = taskStore.getTaskOrder();
-          mutate({ type: 'RECALCULATE_EARLIEST', taskIds: allIds });
+          mutate({ type: 'RECALCULATE_EARLIEST', taskIds: taskOrder });
         }}
         className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors"
         title="Recalculate all tasks to their earliest possible dates"

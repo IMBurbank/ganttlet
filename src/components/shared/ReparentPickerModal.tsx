@@ -1,16 +1,15 @@
 import React, { useEffect, useCallback, useContext, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useUIStore, useMutate } from '../../hooks';
+import { useUIStore, useMutate, useAllTasks } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
-import { TaskStoreContext } from '../../store/TaskStore';
 import { getHierarchyRole, getAllDescendantIds } from '../../utils/hierarchyUtils';
 import { checkMoveConflicts } from '../../utils/dependencyValidation';
 
 export default function ReparentPickerModal() {
   const picker = useUIStore((s) => s.reparentPicker);
   const uiStore = useContext(UIStoreContext)!;
-  const taskStore = useContext(TaskStoreContext)!;
   const mutate = useMutate();
+  const allTasks = useAllTasks();
 
   const close = useCallback(() => {
     uiStore.setState({ reparentPicker: null });
@@ -24,7 +23,6 @@ export default function ReparentPickerModal() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [close]);
 
-  const allTasks = taskStore.getAllTasksArray();
   const taskMap = useMemo(() => new Map(allTasks.map((t) => [t.id, t])), [allTasks]);
 
   if (!picker) return null;

@@ -1,9 +1,8 @@
 import React, { useEffect, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import type { Dependency, DependencyType } from '../../types';
-import { useUIStore, useMutate } from '../../hooks';
+import { useUIStore, useMutate, useAllTasks, useTask } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
-import { TaskStoreContext } from '../../store/TaskStore';
 import { wouldCreateCycle } from '../../utils/schedulerWasm';
 import { validateDependencyHierarchy } from '../../utils/dependencyValidation';
 
@@ -17,8 +16,9 @@ const DEP_TYPE_LABELS: Record<DependencyType, string> = {
 export default function DependencyEditorModal() {
   const editor = useUIStore((s) => s.dependencyEditor);
   const uiStore = useContext(UIStoreContext)!;
-  const taskStore = useContext(TaskStoreContext)!;
   const mutate = useMutate();
+  const allTasks = useAllTasks();
+  const task = useTask(editor?.taskId ?? '');
 
   const close = useCallback(() => {
     uiStore.setState({ dependencyEditor: null });
@@ -32,11 +32,7 @@ export default function DependencyEditorModal() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [close]);
 
-  if (!editor) return null;
-
-  const allTasks = taskStore.getAllTasksArray();
-  const task = taskStore.getTask(editor.taskId);
-  if (!task) return null;
+  if (!editor || !task) return null;
 
   const nonSummaryTasks = allTasks.filter((t) => !t.isSummary && t.id !== task.id);
 

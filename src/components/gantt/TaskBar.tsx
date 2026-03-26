@@ -1,7 +1,8 @@
-import React, { useRef, useCallback, useState } from 'react';
+import React, { useRef, useCallback, useState, useContext } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 import type { ZoomLevel } from '../../types';
 import { useMutate } from '../../hooks';
+import { DragContext } from '../../state/TaskStoreProvider';
 import {
   dateToX,
   xToDate,
@@ -76,6 +77,7 @@ export default function TaskBar({
   awareness,
 }: TaskBarProps) {
   const mutate = useMutate();
+  const draggedTaskIdRef = useContext(DragContext);
   const dragRef = useRef<{
     startX: number;
     origStartDate: string;
@@ -118,6 +120,9 @@ export default function TaskBar({
 
       // Capture pointer — all subsequent move/up events route to this element
       (e.target as Element).setPointerCapture(e.pointerId);
+
+      // Mark this task as being dragged so observer skips remote updates for it
+      draggedTaskIdRef.current = taskId;
 
       dragRef.current = {
         startX: e.clientX,
@@ -256,6 +261,9 @@ export default function TaskBar({
       const finalTask = dragRef.current;
       dragRef.current = null;
 
+      // Clear drag guard so observer resumes processing this task
+      draggedTaskIdRef.current = null;
+
       // Clear CSS transform
       if (gRef.current) {
         gRef.current.style.transform = '';
@@ -294,6 +302,7 @@ export default function TaskBar({
     // Safety net: browser stole capture (e.g. alert dialog, permission prompt)
     if (!dragRef.current) return;
     dragRef.current = null;
+    draggedTaskIdRef.current = null;
     if (gRef.current) {
       gRef.current.style.transform = '';
     }

@@ -6,6 +6,7 @@ import {
   useImperativeHandle,
   useLayoutEffect,
 } from 'react';
+import type { Awareness } from 'y-protocols/awareness';
 import GanttChart from './GanttChart';
 import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
 import { ROW_HEIGHT } from '../../utils/layoutUtils';
@@ -20,6 +21,7 @@ interface VirtualizedGanttChartProps {
   users: FakeUser[];
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
+  awareness?: Awareness | null;
   onDependencyClick?: (dep: Dependency, successorId: string) => void;
   onScroll?: () => void;
 }

@@ -216,7 +216,8 @@ function processBatch(
 export function setupObserver(
   doc: Y.Doc,
   taskStore: TaskStore,
-  uiState: ObserverOptions
+  uiState: ObserverOptions,
+  getDraggedTaskId?: () => string | null
 ): () => void {
   const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
   const taskOrder = doc.getArray<string>('taskOrder');
@@ -245,6 +246,14 @@ export function setupObserver(
         });
       } else {
         // Remote: batch via requestAnimationFrame
+        // Filter out the locally-dragged task to prevent remote updates from
+        // fighting the user's in-progress drag operation.
+        if (getDraggedTaskId) {
+          const draggedId = getDraggedTaskId();
+          if (draggedId) {
+            changes.changed.delete(draggedId);
+          }
+        }
         for (const id of changes.changed) pendingRemote.changed.add(id);
         for (const id of changes.deleted) pendingRemote.deleted.add(id);
 

@@ -1,4 +1,12 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  type MutableRefObject,
+} from 'react';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { TaskStore, TaskStoreContext } from '../store/TaskStore';
@@ -35,6 +43,10 @@ export const UndoManagerContext = createContext<UndoManagerState>({
   canRedo: false,
 });
 
+/** Ref to the task ID currently being dragged locally.
+ *  TaskBar sets this during pointer capture; observer reads it to skip remote updates. */
+export const DragContext = createContext<MutableRefObject<string | null>>({ current: null });
+
 interface TaskStoreProviderProps {
   children: React.ReactNode;
   /** External Y.Doc (for testing or shared doc scenarios). If not provided, a new one is created. */
@@ -66,6 +78,7 @@ export function TaskStoreProvider({
   const taskStore = useMemo(() => new TaskStore(), []);
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
   const uiStore = useContext(UIStoreContext);
+  const draggedTaskIdRef = useRef<string | null>(null);
   const adapterRef = useRef<SheetsAdapter | null>(null);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
   const persistenceRef = useRef<IndexeddbPersistence | null>(null);
@@ -78,7 +91,12 @@ export function TaskStoreProvider({
 
   // Set up observer on mount
   useEffect(() => {
-    const cleanup = setupObserver(doc, taskStore, { criticalPathScope });
+    const cleanup = setupObserver(
+      doc,
+      taskStore,
+      { criticalPathScope },
+      () => draggedTaskIdRef.current
+    );
     return cleanup;
   }, [doc, taskStore, criticalPathScope]);
 
@@ -282,7 +300,9 @@ export function TaskStoreProvider({
   return (
     <TaskStoreContext.Provider value={taskStore}>
       <UndoManagerContext.Provider value={undoManagerState}>
-        <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+        <DragContext.Provider value={draggedTaskIdRef}>
+          <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+        </DragContext.Provider>
       </UndoManagerContext.Provider>
     </TaskStoreContext.Provider>
   );

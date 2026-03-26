@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { parseISO, isValid } from 'date-fns';
+import type { Awareness } from 'y-protocols/awareness';
 import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
 import { useUIStore } from '../../hooks';
 import {
@@ -37,6 +38,7 @@ interface GanttChartProps {
   users: FakeUser[];
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
+  awareness?: Awareness | null;
   onDependencyClick?: (dep: Dependency, successorId: string) => void;
   virtualStartIndex?: number;
   virtualEndIndex?: number;
@@ -50,6 +52,7 @@ export default function GanttChart({
   users,
   collabUsers,
   isCollabConnected,
+  awareness,
   onDependencyClick,
   virtualStartIndex,
   virtualEndIndex,
@@ -238,6 +241,7 @@ export default function GanttChart({
                 collapseWeekends={collapseWeekends}
                 earliestStart={earliest ?? undefined}
                 conflictMessage={conflictMap.get(task.id)}
+                awareness={awareness}
               />
             );
           })}

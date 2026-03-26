@@ -16,6 +16,8 @@ import ReparentPickerModal from './components/shared/ReparentPickerModal';
 import EmptyState from './components/onboarding/EmptyState';
 import ConflictResolutionModal from './components/onboarding/ConflictResolutionModal';
 import { DataSafeErrorBoundary } from './components/shared/DataSafeErrorBoundary';
+import { AwarenessProvider, useAwareness } from './collab/AwarenessContext';
+import { getAuthState } from './sheets/oauth';
 
 function AppContent() {
   const theme = useUIStore((s) => s.theme);
@@ -32,6 +34,7 @@ function AppContent() {
   const uiStore = useContext(UIStoreContext)!;
   const taskStore = useContext(TaskStoreContext)!;
   const mutate = useMutate();
+  const { collabUsers, isCollabConnected, awareness } = useAwareness();
 
   // Subscribe to global task changes to trigger re-renders
   useTaskOrder();
@@ -202,8 +205,8 @@ function AppContent() {
               colorBy={colorBy}
               taskMap={taskMap}
               users={[]}
-              collabUsers={[]}
-              isCollabConnected={false}
+              collabUsers={collabUsers}
+              isCollabConnected={isCollabConnected}
             />
           </DataSafeErrorBoundary>
         </div>
@@ -232,8 +235,9 @@ function AppContent() {
             zoom={zoomLevel}
             colorBy={colorBy}
             users={[]}
-            collabUsers={[]}
-            isCollabConnected={false}
+            collabUsers={collabUsers}
+            isCollabConnected={isCollabConnected}
+            awareness={awareness}
             onDependencyClick={handleDependencyClick}
             onScroll={handleGanttScroll}
           />
@@ -266,15 +270,22 @@ export default function App() {
   const params = new URLSearchParams(window.location.search);
   const sheetId = params.get('sheet') || undefined;
   const roomId = params.get('room') || sheetId;
+  const auth = getAuthState();
 
   return (
     <UIStoreProvider>
       <TaskStoreProvider spreadsheetId={sheetId} roomId={roomId}>
-        <DataSafeErrorBoundary>
-          <WelcomeGate>
-            <AppContent />
-          </WelcomeGate>
-        </DataSafeErrorBoundary>
+        <AwarenessProvider
+          roomId={roomId}
+          userName={auth.userName ?? undefined}
+          userEmail={auth.userEmail ?? undefined}
+        >
+          <DataSafeErrorBoundary>
+            <WelcomeGate>
+              <AppContent />
+            </WelcomeGate>
+          </DataSafeErrorBoundary>
+        </AwarenessProvider>
       </TaskStoreProvider>
     </UIStoreProvider>
   );

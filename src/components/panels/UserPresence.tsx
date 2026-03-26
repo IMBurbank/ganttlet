@@ -1,14 +1,12 @@
 import React from 'react';
 import Avatar from '../shared/Avatar';
 import Tooltip from '../shared/Tooltip';
+import { useAwareness } from '../../collab/AwarenessContext';
 
 export default function UserPresence() {
-  // Phase 2+: wire to CollabStore. For Phase 1, stub with empty state.
-  const collabUsers: { clientId: number; name: string; color: string; viewingTaskId?: string }[] =
-    [];
-  const isCollabConnected = false;
+  const { collabUsers, isCollabConnected } = useAwareness();
 
-  if (!(isCollabConnected && collabUsers.length > 0)) {
+  if (!isCollabConnected || collabUsers.length === 0) {
     return null;
   }
 

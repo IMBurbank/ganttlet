@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useRef, useEffect, useContext } from 'react';
 import { UIStoreProvider } from './state/UIStoreProvider';
 import { TaskStoreProvider } from './state/TaskStoreProvider';
-import { useUIStore, useMutate, useTaskOrder, useCollab } from './hooks';
+import { useUIStore, useMutate, useTaskOrder, useCollab, useAuthState } from './hooks';
 import { UIStoreContext } from './store/UIStore';
 import { TaskStoreContext } from './store/TaskStore';
 import WelcomeGate from './components/onboarding/WelcomeGate';
@@ -16,7 +16,6 @@ import ReparentPickerModal from './components/shared/ReparentPickerModal';
 import EmptyState from './components/onboarding/EmptyState';
 import ConflictResolutionModal from './components/onboarding/ConflictResolutionModal';
 import { DataSafeErrorBoundary } from './components/shared/DataSafeErrorBoundary';
-import { getAuthState } from './sheets/oauth';
 
 function AppContent() {
   const theme = useUIStore((s) => s.theme);
@@ -179,7 +178,10 @@ function AppContent() {
 
   if (dataSource === 'empty') {
     return (
-      <div className="flex flex-col h-screen bg-surface-base text-text-primary">
+      <div
+        className="flex flex-col h-screen bg-surface-base text-text-primary"
+        data-collab-status={isCollabConnected ? 'connected' : 'disconnected'}
+      >
         <Header />
         <EmptyState />
       </div>
@@ -187,7 +189,10 @@ function AppContent() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-surface-base text-text-primary">
+    <div
+      className="flex flex-col h-screen bg-surface-base text-text-primary"
+      data-collab-status={isCollabConnected ? 'connected' : 'disconnected'}
+    >
       <Header />
       <Toolbar />
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -268,7 +273,7 @@ function AppContent() {
 function AppShell() {
   const spreadsheetId = useUIStore((s) => s.spreadsheetId);
   const roomId = useUIStore((s) => s.roomId);
-  const auth = getAuthState();
+  const auth = useAuthState();
 
   return (
     <TaskStoreProvider

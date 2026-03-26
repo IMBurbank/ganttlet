@@ -119,7 +119,7 @@ export function TaskStoreProvider({
     userName,
     userEmail
   );
-  const sheetsAdapterRef = useSheetsSync(doc, spreadsheetId, uiStore, undoManagerRef);
+  const sheetsAdapterRef = useSheetsSync(doc, spreadsheetId, uiStore, undoManagerRef, accessToken);
 
   // Mutate dispatcher
   const mutate = useCallback(

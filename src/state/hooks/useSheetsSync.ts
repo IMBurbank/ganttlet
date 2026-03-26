@@ -10,12 +10,13 @@ export function useSheetsSync(
   doc: Y.Doc,
   spreadsheetId: string | undefined,
   uiStore: UIStore | null,
-  undoManagerRef: RefObject<Y.UndoManager | null>
+  undoManagerRef: RefObject<Y.UndoManager | null>,
+  accessToken: string | undefined
 ): RefObject<SheetsAdapter | null> {
   const adapterRef = useRef<SheetsAdapter | null>(null);
 
   useEffect(() => {
-    if (!spreadsheetId || !uiStore) return;
+    if (!spreadsheetId || !uiStore || !accessToken) return;
 
     // Clear undo stack on sandbox->sheet promotion
     if (undoManagerRef.current) {
@@ -67,7 +68,7 @@ export function useSheetsSync(
       window.removeEventListener('beforeunload', beforeUnloadHandler);
       window.removeEventListener('ganttlet:conflict-resolve', conflictResolveHandler);
     };
-  }, [spreadsheetId, doc, uiStore, undoManagerRef]);
+  }, [spreadsheetId, doc, uiStore, undoManagerRef, accessToken]);
 
   return adapterRef;
 }

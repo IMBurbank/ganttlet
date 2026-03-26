@@ -68,6 +68,7 @@ test.describe('Gantt Chart @gantt', () => {
   });
 
   test('dependency arrows are connected', async ({ sandboxPage: gantt }) => {
+    await expect(gantt.dependencyArrows.first()).toBeVisible({ timeout: 10_000 });
     const arrowCount = await gantt.dependencyArrows.count();
     expect(arrowCount).toBeGreaterThan(0);
 
@@ -106,6 +107,7 @@ test.describe('Gantt Chart @gantt', () => {
   });
 
   test('dependency arrow heads render as triangles', async ({ sandboxPage: gantt }) => {
+    await expect(gantt.dependencyArrows.first()).toBeVisible({ timeout: 10_000 });
     const arrowCount = await gantt.dependencyArrows.count();
     expect(arrowCount).toBeGreaterThan(0);
 
@@ -121,6 +123,7 @@ test.describe('Gantt Chart @gantt', () => {
   });
 
   test('SF dependency renders correct arrow path', async ({ sandboxPage: gantt }) => {
+    await expect(gantt.dependencyArrows.first()).toBeVisible({ timeout: 10_000 });
     await test.step('change FS dependency to SF', async () => {
       const depEditor = await gantt.openDepEditor(/^pe-1\+2$/);
       await depEditor.setType(0, 'SF');
@@ -175,7 +178,7 @@ test.describe('Gantt Chart @gantt', () => {
         const indicatorCount = await gantt.conflictIndicators.count();
         const outlineCount = await gantt.conflictOutlines.count();
         expect(indicatorCount + outlineCount).toBeGreaterThan(0);
-      }).toPass({ timeout: 5_000 });
+      }).toPass({ timeout: 15_000 });
     });
 
     await test.step('verify app still functional', async () => {

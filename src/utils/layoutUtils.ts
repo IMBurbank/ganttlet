@@ -16,14 +16,12 @@ export function getVisibleTasks(
     if (!task.parentId) return true;
     const parent = taskMap.get(task.parentId);
     if (!parent) return true;
-    // Check UIStore collapsed state (collapsedTasks set) rather than task.isExpanded
-    // which is always true from yMapToTask defaults
+    // Check UIStore collapsed state (collapsedTasks set)
     if (collapsedTasks?.has(parent.id)) return false;
     return isAncestorExpanded(parent);
   }
 
   for (const task of tasks) {
-    if (task.isHidden) continue;
     if (!isAncestorExpanded(task)) continue;
     if (searchQuery && !task.name.toLowerCase().includes(searchQuery.toLowerCase())) {
       // If it's a summary and has matching children, still show it

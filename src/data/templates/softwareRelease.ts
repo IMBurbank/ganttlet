@@ -19,8 +19,7 @@ export const fakeTasks: Task[] = [
     parentId: null,
     childIds: ['pe', 'ux', 'gtm', 'ms-launch'],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
+
     notes: 'Overall Q2 launch initiative',
     okrs: [],
   },
@@ -43,8 +42,7 @@ export const fakeTasks: Task[] = [
     parentId: 'root',
     childIds: ['pe-1', 'pe-2', 'pe-3', 'pe-4', 'pe-5', 'pe-6', 'pe-7', 'pe-8', 'pe-9', 'ms-api'],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
+
     notes: 'Core platform work for Q2',
     okrs: ['KR: API p99 latency < 200ms', 'KR: Zero-downtime migration', 'KR: 99.9% uptime SLA'],
   },
@@ -65,8 +63,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Define REST & GraphQL schemas',
     okrs: ['KR: API p99 latency < 200ms'],
   },
@@ -87,8 +84,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-1', toId: 'pe-2', type: 'SS', lag: 5 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Plan migration from Postgres 14 → 16',
     okrs: ['KR: Zero-downtime migration'],
   },
@@ -109,8 +105,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-1', toId: 'pe-3', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Move to OAuth2 + PKCE flow',
     okrs: ['KR: API p99 latency < 200ms'],
   },
@@ -131,8 +126,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-2', toId: 'pe-4', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Execute staged migration with rollback plan',
     okrs: ['KR: Zero-downtime migration'],
   },
@@ -153,8 +147,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-3', toId: 'pe-5', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Build all CRUD endpoints',
     okrs: ['KR: API p99 latency < 200ms'],
   },
@@ -178,8 +171,7 @@ export const fakeTasks: Task[] = [
       { fromId: 'pe-5', toId: 'pe-6', type: 'FS', lag: 2 },
       { fromId: 'pe-4', toId: 'pe-6', type: 'FS', lag: 0 },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Target: 10k RPS, p99 < 200ms',
     okrs: ['KR: API p99 latency < 200ms', 'KR: 99.9% uptime SLA'],
   },
@@ -200,8 +192,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-4', toId: 'pe-7', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Update deploy scripts for new infra',
     okrs: ['KR: 99.9% uptime SLA'],
   },
@@ -222,8 +213,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-5', toId: 'pe-8', type: 'FF', lag: 0 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'OpenAPI spec + developer portal',
     okrs: ['KR: Developer NPS > 50'],
   },
@@ -244,8 +234,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-6', toId: 'pe-9', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'OWASP top-10 + pen testing',
     okrs: ['KR: Zero critical vulnerabilities'],
   },
@@ -266,8 +255,7 @@ export const fakeTasks: Task[] = [
     parentId: 'pe',
     childIds: [],
     dependencies: [{ fromId: 'pe-9', toId: 'ms-api', type: 'FS', lag: 0 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'API feature-complete milestone',
     okrs: ['KR: API p99 latency < 200ms'],
   },
@@ -290,8 +278,7 @@ export const fakeTasks: Task[] = [
     parentId: 'root',
     childIds: ['ux-1', 'ux-2', 'ux-3', 'ux-4', 'ux-5', 'ux-6', 'ux-7', 'ux-8', 'ms-ux'],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
+
     notes: 'Design & frontend for Q2',
     okrs: [
       'KR: User satisfaction > 4.5/5',
@@ -316,8 +303,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
+
     notes: '12 user interviews scheduled',
     okrs: ['KR: User satisfaction > 4.5/5'],
   },
@@ -338,8 +324,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [{ fromId: 'ux-1', toId: 'ux-2', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Figma prototypes for 5 key flows',
     okrs: ['KR: User satisfaction > 4.5/5'],
   },
@@ -360,8 +345,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [{ fromId: 'ux-2', toId: 'ux-3', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Build reusable React component library',
     okrs: ['KR: Ship design system v2'],
   },
@@ -385,8 +369,7 @@ export const fakeTasks: Task[] = [
       { fromId: 'ux-3', toId: 'ux-4', type: 'FS', lag: 2 },
       { fromId: 'pe-5', toId: 'ux-4', type: 'FS', lag: 0 },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Wire up frontend to new API',
     okrs: ['KR: Ship design system v2', 'KR: User satisfaction > 4.5/5'],
   },
@@ -407,8 +390,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [{ fromId: 'ux-3', toId: 'ux-5', type: 'SS', lag: 10 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'WCAG 2.1 AA compliance check',
     okrs: ['KR: WCAG 2.1 AA compliance'],
   },
@@ -429,8 +411,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [{ fromId: 'ux-4', toId: 'ux-6', type: 'SS', lag: 5 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: '8 participants, think-aloud protocol',
     okrs: ['KR: User satisfaction > 4.5/5'],
   },
@@ -451,8 +432,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [{ fromId: 'ux-6', toId: 'ux-7', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Incorporate usability feedback',
     okrs: ['KR: User satisfaction > 4.5/5'],
   },
@@ -473,8 +453,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [{ fromId: 'ux-7', toId: 'ux-8', type: 'SS', lag: 5 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Playwright test suite',
     okrs: ['KR: Ship design system v2'],
   },
@@ -495,8 +474,7 @@ export const fakeTasks: Task[] = [
     parentId: 'ux',
     childIds: [],
     dependencies: [{ fromId: 'ux-8', toId: 'ms-ux', type: 'FS', lag: 0 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'UX sign-off milestone',
     okrs: ['KR: Ship design system v2'],
   },
@@ -519,8 +497,7 @@ export const fakeTasks: Task[] = [
     parentId: 'root',
     childIds: ['gtm-1', 'gtm-2', 'gtm-3', 'gtm-4', 'gtm-5', 'gtm-6', 'gtm-7', 'ms-gtm'],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
+
     notes: 'Marketing & launch prep',
     okrs: [
       'KR: 20% market share increase',
@@ -545,8 +522,7 @@ export const fakeTasks: Task[] = [
     parentId: 'gtm',
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Analyze top 5 competitors',
     okrs: ['KR: 20% market share increase'],
   },
@@ -567,8 +543,7 @@ export const fakeTasks: Task[] = [
     parentId: 'gtm',
     childIds: [],
     dependencies: [{ fromId: 'gtm-1', toId: 'gtm-2', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Core value props & differentiators',
     okrs: ['KR: 20% market share increase'],
   },
@@ -589,8 +564,7 @@ export const fakeTasks: Task[] = [
     parentId: 'gtm',
     childIds: [],
     dependencies: [{ fromId: 'gtm-2', toId: 'gtm-3', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Landing page + docs site refresh',
     okrs: ['KR: 3x website conversion rate'],
   },
@@ -611,8 +585,7 @@ export const fakeTasks: Task[] = [
     parentId: 'gtm',
     childIds: [],
     dependencies: [{ fromId: 'gtm-2', toId: 'gtm-4', type: 'FS', lag: 7 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Blog posts, case studies, demo videos',
     okrs: ['KR: 50 published content pieces'],
   },
@@ -636,8 +609,7 @@ export const fakeTasks: Task[] = [
       { fromId: 'gtm-4', toId: 'gtm-5', type: 'FS', lag: 2 },
       { fromId: 'ms-api', toId: 'gtm-5', type: 'FS', lag: -10 },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Onboard 20 beta customers',
     okrs: ['KR: 20 beta customers onboarded'],
   },
@@ -658,8 +630,7 @@ export const fakeTasks: Task[] = [
     parentId: 'gtm',
     childIds: [],
     dependencies: [{ fromId: 'gtm-5', toId: 'gtm-6', type: 'FS', lag: 2 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Virtual launch event + webinar series',
     okrs: ['KR: 500 launch event attendees'],
   },
@@ -680,8 +651,7 @@ export const fakeTasks: Task[] = [
     parentId: 'gtm',
     childIds: [],
     dependencies: [{ fromId: 'gtm-6', toId: 'gtm-7', type: 'SS', lag: 5 }],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Training decks, battle cards, demo scripts',
     okrs: ['KR: 20% market share increase'],
   },
@@ -705,8 +675,7 @@ export const fakeTasks: Task[] = [
       { fromId: 'gtm-7', toId: 'ms-gtm', type: 'FS', lag: 0 },
       { fromId: 'ms-ux', toId: 'ms-gtm', type: 'FS', lag: 0 },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'All systems go for launch',
     okrs: ['KR: 20% market share increase'],
   },
@@ -732,8 +701,7 @@ export const fakeTasks: Task[] = [
       { fromId: 'ms-api', toId: 'ms-launch', type: 'FS', lag: 0 },
       { fromId: 'ms-gtm', toId: 'ms-launch', type: 'FS', lag: 5 },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Ship it!',
     okrs: [],
   },

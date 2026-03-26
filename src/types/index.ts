@@ -25,8 +25,6 @@ export interface Task {
   parentId: string | null;
   childIds: string[];
   dependencies: Dependency[];
-  isExpanded: boolean;
-  isHidden: boolean;
   notes: string;
   okrs: string[];
   constraintType?: 'ASAP' | 'SNET' | 'ALAP' | 'SNLT' | 'FNET' | 'FNLT' | 'MSO' | 'MFO';

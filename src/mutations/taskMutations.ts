@@ -135,8 +135,6 @@ export function addTask(doc: Y.Doc, task: Partial<Task>, afterTaskId?: string): 
     parentId: task.parentId ?? null,
     childIds: task.childIds ?? [],
     dependencies: task.dependencies ?? [],
-    isExpanded: true,
-    isHidden: false,
     notes: task.notes ?? '',
     okrs: task.okrs ?? [],
     constraintType: task.constraintType,

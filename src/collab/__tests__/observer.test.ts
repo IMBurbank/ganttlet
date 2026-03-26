@@ -29,8 +29,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
     notes: '',
     okrs: [],
     ...overrides,

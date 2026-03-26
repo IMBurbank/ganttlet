@@ -4,7 +4,7 @@ import { taskDuration } from '../utils/dateUtils';
 
 /**
  * The 19 collaborative fields stored in each task's Y.Map.
- * Excludes: duration (computed), isExpanded/isHidden (per-user UI state).
+ * Excludes: duration (computed from startDate/endDate).
  */
 export const TASK_FIELDS: string[] = [
   'id',
@@ -59,7 +59,7 @@ export function initSchema(doc: Y.Doc): {
 
 /**
  * Convert a Task object to a Y.Map for insertion into the Y.Doc.
- * Writes all 19 TASK_FIELDS. Does NOT write duration, isExpanded, isHidden.
+ * Writes all 19 TASK_FIELDS. Does NOT write duration (computed).
  * Arrays (childIds, dependencies, okrs) are JSON-stringified.
  */
 export function taskToYMap(task: Task): Y.Map<unknown> {
@@ -93,7 +93,6 @@ export function taskToYMap(task: Task): Y.Map<unknown> {
 /**
  * Convert a Y.Map back to a Task object.
  * Computes duration from startDate/endDate via taskDuration().
- * Defaults isExpanded: true, isHidden: false (per-user state, not from Y.Doc).
  * Parses childIds, dependencies, okrs from JSON strings with fallback to [].
  */
 export function yMapToTask(ymap: Y.Map<unknown>): Task {
@@ -143,8 +142,6 @@ export function yMapToTask(ymap: Y.Map<unknown>): Task {
     parentId: (ymap.get('parentId') as string | null) ?? null,
     childIds,
     dependencies,
-    isExpanded: true,
-    isHidden: false,
     notes: (ymap.get('notes') as string) ?? '',
     okrs,
     constraintType: (ymap.get('constraintType') as Task['constraintType']) ?? undefined,

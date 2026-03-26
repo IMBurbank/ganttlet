@@ -27,8 +27,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
     notes: 'Some notes',
     okrs: [],
     ...overrides,
@@ -149,8 +147,6 @@ describe('sheetsMapper', () => {
       expect(task!.parentId).toBeNull();
       expect(task!.childIds).toEqual([]);
       expect(task!.dependencies).toEqual([]);
-      expect(task!.isExpanded).toBe(true);
-      expect(task!.isHidden).toBe(false);
     });
 
     it('parses done=true', () => {

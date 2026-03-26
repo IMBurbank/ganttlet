@@ -122,8 +122,6 @@ export function rowToTask(row: string[]): Task | null {
     parentId: get(13) || null,
     childIds: get(14) ? get(14).split(',').filter(Boolean) : [],
     dependencies: parseDependencies(get(15)),
-    isExpanded: true,
-    isHidden: false,
     notes: get(16),
     okrs: get(17) ? get(17).split('|').filter(Boolean) : [],
     ...parseConstraintFields(get(18), get(19)),

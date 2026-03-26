@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { Task } from '../../types';
-import { initSchema, taskToYMap } from '../../schema/ydoc';
+import { initSchema, taskToYMap, TASK_FIELDS } from '../../schema/ydoc';
 import {
   moveTask,
   resizeTask,
@@ -51,8 +51,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
     notes: '',
     okrs: [],
     ...overrides,
@@ -194,7 +192,7 @@ describe('addTask', () => {
     expect(childIds).toContain(childId);
   });
 
-  it('does NOT write duration, isExpanded, isHidden to Y.Map', () => {
+  it('does NOT write duration to Y.Map (computed field)', () => {
     const doc = new Y.Doc();
     initSchema(doc);
 
@@ -203,8 +201,12 @@ describe('addTask', () => {
     const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
     const ymap = ytasks.get(id)!;
     expect(ymap.has('duration')).toBe(false);
-    expect(ymap.has('isExpanded')).toBe(false);
-    expect(ymap.has('isHidden')).toBe(false);
+    // Only TASK_FIELDS should be written (constraintType/constraintDate are optional)
+    const keys = new Set(ymap.keys());
+    for (const key of keys) {
+      expect(TASK_FIELDS).toContain(key);
+    }
+    expect(keys.has('duration')).toBe(false);
   });
 });
 

@@ -20,8 +20,6 @@ function makeTask(overrides: Partial<Task>): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
     notes: '',
     okrs: [],
     ...overrides,
@@ -38,9 +36,20 @@ function makeTask(overrides: Partial<Task>): Task {
  */
 describe('Cell editability by hierarchy role', () => {
   const projectTask = makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws'] });
-  const workstreamTask = makeTask({ id: 'ws', isSummary: true, parentId: 'root', childIds: ['t1'] });
+  const workstreamTask = makeTask({
+    id: 'ws',
+    isSummary: true,
+    parentId: 'root',
+    childIds: ['t1'],
+  });
   const leafTask = makeTask({ id: 't1', isSummary: false, parentId: 'ws' });
-  const milestoneTask = makeTask({ id: 'ms', isSummary: false, isMilestone: true, parentId: 'ws', duration: 0 });
+  const milestoneTask = makeTask({
+    id: 'ms',
+    isSummary: false,
+    isMilestone: true,
+    parentId: 'ws',
+    duration: 0,
+  });
 
   const taskMap = new Map<string, Task>([
     [projectTask.id, projectTask],

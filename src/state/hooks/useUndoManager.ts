@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import * as Y from 'yjs';
+import { TRACKED_ORIGINS } from '../../collab/origins';
 
 interface UseUndoManagerResult {
   undoManagerRef: RefObject<Y.UndoManager | null>;
@@ -18,7 +19,7 @@ export function useUndoManager(doc: Y.Doc): UseUndoManagerResult {
   useEffect(() => {
     const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
     const um = new Y.UndoManager(ytasks, {
-      trackedOrigins: new Set(['local']),
+      trackedOrigins: TRACKED_ORIGINS,
       captureTimeout: 500,
     });
     undoManagerRef.current = um;

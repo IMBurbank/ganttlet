@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { initSchema, taskToYMap } from '../../schema/ydoc';
 import type { Task } from '../../types';
+import { ORIGIN, TRACKED_ORIGINS } from '../origins';
 
 // Mock WASM-dependent modules
 vi.mock('../../utils/schedulerWasm', () => ({
@@ -44,7 +45,7 @@ describe('Y.UndoManager', () => {
     const schema = initSchema(doc);
     ytasks = schema.tasks;
     undoManager = new Y.UndoManager(ytasks, {
-      trackedOrigins: new Set(['local']),
+      trackedOrigins: TRACKED_ORIGINS,
       captureTimeout: 0, // no grouping delay in tests
     });
   });
@@ -59,7 +60,7 @@ describe('Y.UndoManager', () => {
       const task = makeTask();
       doc.transact(() => {
         ytasks.set(task.id, taskToYMap(task));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       expect(ytasks.has('task-1')).toBe(true);
       expect(undoManager.canUndo()).toBe(true);
@@ -73,7 +74,7 @@ describe('Y.UndoManager', () => {
       const task = makeTask();
       doc.transact(() => {
         ytasks.set(task.id, taskToYMap(task));
-      }, 'sheets');
+      }, ORIGIN.SHEETS);
 
       expect(ytasks.has('task-1')).toBe(true);
       expect(undoManager.canUndo()).toBe(false);
@@ -93,7 +94,7 @@ describe('Y.UndoManager', () => {
       const task = makeTask();
       doc.transact(() => {
         ytasks.set(task.id, taskToYMap(task));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       undoManager.undo();
       expect(ytasks.has('task-1')).toBe(false);
@@ -109,7 +110,7 @@ describe('Y.UndoManager', () => {
       const task = makeTask();
       doc.transact(() => {
         ytasks.set(task.id, taskToYMap(task));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       // Update name and dates in single transaction (simulating move + cascade)
       doc.transact(() => {
@@ -117,7 +118,7 @@ describe('Y.UndoManager', () => {
         ymap.set('startDate', '2026-03-15');
         ymap.set('endDate', '2026-03-17');
         ymap.set('name', 'Updated Task');
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       const ymap = ytasks.get('task-1')!;
       expect(ymap.get('startDate')).toBe('2026-03-15');
@@ -138,7 +139,7 @@ describe('Y.UndoManager', () => {
       doc.transact(() => {
         ytasks.set(task1.id, taskToYMap(task1));
         ytasks.set(task2.id, taskToYMap(task2));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       // Simulate move + cascade: both tasks move in one transaction
       doc.transact(() => {
@@ -148,7 +149,7 @@ describe('Y.UndoManager', () => {
         const ym2 = ytasks.get('task-2')!;
         ym2.set('startDate', '2026-03-18');
         ym2.set('endDate', '2026-03-20');
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       // One undo reverts both tasks
       undoManager.undo();
@@ -162,7 +163,7 @@ describe('Y.UndoManager', () => {
       const task = makeTask();
       doc.transact(() => {
         ytasks.set(task.id, taskToYMap(task));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       expect(undoManager.canUndo()).toBe(true);
 
@@ -178,14 +179,14 @@ describe('Y.UndoManager', () => {
       const task1 = makeTask({ id: 'task-1' });
       doc.transact(() => {
         ytasks.set(task1.id, taskToYMap(task1));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       undoManager.clear();
 
       const task2 = makeTask({ id: 'task-2' });
       doc.transact(() => {
         ytasks.set(task2.id, taskToYMap(task2));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       expect(undoManager.canUndo()).toBe(true);
       undoManager.undo();
@@ -202,15 +203,15 @@ describe('Y.UndoManager', () => {
 
       doc.transact(() => {
         ytasks.set(task1.id, taskToYMap(task1));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       doc.transact(() => {
         ytasks.set(task2.id, taskToYMap(task2));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       doc.transact(() => {
         ytasks.get('task-1')!.set('name', 'Edited in sandbox');
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       expect(undoManager.canUndo()).toBe(true);
 
@@ -228,7 +229,7 @@ describe('Y.UndoManager', () => {
       // New edits after promotion are undoable
       doc.transact(() => {
         ytasks.get('task-1')!.set('name', 'Edited after promotion');
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       expect(undoManager.canUndo()).toBe(true);
       undoManager.undo();
@@ -250,12 +251,12 @@ describe('Y.UndoManager', () => {
 
       doc.transact(() => {
         ytasks.set(task.id, taskToYMap(task));
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       // Delete task
       doc.transact(() => {
         ytasks.delete(task.id);
-      }, 'local');
+      }, ORIGIN.LOCAL);
 
       expect(ytasks.has('task-1')).toBe(false);
 

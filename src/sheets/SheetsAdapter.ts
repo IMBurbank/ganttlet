@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 import type { Task, ConflictRecord, SyncError } from '../types';
+import { ORIGIN, triggersWriteback } from '../collab/origins';
 import { readSheet, writeSheet, clearSheet } from './sheetsClient';
 import {
   SHEET_COLUMNS,
@@ -155,7 +156,7 @@ export class SheetsAdapter {
       // Y.UndoManager uses itself as txn.origin (not 'local'),
       // so we check both. 'sheets' origin is excluded to prevent
       // write-back of data we just read from the Sheet.
-      if (txn.origin === 'local' || txn.origin instanceof Y.UndoManager) {
+      if (triggersWriteback(txn.origin)) {
         this.markDirty();
       }
     };
@@ -555,7 +556,7 @@ export class SheetsAdapter {
               break;
             }
           }
-        }, 'sheets');
+        }, ORIGIN.SHEETS);
 
         if (this.db) {
           try {
@@ -654,7 +655,7 @@ export class SheetsAdapter {
         ytasks.set(task.id, ymap);
         taskOrder.push([task.id]);
       }
-    }, 'sheets'); // 'sheets' origin — not undoable, no cascade
+    }, ORIGIN.SHEETS); // 'sheets' origin — not undoable, no cascade
   }
 
   private getYDocTaskCount(): number {

@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 import type { Dependency, DependencyType } from '../types';
+import { ORIGIN } from '../collab/origins';
 
 /**
  * Parse the dependencies JSON string from a task's Y.Map.
@@ -26,7 +27,7 @@ export function addDependency(doc: Y.Doc, taskId: string, dep: Dependency): void
     const deps = parseDeps(ymap);
     deps.push(dep);
     ymap.set('dependencies', JSON.stringify(deps));
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 /**
@@ -46,7 +47,7 @@ export function updateDependency(
     const deps = parseDeps(ymap);
     const updated = deps.map((d) => (d.fromId === fromId ? { ...d, ...update } : d));
     ymap.set('dependencies', JSON.stringify(updated));
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 /**
@@ -61,5 +62,5 @@ export function removeDependency(doc: Y.Doc, taskId: string, fromId: string): vo
     const deps = parseDeps(ymap);
     const filtered = deps.filter((d) => d.fromId !== fromId);
     ymap.set('dependencies', JSON.stringify(filtered));
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }

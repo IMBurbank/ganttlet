@@ -3,6 +3,7 @@ import type { Task } from '../types';
 import { taskToYMap, yMapToTask } from '../schema/ydoc';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { daysBetween, formatDate, taskEndDate } from '../utils/dateUtils';
+import { ORIGIN } from '../collab/origins';
 
 /**
  * Read all tasks from the Y.Doc tasks map as a Task[].
@@ -64,7 +65,7 @@ export function moveTask(doc: Y.Doc, taskId: string, newStart: string, newEnd: s
         cascYmap.set('endDate', dates.endDate);
       }
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 /**
@@ -108,7 +109,7 @@ export function resizeTask(doc: Y.Doc, taskId: string, newEnd: string): void {
         cascYmap.set('endDate', dates.endDate);
       }
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 /**
@@ -184,7 +185,7 @@ export function addTask(doc: Y.Doc, task: Partial<Task>, afterTaskId?: string): 
         parentYmap.set('childIds', JSON.stringify(parentChildIds));
       }
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 
   return id;
 }
@@ -270,7 +271,7 @@ export function deleteTask(doc: Y.Doc, taskId: string): void {
         taskYmap.set('dependencies', JSON.stringify(filtered));
       }
     });
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 /**
@@ -347,7 +348,7 @@ export function reparentTask(doc: Y.Doc, taskId: string, newParentId: string): v
         taskOrder.push([taskId]);
       }
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 /**
@@ -365,7 +366,7 @@ export function updateTaskField(doc: Y.Doc, taskId: string, field: string, value
     } else {
       ymap.set(field, value);
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 /**
@@ -406,5 +407,5 @@ export function recalculateEarliestMutation(doc: Y.Doc, taskIds: string[]): void
         ymap.set('endDate', result.newEnd);
       }
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }

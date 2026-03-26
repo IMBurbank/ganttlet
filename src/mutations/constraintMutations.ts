@@ -2,6 +2,7 @@ import * as Y from 'yjs';
 import type { Task } from '../types';
 import { yMapToTask } from '../schema/ydoc';
 import { cascadeDependents } from '../utils/schedulerWasm';
+import { ORIGIN } from '../collab/origins';
 
 /**
  * Set a constraint on a task and cascade dependents via WASM.
@@ -45,7 +46,7 @@ export function setConstraint(
       } else {
         ymap.delete('constraintDate');
       }
-    }, 'local');
+    }, ORIGIN.LOCAL);
     return;
   }
 
@@ -79,5 +80,5 @@ export function setConstraint(
         cascYmap.set('endDate', dates.endDate);
       }
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }

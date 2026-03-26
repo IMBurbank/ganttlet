@@ -4,6 +4,7 @@ import type { Task } from '../../types';
 import { TaskStore } from '../../store/TaskStore';
 import { initSchema, taskToYMap } from '../../schema/ydoc';
 import { setupObserver } from '../observer';
+import { ORIGIN } from '../origins';
 
 // Mock WASM-dependent modules
 vi.mock('../../utils/schedulerWasm', () => ({
@@ -58,7 +59,7 @@ describe('setupObserver', () => {
 
     doc.transact(() => {
       ytasks.set('task-1', taskToYMap(makeTask()));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     // Store should be updated immediately (same tick)
     expect(store.getTask('task-1')).toBeDefined();
@@ -71,7 +72,7 @@ describe('setupObserver', () => {
     // Add a task first
     doc.transact(() => {
       ytasks.set('task-1', taskToYMap(makeTask()));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')!.name).toBe('Test Task');
 
@@ -79,7 +80,7 @@ describe('setupObserver', () => {
     doc.transact(() => {
       const ymap = ytasks.get('task-1')!;
       ymap.set('name', 'Updated Task');
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')!.name).toBe('Updated Task');
   });
@@ -90,13 +91,13 @@ describe('setupObserver', () => {
     // Add then delete
     doc.transact(() => {
       ytasks.set('task-1', taskToYMap(makeTask()));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')).toBeDefined();
 
     doc.transact(() => {
       ytasks.delete('task-1');
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')).toBeUndefined();
   });
@@ -106,7 +107,7 @@ describe('setupObserver', () => {
 
     doc.transact(() => {
       ytasks.set('task-1', taskToYMap(makeTask()));
-    }, 'sheets');
+    }, ORIGIN.SHEETS);
 
     // Should be updated immediately
     expect(store.getTask('task-1')).toBeDefined();
@@ -169,7 +170,7 @@ describe('setupObserver', () => {
 
     doc.transact(() => {
       ytasks.set('task-1', taskToYMap(makeTask()));
-    }, 'sheets');
+    }, ORIGIN.SHEETS);
 
     // requestIdleCallback should NOT have been called for sheets
     // Since we mock the WASM module, check it was NOT invoked
@@ -182,7 +183,7 @@ describe('setupObserver', () => {
 
     doc.transact(() => {
       taskOrder.push(['task-a', 'task-b', 'task-c']);
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTaskOrder()).toEqual(['task-a', 'task-b', 'task-c']);
   });
@@ -195,7 +196,7 @@ describe('setupObserver', () => {
     doc.transact(() => {
       ytasks.set('task-1', taskToYMap(task1));
       ytasks.set('task-2', taskToYMap(task2));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')).toBeDefined();
     expect(store.getTask('task-2')).toBeDefined();
@@ -213,7 +214,7 @@ describe('setupObserver', () => {
       // Don't set 'id' — yMapToTask should still return something (with defaults)
       badMap.set('name', 'Bad Task');
       ytasks.set('bad-task', badMap);
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     // The valid task should still be in the store
     expect(store.getTask('task-1')).toBeDefined();
@@ -227,7 +228,7 @@ describe('setupObserver', () => {
     // Changes after cleanup should NOT affect store
     doc.transact(() => {
       ytasks.set('task-1', taskToYMap(makeTask()));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')).toBeUndefined();
 
@@ -257,7 +258,7 @@ describe('setupObserver', () => {
     doc.transact(() => {
       ytasks.set('parent', taskToYMap(parent));
       ytasks.set('child-1', taskToYMap(child));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(store.getTask('parent')).toBeDefined();
     expect(store.getTask('child-1')).toBeDefined();

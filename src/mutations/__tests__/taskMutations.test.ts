@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { Task } from '../../types';
 import { initSchema, taskToYMap, TASK_FIELDS } from '../../schema/ydoc';
+import { ORIGIN } from '../../collab/origins';
 import {
   moveTask,
   resizeTask,

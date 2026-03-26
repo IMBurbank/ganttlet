@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import type { Task } from '../types';
 import { initSchema, taskToYMap } from '../schema/ydoc';
+import { ORIGIN } from './origins';
 
 /**
  * Initialize a Y.Doc and populate it from a task array.
@@ -26,7 +27,7 @@ export function initializeYDoc(doc: Y.Doc, tasks: Task[]): void {
 
     // Write task order (preserve input order)
     taskOrder.push(tasks.map((t) => t.id));
-  }, 'init');
+  }, ORIGIN.INIT);
 }
 
 /**
@@ -42,5 +43,5 @@ export function hydrateFromSheets(doc: Y.Doc, sheetTasks: Task[]): void {
     }
 
     taskOrder.push(sheetTasks.map((t) => t.id));
-  }, 'sheets');
+  }, ORIGIN.SHEETS);
 }

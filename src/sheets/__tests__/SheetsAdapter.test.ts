@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import { SheetsAdapter, type SheetsAdapterCallbacks } from '../SheetsAdapter';
 import { HEADER_ROW, taskToRow } from '../sheetsMapper';
 import type { Task, ConflictRecord, SyncError } from '../../types';
+import { ORIGIN } from '../../collab/origins';
 
 // Mock sheetsClient
 vi.mock('../sheetsClient', () => ({
@@ -131,7 +132,7 @@ function populateYDoc(doc: Y.Doc, tasks: Task[]): void {
       ytasks.set(task.id, ymap);
       taskOrder.push([task.id]);
     }
-  }, 'local');
+  }, ORIGIN.LOCAL);
 }
 
 describe('SheetsAdapter', () => {
@@ -263,7 +264,7 @@ describe('SheetsAdapter', () => {
       ymap.set('notes', '');
       ymap.set('okrs', '[]');
       ytasks.set('new-task', ymap);
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     expect(adapter.isSavePending()).toBe(true);
 
@@ -363,7 +364,7 @@ describe('SheetsAdapter', () => {
       ymap.set('notes', '');
       ymap.set('okrs', '[]');
       ytasks.set('fail-task', ymap);
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     await vi.advanceTimersByTimeAsync(2500);
 
@@ -517,7 +518,7 @@ describe('SheetsAdapter', () => {
       ymap.set('notes', '');
       ymap.set('okrs', '[]');
       ytasks.set('lock-task', ymap);
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     // Advance past debounce to trigger write, then trigger poll
     await vi.advanceTimersByTimeAsync(2500);

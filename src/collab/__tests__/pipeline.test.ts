@@ -4,6 +4,7 @@ import { TaskStore } from '../../store/TaskStore';
 import { setupObserver } from '../observer';
 import { initSchema, taskToYMap } from '../../schema/ydoc';
 import type { Task } from '../../types';
+import { ORIGIN, TRACKED_ORIGINS } from '../origins';
 
 // Mock WASM scheduler functions
 vi.mock('../../utils/schedulerWasm', () => ({
@@ -80,7 +81,7 @@ describe('Observer pipeline integration', () => {
 
     doc.transact(() => {
       ytasks.set('t1', taskToYMap(task));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     // Should be available immediately (same tick)
     const stored = taskStore.getTask('t1');
@@ -120,7 +121,7 @@ describe('Observer pipeline integration', () => {
 
     doc.transact(() => {
       ytasks.set('t3', taskToYMap(task));
-    }, 'sheets');
+    }, ORIGIN.SHEETS);
 
     // Should be available immediately
     expect(taskStore.getTask('t3')).toBeDefined();
@@ -137,13 +138,13 @@ describe('Observer pipeline integration', () => {
     // Add task locally first
     doc.transact(() => {
       ytasks.set('t4', taskToYMap(task));
-    }, 'local');
+    }, ORIGIN.LOCAL);
     expect(taskStore.getTask('t4')).toBeDefined();
 
     // Delete it
     doc.transact(() => {
       ytasks.delete('t4');
-    }, 'local');
+    }, ORIGIN.LOCAL);
     expect(taskStore.getTask('t4')).toBeUndefined();
   });
 
@@ -178,7 +179,7 @@ describe('Observer pipeline integration', () => {
 
   it('undo origin marks transaction with UndoManager instance', () => {
     const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
-    const undoManager = new Y.UndoManager(ytasks, { trackedOrigins: new Set(['local']) });
+    const undoManager = new Y.UndoManager(ytasks, { trackedOrigins: TRACKED_ORIGINS });
 
     // Track transaction origins
     const origins: unknown[] = [];
@@ -189,7 +190,7 @@ describe('Observer pipeline integration', () => {
     // Make a local edit
     doc.transact(() => {
       ytasks.set('u1', taskToYMap(makeTask('u1')));
-    }, 'local');
+    }, ORIGIN.LOCAL);
 
     origins.length = 0; // Clear previous origins
 

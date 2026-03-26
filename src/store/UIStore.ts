@@ -3,6 +3,8 @@ import type { ColorByField, ColumnConfig, SyncError } from '../types';
 import type { ConflictRecord } from '../types';
 
 export interface UIState {
+  spreadsheetId: string | undefined;
+  roomId: string | undefined;
   dataSource: 'sandbox' | 'loading' | 'sheet' | 'empty' | undefined;
   zoomLevel: 'day' | 'week' | 'month';
   colorBy: ColorByField;
@@ -38,6 +40,8 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
 
 export function createDefaultUIState(): UIState {
   return {
+    spreadsheetId: undefined,
+    roomId: undefined,
     dataSource: undefined,
     zoomLevel: 'week',
     colorBy: 'workStream',

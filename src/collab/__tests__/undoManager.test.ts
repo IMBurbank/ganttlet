@@ -196,6 +196,51 @@ describe('Y.UndoManager', () => {
     });
   });
 
+  describe('promotion clear (sandbox to sheet)', () => {
+    it('clears undo/redo stacks when spreadsheetId changes (simulating promotion)', () => {
+      // Build up sandbox undo history
+      const task1 = makeTask({ id: 'task-1' });
+      const task2 = makeTask({ id: 'task-2', name: 'Second Task' });
+
+      doc.transact(() => {
+        ytasks.set(task1.id, taskToYMap(task1));
+      }, 'local');
+
+      doc.transact(() => {
+        ytasks.set(task2.id, taskToYMap(task2));
+      }, 'local');
+
+      doc.transact(() => {
+        ytasks.get('task-1')!.set('name', 'Edited in sandbox');
+      }, 'local');
+
+      expect(undoManager.canUndo()).toBe(true);
+
+      // Simulate what TaskStoreProvider does when spreadsheetId changes
+      undoManager.clear();
+
+      expect(undoManager.canUndo()).toBe(false);
+      expect(undoManager.canRedo()).toBe(false);
+
+      // All tasks still exist — only the undo stacks were cleared
+      expect(ytasks.has('task-1')).toBe(true);
+      expect(ytasks.has('task-2')).toBe(true);
+      expect(ytasks.get('task-1')!.get('name')).toBe('Edited in sandbox');
+
+      // New edits after promotion are undoable
+      doc.transact(() => {
+        ytasks.get('task-1')!.set('name', 'Edited after promotion');
+      }, 'local');
+
+      expect(undoManager.canUndo()).toBe(true);
+      undoManager.undo();
+      expect(ytasks.get('task-1')!.get('name')).toBe('Edited in sandbox');
+
+      // Cannot undo further — pre-promotion history is gone
+      expect(undoManager.canUndo()).toBe(false);
+    });
+  });
+
   describe('delete and undo', () => {
     it('undoes task deletion restoring all fields', () => {
       const task = makeTask({

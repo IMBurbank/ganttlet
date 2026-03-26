@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { UIStore, UIStoreContext } from '../store/UIStore';
+import { UIStore, UIStoreContext, type UIState } from '../store/UIStore';
 
 const STORAGE_KEY_EXPANDED = 'ganttlet:expandedTasks';
 const STORAGE_KEY_THEME = 'ganttlet:theme';
@@ -7,6 +7,7 @@ const STORAGE_KEY_THEME = 'ganttlet:theme';
 interface UIStoreProviderProps {
   children: React.ReactNode;
   dataSource?: 'sandbox' | 'sheet' | 'loading' | 'empty';
+  initialState?: Partial<UIState>;
 }
 
 /**
@@ -42,10 +43,11 @@ function loadPersistedState(): {
   return result;
 }
 
-export function UIStoreProvider({ children, dataSource }: UIStoreProviderProps) {
+export function UIStoreProvider({ children, dataSource, initialState }: UIStoreProviderProps) {
   const uiStore = useMemo(() => {
     const persisted = loadPersistedState();
-    return new UIStore(persisted);
+    return new UIStore({ ...persisted, ...initialState });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist to localStorage on changes

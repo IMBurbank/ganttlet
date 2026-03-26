@@ -265,27 +265,36 @@ function AppContent() {
   );
 }
 
-export default function App() {
-  const params = new URLSearchParams(window.location.search);
-  const sheetId = params.get('sheet') || undefined;
-  const roomId = params.get('room') || sheetId;
+function AppShell() {
+  const spreadsheetId = useUIStore((s) => s.spreadsheetId);
+  const roomId = useUIStore((s) => s.roomId);
   const auth = getAuthState();
 
   return (
-    <UIStoreProvider>
-      <TaskStoreProvider
-        spreadsheetId={sheetId}
-        roomId={roomId}
-        accessToken={auth.accessToken ?? undefined}
-        userName={auth.userName ?? undefined}
-        userEmail={auth.userEmail ?? undefined}
-      >
-        <DataSafeErrorBoundary>
-          <WelcomeGate>
-            <AppContent />
-          </WelcomeGate>
-        </DataSafeErrorBoundary>
-      </TaskStoreProvider>
+    <TaskStoreProvider
+      spreadsheetId={spreadsheetId}
+      roomId={roomId}
+      accessToken={auth.accessToken ?? undefined}
+      userName={auth.userName ?? undefined}
+      userEmail={auth.userEmail ?? undefined}
+    >
+      <DataSafeErrorBoundary>
+        <WelcomeGate>
+          <AppContent />
+        </WelcomeGate>
+      </DataSafeErrorBoundary>
+    </TaskStoreProvider>
+  );
+}
+
+export default function App() {
+  const params = new URLSearchParams(window.location.search);
+  const initialSheetId = params.get('sheet') || undefined;
+  const initialRoomId = params.get('room') || initialSheetId;
+
+  return (
+    <UIStoreProvider initialState={{ spreadsheetId: initialSheetId, roomId: initialRoomId }}>
+      <AppShell />
     </UIStoreProvider>
   );
 }

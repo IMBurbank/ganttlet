@@ -2,19 +2,14 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
-  useState,
-  type MutableRefObject,
+  type RefObject,
 } from 'react';
 import * as Y from 'yjs';
-import { IndexeddbPersistence } from 'y-indexeddb';
 import type { Awareness } from 'y-protocols/awareness';
 import { TaskStore, TaskStoreContext } from '../store/TaskStore';
 import { MutateContext } from '../hooks/useMutate';
-import { setupObserver } from '../collab/observer';
-import { initializeYDoc } from '../collab/initialization';
 import {
   moveTask,
   resizeTask,
@@ -27,12 +22,16 @@ import {
   removeDependency,
   setConstraint,
 } from '../mutations';
-import { connectCollab, disconnectCollab, getProvider } from '../collab/yjsProvider';
-import { setLocalAwareness, getCollabUsers } from '../collab/awareness';
-import { SheetsAdapter } from '../sheets/SheetsAdapter';
-import { getAccessToken, setAuthChangeCallback, removeAuthChangeCallback } from '../sheets/oauth';
 import { UIStoreContext } from '../store/UIStore';
-import type { MutateAction, Task, CriticalPathScope, ConflictRecord, CollabUser } from '../types';
+import type { MutateAction, Task, CriticalPathScope, CollabUser } from '../types';
+import {
+  useYDocObserver,
+  useUndoManager,
+  useYDocPersistence,
+  useSandboxInit,
+  useCollabConnection,
+  useSheetsSync,
+} from './hooks';
 
 export interface UndoManagerState {
   undoManager: Y.UndoManager | null;
@@ -48,7 +47,7 @@ export const UndoManagerContext = createContext<UndoManagerState>({
 
 /** Ref to the task ID currently being dragged locally.
  *  TaskBar sets this during pointer capture; observer reads it to skip remote updates. */
-export const DragContext = createContext<MutableRefObject<string | null>>({ current: null });
+export const DragContext = createContext<RefObject<string | null>>({ current: null });
 
 export const CollabContext = createContext<{
   awareness: Awareness | null;
@@ -98,205 +97,23 @@ export function TaskStoreProvider({
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
   const uiStore = useContext(UIStoreContext);
   const draggedTaskIdRef = useRef<string | null>(null);
-  const adapterRef = useRef<SheetsAdapter | null>(null);
-  const undoManagerRef = useRef<Y.UndoManager | null>(null);
-  const persistenceRef = useRef<IndexeddbPersistence | null>(null);
-  const [undoState, setUndoState] = React.useState<{ canUndo: boolean; canRedo: boolean }>({
-    canUndo: false,
-    canRedo: false,
-  });
-  const awarenessRef = useRef<Awareness | null>(null);
-  const [collabUsers, setCollabUsers] = useState<CollabUser[]>([]);
-  const [isCollabConnected, setIsCollabConnected] = useState(false);
 
   const doc = docRef.current;
 
-  // Set up observer on mount
-  useEffect(() => {
-    const cleanup = setupObserver(
-      doc,
-      taskStore,
-      { criticalPathScope },
-      () => draggedTaskIdRef.current
-    );
-    return cleanup;
-  }, [doc, taskStore, criticalPathScope]);
+  const getDraggedTaskId = useCallback(() => draggedTaskIdRef.current, []);
 
-  // Y.UndoManager: scoped to 'local' origin, captureTimeout 500ms
-  useEffect(() => {
-    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
-    const um = new Y.UndoManager(ytasks, {
-      trackedOrigins: new Set(['local']),
-      captureTimeout: 500,
-    });
-    undoManagerRef.current = um;
-
-    const updateState = () => {
-      setUndoState({ canUndo: um.canUndo(), canRedo: um.canRedo() });
-    };
-    um.on('stack-item-added', updateState);
-    um.on('stack-item-popped', updateState);
-    um.on('stack-cleared', updateState);
-
-    return () => {
-      um.destroy();
-      undoManagerRef.current = null;
-    };
-  }, [doc]);
-
-  // Listen for undo/redo events from UIStoreProvider keyboard handler
-  useEffect(() => {
-    const handleUndo = () => {
-      if (undoManagerRef.current?.canUndo()) {
-        undoManagerRef.current.undo();
-      }
-    };
-    const handleRedo = () => {
-      if (undoManagerRef.current?.canRedo()) {
-        undoManagerRef.current.redo();
-      }
-    };
-    window.addEventListener('ganttlet:undo', handleUndo);
-    window.addEventListener('ganttlet:redo', handleRedo);
-    return () => {
-      window.removeEventListener('ganttlet:undo', handleUndo);
-      window.removeEventListener('ganttlet:redo', handleRedo);
-    };
-  }, []);
-
-  // y-indexeddb persistence for crash recovery
-  useEffect(() => {
-    if (!roomId) return;
-
-    const persistence = new IndexeddbPersistence(`ganttlet-${roomId}`, doc);
-    persistenceRef.current = persistence;
-
-    persistence.on('synced', () => {
-      console.log('IndexedDB persistence synced for room:', roomId);
-    });
-
-    return () => {
-      persistence.destroy();
-      persistenceRef.current = null;
-    };
-  }, [doc, roomId]);
-
-  // Sandbox initialization
-  useEffect(() => {
-    if (dataSource === 'sandbox' && demoTasks && demoTasks.length > 0) {
-      initializeYDoc(doc, demoTasks);
-    }
-  }, [doc, dataSource, demoTasks]);
-
-  // Collab connection + awareness
-  useEffect(() => {
-    if (!roomId || !accessToken) {
-      awarenessRef.current = null;
-      setCollabUsers([]);
-      setIsCollabConnected(false);
-      return;
-    }
-
-    const { awareness: aw } = connectCollab(roomId, accessToken, doc);
-    awarenessRef.current = aw;
-
-    // Set local identity
-    if (userName && userEmail) {
-      setLocalAwareness(aw, { name: userName, email: userEmail });
-    }
-
-    // Subscribe to awareness changes
-    const onChange = () => {
-      setCollabUsers(getCollabUsers(aw));
-    };
-    aw.on('change', onChange);
-    onChange(); // initial read
-
-    // Subscribe to connection status
-    const onStatus = ({ status }: { status: string }) => {
-      setIsCollabConnected(status === 'connected');
-    };
-    const prov = getProvider();
-    if (prov) {
-      prov.on('status', onStatus);
-      setIsCollabConnected(prov.wsconnected);
-    }
-
-    return () => {
-      aw.off('change', onChange);
-      if (prov) prov.off('status', onStatus);
-      disconnectCollab();
-      awarenessRef.current = null;
-    };
-  }, [roomId, accessToken, doc, userName, userEmail]);
-
-  // SheetsAdapter: init on sheet mode, cleanup on disconnect
-  useEffect(() => {
-    if (!spreadsheetId || !uiStore) return;
-
-    // Clear undo stack on sandbox→sheet promotion
-    if (undoManagerRef.current) {
-      undoManagerRef.current.clear();
-      setUndoState({ canUndo: false, canRedo: false });
-    }
-
-    const adapter = new SheetsAdapter(
-      doc,
-      spreadsheetId,
-      {
-        onConflict: (conflicts: ConflictRecord[]) => {
-          uiStore.setState({ pendingConflicts: conflicts });
-        },
-        onSyncError: (error) => {
-          uiStore.setState({ syncError: error });
-        },
-        onSyncing: (syncing) => {
-          uiStore.setState({ isSyncing: syncing });
-        },
-        onSyncComplete: () => {
-          uiStore.setState({ syncComplete: true, dataSource: 'sheet' });
-        },
-      },
-      getAccessToken
-    );
-
-    adapterRef.current = adapter;
-    uiStore.setState({ dataSource: 'loading' });
-    adapter.start();
-
-    // beforeunload guard for sheet mode
-    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
-      if (adapter.isSavePending()) {
-        e.preventDefault();
-      }
-    };
-    window.addEventListener('beforeunload', beforeUnloadHandler);
-
-    // Auth token refresh: restart adapter polling on token change
-    const authChangeHandler = () => {
-      // Token refreshed — adapter will pick it up on next poll/write via getAccessToken
-      // Reconnect collab if needed
-      if (roomId && accessToken) {
-        connectCollab(roomId, accessToken, doc);
-      }
-    };
-    setAuthChangeCallback(authChangeHandler);
-
-    // Conflict resolution event handler
-    const conflictResolveHandler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { taskId: string; field: string; value: unknown };
-      updateTaskField(doc, detail.taskId, detail.field, detail.value);
-    };
-    window.addEventListener('ganttlet:conflict-resolve', conflictResolveHandler);
-
-    return () => {
-      adapter.stop();
-      adapterRef.current = null;
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
-      removeAuthChangeCallback(authChangeHandler);
-      window.removeEventListener('ganttlet:conflict-resolve', conflictResolveHandler);
-    };
-  }, [spreadsheetId, doc, uiStore, roomId, accessToken]);
+  useYDocObserver(doc, taskStore, criticalPathScope, getDraggedTaskId);
+  const { undoManagerRef, canUndo, canRedo } = useUndoManager(doc);
+  useYDocPersistence(doc, roomId);
+  useSandboxInit(doc, dataSource, demoTasks);
+  const { awareness, collabUsers, isCollabConnected } = useCollabConnection(
+    doc,
+    roomId,
+    accessToken,
+    userName,
+    userEmail
+  );
+  useSheetsSync(doc, spreadsheetId, uiStore, roomId, accessToken, undoManagerRef);
 
   // Mutate dispatcher
   const mutate = useCallback(
@@ -345,18 +162,19 @@ export function TaskStoreProvider({
   const undoManagerState = useMemo<UndoManagerState>(
     () => ({
       undoManager: undoManagerRef.current,
-      ...undoState,
+      canUndo,
+      canRedo,
     }),
-    [undoState]
+    [canUndo, canRedo, undoManagerRef]
   );
 
   const collabState = useMemo(
     () => ({
-      awareness: awarenessRef.current,
+      awareness,
       collabUsers,
       isCollabConnected,
     }),
-    [collabUsers, isCollabConnected]
+    [awareness, collabUsers, isCollabConnected]
   );
 
   return (

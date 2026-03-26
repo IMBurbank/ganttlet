@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useContext } from 'react';
 import {
   isSignedIn,
   signIn,
@@ -6,6 +6,7 @@ import {
   removeAuthChangeCallback,
 } from '../../sheets/oauth';
 import { createSheet } from '../../sheets/sheetCreation';
+import { UIStoreContext } from '../../store/UIStore';
 import SheetSelector from './SheetSelector';
 import TargetSheetCheck, { type TargetSheetAction } from './TargetSheetCheck';
 
@@ -22,24 +23,37 @@ interface PromotionFlowProps {
 }
 
 export default function PromotionFlow({ onClose }: PromotionFlowProps) {
+  const uiStore = useContext(UIStoreContext);
   const [step, setStep] = useState<FlowStep>(
     isSignedIn() ? { type: 'destination' } : { type: 'sign-in' }
   );
 
-  const executeTransition = useCallback(async (spreadsheetId: string) => {
-    setStep({ type: 'writing' });
-    try {
-      // Navigate with full page reload so the entire component tree
-      // re-mounts with the new URL params (spreadsheetId, roomId).
-      const url = new URL(window.location.href);
-      url.searchParams.set('sheet', spreadsheetId);
-      url.searchParams.set('room', spreadsheetId);
-      window.location.href = url.toString();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save to sheet';
-      setStep({ type: 'error', message });
-    }
-  }, []);
+  const executeTransition = useCallback(
+    async (spreadsheetId: string) => {
+      setStep({ type: 'writing' });
+      try {
+        // Update URL for bookmarking (but don't navigate)
+        const url = new URL(window.location.href);
+        url.searchParams.set('sheet', spreadsheetId);
+        url.searchParams.set('room', spreadsheetId);
+        window.history.replaceState({}, '', url.toString());
+
+        // Reactive state update — TaskStoreProvider will create SheetsAdapter
+        uiStore?.setState({
+          spreadsheetId,
+          roomId: spreadsheetId,
+          dataSource: 'loading',
+          syncError: null,
+        });
+
+        onClose();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to save to sheet';
+        setStep({ type: 'error', message });
+      }
+    },
+    [uiStore, onClose]
+  );
 
   const handleSignIn = useCallback(() => {
     signIn();
@@ -75,18 +89,27 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
           await executeTransition(step.sheetId);
         }
       } else if (action === 'open-existing') {
-        // Navigate to the sheet without writing sandbox data
+        // Open the sheet without writing sandbox data — reactive transition
         if (step.type === 'target-check') {
           const url = new URL(window.location.href);
           url.searchParams.set('sheet', step.sheetId);
           url.searchParams.set('room', step.sheetId);
-          window.location.href = url.toString();
+          window.history.replaceState({}, '', url.toString());
+
+          uiStore?.setState({
+            spreadsheetId: step.sheetId,
+            roomId: step.sheetId,
+            dataSource: 'loading',
+            syncError: null,
+          });
+
+          onClose();
         }
       } else if (action === 'create-new') {
         await handleCreateNew();
       }
     },
-    [step, executeTransition, handleCreateNew]
+    [step, executeTransition, handleCreateNew, uiStore, onClose]
   );
 
   // Sign-in gate

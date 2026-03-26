@@ -1,5 +1,6 @@
-import React, { useCallback, useState, lazy, Suspense } from 'react';
+import React, { useCallback, useContext, useState, lazy, Suspense } from 'react';
 import { useUIStore } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 import { isSignedIn } from '../../sheets/oauth';
 import { getRecentSheets } from '../../utils/recentSheets';
 import FirstVisitWelcome from './FirstVisitWelcome';
@@ -14,18 +15,28 @@ const PromotionFlow = lazy(() => import('./PromotionFlow'));
 export default function WelcomeGate({ children }: { children: React.ReactNode }) {
   const dataSource = useUIStore((s) => s.dataSource);
   const syncError = useUIStore((s) => s.syncError);
+  const uiStore = useContext(UIStoreContext);
   // Track if user just signed in from FirstVisit (show ChoosePath instead of FirstVisit)
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [showPromotion, setShowPromotion] = useState(false);
 
-  const onSelectSheet = useCallback((sheetId: string) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('sheet', sheetId);
-    url.searchParams.set('room', sheetId);
-    window.history.replaceState({}, '', url.toString());
-    // Force re-render by reloading — the providers pick up the URL params
-    window.location.reload();
-  }, []);
+  const onSelectSheet = useCallback(
+    (sheetId: string) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('sheet', sheetId);
+      url.searchParams.set('room', sheetId);
+      window.history.replaceState({}, '', url.toString());
+
+      // Reactive state update — no page reload needed
+      uiStore?.setState({
+        spreadsheetId: sheetId,
+        roomId: sheetId,
+        dataSource: 'loading',
+        syncError: null,
+      });
+    },
+    [uiStore]
+  );
 
   // If dataSource is defined, the app is initialized — render children
   if (dataSource !== undefined) {

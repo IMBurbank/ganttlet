@@ -56,7 +56,7 @@ function AppContent() {
   const allTasks = taskStore.getAllTasksArray();
   const taskMap = useMemo(() => new Map(allTasks.map((t) => [t.id, t])), [allTasks]);
 
-  const collapsedTasks = useUIStore((s) => s.expandedTasks);
+  const collapsedTasks = useUIStore((s) => s.collapsedTasks);
   const visibleTasks = useMemo(
     () => getVisibleTasks(allTasks, searchQuery, collapsedTasks),
     [allTasks, searchQuery, collapsedTasks]
@@ -108,13 +108,13 @@ function AppContent() {
             {
               label: collapsedTasks.has(task.id) ? 'Expand group' : 'Collapse group',
               onClick: () => {
-                const expanded = new Set(uiStore.getState().expandedTasks);
+                const expanded = new Set(uiStore.getState().collapsedTasks);
                 if (expanded.has(task.id)) {
                   expanded.delete(task.id);
                 } else {
                   expanded.add(task.id);
                 }
-                uiStore.setState({ expandedTasks: expanded });
+                uiStore.setState({ collapsedTasks: expanded });
               },
             },
             {

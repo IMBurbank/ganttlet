@@ -93,13 +93,13 @@ export default function TaskRow({
 
   function handleToggleExpand() {
     const state = uiStore.getState();
-    const expanded = new Set(state.expandedTasks);
+    const expanded = new Set(state.collapsedTasks);
     if (expanded.has(task.id)) {
       expanded.delete(task.id);
     } else {
       expanded.add(task.id);
     }
-    uiStore.setState({ expandedTasks: expanded });
+    uiStore.setState({ collapsedTasks: expanded });
   }
 
   function renderCell(col: ColumnConfig) {
@@ -119,7 +119,7 @@ export default function TaskRow({
                   height="10"
                   viewBox="0 0 10 10"
                   fill="currentColor"
-                  className={`transition-transform duration-150 ${!uiStore.getState().expandedTasks.has(task.id) ? 'rotate-90' : ''}`}
+                  className={`transition-transform duration-150 ${!uiStore.getState().collapsedTasks.has(task.id) ? 'rotate-90' : ''}`}
                 >
                   <path d="M3 1 L8 5 L3 9 Z" />
                 </svg>

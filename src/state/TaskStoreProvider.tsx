@@ -63,6 +63,8 @@ export const CollabContext = createContext<{
   isCollabConnected: false,
 });
 
+const DEFAULT_CRITICAL_PATH_SCOPE: CriticalPathScope = { type: 'project', name: '' };
+
 interface TaskStoreProviderProps {
   children: React.ReactNode;
   /** External Y.Doc (for testing or shared doc scenarios). If not provided, a new one is created. */
@@ -92,7 +94,7 @@ export function TaskStoreProvider({
   demoTasks,
   roomId,
   accessToken,
-  criticalPathScope = { type: 'project', name: '' },
+  criticalPathScope = DEFAULT_CRITICAL_PATH_SCOPE,
   spreadsheetId,
   userName,
   userEmail,

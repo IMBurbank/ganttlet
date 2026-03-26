@@ -9,7 +9,7 @@ describe('UIStore', () => {
     expect(state.theme).toBe('light');
     expect(state.dataSource).toBeUndefined();
     expect(state.searchQuery).toBe('');
-    expect(state.expandedTasks).toBeInstanceOf(Set);
+    expect(state.collapsedTasks).toBeInstanceOf(Set);
   });
 
   it('accepts initial state overrides', () => {
@@ -58,12 +58,12 @@ describe('UIStore', () => {
     expect(store.getState().contextMenu).toBeNull();
   });
 
-  it('handles expandedTasks as a Set', () => {
+  it('handles collapsedTasks as a Set', () => {
     const store = new UIStore();
     const expanded = new Set(['a', 'b']);
-    store.setState({ expandedTasks: expanded });
-    expect(store.getState().expandedTasks).toBe(expanded);
-    expect(store.getState().expandedTasks.has('a')).toBe(true);
+    store.setState({ collapsedTasks: expanded });
+    expect(store.getState().collapsedTasks).toBe(expanded);
+    expect(store.getState().collapsedTasks.has('a')).toBe(true);
   });
 
   it('handles dataSource transitions', () => {
@@ -107,7 +107,7 @@ describe('UIStore', () => {
     const a = createDefaultUIState();
     const b = createDefaultUIState();
     expect(a).not.toBe(b);
-    expect(a.expandedTasks).not.toBe(b.expandedTasks);
+    expect(a.collapsedTasks).not.toBe(b.collapsedTasks);
   });
 
   it('criticalPathScope supports all type', () => {

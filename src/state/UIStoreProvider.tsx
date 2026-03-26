@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { UIStore, UIStoreContext, type UIState } from '../store/UIStore';
 
-const STORAGE_KEY_EXPANDED = 'ganttlet:expandedTasks';
+const STORAGE_KEY_COLLAPSED = 'ganttlet:collapsedTasks';
 const STORAGE_KEY_THEME = 'ganttlet:theme';
 
 interface UIStoreProviderProps {
@@ -14,17 +14,17 @@ interface UIStoreProviderProps {
  * Load persisted UI state from localStorage.
  */
 function loadPersistedState(): {
-  expandedTasks?: Set<string>;
+  collapsedTasks?: Set<string>;
   theme?: 'light' | 'dark';
 } {
-  const result: { expandedTasks?: Set<string>; theme?: 'light' | 'dark' } = {};
+  const result: { collapsedTasks?: Set<string>; theme?: 'light' | 'dark' } = {};
 
   try {
-    const expandedRaw = localStorage.getItem(STORAGE_KEY_EXPANDED);
+    const expandedRaw = localStorage.getItem(STORAGE_KEY_COLLAPSED);
     if (expandedRaw) {
       const parsed = JSON.parse(expandedRaw);
       if (Array.isArray(parsed)) {
-        result.expandedTasks = new Set(parsed);
+        result.collapsedTasks = new Set(parsed);
       }
     }
   } catch {
@@ -55,7 +55,10 @@ export function UIStoreProvider({ children, dataSource, initialState }: UIStoreP
     const unsubscribe = uiStore.subscribe(() => {
       const state = uiStore.getState();
       try {
-        localStorage.setItem(STORAGE_KEY_EXPANDED, JSON.stringify(Array.from(state.expandedTasks)));
+        localStorage.setItem(
+          STORAGE_KEY_COLLAPSED,
+          JSON.stringify(Array.from(state.collapsedTasks))
+        );
         localStorage.setItem(STORAGE_KEY_THEME, state.theme);
       } catch {
         /* localStorage full or unavailable */

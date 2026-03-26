@@ -13,7 +13,7 @@ export interface UIState {
   theme: 'light' | 'dark';
   columns: ColumnConfig[];
   searchQuery: string;
-  expandedTasks: Set<string>;
+  collapsedTasks: Set<string>;
   isLeftPaneCollapsed: boolean;
   showOwnerOnBar: boolean;
   showAreaOnBar: boolean;
@@ -50,7 +50,7 @@ export function createDefaultUIState(): UIState {
     theme: 'light',
     columns: DEFAULT_COLUMNS,
     searchQuery: '',
-    expandedTasks: new Set<string>(),
+    collapsedTasks: new Set<string>(),
     isLeftPaneCollapsed: false,
     showOwnerOnBar: false,
     showAreaOnBar: false,

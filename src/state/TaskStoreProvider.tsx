@@ -9,6 +9,7 @@ import React, {
 import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import { TaskStore, TaskStoreContext } from '../store/TaskStore';
+import { initializeYDoc } from '../collab/initialization';
 import { MutateContext } from '../hooks/useMutate';
 import {
   moveTask,
@@ -102,10 +103,6 @@ export function TaskStoreProvider({
   const taskStore = useMemo(() => new TaskStore(), []);
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
   const uiStore = useContext(UIStoreContext);
-  if (typeof window !== 'undefined') {
-    (window as any).__ganttlet_doc = docRef.current;
-    (window as any).__ganttlet_store = taskStore;
-  }
 
   const draggedTaskIdRef = useRef<string | null>(null);
 
@@ -167,6 +164,9 @@ export function TaskStoreProvider({
           break;
         case 'RECALCULATE_EARLIEST':
           recalculateEarliestMutation(doc, action.taskIds);
+          break;
+        case 'INITIALIZE_TASKS':
+          initializeYDoc(doc, action.tasks);
           break;
       }
     },

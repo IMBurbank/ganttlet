@@ -13,10 +13,8 @@ export default function FirstVisitWelcome({ onSignInComplete }: FirstVisitWelcom
 
   const handleTryDemo = useCallback(async () => {
     const { fakeTasks } = await import('../../data/templates/softwareRelease');
-    // Add demo tasks to Y.Doc via mutations
-    for (const task of fakeTasks) {
-      mutate({ type: 'ADD_TASK', task });
-    }
+    // Initialize Y.Doc with demo tasks (preserves IDs for parent-child + dependency references)
+    mutate({ type: 'INITIALIZE_TASKS', tasks: fakeTasks });
     uiStore?.setState({ dataSource: 'sandbox' });
   }, [mutate, uiStore]);
 

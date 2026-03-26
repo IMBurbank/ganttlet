@@ -110,7 +110,8 @@ export type MutateAction =
   | { type: 'ADD_DEPENDENCY'; taskId: string; dep: Dependency }
   | { type: 'UPDATE_DEPENDENCY'; taskId: string; fromId: string; update: Partial<Dependency> }
   | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string }
-  | { type: 'RECALCULATE_EARLIEST'; taskIds: string[] };
+  | { type: 'RECALCULATE_EARLIEST'; taskIds: string[] }
+  | { type: 'INITIALIZE_TASKS'; tasks: Task[] };
 
 export interface GanttState {
   tasks: Task[];

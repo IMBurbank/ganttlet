@@ -20,9 +20,7 @@ export default function ChoosePath({ onSelectSheet }: ChoosePathProps) {
 
   const handleTryDemo = useCallback(async () => {
     const { fakeTasks } = await import('../../data/templates/softwareRelease');
-    for (const task of fakeTasks) {
-      mutate({ type: 'ADD_TASK', task });
-    }
+    mutate({ type: 'INITIALIZE_TASKS', tasks: fakeTasks });
     uiStore?.setState({ dataSource: 'sandbox' });
   }, [mutate, uiStore]);
 

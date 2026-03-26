@@ -197,9 +197,16 @@ function parseDependencies(str: string): Dependency[] {
  * Case-insensitive, order-sensitive. All 22 required columns must be present.
  * Extra columns after column V are ignored.
  */
+/**
+ * Validate that the sheet header row matches expected columns.
+ * Requires the first 20 task-data columns to match exactly.
+ * Attribution columns (lastModifiedBy, lastModifiedAt at positions 20-21)
+ * are optional — they're added on first save but may not exist on legacy sheets.
+ */
 export function validateHeaders(headerRow: string[]): boolean {
-  if (headerRow.length < SHEET_COLUMNS.length) return false;
-  for (let i = 0; i < SHEET_COLUMNS.length; i++) {
+  const REQUIRED_COLUMN_COUNT = 20; // Core task-data columns
+  if (headerRow.length < REQUIRED_COLUMN_COUNT) return false;
+  for (let i = 0; i < REQUIRED_COLUMN_COUNT; i++) {
     if (headerRow[i].toLowerCase() !== SHEET_COLUMNS[i].toLowerCase()) {
       return false;
     }

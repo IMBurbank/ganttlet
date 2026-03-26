@@ -47,11 +47,10 @@ function recalcAffectedSummaries(
     const affectedSummaryIds = findAffectedSummaries(changedIds, allTasks);
     if (affectedSummaryIds.size === 0) return allTasks;
 
-    // Only recalculate affected summary tasks from their children
-    const affectedTasks = Array.from(allTasks.values()).filter(
-      (t) => affectedSummaryIds.has(t.id) || changedIds.has(t.id)
-    );
-    const recalced = recalcSummaryDates(affectedTasks);
+    // recalcSummaryDates needs ALL tasks to compute correct dates for summaries
+    // (it needs to see all children). Pass the full set but only update affected ones.
+    const tasksArray = Array.from(allTasks.values());
+    const recalced = recalcSummaryDates(tasksArray);
     const result = new Map(allTasks);
     for (const t of recalced) {
       if (affectedSummaryIds.has(t.id)) {

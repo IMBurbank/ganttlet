@@ -40,6 +40,18 @@ export function initSchema(doc: Y.Doc): {
   const taskOrder = doc.getArray<string>('taskOrder');
   const meta = doc.getMap('meta') as Y.Map<unknown>;
   if (!meta.has('schemaVersion')) {
+    // Check for legacy Y.Array-based data (pre-Y.Map schema)
+    try {
+      const legacyArray = doc.getArray('legacyTasks');
+      if (legacyArray.length > 0) {
+        console.warn(
+          `[ydoc] Detected ${legacyArray.length} items in legacy Y.Array('legacyTasks'). ` +
+            'Migration from Y.Array to Y.Map schema is not yet implemented. Data may need manual migration.'
+        );
+      }
+    } catch {
+      // No legacy data — this is expected for fresh docs
+    }
     meta.set('schemaVersion', 1);
   }
   return { tasks, taskOrder, meta };

@@ -25,10 +25,16 @@ export interface CollabConnection {
  * Schema: The Y.Doc uses Y.Map<Y.Map<unknown>>('tasks') (not Y.Array).
  * See src/schema/ydoc.ts initSchema() for the full structure.
  */
-export function connectCollab(roomId: string, accessToken: string): CollabConnection {
+export function connectCollab(
+  roomId: string,
+  accessToken: string,
+  externalDoc: Y.Doc
+): CollabConnection {
   disconnectCollab();
 
-  doc = new Y.Doc();
+  // Use the caller's doc — don't create a new one.
+  // The caller owns the doc lifecycle (creation + destruction).
+  doc = externalDoc;
 
   const wsUrl = `${COLLAB_URL}/ws`;
 
@@ -75,10 +81,8 @@ export function disconnectCollab(): void {
     provider.destroy();
     provider = null;
   }
-  if (doc) {
-    doc.destroy();
-    doc = null;
-  }
+  // Don't destroy the doc — the caller owns its lifecycle.
+  doc = null;
 }
 
 /**

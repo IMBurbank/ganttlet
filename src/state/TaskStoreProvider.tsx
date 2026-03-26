@@ -21,9 +21,11 @@ import {
   updateDependency,
   removeDependency,
   setConstraint,
+  recalculateEarliestMutation,
 } from '../mutations';
 import { UIStoreContext } from '../store/UIStore';
 import type { MutateAction, Task, CriticalPathScope, CollabUser } from '../types';
+import { SheetsAdapter } from '../sheets/SheetsAdapter';
 import {
   useYDocObserver,
   useUndoManager,
@@ -48,6 +50,8 @@ export const UndoManagerContext = createContext<UndoManagerState>({
 /** Ref to the task ID currently being dragged locally.
  *  TaskBar sets this during pointer capture; observer reads it to skip remote updates. */
 export const DragContext = createContext<RefObject<string | null>>({ current: null });
+
+export const SheetsAdapterContext = createContext<{ restart: () => Promise<void> } | null>(null);
 
 export const CollabContext = createContext<{
   awareness: Awareness | null;
@@ -113,7 +117,7 @@ export function TaskStoreProvider({
     userName,
     userEmail
   );
-  useSheetsSync(doc, spreadsheetId, uiStore, roomId, accessToken, undoManagerRef);
+  const sheetsAdapterRef = useSheetsSync(doc, spreadsheetId, uiStore, undoManagerRef);
 
   // Mutate dispatcher
   const mutate = useCallback(
@@ -154,6 +158,9 @@ export function TaskStoreProvider({
         case 'REMOVE_DEPENDENCY':
           removeDependency(doc, action.taskId, action.fromId);
           break;
+        case 'RECALCULATE_EARLIEST':
+          recalculateEarliestMutation(doc, action.taskIds);
+          break;
       }
     },
     [doc]
@@ -177,12 +184,21 @@ export function TaskStoreProvider({
     [awareness, collabUsers, isCollabConnected]
   );
 
+  const sheetsAdapterValue = useMemo(
+    () =>
+      sheetsAdapterRef.current ? { restart: () => sheetsAdapterRef.current!.restart() } : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref stable, re-evaluated on spreadsheetId change
+    [spreadsheetId]
+  );
+
   return (
     <TaskStoreContext.Provider value={taskStore}>
       <UndoManagerContext.Provider value={undoManagerState}>
         <DragContext.Provider value={draggedTaskIdRef}>
           <CollabContext.Provider value={collabState}>
-            <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+            <SheetsAdapterContext.Provider value={sheetsAdapterValue}>
+              <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+            </SheetsAdapterContext.Provider>
           </CollabContext.Provider>
         </DragContext.Provider>
       </UndoManagerContext.Provider>

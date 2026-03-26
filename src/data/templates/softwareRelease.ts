@@ -1,4 +1,4 @@
-import type { Task, ChangeRecord, FakeUser } from '../../types';
+import type { Task, ChangeRecord } from '../../types';
 
 export const fakeTasks: Task[] = [
   // Root: Q2 Product Launch
@@ -736,36 +736,6 @@ export const fakeTasks: Task[] = [
     isHidden: false,
     notes: 'Ship it!',
     okrs: [],
-  },
-];
-
-export const fakeUsers: FakeUser[] = [
-  {
-    id: 'u1',
-    name: 'Sarah Chen',
-    avatar: 'SC',
-    color: '#3b82f6',
-    isOnline: true,
-    viewingTaskId: 'pe-3',
-    viewingCellColumn: 'endDate',
-  },
-  {
-    id: 'u2',
-    name: 'Marcus Johnson',
-    avatar: 'MJ',
-    color: '#22c55e',
-    isOnline: true,
-    viewingTaskId: 'ux-2',
-    viewingCellColumn: null,
-  },
-  {
-    id: 'u3',
-    name: 'Priya Patel',
-    avatar: 'PP',
-    color: '#a855f7',
-    isOnline: false,
-    viewingTaskId: null,
-    viewingCellColumn: null,
   },
 ];
 

@@ -8,7 +8,7 @@ import {
 } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 import GanttChart from './GanttChart';
-import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
+import type { Task, ZoomLevel, ColorByField, Dependency, CollabUser } from '../../types';
 import { ROW_HEIGHT } from '../../utils/layoutUtils';
 
 const OVERSCAN = 5;
@@ -18,7 +18,6 @@ interface VirtualizedGanttChartProps {
   allTasks: Task[];
   zoom: ZoomLevel;
   colorBy: ColorByField;
-  users: FakeUser[];
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
   awareness?: Awareness | null;

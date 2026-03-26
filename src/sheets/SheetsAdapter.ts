@@ -216,6 +216,11 @@ export class SheetsAdapter {
     }
   }
 
+  async restart(): Promise<void> {
+    this.stop();
+    await this.start();
+  }
+
   isSavePending(): boolean {
     return this.saveDirty;
   }

@@ -1,5 +1,5 @@
 import React, { useEffect, useContext } from 'react';
-import type { Task, ColumnConfig, ColorByField, FakeUser, CollabUser } from '../../types';
+import type { Task, ColumnConfig, ColorByField, CollabUser } from '../../types';
 import { useUIStore } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
 import ColumnHeader from './ColumnHeader';
@@ -10,7 +10,6 @@ interface TaskTableProps {
   columns: ColumnConfig[];
   colorBy: ColorByField;
   taskMap: Map<string, Task>;
-  users: FakeUser[];
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
 }
@@ -26,7 +25,6 @@ export default function TaskTable({
   columns,
   colorBy,
   taskMap,
-  users,
   collabUsers,
   isCollabConnected,
 }: TaskTableProps) {
@@ -47,16 +45,6 @@ export default function TaskTable({
   if (isCollabConnected && collabUsers && collabUsers.length > 0) {
     collabUsers.forEach((u) => {
       if (u.viewingTaskId) {
-        viewingMap.set(u.viewingTaskId, {
-          name: u.name,
-          color: u.color,
-          viewingCellColumn: u.viewingCellColumn,
-        });
-      }
-    });
-  } else {
-    users.forEach((u) => {
-      if (u.viewingTaskId && u.isOnline) {
         viewingMap.set(u.viewingTaskId, {
           name: u.name,
           color: u.color,

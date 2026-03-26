@@ -64,13 +64,10 @@ export async function createProjectFromTemplate(
   // Track in recent sheets
   addRecentSheet({ sheetId: spreadsheetId, title: name, lastOpened: Date.now() });
 
-  // Stage 4 (Group F): wire to SheetsAdapter — initSync, startPolling
-
   if (tasks.length > 0) {
-    // Add tasks via mutations
+    // Add tasks via mutations — SheetsAdapter will reconcile on its first poll
     for (const task of tasks) {
       mutate({ type: 'ADD_TASK', task });
     }
-    // Stage 4 (Group F): wire to SheetsAdapter — scheduleSave
   }
 }

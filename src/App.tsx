@@ -131,14 +131,11 @@ function AppContent() {
               onClick: () => uiStore.setState({ reparentPicker: { taskId: task.id } }),
             },
           ]),
-      // Recalculate options — placeholder until mutation function added
       ...(!task.isSummary
         ? [
             {
               label: 'Recalculate to earliest',
-              onClick: () => {
-                // TODO: Implement per-task recalculate
-              },
+              onClick: () => mutate({ type: 'RECALCULATE_EARLIEST', taskIds: [task.id] }),
             },
           ]
         : []),
@@ -147,7 +144,9 @@ function AppContent() {
             {
               label: 'Recalculate workstream',
               onClick: () => {
-                // TODO: Implement workstream recalculate
+                const wsName = task.workStream;
+                const wsTaskIds = allTasks.filter((t) => t.workStream === wsName).map((t) => t.id);
+                mutate({ type: 'RECALCULATE_EARLIEST', taskIds: wsTaskIds });
               },
             },
           ]
@@ -157,7 +156,9 @@ function AppContent() {
             {
               label: 'Recalculate project',
               onClick: () => {
-                // TODO: Implement project recalculate
+                const projName = task.project;
+                const projTaskIds = allTasks.filter((t) => t.project === projName).map((t) => t.id);
+                mutate({ type: 'RECALCULATE_EARLIEST', taskIds: projTaskIds });
               },
             },
           ]
@@ -203,7 +204,6 @@ function AppContent() {
               columns={columns}
               colorBy={colorBy}
               taskMap={taskMap}
-              users={[]}
               collabUsers={collabUsers}
               isCollabConnected={isCollabConnected}
             />
@@ -233,7 +233,6 @@ function AppContent() {
             allTasks={allTasks}
             zoom={zoomLevel}
             colorBy={colorBy}
-            users={[]}
             collabUsers={collabUsers}
             isCollabConnected={isCollabConnected}
             awareness={awareness}

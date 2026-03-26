@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import type { Task } from '../types';
 import { taskToYMap, yMapToTask } from '../schema/ydoc';
-import { cascadeDependents } from '../utils/schedulerWasm';
+import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { daysBetween } from '../utils/dateUtils';
 
 /**
@@ -363,6 +363,47 @@ export function updateTaskField(doc: Y.Doc, taskId: string, field: string, value
       ymap.set(field, JSON.stringify(value));
     } else {
       ymap.set(field, value);
+    }
+  }, 'local');
+}
+
+/**
+ * Recalculate the given tasks to their earliest possible dates via WASM.
+ * Supports per-task, workstream, project, or all-task scopes depending on
+ * how taskIds are gathered by the caller.
+ */
+export function recalculateEarliestMutation(doc: Y.Doc, taskIds: string[]): void {
+  const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+  const allTasks = readAllTasks(ytasks);
+
+  // Determine scope: if a single task, pass scopeTaskId; otherwise recalculate all and filter
+  const scopeTaskId = taskIds.length === 1 ? taskIds[0] : undefined;
+
+  let results;
+  try {
+    results = recalculateEarliest(
+      allTasks,
+      undefined, // scopeProject
+      undefined, // scopeWorkstream
+      scopeTaskId
+    );
+  } catch {
+    return; // WASM error — abort
+  }
+
+  // Build a set for quick lookup when scoped to multiple tasks
+  const scopeSet = scopeTaskId ? null : new Set(taskIds);
+
+  doc.transact(() => {
+    for (const result of results) {
+      // If scoped to multiple (but not all) tasks, only apply to those in scope
+      if (scopeSet && !scopeSet.has(result.id)) continue;
+
+      const ymap = ytasks.get(result.id);
+      if (ymap) {
+        ymap.set('startDate', result.newStart);
+        ymap.set('endDate', result.newEnd);
+      }
     }
   }, 'local');
 }

@@ -56,16 +56,6 @@ export interface ChangeRecord {
   newValue: string;
 }
 
-export interface FakeUser {
-  id: string;
-  name: string;
-  avatar: string;
-  color: string;
-  isOnline: boolean;
-  viewingTaskId: string | null;
-  viewingCellColumn: string | null;
-}
-
 export interface CollabUser {
   clientId: number;
   name: string;
@@ -121,7 +111,8 @@ export type MutateAction =
   | { type: 'REPARENT_TASK'; taskId: string; newParentId: string }
   | { type: 'ADD_DEPENDENCY'; taskId: string; dep: Dependency }
   | { type: 'UPDATE_DEPENDENCY'; taskId: string; fromId: string; update: Partial<Dependency> }
-  | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string };
+  | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string }
+  | { type: 'RECALCULATE_EARLIEST'; taskIds: string[] };
 
 export interface GanttState {
   tasks: Task[];
@@ -130,7 +121,6 @@ export interface GanttState {
   zoomLevel: ZoomLevel;
   searchQuery: string;
   changeHistory: ChangeRecord[];
-  users: FakeUser[];
   isHistoryPanelOpen: boolean;
   isSyncing: boolean;
   syncComplete: boolean;

@@ -1,6 +1,7 @@
 import React, { useCallback, useContext } from 'react';
 import { useUIStore } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
+import { SheetsAdapterContext } from '../../state/TaskStoreProvider';
 import { signIn, setAuthChangeCallback, removeAuthChangeCallback } from '../../sheets/oauth';
 import { removeRecentSheet } from '../../utils/recentSheets';
 import type { SyncError } from '../../types';
@@ -9,16 +10,17 @@ export default function ErrorBanner() {
   const syncError = useUIStore((s) => s.syncError);
   const dataSource = useUIStore((s) => s.dataSource);
   const uiStore = useContext(UIStoreContext);
+  const adapter = useContext(SheetsAdapterContext);
 
   const handleReAuth = useCallback(() => {
     const onAuthChange = () => {
       uiStore?.setState({ syncError: null });
-      // Stage 4 (Group F): wire to SheetsAdapter — scheduleSave
       removeAuthChangeCallback(onAuthChange);
+      adapter?.restart();
     };
     setAuthChangeCallback(onAuthChange);
     signIn();
-  }, [uiStore]);
+  }, [uiStore, adapter]);
 
   const handleOpenAnother = useCallback(() => {
     // Navigate to root (removes ?sheet= param)
@@ -27,8 +29,8 @@ export default function ErrorBanner() {
 
   const handleRetry = useCallback(() => {
     uiStore?.setState({ syncError: null, dataSource: 'loading' });
-    // Stage 4 (Group F): wire to SheetsAdapter — loadFromSheet, startPolling
-  }, [uiStore]);
+    adapter?.restart();
+  }, [uiStore, adapter]);
 
   if (!syncError) return null;
   if (syncError.type === 'rate_limit' || syncError.type === 'header_mismatch') return null;
@@ -47,7 +49,6 @@ export default function ErrorBanner() {
         {(syncError.type === 'not_found' || syncError.type === 'forbidden') && (
           <button
             onClick={() => {
-              // Stage 4 (Group F): wire to SheetsAdapter — stopPolling
               if (syncError.type === 'not_found' && sheetId) {
                 removeRecentSheet(sheetId);
               }

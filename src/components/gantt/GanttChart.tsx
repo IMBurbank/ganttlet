@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { parseISO, isValid } from 'date-fns';
 import type { Awareness } from 'y-protocols/awareness';
-import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
+import type { Task, ZoomLevel, ColorByField, Dependency, CollabUser } from '../../types';
 import { useUIStore } from '../../hooks';
 import {
   dateToX,
@@ -35,7 +35,6 @@ interface GanttChartProps {
   allTasks: Task[];
   zoom: ZoomLevel;
   colorBy: ColorByField;
-  users: FakeUser[];
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
   awareness?: Awareness | null;
@@ -49,7 +48,6 @@ export default function GanttChart({
   allTasks,
   zoom,
   colorBy,
-  users,
   collabUsers,
   isCollabConnected,
   awareness,
@@ -72,15 +70,9 @@ export default function GanttChart({
           map.set(u.viewingTaskId, { color: u.color, name: u.name });
         }
       });
-    } else {
-      users.forEach((u) => {
-        if (u.viewingTaskId && u.isOnline) {
-          map.set(u.viewingTaskId, { color: u.color, name: u.name });
-        }
-      });
     }
     return map;
-  }, [users, collabUsers, isCollabConnected]);
+  }, [collabUsers, isCollabConnected]);
 
   const criticalPathResult = useMemo(() => {
     if (!showCriticalPath)

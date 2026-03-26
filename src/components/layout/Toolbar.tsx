@@ -370,10 +370,11 @@ export default function Toolbar() {
         + Add Task
       </button>
 
-      {/* Recalculate All — placeholder until mutation added */}
+      {/* Recalculate All */}
       <button
         onClick={() => {
-          // TODO: Implement RECALCULATE_EARLIEST as mutation function
+          const allIds = taskStore.getTaskOrder();
+          mutate({ type: 'RECALCULATE_EARLIEST', taskIds: allIds });
         }}
         className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors"
         title="Recalculate all tasks to their earliest possible dates"

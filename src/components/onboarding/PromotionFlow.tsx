@@ -1,4 +1,4 @@
-import { useState, useCallback, useContext } from 'react';
+import { useState, useCallback } from 'react';
 import {
   isSignedIn,
   signIn,
@@ -6,7 +6,6 @@ import {
   removeAuthChangeCallback,
 } from '../../sheets/oauth';
 import { createSheet } from '../../sheets/sheetCreation';
-import { UIStoreContext } from '../../store/UIStore';
 import SheetSelector from './SheetSelector';
 import TargetSheetCheck, { type TargetSheetAction } from './TargetSheetCheck';
 
@@ -23,34 +22,24 @@ interface PromotionFlowProps {
 }
 
 export default function PromotionFlow({ onClose }: PromotionFlowProps) {
-  const uiStore = useContext(UIStoreContext);
   const [step, setStep] = useState<FlowStep>(
     isSignedIn() ? { type: 'destination' } : { type: 'sign-in' }
   );
 
-  const executeTransition = useCallback(
-    async (spreadsheetId: string) => {
-      setStep({ type: 'writing' });
-      try {
-        // (1) Update URL
-        const url = new URL(window.location.href);
-        url.searchParams.set('sheet', spreadsheetId);
-        url.searchParams.set('room', spreadsheetId);
-        window.history.replaceState({}, '', url.toString());
-
-        // Stage 4 (Group F): wire to SheetsAdapter — initSync, startPolling, scheduleSave
-
-        // Set data source to sheet + clear sync errors
-        uiStore?.setState({ dataSource: 'sheet', syncError: null });
-
-        onClose();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to save to sheet';
-        setStep({ type: 'error', message });
-      }
-    },
-    [uiStore, onClose]
-  );
+  const executeTransition = useCallback(async (spreadsheetId: string) => {
+    setStep({ type: 'writing' });
+    try {
+      // Navigate with full page reload so the entire component tree
+      // re-mounts with the new URL params (spreadsheetId, roomId).
+      const url = new URL(window.location.href);
+      url.searchParams.set('sheet', spreadsheetId);
+      url.searchParams.set('room', spreadsheetId);
+      window.location.href = url.toString();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save to sheet';
+      setStep({ type: 'error', message });
+    }
+  }, []);
 
   const handleSignIn = useCallback(() => {
     signIn();

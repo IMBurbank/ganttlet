@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useRef, useEffect, useContext } from 'react';
 import { UIStoreProvider } from './state/UIStoreProvider';
 import { TaskStoreProvider } from './state/TaskStoreProvider';
-import { useUIStore, useMutate, useTaskOrder } from './hooks';
+import { useUIStore, useMutate, useTaskOrder, useCollab } from './hooks';
 import { UIStoreContext } from './store/UIStore';
 import { TaskStoreContext } from './store/TaskStore';
 import WelcomeGate from './components/onboarding/WelcomeGate';
@@ -16,7 +16,6 @@ import ReparentPickerModal from './components/shared/ReparentPickerModal';
 import EmptyState from './components/onboarding/EmptyState';
 import ConflictResolutionModal from './components/onboarding/ConflictResolutionModal';
 import { DataSafeErrorBoundary } from './components/shared/DataSafeErrorBoundary';
-import { AwarenessProvider, useAwareness } from './collab/AwarenessContext';
 import { getAuthState } from './sheets/oauth';
 
 function AppContent() {
@@ -34,7 +33,7 @@ function AppContent() {
   const uiStore = useContext(UIStoreContext)!;
   const taskStore = useContext(TaskStoreContext)!;
   const mutate = useMutate();
-  const { collabUsers, isCollabConnected, awareness } = useAwareness();
+  const { collabUsers, isCollabConnected, awareness } = useCollab();
 
   // Subscribe to global task changes to trigger re-renders
   useTaskOrder();
@@ -274,18 +273,18 @@ export default function App() {
 
   return (
     <UIStoreProvider>
-      <TaskStoreProvider spreadsheetId={sheetId} roomId={roomId}>
-        <AwarenessProvider
-          roomId={roomId}
-          userName={auth.userName ?? undefined}
-          userEmail={auth.userEmail ?? undefined}
-        >
-          <DataSafeErrorBoundary>
-            <WelcomeGate>
-              <AppContent />
-            </WelcomeGate>
-          </DataSafeErrorBoundary>
-        </AwarenessProvider>
+      <TaskStoreProvider
+        spreadsheetId={sheetId}
+        roomId={roomId}
+        accessToken={auth.accessToken ?? undefined}
+        userName={auth.userName ?? undefined}
+        userEmail={auth.userEmail ?? undefined}
+      >
+        <DataSafeErrorBoundary>
+          <WelcomeGate>
+            <AppContent />
+          </WelcomeGate>
+        </DataSafeErrorBoundary>
       </TaskStoreProvider>
     </UIStoreProvider>
   );

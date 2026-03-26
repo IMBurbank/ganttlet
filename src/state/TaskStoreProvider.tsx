@@ -5,10 +5,12 @@ import React, {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type MutableRefObject,
 } from 'react';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
+import type { Awareness } from 'y-protocols/awareness';
 import { TaskStore, TaskStoreContext } from '../store/TaskStore';
 import { MutateContext } from '../hooks/useMutate';
 import { setupObserver } from '../collab/observer';
@@ -25,11 +27,12 @@ import {
   removeDependency,
   setConstraint,
 } from '../mutations';
-import { connectCollab, disconnectCollab } from '../collab/yjsProvider';
+import { connectCollab, disconnectCollab, getProvider } from '../collab/yjsProvider';
+import { setLocalAwareness, getCollabUsers } from '../collab/awareness';
 import { SheetsAdapter } from '../sheets/SheetsAdapter';
 import { getAccessToken, setAuthChangeCallback, removeAuthChangeCallback } from '../sheets/oauth';
 import { UIStoreContext } from '../store/UIStore';
-import type { MutateAction, Task, CriticalPathScope, ConflictRecord } from '../types';
+import type { MutateAction, Task, CriticalPathScope, ConflictRecord, CollabUser } from '../types';
 
 export interface UndoManagerState {
   undoManager: Y.UndoManager | null;
@@ -47,6 +50,16 @@ export const UndoManagerContext = createContext<UndoManagerState>({
  *  TaskBar sets this during pointer capture; observer reads it to skip remote updates. */
 export const DragContext = createContext<MutableRefObject<string | null>>({ current: null });
 
+export const CollabContext = createContext<{
+  awareness: Awareness | null;
+  collabUsers: CollabUser[];
+  isCollabConnected: boolean;
+}>({
+  awareness: null,
+  collabUsers: [],
+  isCollabConnected: false,
+});
+
 interface TaskStoreProviderProps {
   children: React.ReactNode;
   /** External Y.Doc (for testing or shared doc scenarios). If not provided, a new one is created. */
@@ -63,6 +76,10 @@ interface TaskStoreProviderProps {
   criticalPathScope?: CriticalPathScope;
   /** Spreadsheet ID for sheet mode (enables SheetsAdapter) */
   spreadsheetId?: string;
+  /** User display name for collab awareness */
+  userName?: string;
+  /** User email for collab awareness */
+  userEmail?: string;
 }
 
 export function TaskStoreProvider({
@@ -74,6 +91,8 @@ export function TaskStoreProvider({
   accessToken,
   criticalPathScope = { type: 'project', name: '' },
   spreadsheetId,
+  userName,
+  userEmail,
 }: TaskStoreProviderProps) {
   const taskStore = useMemo(() => new TaskStore(), []);
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
@@ -86,6 +105,9 @@ export function TaskStoreProvider({
     canUndo: false,
     canRedo: false,
   });
+  const awarenessRef = useRef<Awareness | null>(null);
+  const [collabUsers, setCollabUsers] = useState<CollabUser[]>([]);
+  const [isCollabConnected, setIsCollabConnected] = useState(false);
 
   const doc = docRef.current;
 
@@ -166,16 +188,47 @@ export function TaskStoreProvider({
     }
   }, [doc, dataSource, demoTasks]);
 
-  // Collab connection
+  // Collab connection + awareness
   useEffect(() => {
-    if (!roomId || !accessToken) return;
+    if (!roomId || !accessToken) {
+      awarenessRef.current = null;
+      setCollabUsers([]);
+      setIsCollabConnected(false);
+      return;
+    }
 
-    connectCollab(roomId, accessToken);
+    const { awareness: aw } = connectCollab(roomId, accessToken, doc);
+    awarenessRef.current = aw;
+
+    // Set local identity
+    if (userName && userEmail) {
+      setLocalAwareness(aw, { name: userName, email: userEmail });
+    }
+
+    // Subscribe to awareness changes
+    const onChange = () => {
+      setCollabUsers(getCollabUsers(aw));
+    };
+    aw.on('change', onChange);
+    onChange(); // initial read
+
+    // Subscribe to connection status
+    const onStatus = ({ status }: { status: string }) => {
+      setIsCollabConnected(status === 'connected');
+    };
+    const prov = getProvider();
+    if (prov) {
+      prov.on('status', onStatus);
+      setIsCollabConnected(prov.wsconnected);
+    }
 
     return () => {
+      aw.off('change', onChange);
+      if (prov) prov.off('status', onStatus);
       disconnectCollab();
+      awarenessRef.current = null;
     };
-  }, [roomId, accessToken]);
+  }, [roomId, accessToken, doc, userName, userEmail]);
 
   // SheetsAdapter: init on sheet mode, cleanup on disconnect
   useEffect(() => {
@@ -224,7 +277,7 @@ export function TaskStoreProvider({
       // Token refreshed — adapter will pick it up on next poll/write via getAccessToken
       // Reconnect collab if needed
       if (roomId && accessToken) {
-        connectCollab(roomId, accessToken);
+        connectCollab(roomId, accessToken, doc);
       }
     };
     setAuthChangeCallback(authChangeHandler);
@@ -297,11 +350,22 @@ export function TaskStoreProvider({
     [undoState]
   );
 
+  const collabState = useMemo(
+    () => ({
+      awareness: awarenessRef.current,
+      collabUsers,
+      isCollabConnected,
+    }),
+    [collabUsers, isCollabConnected]
+  );
+
   return (
     <TaskStoreContext.Provider value={taskStore}>
       <UndoManagerContext.Provider value={undoManagerState}>
         <DragContext.Provider value={draggedTaskIdRef}>
-          <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+          <CollabContext.Provider value={collabState}>
+            <MutateContext.Provider value={mutate}>{children}</MutateContext.Provider>
+          </CollabContext.Provider>
         </DragContext.Provider>
       </UndoManagerContext.Provider>
     </TaskStoreContext.Provider>

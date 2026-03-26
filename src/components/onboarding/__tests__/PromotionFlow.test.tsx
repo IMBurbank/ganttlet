@@ -115,7 +115,7 @@ describe('PromotionFlow', () => {
     });
 
     await waitFor(() => {
-      expect(onClose).toHaveBeenCalled();
+      expect(window.location.href).toContain('sheet=new-sheet-456');
     });
   });
 
@@ -145,7 +145,7 @@ describe('PromotionFlow', () => {
     fireEvent.click(screen.getByTestId('mock-proceed'));
 
     await waitFor(() => {
-      expect(onClose).toHaveBeenCalled();
+      expect(window.location.href).toContain('sheet=existing-123');
     });
   });
 

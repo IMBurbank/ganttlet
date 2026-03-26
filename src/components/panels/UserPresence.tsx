@@ -1,10 +1,10 @@
 import React from 'react';
 import Avatar from '../shared/Avatar';
 import Tooltip from '../shared/Tooltip';
-import { useAwareness } from '../../collab/AwarenessContext';
+import { useCollab } from '../../hooks/useCollab';
 
 export default function UserPresence() {
-  const { collabUsers, isCollabConnected } = useAwareness();
+  const { collabUsers, isCollabConnected } = useCollab();
 
   if (!isCollabConnected || collabUsers.length === 0) {
     return null;

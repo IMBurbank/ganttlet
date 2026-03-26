@@ -1,9 +1,8 @@
 import { useMemo, useCallback, useRef, useEffect, useContext } from 'react';
 import { UIStoreProvider } from './state/UIStoreProvider';
 import { TaskStoreProvider } from './state/TaskStoreProvider';
-import { useUIStore, useMutate, useTaskOrder, useCollab, useAuthState } from './hooks';
+import { useUIStore, useMutate, useAllTasks, useCollab, useAuthState } from './hooks';
 import { UIStoreContext } from './store/UIStore';
-import { TaskStoreContext } from './store/TaskStore';
 import WelcomeGate from './components/onboarding/WelcomeGate';
 import { getVisibleTasks } from './utils/layoutUtils';
 import Header from './components/layout/Header';
@@ -30,12 +29,13 @@ function AppContent() {
   const reparentPicker = useUIStore((s) => s.reparentPicker);
 
   const uiStore = useContext(UIStoreContext)!;
-  const taskStore = useContext(TaskStoreContext)!;
   const mutate = useMutate();
   const { collabUsers, isCollabConnected, awareness } = useCollab();
 
-  // Subscribe to global task changes to trigger re-renders
-  useTaskOrder();
+  // Reactively subscribe to ALL task data changes via useSyncExternalStore.
+  // This is required for React Compiler compatibility — the compiler can't track
+  // changes through manual store.getX() calls during render.
+  const allTasks = useAllTasks();
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const ganttScrollRef = useRef<HTMLDivElement>(null);
@@ -52,7 +52,6 @@ function AppContent() {
     localStorage.setItem('ganttlet-theme', theme);
   }, [theme]);
 
-  const allTasks = taskStore.getAllTasksArray();
   const taskMap = useMemo(() => new Map(allTasks.map((t) => [t.id, t])), [allTasks]);
 
   const collapsedTasks = useUIStore((s) => s.collapsedTasks);

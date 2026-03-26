@@ -8,6 +8,9 @@ export class TaskStore {
   private globalListeners = new Set<() => void>();
   private criticalPath = new Set<string>();
   private conflicts = new Map<string, string>();
+  private version = 0;
+  private cachedArray: Task[] = [];
+  private cachedArrayVersion = -1;
 
   subscribe(taskId: string, listener: () => void): () => void {
     if (!this.listeners.has(taskId)) this.listeners.set(taskId, new Set());
@@ -29,7 +32,13 @@ export class TaskStore {
   }
 
   getAllTasksArray(): Task[] {
-    return Array.from(this.tasks.values());
+    // Cache the array to provide stable references for useSyncExternalStore.
+    // Only regenerate when version changes (i.e., after batchUpdate/setTaskOrder/setDerived).
+    if (this.cachedArrayVersion !== this.version) {
+      this.cachedArray = Array.from(this.tasks.values());
+      this.cachedArrayVersion = this.version;
+    }
+    return this.cachedArray;
   }
 
   getTaskOrder(): string[] {
@@ -38,12 +47,18 @@ export class TaskStore {
 
   setTaskOrder(order: string[]): void {
     this.taskOrder = order;
+    this.version++;
     this.globalListeners.forEach((l) => l());
+  }
+
+  getVersion(): number {
+    return this.version;
   }
 
   batchUpdate(changed: Map<string, Task>, deleted: Set<string>): void {
     for (const [id, task] of changed) this.tasks.set(id, task);
     for (const id of deleted) this.tasks.delete(id);
+    this.version++;
 
     // Notify ONLY changed/deleted task listeners — O(changed), not O(N)
     const affectedIds = [...changed.keys(), ...deleted];
@@ -65,6 +80,7 @@ export class TaskStore {
   setDerived(criticalPath: Set<string>, conflicts: Map<string, string>): void {
     this.criticalPath = criticalPath;
     this.conflicts = conflicts;
+    this.version++;
     this.globalListeners.forEach((l) => l());
   }
 }

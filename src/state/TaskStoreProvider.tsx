@@ -102,6 +102,11 @@ export function TaskStoreProvider({
   const taskStore = useMemo(() => new TaskStore(), []);
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
   const uiStore = useContext(UIStoreContext);
+  if (typeof window !== 'undefined') {
+    (window as any).__ganttlet_doc = docRef.current;
+    (window as any).__ganttlet_store = taskStore;
+  }
+
   const draggedTaskIdRef = useRef<string | null>(null);
 
   const doc = docRef.current;

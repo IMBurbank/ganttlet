@@ -22,6 +22,25 @@ export function useTaskOrder(): string[] {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
+/**
+ * Subscribe to any task data change. Returns the full task array, reactively
+ * updated on every batchUpdate, setTaskOrder, or setDerived call.
+ *
+ * NOTE: This returns a new array reference on every change. The React Compiler
+ * can't track external store changes through manual store.getX() calls during
+ * render, so any component that needs the full task list must use this hook
+ * rather than calling taskStore.getAllTasksArray() directly.
+ */
+export function useAllTasks(): Task[] {
+  const store = useContext(TaskStoreContext);
+  if (!store) throw new Error('useAllTasks must be used within TaskStoreProvider');
+
+  const subscribe = useCallback((cb: () => void) => store.subscribeGlobal(cb), [store]);
+  const getSnapshot = useCallback(() => store.getAllTasksArray(), [store]);
+
+  return useSyncExternalStore(subscribe, getSnapshot);
+}
+
 export function useCriticalPath(): Set<string> {
   const store = useContext(TaskStoreContext);
   if (!store) throw new Error('useCriticalPath must be used within TaskStoreProvider');

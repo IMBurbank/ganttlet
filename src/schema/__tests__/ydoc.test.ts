@@ -230,10 +230,10 @@ describe('initSchema', () => {
     expect(meta).toBeInstanceOf(Y.Map);
   });
 
-  it('sets schemaVersion: 1', () => {
+  it('sets schemaVersion: 2', () => {
     const doc = new Y.Doc();
     const { meta } = initSchema(doc);
-    expect(meta.get('schemaVersion')).toBe(1);
+    expect(meta.get('schemaVersion')).toBe(2);
   });
 
   it('returns correct references (same as doc.getMap/getArray)', () => {

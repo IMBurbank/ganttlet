@@ -52,7 +52,9 @@ export function initSchema(doc: Y.Doc): {
     } catch {
       // No legacy data — this is expected for fresh docs
     }
-    meta.set('schemaVersion', 1);
+    // v1: Original Y.Map schema (19 fields per task, 20 required sheet columns)
+    // v2: Phase 20 — centralized origins, attribution columns optional, isExpanded/isHidden removed
+    meta.set('schemaVersion', 2);
   }
   return { tasks, taskOrder, meta };
 }

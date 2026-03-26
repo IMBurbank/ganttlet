@@ -12,9 +12,17 @@
 ## Constraints
 - Mutations use compute-first + atomic transact — read state, compute cascade in WASM, write all in one `doc.transact()`
 - Commit-on-drop pattern — during drag, only CSS transforms applied (zero Y.Doc writes until mouseup)
-- Transaction origins: `'local'` (undoable, cascades), `'sheets'` (not undoable, no cascade), remote (no origin, batched via RAF)
+- **Transaction origins** defined in `src/collab/origins.ts`. Use `ORIGIN.LOCAL`, `ORIGIN.SHEETS`, `ORIGIN.INIT` — never raw strings. Classification: `classifyOrigin()`, `triggersWriteback()`, `isUndoable()`.
+- **Never read from TaskStore directly during render** — always use hooks (`useAllTasks`, `useTask`, `useTaskOrder`, `useCriticalPath`, `useConflicts`). Direct `taskStore.getX()` calls bypass `useSyncExternalStore` and are invisible to the React Compiler.
 - No Google SDK — raw `fetch()` for all Google API calls
 - Prefer `date-fns` directly over project wrappers for new code
+
+## Schema Versioning
+- `schemaVersion` in Y.Doc meta tracks breaking schema changes
+- v1: Original Y.Map schema (19 fields per task, 20 required sheet columns)
+- v2: Phase 20 — centralized origins, attribution columns (21-22) optional, `isExpanded`/`isHidden` removed from Task type
+- Bump `schemaVersion` when: adding required Y.Doc fields, changing field semantics, or altering sheet column layout
+- `REQUIRED_COLUMNS` (sheetsMapper.ts) = 20 core columns. Attribution columns added on first write but not required on read.
 
 ## Commands
 - `npm run test` — Vitest unit tests

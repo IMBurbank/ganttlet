@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useContext, lazy, Suspense } from 'react';
-import { useUIStore } from '../../hooks';
+import { useUIStore, useMutate } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
 import UserPresence from '../panels/UserPresence';
 import SyncStatus from '../onboarding/SyncStatus';
@@ -23,6 +23,7 @@ export default function Header() {
   const theme = useUIStore((s) => s.theme);
   const dataSource = useUIStore((s) => s.dataSource);
   const uiStore = useContext(UIStoreContext)!;
+  const mutate = useMutate();
   const [auth, setAuth] = useState<AuthState>(getAuthState());
 
   useEffect(() => {
@@ -395,20 +396,23 @@ export default function Header() {
           <TemplatePicker
             onSelect={(templateId) => {
               setShowTemplatePicker(false);
-              // Import and call createProjectFromTemplate
-              import('../../sheets/sheetCreation').then(({ createProjectFromTemplate }) => {
-                // createProjectFromTemplate still accepts old GanttAction dispatch — pass
-                // a shim that handles SET_DATA_SOURCE via UIStore. Full migration in Group E.
-                const shimDispatch = (action: { type: string; dataSource?: string }) => {
-                  if (action.type === 'SET_DATA_SOURCE' && action.dataSource) {
-                    uiStore.setState({ dataSource: action.dataSource as 'loading' | 'sheet' });
-                  }
-                };
-                createProjectFromTemplate(
+              import('../../sheets/sheetCreation').then(async ({ createProjectFromTemplate }) => {
+                const spreadsheetId = await createProjectFromTemplate(
                   `Ganttlet Project`,
                   templateId,
-                  shimDispatch as Parameters<typeof createProjectFromTemplate>[2]
+                  mutate
                 );
+                // Reactive state transition — update URL for bookmarking, UIStore for rendering
+                const url = new URL(window.location.href);
+                url.searchParams.set('sheet', spreadsheetId);
+                url.searchParams.set('room', spreadsheetId);
+                window.history.replaceState({}, '', url.toString());
+                uiStore.setState({
+                  spreadsheetId,
+                  roomId: spreadsheetId,
+                  dataSource: 'loading',
+                  syncError: null,
+                });
               });
             }}
             onClose={() => setShowTemplatePicker(false)}

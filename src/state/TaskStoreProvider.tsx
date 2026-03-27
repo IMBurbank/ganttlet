@@ -251,7 +251,7 @@ function TaskStoreProviderInner({
     userName,
     userEmail
   );
-  const sheetsAdapterRef = useSheetsSync(doc, spreadsheetId, uiStore, undoManagerRef, accessToken);
+  const sheetsAdapter = useSheetsSync(doc, spreadsheetId, uiStore, undoManagerRef, accessToken);
 
   // Mutate dispatcher
   const mutate = useCallback(
@@ -322,10 +322,8 @@ function TaskStoreProviderInner({
   );
 
   const sheetsAdapterValue = useMemo(
-    () =>
-      sheetsAdapterRef.current ? { restart: () => sheetsAdapterRef.current!.restart() } : null,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref stable, re-evaluated on spreadsheetId change
-    [spreadsheetId]
+    () => (sheetsAdapter ? { restart: () => sheetsAdapter.restart() } : null),
+    [sheetsAdapter]
   );
 
   return (

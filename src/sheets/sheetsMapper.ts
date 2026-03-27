@@ -136,33 +136,84 @@ function getCell(row: string[], headerMap: HeaderMap, columnName: string): strin
   return row[idx] || '';
 }
 
-// ─── Write Path (canonical order) ────────────────────────────────────
+// ─── Write Path ──────────────────────────────────────────────────────
 
+/** Serialize a single field to its Sheet string representation. */
+function serializeField(task: Task, columnName: string): string {
+  switch (columnName) {
+    case 'id':
+      return task.id;
+    case 'name':
+      return task.name;
+    case 'startDate':
+      return task.startDate;
+    case 'endDate':
+      return task.endDate;
+    case 'duration':
+      return String(taskDuration(task.startDate, task.endDate));
+    case 'owner':
+      return task.owner;
+    case 'workStream':
+      return task.workStream;
+    case 'project':
+      return task.project;
+    case 'functionalArea':
+      return task.functionalArea;
+    case 'done':
+      return String(task.done);
+    case 'description':
+      return task.description;
+    case 'isMilestone':
+      return String(task.isMilestone);
+    case 'isSummary':
+      return String(task.isSummary);
+    case 'parentId':
+      return task.parentId || '';
+    case 'childIds':
+      return task.childIds.join(',');
+    case 'dependencies':
+      return serializeDependencies(task.dependencies);
+    case 'notes':
+      return task.notes;
+    case 'okrs':
+      return task.okrs.join('|');
+    case 'constraintType':
+      return task.constraintType ?? '';
+    case 'constraintDate':
+      return task.constraintDate ?? '';
+    case 'lastModifiedBy':
+      return ''; // written by SheetsAdapter
+    case 'lastModifiedAt':
+      return ''; // written by SheetsAdapter
+    default:
+      return ''; // unknown column — preserve the cell as empty
+  }
+}
+
+/**
+ * Serialize a task to a row in canonical SHEET_COLUMNS order.
+ * Used only when creating a brand-new Sheet (no existing column order to respect).
+ */
 export function taskToRow(task: Task): string[] {
-  return [
-    task.id,
-    task.name,
-    task.startDate,
-    task.endDate,
-    String(taskDuration(task.startDate, task.endDate)),
-    task.owner,
-    task.workStream,
-    task.project,
-    task.functionalArea,
-    String(task.done),
-    task.description,
-    String(task.isMilestone),
-    String(task.isSummary),
-    task.parentId || '',
-    task.childIds.join(','),
-    serializeDependencies(task.dependencies),
-    task.notes,
-    task.okrs.join('|'),
-    task.constraintType ?? '',
-    task.constraintDate ?? '',
-    '', // lastModifiedBy — written by SheetsAdapter
-    '', // lastModifiedAt — written by SheetsAdapter
-  ];
+  return SHEET_COLUMNS.map((col) => serializeField(task, col));
+}
+
+/**
+ * Serialize a task to a row in the Sheet's actual column order.
+ * Used when writing back to an existing Sheet — respects user column reordering.
+ *
+ * The headerMap tells us which column index each field occupies in the Sheet.
+ * Unknown columns (user-added) get empty strings. Known columns the Sheet
+ * doesn't have are NOT appended — the Sheet's column layout is authoritative.
+ */
+export function taskToRowWithMap(task: Task, headerMap: HeaderMap, columnCount: number): string[] {
+  const row = new Array<string>(columnCount).fill('');
+  for (const [colName, colIdx] of headerMap) {
+    if (colIdx < columnCount) {
+      row[colIdx] = serializeField(task, colName);
+    }
+  }
+  return row;
 }
 
 // ─── Read Path (header-map based) ────────────────────────────────────

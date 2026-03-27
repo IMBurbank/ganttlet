@@ -227,13 +227,11 @@ describe('hashTask', () => {
     expect(hash1).toBe(hash2);
   });
 
-  it('excludes attribution columns from hash (first 20 only)', () => {
-    // hashTask hashes first 20 columns, excluding lastModifiedBy/At
-    // Two tasks with different attribution but same data should hash equally
+  it('excludes attribution columns from hash (TASK_DATA_COLUMN_COUNT only)', () => {
     const task = makeTask();
     const hash = hashTask(task);
-    // The hash uses \x00 as separator and slices to 20 columns
     const parts = hash.split('\x00');
-    expect(parts.length).toBe(20);
+    // Should hash only task-data columns, not attribution (lastModifiedBy/At)
+    expect(parts.length).toBe(20); // TASK_DATA_COLUMN_COUNT = indexOf('lastModifiedBy') = 20
   });
 });

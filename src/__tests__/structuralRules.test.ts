@@ -50,8 +50,8 @@ function findSourceFiles(dir: string, pattern?: RegExp): string[] {
 // Pattern caught: `return { ... someRef.current ... }` or `return someRef.current`
 // in files matching use*.ts/use*.tsx.
 
-describe('Rule: hooks must not return ref.current', () => {
-  it('no hook return type includes RefObject (consumers would get stale values)', () => {
+describe('Rule: hooks must not expose refs as return values', () => {
+  it('no hook return type includes RefObject, and no hook returns a bare ref', () => {
     const hookDirs = [join(SRC_DIR, 'state', 'hooks'), join(SRC_DIR, 'hooks')];
 
     const violations: string[] = [];

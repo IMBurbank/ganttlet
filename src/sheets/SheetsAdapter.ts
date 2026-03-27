@@ -5,6 +5,7 @@ import { readSheet, writeSheet, clearSheet } from './sheetsClient';
 import {
   SHEET_COLUMNS,
   HEADER_ROW,
+  TASK_DATA_COLUMN_COUNT,
   taskToRow,
   taskToRowWithMap,
   rowToTask,
@@ -345,8 +346,8 @@ export class SheetsAdapter {
           if (modAtIdx !== undefined) row[modAtIdx] = now;
         } else {
           // Canonical positions (20, 21)
-          row[20] = userEmail;
-          row[21] = now;
+          row[TASK_DATA_COLUMN_COUNT] = userEmail;
+          row[TASK_DATA_COLUMN_COUNT + 1] = now;
         }
 
         rows.push(row);
@@ -484,11 +485,19 @@ export class SheetsAdapter {
       }
 
       if (sheetHash === baseHash && ydocHash !== baseHash) {
+        // No external edit, local edit → write Y.Doc to Sheet
         needsWrite = true;
       } else if (ydocHash === baseHash && sheetHash !== baseHash) {
+        // No local edit, external edit → inject Sheet into Y.Doc
         this.injectTaskIntoYDoc(sheetTask);
         await this.baseValues.put(taskId, sheetHash);
+      } else if (sheetHash !== baseHash && ydocHash !== baseHash && sheetHash === ydocHash) {
+        // Both sides independently converged to the same value — no conflict.
+        // Update base to the converged value so the next diverging edit doesn't
+        // produce a spurious conflict against the stale base.
+        await this.baseValues.put(taskId, sheetHash);
       } else if (sheetHash !== baseHash && ydocHash !== baseHash && sheetHash !== ydocHash) {
+        // Both changed differently → CONFLICT
         const ydocRow = taskToRow(ydocTask);
         const sheetRow = taskToRow(sheetTask);
         const fieldConflicts = this.detectFieldConflicts(taskId, ydocRow, sheetRow, baseHash);
@@ -544,7 +553,7 @@ export class SheetsAdapter {
   ): ConflictRecord[] {
     const baseFields = baseHashStr.split('\x00');
     const conflicts: ConflictRecord[] = [];
-    const fieldNames = SHEET_COLUMNS.slice(0, 20);
+    const fieldNames = SHEET_COLUMNS.slice(0, TASK_DATA_COLUMN_COUNT);
 
     for (let i = 0; i < fieldNames.length; i++) {
       const local = ydocRow[i] ?? '';

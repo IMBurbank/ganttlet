@@ -1,5 +1,5 @@
 import type { Task } from '../types';
-import { taskToRow } from './sheetsMapper';
+import { taskToRow, TASK_DATA_COLUMN_COUNT } from './sheetsMapper';
 
 const IDB_PREFIX = 'ganttlet-sync-base-';
 
@@ -89,6 +89,5 @@ export class BaseValueStore {
  */
 export function hashTask(task: Task): string {
   const row = taskToRow(task);
-  // Use first 20 columns (task data) for comparison — exclude attribution columns
-  return row.slice(0, 20).join('\x00');
+  return row.slice(0, TASK_DATA_COLUMN_COUNT).join('\x00');
 }

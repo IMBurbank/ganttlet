@@ -115,7 +115,7 @@ export type MigrateResult =
  * - Major version gates hard lock-out (breaking changes).
  * - Minor version is informational (additive changes, soft warning).
  * - Runs pending migrations in a single ORIGIN.INIT transaction (not undoable).
- * - Re-checks version inside the transaction (CAS guard for single-client races).
+ * - Re-checks major version inside the transaction (CAS guard for single-client races).
  * - Idempotent: calling twice on the same doc is safe (second call returns 'noop').
  *
  * MUST be called after all persistence providers (IndexedDB, WebSocket) have synced.
@@ -230,6 +230,8 @@ function setKnownFields(ymap: Y.Map<unknown>, task: Task): void {
       case 'optional-string':
         if (value != null) {
           ymap.set(field.name, value);
+        } else if (ymap.has(field.name)) {
+          ymap.delete(field.name);
         }
         break;
     }

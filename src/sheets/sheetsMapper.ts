@@ -43,6 +43,13 @@ export const SHEET_COLUMNS = [
 
 export const HEADER_ROW = SHEET_COLUMNS.map((c) => c as string);
 
+/**
+ * Number of task-data columns (excludes attribution columns).
+ * Used by hashTask and detectFieldConflicts to compare only task data,
+ * not lastModifiedBy/lastModifiedAt which change on every write.
+ */
+export const TASK_DATA_COLUMN_COUNT = SHEET_COLUMNS.indexOf('lastModifiedBy');
+
 // ─── Header Map (name-based column lookup) ───────────────────────────
 
 /**

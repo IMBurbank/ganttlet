@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import type { Task, Dependency } from '../../types';
 import {
   taskToRow,
+  taskToRowWithMap,
   rowToTask,
   tasksToRows,
   rowsToTasks,
@@ -561,6 +562,88 @@ describe('sheetsMapper', () => {
           expect(finalTask[key]).toEqual(original[key]);
         }
       }
+    });
+  });
+
+  describe('taskToRowWithMap (column-order resilience)', () => {
+    it('writes fields in the HeaderMap order, not canonical order', () => {
+      // Simulate a Sheet where "name" and "id" columns are swapped
+      const reorderedHeader = [...HEADER_ROW];
+      reorderedHeader[0] = 'name';
+      reorderedHeader[1] = 'id';
+      const headerMap = buildHeaderMap(reorderedHeader)!;
+      expect(headerMap).not.toBeNull();
+
+      const task = makeTask({ id: 'test-1', name: 'My Task' });
+      const row = taskToRowWithMap(task, headerMap, reorderedHeader.length);
+
+      // In the reordered Sheet, position 0 is "name", position 1 is "id"
+      expect(row[0]).toBe('My Task'); // name at index 0
+      expect(row[1]).toBe('test-1'); // id at index 1
+    });
+
+    it('round-trips correctly with reordered columns', () => {
+      // Reverse all columns
+      const reversedHeader = [...HEADER_ROW].reverse();
+      const headerMap = buildHeaderMap(reversedHeader)!;
+      expect(headerMap).not.toBeNull();
+
+      const original = makeTask({
+        id: 'rt-reorder',
+        name: 'Reorder Test',
+        owner: 'Bob',
+        done: true,
+        constraintType: 'SNET',
+        constraintDate: '2026-03-09',
+      });
+
+      // Write in reversed order
+      const row = taskToRowWithMap(original, headerMap, reversedHeader.length);
+
+      // Read back using the same reversed header map
+      const restored = rowToTask(row, headerMap)!;
+      expect(restored).not.toBeNull();
+
+      // All fields should survive the round-trip
+      for (const field of TASK_FIELDS) {
+        const key = field as keyof typeof original;
+        if (key === 'dependencies') {
+          expect(restored.dependencies.length).toBe(original.dependencies.length);
+        } else {
+          expect(restored[key]).toEqual(original[key]);
+        }
+      }
+    });
+
+    it('fills unknown columns with empty strings', () => {
+      // Sheet has an extra user-added column at index 22
+      const extendedHeader = [...HEADER_ROW, 'myCustomColumn'];
+      const headerMap = buildHeaderMap(extendedHeader)!;
+
+      const task = makeTask();
+      const row = taskToRowWithMap(task, headerMap, extendedHeader.length);
+
+      // Row should have 23 cells, unknown column filled with ''
+      expect(row.length).toBe(23);
+      expect(row[22]).toBe('');
+    });
+
+    it('canonical taskToRow and taskToRowWithMap produce equivalent data for canonical order', () => {
+      const headerMap = buildHeaderMap(HEADER_ROW)!;
+      const task = makeTask({
+        parentId: 'p1',
+        childIds: ['c1'],
+        dependencies: [{ fromId: 'd1', toId: 'task-1', type: 'FS', lag: 0 }],
+        okrs: ['O1'],
+        constraintType: 'SNET',
+        constraintDate: '2026-03-09',
+      });
+
+      const canonicalRow = taskToRow(task);
+      const mappedRow = taskToRowWithMap(task, headerMap, HEADER_ROW.length);
+
+      // Should be identical for canonical header order
+      expect(mappedRow).toEqual(canonicalRow);
     });
   });
 });

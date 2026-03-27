@@ -138,9 +138,16 @@ function getCell(row: string[], headerMap: HeaderMap, columnName: string): strin
 
 // ─── Write Path ──────────────────────────────────────────────────────
 
+/** Lowercase → canonical camelCase lookup for column names. */
+const CANONICAL_COLUMN_NAME = new Map<string, string>(
+  SHEET_COLUMNS.map((c) => [c.toLowerCase(), c])
+);
+
 /** Serialize a single field to its Sheet string representation. */
 function serializeField(task: Task, columnName: string): string {
-  switch (columnName) {
+  // Normalize to canonical camelCase (headerMap stores lowercase keys)
+  const canonical = CANONICAL_COLUMN_NAME.get(columnName.toLowerCase()) ?? columnName;
+  switch (canonical) {
     case 'id':
       return task.id;
     case 'name':

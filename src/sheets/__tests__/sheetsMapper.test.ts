@@ -8,8 +8,13 @@ import {
   rowsToTasks,
   HEADER_ROW,
   SHEET_COLUMNS,
+  buildHeaderMap,
+  type HeaderMap,
 } from '../sheetsMapper';
 import { TASK_FIELDS, writeTaskToDoc, yMapToTask, getDocMaps } from '../../schema/ydoc';
+
+/** Default header map matching canonical SHEET_COLUMNS order. */
+const DEFAULT_HEADER_MAP = buildHeaderMap(HEADER_ROW)!;
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -110,7 +115,7 @@ describe('sheetsMapper', () => {
 
   describe('rowToTask', () => {
     it('returns null for empty id', () => {
-      expect(rowToTask(['', 'name'])).toBeNull();
+      expect(rowToTask(['', 'name'], DEFAULT_HEADER_MAP)).toBeNull();
     });
 
     it('deserializes a full row', () => {
@@ -136,7 +141,7 @@ describe('sheetsMapper', () => {
         '',
         '',
       ];
-      const task = rowToTask(row);
+      const task = rowToTask(row, DEFAULT_HEADER_MAP);
       expect(task).not.toBeNull();
       expect(task!.id).toBe('task-1');
       expect(task!.name).toBe('Test Task');
@@ -155,28 +160,28 @@ describe('sheetsMapper', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[9] = 'true';
-      expect(rowToTask(row)!.done).toBe(true);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.done).toBe(true);
     });
 
     it('parses childIds from comma-separated string', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[14] = 'c1,c2,c3';
-      expect(rowToTask(row)!.childIds).toEqual(['c1', 'c2', 'c3']);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.childIds).toEqual(['c1', 'c2', 'c3']);
     });
 
     it('parses okrs from pipe-separated string', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[17] = 'OKR-1|OKR-2';
-      expect(rowToTask(row)!.okrs).toEqual(['OKR-1', 'OKR-2']);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.okrs).toEqual(['OKR-1', 'OKR-2']);
     });
 
     it('parses dependencies', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[15] = 'a:FS:0;b:SS:2';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.dependencies).toHaveLength(2);
       expect(task.dependencies[0]).toEqual({ fromId: 'a', toId: '', type: 'FS', lag: 0 });
       expect(task.dependencies[1]).toEqual({ fromId: 'b', toId: '', type: 'SS', lag: 2 });
@@ -187,12 +192,12 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[4] = '5';
       // No start/end dates → falls back to parsed duration column
-      expect(rowToTask(row)!.duration).toBe(5);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.duration).toBe(5);
     });
 
     it('handles short rows gracefully', () => {
       const row = ['task-short', 'Name'];
-      const task = rowToTask(row);
+      const task = rowToTask(row, DEFAULT_HEADER_MAP);
       expect(task).not.toBeNull();
       expect(task!.id).toBe('task-short');
       expect(task!.name).toBe('Name');
@@ -204,7 +209,7 @@ describe('sheetsMapper', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[15] = 'a::0';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.dependencies[0].type).toBe('FS');
     });
 
@@ -213,7 +218,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[18] = 'SNET';
       row[19] = '2026-04-01';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBe('SNET');
       expect(task.constraintDate).toBe('2026-04-01');
     });
@@ -224,7 +229,7 @@ describe('sheetsMapper', () => {
         row[0] = 'x';
         row[18] = ct;
         row[19] = '2026-04-01';
-        const task = rowToTask(row)!;
+        const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
         expect(task.constraintType).toBe(ct);
       }
     });
@@ -234,7 +239,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[18] = 'ALAP';
       row[19] = '2026-04-01';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBe('ALAP');
       expect(task.constraintDate).toBeUndefined();
     });
@@ -243,14 +248,14 @@ describe('sheetsMapper', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[18] = 'INVALID';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBeUndefined();
     });
 
     it('returns no constraint fields for empty columns', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBeUndefined();
       expect(task.constraintDate).toBeUndefined();
     });
@@ -259,7 +264,7 @@ describe('sheetsMapper', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[19] = '2026-04-01';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBeUndefined();
       expect(task.constraintDate).toBeUndefined();
     });
@@ -271,7 +276,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-07'; // Saturday
       row[3] = '2026-03-13'; // Friday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.startDate).toBe('2026-03-09'); // Monday
     });
 
@@ -280,7 +285,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-02'; // Monday
       row[3] = '2026-03-08'; // Sunday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.endDate).toBe('2026-03-06'); // Friday
     });
 
@@ -289,7 +294,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-02';
       row[3] = '2026-03-02';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.duration).toBeGreaterThanOrEqual(1);
     });
 
@@ -298,7 +303,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-06'; // Friday
       row[3] = '2026-03-02'; // Monday (before start)
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.endDate).toBe(task.startDate);
     });
 
@@ -309,7 +314,7 @@ describe('sheetsMapper', () => {
       row[3] = '2026-03-06';
       row[18] = 'SNET';
       row[19] = '2026-03-07'; // Saturday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintDate).toBe('2026-03-09'); // Monday (ensureBusinessDay)
     });
 
@@ -320,7 +325,7 @@ describe('sheetsMapper', () => {
       row[3] = '2026-03-06';
       row[18] = 'FNET';
       row[19] = '2026-03-07'; // Saturday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintDate).toBe('2026-03-06'); // Friday (prevBusinessDay)
     });
   });
@@ -337,7 +342,7 @@ describe('sheetsMapper', () => {
       });
 
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
 
       expect(restored.id).toBe(original.id);
       expect(restored.name).toBe(original.name);
@@ -368,7 +373,7 @@ describe('sheetsMapper', () => {
         constraintDate: '2026-05-15',
       });
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(restored.constraintType).toBe('FNLT');
       expect(restored.constraintDate).toBe('2026-05-15');
     });
@@ -376,7 +381,7 @@ describe('sheetsMapper', () => {
     it('round-trips ASAP constraint (no date)', () => {
       const original = makeTask({ constraintType: 'ASAP' });
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(restored.constraintType).toBe('ASAP');
       expect(restored.constraintDate).toBeUndefined();
     });
@@ -384,7 +389,7 @@ describe('sheetsMapper', () => {
     it('round-trips task without constraints', () => {
       const original = makeTask();
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(restored.constraintType).toBeUndefined();
       expect(restored.constraintDate).toBeUndefined();
     });
@@ -495,7 +500,7 @@ describe('sheetsMapper', () => {
       });
 
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
 
       // Check every TASK_FIELD individually so failures pinpoint the missing field
       for (const field of TASK_FIELDS) {
@@ -536,7 +541,7 @@ describe('sheetsMapper', () => {
 
       // Task → Sheet row → Task
       const row = taskToRow(fromDoc);
-      const fromSheet = rowToTask(row)!;
+      const fromSheet = rowToTask(row, DEFAULT_HEADER_MAP)!;
 
       // Task → Y.Doc (simulate Sheets injection back into Y.Doc)
       const doc2 = new Y.Doc();

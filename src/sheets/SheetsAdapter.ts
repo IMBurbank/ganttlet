@@ -9,6 +9,7 @@ import {
   rowToTask,
   validateHeaders,
   columnLetter,
+  type HeaderMap,
 } from './sheetsMapper';
 import { yMapToTask, writeTaskToDoc } from '../schema/ydoc';
 import { getAuthState } from './oauth';
@@ -70,8 +71,14 @@ function idbClear(db: IDBDatabase): Promise<void> {
   });
 }
 
-// Hash a row to a stable string for comparison
-function hashRow(row: string[]): string {
+/**
+ * Hash a task row in canonical field order for three-way merge comparison.
+ * Uses taskToRow (canonical column order) so the hash is independent of
+ * the Sheet's actual column arrangement. This means column reordering
+ * doesn't invalidate base values in IndexedDB.
+ */
+function hashTask(task: Task): string {
+  const row = taskToRow(task);
   // Use first 20 columns (task data) for comparison — exclude attribution columns
   return row.slice(0, 20).join('\x00');
 }
@@ -323,7 +330,7 @@ export class SheetsAdapter {
 
       try {
         this.validateBeforeWrite();
-        const rows = this.buildRowsFromYDoc();
+        const { rows, tasks } = this.buildRowsFromYDoc();
         const endCol = columnLetter(SHEET_COLUMNS.length);
         const range = `Sheet1!A1:${endCol}${rows.length}`;
         await writeSheet(this.spreadsheetId, range, rows);
@@ -335,8 +342,8 @@ export class SheetsAdapter {
         // Only clear dirty on SUCCESS
         this.saveDirty = false;
 
-        // Update base values in IndexedDB
-        await this.updateBaseValues(rows);
+        // Update base values in IndexedDB (hashed by canonical Task, not raw row)
+        await this.updateBaseValues(tasks);
 
         this.callbacks.onSyncError(null);
         this.callbacks.onSyncComplete();
@@ -350,13 +357,14 @@ export class SheetsAdapter {
     });
   }
 
-  private buildRowsFromYDoc(): string[][] {
+  private buildRowsFromYDoc(): { rows: string[][]; tasks: Task[] } {
     const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
     const taskOrder = this.doc.getArray<string>('taskOrder');
     const userEmail = getAuthState().userEmail || 'unknown';
     const now = new Date().toISOString();
 
     const rows: string[][] = [HEADER_ROW];
+    const tasks: Task[] = [];
     const orderedIds = Array.from(taskOrder);
 
     // Also include tasks not in taskOrder (defensive)
@@ -376,22 +384,21 @@ export class SheetsAdapter {
         row[20] = userEmail;
         row[21] = now;
         rows.push(row);
+        tasks.push(task);
       } catch (e) {
         console.warn(`SheetsAdapter: failed to serialize task ${taskId}:`, e);
       }
     }
 
-    return rows;
+    return { rows, tasks };
   }
 
-  private async updateBaseValues(rows: string[][]): Promise<void> {
+  private async updateBaseValues(tasks: Task[]): Promise<void> {
     if (!this.db) return;
     try {
-      // Skip header row
-      for (let i = 1; i < rows.length; i++) {
-        const taskId = rows[i][0];
-        if (taskId) {
-          await idbPut(this.db, taskId, hashRow(rows[i]));
+      for (const task of tasks) {
+        if (task.id) {
+          await idbPut(this.db, task.id, hashTask(task));
         }
       }
     } catch (e) {
@@ -440,8 +447,9 @@ export class SheetsAdapter {
           return;
         }
 
-        // Validate headers
-        if (!validateHeaders(rawRows[0])) {
+        // Validate headers and build column map
+        const headerMap = validateHeaders(rawRows[0]);
+        if (!headerMap) {
           this.callbacks.onSyncError({
             type: 'header_mismatch',
             message: 'Sheet columns do not match expected format.',
@@ -451,15 +459,15 @@ export class SheetsAdapter {
           return;
         }
 
-        // Parse sheet rows into tasks
-        const sheetTasks = new Map<string, { task: Task; row: string[] }>();
+        // Parse sheet rows into tasks using header-based column lookup
+        const sheetTasks = new Map<string, { task: Task }>();
         for (let i = 1; i < rawRows.length; i++) {
           const row = rawRows[i];
-          const task = rowToTask(row);
+          const task = rowToTask(row, headerMap);
           if (task) {
             // Fix dependency toId references
             task.dependencies = task.dependencies.map((d) => ({ ...d, toId: task.id }));
-            sheetTasks.set(task.id, { task, row });
+            sheetTasks.set(task.id, { task });
           }
         }
 
@@ -480,9 +488,7 @@ export class SheetsAdapter {
     });
   }
 
-  private async threeWayMerge(
-    sheetTasks: Map<string, { task: Task; row: string[] }>
-  ): Promise<void> {
+  private async threeWayMerge(sheetTasks: Map<string, { task: Task }>): Promise<void> {
     const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
     const conflicts: ConflictRecord[] = [];
     let needsWrite = false;
@@ -491,24 +497,23 @@ export class SheetsAdapter {
     const ydocTaskIds = new Set<string>();
     ytasks.forEach((_, id) => ydocTaskIds.add(id));
 
-    for (const [taskId, { task: sheetTask, row: sheetRow }] of sheetTasks) {
+    for (const [taskId, { task: sheetTask }] of sheetTasks) {
       const ymap = ytasks.get(taskId);
 
       if (!ymap) {
         // Task exists in Sheet but not in Y.Doc — inject it
         this.injectTaskIntoYDoc(sheetTask);
-        // Record as base
+        // Record as base (hash by canonical Task, not raw row position)
         if (this.db) {
-          await idbPut(this.db, taskId, hashRow(sheetRow));
+          await idbPut(this.db, taskId, hashTask(sheetTask));
         }
         continue;
       }
 
       // Task exists in both — three-way merge
       const ydocTask = yMapToTask(ymap);
-      const ydocRow = taskToRow(ydocTask);
-      const sheetHash = hashRow(sheetRow);
-      const ydocHash = hashRow(ydocRow);
+      const sheetHash = hashTask(sheetTask);
+      const ydocHash = hashTask(ydocTask);
 
       let baseHash: string | undefined;
       if (this.db) {
@@ -535,7 +540,9 @@ export class SheetsAdapter {
         }
       } else if (sheetHash !== baseHash && ydocHash !== baseHash && sheetHash !== ydocHash) {
         // Both changed differently → CONFLICT
-        // Generate per-field conflicts
+        // Generate per-field conflicts using canonical row format
+        const ydocRow = taskToRow(ydocTask);
+        const sheetRow = taskToRow(sheetTask);
         const fieldConflicts = this.detectFieldConflicts(taskId, ydocRow, sheetRow, baseHash);
         conflicts.push(...fieldConflicts);
       }

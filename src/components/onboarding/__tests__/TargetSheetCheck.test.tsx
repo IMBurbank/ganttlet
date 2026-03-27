@@ -54,7 +54,7 @@ describe('TargetSheetCheck', () => {
   it('shows replace/open-existing for Ganttlet-formatted sheets', async () => {
     const headers = ['id', 'name', 'startDate'];
     mockReadSheet.mockResolvedValue([headers, ['1', 'Task A', '2025-01-01']]);
-    mockValidateHeaders.mockReturnValue(true);
+    mockValidateHeaders.mockReturnValue(new Map([['id', 0]]));
     mockRowsToTasks.mockReturnValue([{ id: '1', name: 'Task A' }] as never);
 
     render(<TargetSheetCheck spreadsheetId="abc" onAction={onAction} onCancel={onCancel} />);
@@ -71,7 +71,7 @@ describe('TargetSheetCheck', () => {
 
   it('offers open-existing for Ganttlet sheets', async () => {
     mockReadSheet.mockResolvedValue([['id'], ['1', 'A']]);
-    mockValidateHeaders.mockReturnValue(true);
+    mockValidateHeaders.mockReturnValue(new Map([['id', 0]]));
     mockRowsToTasks.mockReturnValue([{ id: '1' }, { id: '2' }] as never);
 
     render(<TargetSheetCheck spreadsheetId="abc" onAction={onAction} onCancel={onCancel} />);
@@ -86,7 +86,7 @@ describe('TargetSheetCheck', () => {
 
   it('shows warning for non-Ganttlet sheets', async () => {
     mockReadSheet.mockResolvedValue([['Column A', 'Column B'], ['data']]);
-    mockValidateHeaders.mockReturnValue(false);
+    mockValidateHeaders.mockReturnValue(null);
 
     render(<TargetSheetCheck spreadsheetId="abc" onAction={onAction} onCancel={onCancel} />);
 
@@ -102,7 +102,7 @@ describe('TargetSheetCheck', () => {
 
   it('allows overwrite for non-Ganttlet sheets', async () => {
     mockReadSheet.mockResolvedValue([['X', 'Y'], ['data']]);
-    mockValidateHeaders.mockReturnValue(false);
+    mockValidateHeaders.mockReturnValue(null);
 
     render(<TargetSheetCheck spreadsheetId="abc" onAction={onAction} onCancel={onCancel} />);
 

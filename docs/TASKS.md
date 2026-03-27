@@ -25,6 +25,9 @@ Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phas
 
 ## Backlog (unstructured)
 
+### Accessibility
+- [ ] Modal backdrop dismiss not keyboard-accessible — OKRPickerModal, TaskBarPopover, DependencyEditorModal, ConflictResolutionModal all use `onClick` on backdrop `<div>` without `role="button"` or keyboard handling. Escape key works via separate `onKeyDown` listener, but backdrop dismiss requires a mouse click. Fix: migrate to `<dialog>` element or add `role="button"` + `tabIndex={0}` + `onKeyDown` to backdrops.
+
 ### Performance & Scale
 
 **Sync layer (medium priority at 500+ tasks):**

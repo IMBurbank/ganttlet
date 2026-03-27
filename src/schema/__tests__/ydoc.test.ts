@@ -7,7 +7,8 @@ import {
   getDocMaps,
   migrateDoc,
   TASK_FIELDS,
-  CURRENT_VERSION,
+  CURRENT_MAJOR,
+  CURRENT_MINOR,
 } from '../ydoc';
 import { MIGRATIONS } from '../migrations';
 import { ORIGIN } from '../../collab/origins';
@@ -294,12 +295,12 @@ describe('migrateDoc', () => {
     expect(result.status).toBe('ok');
     if (result.status === 'ok') {
       expect(result.fromVersion).toBe(0);
-      expect(result.toVersion).toBe(CURRENT_VERSION);
+      expect(result.toVersion).toBe(CURRENT_MAJOR);
       expect(result.migrationsRun).toBe(MIGRATIONS.length);
     }
 
     const { meta } = getDocMaps(doc);
-    expect(meta.get('schemaVersion')).toBe(CURRENT_VERSION);
+    expect(meta.get('schemaMajor')).toBe(CURRENT_MAJOR);
   });
 
   it('strips isExpanded/isHidden from v1 doc (v2 migration)', () => {
@@ -307,7 +308,7 @@ describe('migrateDoc', () => {
     const { tasks: ytasks, meta } = getDocMaps(doc);
 
     // Simulate a v1 doc with isExpanded/isHidden on tasks
-    meta.set('schemaVersion', 1);
+    meta.set('schemaMajor', 1);
     const ymap = new Y.Map<unknown>();
     ymap.set('id', 'task-1');
     ymap.set('name', 'Test');
@@ -332,22 +333,37 @@ describe('migrateDoc', () => {
   it('returns noop for doc already at current version', () => {
     const doc = new Y.Doc();
     const { meta } = getDocMaps(doc);
-    meta.set('schemaVersion', CURRENT_VERSION);
+    meta.set('schemaMajor', CURRENT_MAJOR);
+    meta.set('schemaMinor', CURRENT_MINOR);
 
     const result = migrateDoc(doc);
     expect(result).toEqual({ status: 'noop' });
   });
 
-  it('returns incompatible for doc from the future', () => {
+  it('returns incompatible for doc with higher major version', () => {
     const doc = new Y.Doc();
     const { meta } = getDocMaps(doc);
-    meta.set('schemaVersion', 99);
+    meta.set('schemaMajor', 99);
 
     const result = migrateDoc(doc);
     expect(result).toEqual({
       status: 'incompatible',
-      docVersion: 99,
-      codeVersion: CURRENT_VERSION,
+      docMajor: 99,
+      codeMajor: CURRENT_MAJOR,
+    });
+  });
+
+  it('returns compatible for doc with same major but higher minor version', () => {
+    const doc = new Y.Doc();
+    const { meta } = getDocMaps(doc);
+    meta.set('schemaMajor', CURRENT_MAJOR);
+    meta.set('schemaMinor', CURRENT_MINOR + 5);
+
+    const result = migrateDoc(doc);
+    expect(result).toEqual({
+      status: 'compatible',
+      docMinor: CURRENT_MINOR + 5,
+      codeMinor: CURRENT_MINOR,
     });
   });
 
@@ -409,7 +425,7 @@ describe('migrateDoc', () => {
     };
 
     // First call: should run
-    meta.set('schemaVersion', 0);
+    meta.set('schemaMajor', 0);
     migrateDoc(doc);
     expect(migrationBodyRan).toBe(true);
 
@@ -510,7 +526,7 @@ describe('forward/backward compatibility', () => {
 
     // Peer A: create v1 doc with stale fields
     const { tasks: ytasksA, meta: metaA } = getDocMaps(peerA);
-    metaA.set('schemaVersion', 1);
+    metaA.set('schemaMajor', 1);
     const ymap = new Y.Map<unknown>();
     ymap.set('id', 'task-1');
     ymap.set('name', 'Test');
@@ -529,7 +545,7 @@ describe('forward/backward compatibility', () => {
     applyUpdate(peerA, encodeStateAsUpdate(peerB));
 
     // Verify: A now has v2 schema and stripped fields
-    expect(metaA.get('schemaVersion')).toBe(CURRENT_VERSION);
+    expect(metaA.get('schemaMajor')).toBe(CURRENT_MAJOR);
     const migratedOnA = ytasksA.get('task-1')!;
     expect(migratedOnA.has('isExpanded')).toBe(false);
     expect(migratedOnA.has('isHidden')).toBe(false);
@@ -571,13 +587,13 @@ describe('forward/backward compatibility', () => {
     expect(yMapToTask(ytasks.get('t1')!).name).toBe('Task 1');
     expect(yMapToTask(ytasks.get('t2')!).name).toBe('Task 2');
     expect(Array.from(taskOrder)).toEqual(['t1', 't2']);
-    expect(meta.get('schemaVersion')).toBe(CURRENT_VERSION);
+    expect(meta.get('schemaMajor')).toBe(CURRENT_MAJOR);
   });
 
   it('incompatible doc version blocks writes (v99 → cannot proceed)', () => {
     const doc = new Y.Doc();
     const { meta } = getDocMaps(doc);
-    meta.set('schemaVersion', 99);
+    meta.set('schemaMajor', 99);
 
     const result = migrateDoc(doc);
     expect(result.status).toBe('incompatible');
@@ -586,8 +602,8 @@ describe('forward/backward compatibility', () => {
     // The inner TaskStoreProviderInner never mounts, so no writes happen.
     // This test documents the expected behavior — the gate is structural, not a runtime check.
     if (result.status === 'incompatible') {
-      expect(result.docVersion).toBe(99);
-      expect(result.codeVersion).toBe(CURRENT_VERSION);
+      expect(result.docMajor).toBe(99);
+      expect(result.codeMajor).toBe(CURRENT_MAJOR);
     }
   });
 });

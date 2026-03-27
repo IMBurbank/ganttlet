@@ -121,15 +121,19 @@ export function TaskStoreProvider({
     return <>{children}</>;
   }
 
-  // Incompatible: doc is from a future schema version
+  // Incompatible: doc major version is higher — breaking change, hard lock-out
   if (migrationResult.status === 'incompatible') {
     return (
       <SchemaIncompatibleError
-        docVersion={migrationResult.docVersion}
-        codeVersion={migrationResult.codeVersion}
+        docMajor={migrationResult.docMajor}
+        codeMajor={migrationResult.codeMajor}
       />
     );
   }
+
+  // Compatible: doc minor version is higher — additive change, safe to operate.
+  // The inner component mounts normally. A soft warning could be shown via UIStore
+  // but editing is not blocked (writeTaskToDoc preserves unknown fields).
 
   // Migration complete — mount the inner component with all hooks
   return (
@@ -153,12 +157,21 @@ export function TaskStoreProvider({
  * Schema incompatibility error.
  * Rendered when the Y.Doc has a higher schema version than the code supports.
  */
+/**
+ * Schema incompatibility error.
+ * Rendered when the Y.Doc has a higher major version than the code supports.
+ * This happens during rolling deployments when a collaborator on newer code
+ * migrates a shared doc, or after a rollback.
+ *
+ * User-facing: no version numbers, clear guidance, handles the "refresh
+ * doesn't fix it" rollback scenario.
+ */
 function SchemaIncompatibleError({
-  docVersion,
-  codeVersion,
+  docMajor: _docMajor,
+  codeMajor: _codeMajor,
 }: {
-  docVersion: number;
-  codeVersion: number;
+  docMajor: number;
+  codeMajor: number;
 }) {
   return (
     <div
@@ -175,8 +188,20 @@ function SchemaIncompatibleError({
     >
       <h2 style={{ marginBottom: '1rem' }}>Update Required</h2>
       <p style={{ maxWidth: '32rem', lineHeight: 1.6 }}>
-        This document uses schema version {docVersion}, but your app supports up to version{' '}
-        {codeVersion}. Please refresh the page to get the latest version of Ganttlet.
+        This document was updated by a collaborator using a newer version of Ganttlet. Please
+        refresh the page to get the latest version.
+      </p>
+      <p
+        style={{
+          maxWidth: '32rem',
+          lineHeight: 1.6,
+          color: '#6b7280',
+          fontSize: '0.875rem',
+          marginTop: '0.5rem',
+        }}
+      >
+        If refreshing doesn&apos;t resolve this, the update may still be rolling out. Try again in a
+        few minutes.
       </p>
       <button
         onClick={() => window.location.reload()}

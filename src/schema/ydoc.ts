@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import type { Task, Dependency } from '../types';
 import { taskDuration } from '../utils/dateUtils';
 import { ORIGIN } from '../collab/origins';
-import { CURRENT_VERSION, MIGRATIONS } from './migrations';
+import { CURRENT_MAJOR, CURRENT_MINOR, MIGRATIONS } from './migrations';
 
 /**
  * The 19 collaborative fields stored in each task's Y.Map.
@@ -52,16 +52,30 @@ export function getDocMaps(doc: Y.Doc): DocMaps {
 
 // ─── Schema Migration ────────────────────────────────────────────────
 
+/**
+ * Migration result.
+ *
+ * - 'ok': migrations ran successfully
+ * - 'noop': doc already at current version
+ * - 'incompatible': doc major version is higher than code — older code would corrupt data.
+ *   Hard lock-out: app must block editing.
+ * - 'compatible': doc minor version is higher than code — additive changes only.
+ *   Older code can safely operate. Show a soft "update available" banner.
+ */
 export type MigrateResult =
   | { status: 'ok'; fromVersion: number; toVersion: number; migrationsRun: number }
-  | { status: 'incompatible'; docVersion: number; codeVersion: number }
+  | { status: 'incompatible'; docMajor: number; codeMajor: number }
+  | { status: 'compatible'; docMinor: number; codeMinor: number }
   | { status: 'noop' };
 
 /**
  * Migrate a Y.Doc to the current schema version.
  *
+ * Version scheme: meta stores `schemaMajor` and `schemaMinor` separately.
+ *
+ * - Major version gates hard lock-out (breaking changes).
+ * - Minor version is informational (additive changes, soft warning).
  * - Runs pending migrations in a single ORIGIN.INIT transaction (not undoable).
- * - Gates on future versions: if docVersion > CURRENT_VERSION, returns 'incompatible'.
  * - Re-checks version inside the transaction (CAS guard for single-client races).
  * - Idempotent: calling twice on the same doc is safe (second call returns 'noop').
  *
@@ -70,36 +84,58 @@ export type MigrateResult =
  */
 export function migrateDoc(doc: Y.Doc): MigrateResult {
   const { meta } = getDocMaps(doc);
-  const docVersion = (meta.get('schemaVersion') as number) ?? 0;
 
-  // Gate: refuse to operate on docs from the future
-  if (docVersion > CURRENT_VERSION) {
-    return { status: 'incompatible', docVersion, codeVersion: CURRENT_VERSION };
+  // Read version — fall back to legacy single-number schemaVersion for pre-major/minor docs
+  let docMajor: number;
+  let docMinor: number;
+  if (meta.has('schemaMajor')) {
+    docMajor = (meta.get('schemaMajor') as number) ?? 0;
+    docMinor = (meta.get('schemaMinor') as number) ?? 0;
+  } else {
+    // Legacy: single schemaVersion field → treat as major, minor=0
+    docMajor = (meta.get('schemaVersion') as number) ?? 0;
+    docMinor = 0;
+  }
+
+  // Gate: refuse to operate on docs with a higher MAJOR version
+  if (docMajor > CURRENT_MAJOR) {
+    return { status: 'incompatible', docMajor, codeMajor: CURRENT_MAJOR };
+  }
+
+  // Compatible: same major, higher minor — additive changes we don't know about.
+  // Safe to operate (writeTaskToDoc preserves unknown fields). Show soft warning.
+  if (docMajor === CURRENT_MAJOR && docMinor > CURRENT_MINOR) {
+    return { status: 'compatible', docMinor, codeMinor: CURRENT_MINOR };
   }
 
   // Already current
-  if (docVersion === CURRENT_VERSION) {
+  if (docMajor === CURRENT_MAJOR && docMinor === CURRENT_MINOR) {
     return { status: 'noop' };
   }
 
-  // Run pending migrations inside a single transaction
-  const pending = MIGRATIONS.filter((m) => m.version > docVersion);
+  // Run pending migrations
+  const pending = MIGRATIONS.filter((m) => m.version > docMajor);
   doc.transact(() => {
-    // Re-check version inside transaction (CAS guard for single-client races:
-    // if another effect already migrated, skip)
-    const currentInTxn = (meta.get('schemaVersion') as number) ?? 0;
-    if (currentInTxn >= CURRENT_VERSION) return;
+    // Re-check inside transaction (CAS guard)
+    const currentMajor =
+      (meta.get('schemaMajor') as number) ?? (meta.get('schemaVersion') as number) ?? 0;
+    if (currentMajor >= CURRENT_MAJOR) return;
 
     for (const m of pending) {
       m.migrate(doc);
     }
-    meta.set('schemaVersion', CURRENT_VERSION);
+    meta.set('schemaMajor', CURRENT_MAJOR);
+    meta.set('schemaMinor', CURRENT_MINOR);
+    // Clean up legacy field
+    if (meta.has('schemaVersion')) {
+      meta.delete('schemaVersion');
+    }
   }, ORIGIN.INIT);
 
   return {
     status: 'ok',
-    fromVersion: docVersion,
-    toVersion: CURRENT_VERSION,
+    fromVersion: docMajor,
+    toVersion: CURRENT_MAJOR,
     migrationsRun: pending.length,
   };
 }
@@ -219,4 +255,4 @@ export function yMapToTask(ymap: Y.Map<unknown>): Task {
 }
 
 // Re-export for consumers
-export { CURRENT_VERSION } from './migrations';
+export { CURRENT_MAJOR, CURRENT_MINOR } from './migrations';

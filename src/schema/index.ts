@@ -4,7 +4,8 @@ export {
   writeTaskToDoc,
   yMapToTask,
   TASK_FIELDS,
-  CURRENT_VERSION,
+  CURRENT_MAJOR,
+  CURRENT_MINOR,
   type MigrateResult,
   type DocMaps,
 } from './ydoc';

@@ -1,6 +1,8 @@
 import * as Y from 'yjs';
 import type { Task, Dependency } from '../types';
 import { taskDuration } from '../utils/dateUtils';
+import { ORIGIN } from '../collab/origins';
+import { CURRENT_VERSION, MIGRATIONS } from './migrations';
 
 /**
  * The 19 collaborative fields stored in each task's Y.Map.
@@ -28,44 +30,103 @@ export const TASK_FIELDS: string[] = [
   'constraintDate',
 ];
 
-/**
- * Initialize a fresh Y.Doc with the correct top-level structure.
- */
-export function initSchema(doc: Y.Doc): {
+// ─── Doc Structure Accessor ──────────────────────────────────────────
+
+export interface DocMaps {
   tasks: Y.Map<Y.Map<unknown>>;
   taskOrder: Y.Array<string>;
   meta: Y.Map<unknown>;
-} {
-  const tasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
-  const taskOrder = doc.getArray<string>('taskOrder');
-  const meta = doc.getMap('meta') as Y.Map<unknown>;
-  if (!meta.has('schemaVersion')) {
-    // Check for legacy Y.Array-based data (pre-Y.Map schema)
-    try {
-      const legacyArray = doc.getArray('legacyTasks');
-      if (legacyArray.length > 0) {
-        console.warn(
-          `[ydoc] Detected ${legacyArray.length} items in legacy Y.Array('legacyTasks'). ` +
-            'Migration from Y.Array to Y.Map schema is not yet implemented. Data may need manual migration.'
-        );
-      }
-    } catch {
-      // No legacy data — this is expected for fresh docs
-    }
-    // v1: Original Y.Map schema (19 fields per task, 20 required sheet columns)
-    // v2: Phase 20 — centralized origins, attribution columns optional, isExpanded/isHidden removed
-    meta.set('schemaVersion', 2);
-  }
-  return { tasks, taskOrder, meta };
 }
 
 /**
- * Convert a Task object to a Y.Map for insertion into the Y.Doc.
- * Writes all 19 TASK_FIELDS. Does NOT write duration (computed).
- * Arrays (childIds, dependencies, okrs) are JSON-stringified.
+ * Get typed references to the Y.Doc's top-level structures.
+ * Pure accessor — no side effects, no version changes.
  */
-export function taskToYMap(task: Task): Y.Map<unknown> {
-  const ymap = new Y.Map<unknown>();
+export function getDocMaps(doc: Y.Doc): DocMaps {
+  return {
+    tasks: doc.getMap('tasks') as Y.Map<Y.Map<unknown>>,
+    taskOrder: doc.getArray<string>('taskOrder'),
+    meta: doc.getMap('meta') as Y.Map<unknown>,
+  };
+}
+
+// ─── Schema Migration ────────────────────────────────────────────────
+
+export type MigrateResult =
+  | { status: 'ok'; fromVersion: number; toVersion: number; migrationsRun: number }
+  | { status: 'incompatible'; docVersion: number; codeVersion: number }
+  | { status: 'noop' };
+
+/**
+ * Migrate a Y.Doc to the current schema version.
+ *
+ * - Runs pending migrations in a single ORIGIN.INIT transaction (not undoable).
+ * - Gates on future versions: if docVersion > CURRENT_VERSION, returns 'incompatible'.
+ * - Re-checks version inside the transaction (CAS guard for single-client races).
+ * - Idempotent: calling twice on the same doc is safe (second call returns 'noop').
+ *
+ * MUST be called after all persistence providers (IndexedDB, WebSocket) have synced.
+ * The useDocMigration hook handles this timing.
+ */
+export function migrateDoc(doc: Y.Doc): MigrateResult {
+  const { meta } = getDocMaps(doc);
+  const docVersion = (meta.get('schemaVersion') as number) ?? 0;
+
+  // Gate: refuse to operate on docs from the future
+  if (docVersion > CURRENT_VERSION) {
+    return { status: 'incompatible', docVersion, codeVersion: CURRENT_VERSION };
+  }
+
+  // Already current
+  if (docVersion === CURRENT_VERSION) {
+    return { status: 'noop' };
+  }
+
+  // Run pending migrations inside a single transaction
+  const pending = MIGRATIONS.filter((m) => m.version > docVersion);
+  doc.transact(() => {
+    // Re-check version inside transaction (CAS guard for single-client races:
+    // if another effect already migrated, skip)
+    const currentInTxn = (meta.get('schemaVersion') as number) ?? 0;
+    if (currentInTxn >= CURRENT_VERSION) return;
+
+    for (const m of pending) {
+      m.migrate(doc);
+    }
+    meta.set('schemaVersion', CURRENT_VERSION);
+  }, ORIGIN.INIT);
+
+  return {
+    status: 'ok',
+    fromVersion: docVersion,
+    toVersion: CURRENT_VERSION,
+    migrationsRun: pending.length,
+  };
+}
+
+// ─── Task ↔ Y.Map Conversion ────────────────────────────────────────
+
+/**
+ * Write a task to the Y.Doc. Single public write path.
+ *
+ * - If the task already exists: updates known fields in place (preserves unknown
+ *   fields from future schema versions — forward compatibility).
+ * - If the task is new: creates a fresh Y.Map.
+ *
+ * This is the ONLY way to write task data to Y.Doc. There is no separate
+ * "create" vs "update" function — the existence check is O(1) on Y.Map.
+ */
+export function writeTaskToDoc(ytasks: Y.Map<Y.Map<unknown>>, taskId: string, task: Task): void {
+  const existing = ytasks.get(taskId);
+  if (existing) {
+    setKnownFields(existing, task);
+  } else {
+    ytasks.set(taskId, createTaskYMap(task));
+  }
+}
+
+/** Set all known fields on an existing Y.Map. Unknown fields are preserved. */
+function setKnownFields(ymap: Y.Map<unknown>, task: Task): void {
   ymap.set('id', task.id);
   ymap.set('name', task.name);
   ymap.set('startDate', task.startDate);
@@ -89,6 +150,12 @@ export function taskToYMap(task: Task): Y.Map<unknown> {
   if (task.constraintDate != null) {
     ymap.set('constraintDate', task.constraintDate);
   }
+}
+
+/** Create a new Y.Map for a brand-new task. Only called by writeTaskToDoc. */
+function createTaskYMap(task: Task): Y.Map<unknown> {
+  const ymap = new Y.Map<unknown>();
+  setKnownFields(ymap, task);
   return ymap;
 }
 
@@ -150,3 +217,6 @@ export function yMapToTask(ymap: Y.Map<unknown>): Task {
     constraintDate: (ymap.get('constraintDate') as string) ?? undefined,
   };
 }
+
+// Re-export for consumers
+export { CURRENT_VERSION } from './migrations';

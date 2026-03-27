@@ -26,11 +26,11 @@ import {
 } from '../mutations';
 import { UIStoreContext } from '../store/UIStore';
 import type { MutateAction, Task, CriticalPathScope, CollabUser } from '../types';
-import { SheetsAdapter } from '../sheets/SheetsAdapter';
 import {
   useYDocObserver,
   useUndoManager,
   useYDocPersistence,
+  useDocMigration,
   useSandboxInit,
   useCollabConnection,
   useSheetsSync,
@@ -88,6 +88,13 @@ interface TaskStoreProviderProps {
   userEmail?: string;
 }
 
+/**
+ * Outer component: handles Y.Doc creation, persistence sync, and schema migration.
+ *
+ * The inner component (TaskStoreProviderInner) only mounts after migration succeeds.
+ * This is the Rust ownership pattern: you can't use an unmigrated doc because
+ * the inner component doesn't exist in the React tree until migration is done.
+ */
 export function TaskStoreProvider({
   children,
   doc: externalDoc,
@@ -100,19 +107,121 @@ export function TaskStoreProvider({
   userName,
   userEmail,
 }: TaskStoreProviderProps) {
-  const taskStore = useMemo(() => new TaskStore(), []);
   const docRef = useRef<Y.Doc>(externalDoc ?? new Y.Doc());
+  const doc = docRef.current;
+
+  // Gate 1: wait for IndexedDB persistence sync
+  const { isSynced } = useYDocPersistence(doc, roomId);
+
+  // Gate 2: run schema migration after persistence sync
+  const migrationResult = useDocMigration(doc, isSynced);
+
+  // Pending: show nothing (or loading state — handled by WelcomeGate's dataSource check)
+  if (!migrationResult) {
+    return <>{children}</>;
+  }
+
+  // Incompatible: doc is from a future schema version
+  if (migrationResult.status === 'incompatible') {
+    return (
+      <SchemaIncompatibleError
+        docVersion={migrationResult.docVersion}
+        codeVersion={migrationResult.codeVersion}
+      />
+    );
+  }
+
+  // Migration complete — mount the inner component with all hooks
+  return (
+    <TaskStoreProviderInner
+      doc={doc}
+      dataSource={dataSource}
+      demoTasks={demoTasks}
+      roomId={roomId}
+      accessToken={accessToken}
+      criticalPathScope={criticalPathScope}
+      spreadsheetId={spreadsheetId}
+      userName={userName}
+      userEmail={userEmail}
+    >
+      {children}
+    </TaskStoreProviderInner>
+  );
+}
+
+/**
+ * Schema incompatibility error.
+ * Rendered when the Y.Doc has a higher schema version than the code supports.
+ */
+function SchemaIncompatibleError({
+  docVersion,
+  codeVersion,
+}: {
+  docVersion: number;
+  codeVersion: number;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        padding: '2rem',
+        textAlign: 'center',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      <h2 style={{ marginBottom: '1rem' }}>Update Required</h2>
+      <p style={{ maxWidth: '32rem', lineHeight: 1.6 }}>
+        This document uses schema version {docVersion}, but your app supports up to version{' '}
+        {codeVersion}. Please refresh the page to get the latest version of Ganttlet.
+      </p>
+      <button
+        onClick={() => window.location.reload()}
+        style={{
+          marginTop: '1.5rem',
+          padding: '0.75rem 2rem',
+          borderRadius: '0.5rem',
+          border: 'none',
+          background: '#3b82f6',
+          color: 'white',
+          fontSize: '1rem',
+          cursor: 'pointer',
+        }}
+      >
+        Refresh
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Inner component: only exists after schema migration succeeds.
+ * Mounts all hooks that depend on a migrated Y.Doc.
+ */
+function TaskStoreProviderInner({
+  children,
+  doc,
+  dataSource,
+  demoTasks,
+  roomId,
+  accessToken,
+  criticalPathScope = DEFAULT_CRITICAL_PATH_SCOPE,
+  spreadsheetId,
+  userName,
+  userEmail,
+}: Omit<TaskStoreProviderProps, 'doc'> & { doc: Y.Doc }) {
+  const taskStore = useMemo(() => new TaskStore(), []);
   const uiStore = useContext(UIStoreContext);
 
   const draggedTaskIdRef = useRef<string | null>(null);
-
-  const doc = docRef.current;
 
   const getDraggedTaskId = useCallback(() => draggedTaskIdRef.current, []);
 
   useYDocObserver(doc, taskStore, criticalPathScope, getDraggedTaskId);
   const { undoManagerRef, canUndo, canRedo } = useUndoManager(doc);
-  useYDocPersistence(doc, roomId);
   useSandboxInit(doc, dataSource, demoTasks);
   const { awareness, collabUsers, isCollabConnected } = useCollabConnection(
     doc,

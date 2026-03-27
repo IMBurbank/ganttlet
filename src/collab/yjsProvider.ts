@@ -23,7 +23,7 @@ export interface CollabConnection {
  * The access token is sent as a WebSocket message after connection.
  *
  * Schema: The Y.Doc uses Y.Map<Y.Map<unknown>>('tasks') (not Y.Array).
- * See src/schema/ydoc.ts initSchema() for the full structure.
+ * See src/schema/ydoc.ts getDocMaps() for the full structure.
  */
 export function connectCollab(
   roomId: string,

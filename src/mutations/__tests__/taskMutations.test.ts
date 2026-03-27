@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { Task } from '../../types';
-import { initSchema, taskToYMap, TASK_FIELDS } from '../../schema/ydoc';
+import { getDocMaps, writeTaskToDoc, TASK_FIELDS } from '../../schema/ydoc';
 import { ORIGIN } from '../../collab/origins';
 import {
   moveTask,
@@ -60,10 +60,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 
 function seedDoc(tasks: Task[]): Y.Doc {
   const doc = new Y.Doc();
-  const { tasks: ytasks, taskOrder } = initSchema(doc);
+  const { tasks: ytasks, taskOrder } = getDocMaps(doc);
   doc.transact(() => {
     for (const task of tasks) {
-      ytasks.set(task.id, taskToYMap(task));
+      writeTaskToDoc(ytasks, task.id, task);
       taskOrder.push([task.id]);
     }
   });
@@ -157,7 +157,7 @@ describe('resizeTask', () => {
 describe('addTask', () => {
   it('creates a new task with UUID and adds to tasks map + taskOrder', () => {
     const doc = new Y.Doc();
-    initSchema(doc);
+    getDocMaps(doc);
 
     const id = addTask(doc, { name: 'My Task', startDate: '2026-04-01', endDate: '2026-04-03' });
 
@@ -195,7 +195,7 @@ describe('addTask', () => {
 
   it('does NOT write duration to Y.Map (computed field)', () => {
     const doc = new Y.Doc();
-    initSchema(doc);
+    getDocMaps(doc);
 
     const id = addTask(doc, { name: 'Test', startDate: '2026-04-01', endDate: '2026-04-03' });
 

@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import type { Task } from '../types';
-import { taskToYMap, yMapToTask } from '../schema/ydoc';
+import { writeTaskToDoc, yMapToTask } from '../schema/ydoc';
 import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { daysBetween, formatDate, taskEndDate } from '../utils/dateUtils';
 import { ORIGIN } from '../collab/origins';
@@ -114,7 +114,7 @@ export function resizeTask(doc: Y.Doc, taskId: string, newEnd: string): void {
 
 /**
  * Add a new task to the Y.Doc.
- * Generates a UUID, creates Y.Map via taskToYMap, inserts into tasks map and taskOrder.
+ * Generates a UUID, creates task via writeTaskToDoc, inserts into tasks map and taskOrder.
  * If the task has a parent, appends the new ID to the parent's childIds.
  */
 export function addTask(doc: Y.Doc, task: Partial<Task>, afterTaskId?: string): string {
@@ -147,10 +147,9 @@ export function addTask(doc: Y.Doc, task: Partial<Task>, afterTaskId?: string): 
 
   const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
   const taskOrder = doc.getArray<string>('taskOrder');
-  const ymap = taskToYMap(fullTask);
 
   doc.transact(() => {
-    ytasks.set(id, ymap);
+    writeTaskToDoc(ytasks, id, fullTask);
 
     // Insert into taskOrder
     if (afterTaskId) {

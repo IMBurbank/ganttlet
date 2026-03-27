@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { Task } from '../../types';
-import { initSchema, taskToYMap } from '../../schema/ydoc';
+import { getDocMaps, writeTaskToDoc } from '../../schema/ydoc';
 import { ORIGIN } from '../../collab/origins';
 import { setConstraint } from '../constraintMutations';
 
@@ -52,10 +52,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 
 function seedDoc(tasks: Task[]): Y.Doc {
   const doc = new Y.Doc();
-  const { tasks: ytasks, taskOrder } = initSchema(doc);
+  const { tasks: ytasks, taskOrder } = getDocMaps(doc);
   doc.transact(() => {
     for (const task of tasks) {
-      ytasks.set(task.id, taskToYMap(task));
+      writeTaskToDoc(ytasks, task.id, task);
       taskOrder.push([task.id]);
     }
   });

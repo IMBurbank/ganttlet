@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import type { Task } from '../../types';
 import { TaskStore } from '../../store/TaskStore';
-import { initSchema, taskToYMap } from '../../schema/ydoc';
+import { getDocMaps, writeTaskToDoc } from '../../schema/ydoc';
 import { setupObserver } from '../observer';
 import { ORIGIN } from '../origins';
 
@@ -55,10 +55,10 @@ describe('setupObserver', () => {
   });
 
   it('routes local changes synchronously', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
     }, ORIGIN.LOCAL);
 
     // Store should be updated immediately (same tick)
@@ -67,11 +67,11 @@ describe('setupObserver', () => {
   });
 
   it('handles task field updates synchronously for local origin', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     // Add a task first
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
     }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')!.name).toBe('Test Task');
@@ -86,11 +86,11 @@ describe('setupObserver', () => {
   });
 
   it('handles task deletion', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     // Add then delete
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
     }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')).toBeDefined();
@@ -103,10 +103,10 @@ describe('setupObserver', () => {
   });
 
   it('processes sheets origin synchronously', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
     }, ORIGIN.SHEETS);
 
     // Should be updated immediately
@@ -114,7 +114,7 @@ describe('setupObserver', () => {
   });
 
   it('batches remote changes via RAF', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     // Mock requestAnimationFrame
     let rafCallback: FrameRequestCallback | null = null;
@@ -130,7 +130,7 @@ describe('setupObserver', () => {
     try {
       // Write with provider origin (simulates remote peer via WebSocket)
       doc.transact(() => {
-        ytasks.set('task-1', taskToYMap(makeTask()));
+        writeTaskToDoc(ytasks, 'task-1', makeTask());
       }, fakeProvider);
 
       // Store NOT updated yet (batched)
@@ -148,12 +148,12 @@ describe('setupObserver', () => {
   });
 
   it('processes null-origin (undo/init) changes synchronously', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     // Write without origin (null) — should be processed synchronously
     // This covers undo/redo and initialization transactions
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
     });
 
     // Store should be updated immediately (not batched)
@@ -166,10 +166,10 @@ describe('setupObserver', () => {
     // Reset mock call count
     computeCriticalPathScoped.mockClear();
 
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
     }, ORIGIN.SHEETS);
 
     // requestIdleCallback should NOT have been called for sheets
@@ -179,7 +179,7 @@ describe('setupObserver', () => {
   });
 
   it('observes taskOrder changes', () => {
-    const { taskOrder } = initSchema(doc);
+    const { taskOrder } = getDocMaps(doc);
 
     doc.transact(() => {
       taskOrder.push(['task-a', 'task-b', 'task-c']);
@@ -189,13 +189,13 @@ describe('setupObserver', () => {
   });
 
   it('handles multiple tasks in one transaction', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
     const task1 = makeTask({ id: 'task-1', name: 'Task 1' });
     const task2 = makeTask({ id: 'task-2', name: 'Task 2' });
 
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(task1));
-      ytasks.set('task-2', taskToYMap(task2));
+      writeTaskToDoc(ytasks, 'task-1', task1);
+      writeTaskToDoc(ytasks, 'task-2', task2);
     }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')).toBeDefined();
@@ -205,11 +205,11 @@ describe('setupObserver', () => {
   });
 
   it('is resilient to malformed tasks', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     // Add a valid task and a malformed one (missing required fields)
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
       const badMap = new Y.Map<unknown>();
       // Don't set 'id' — yMapToTask should still return something (with defaults)
       badMap.set('name', 'Bad Task');
@@ -221,13 +221,13 @@ describe('setupObserver', () => {
   });
 
   it('cleans up observer on dispose', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     cleanup();
 
     // Changes after cleanup should NOT affect store
     doc.transact(() => {
-      ytasks.set('task-1', taskToYMap(makeTask()));
+      writeTaskToDoc(ytasks, 'task-1', makeTask());
     }, ORIGIN.LOCAL);
 
     expect(store.getTask('task-1')).toBeUndefined();
@@ -237,7 +237,7 @@ describe('setupObserver', () => {
   });
 
   it('handles summary task recalculation', () => {
-    const { tasks: ytasks } = initSchema(doc);
+    const { tasks: ytasks } = getDocMaps(doc);
 
     const parent = makeTask({
       id: 'parent',
@@ -256,8 +256,8 @@ describe('setupObserver', () => {
     });
 
     doc.transact(() => {
-      ytasks.set('parent', taskToYMap(parent));
-      ytasks.set('child-1', taskToYMap(child));
+      writeTaskToDoc(ytasks, 'parent', parent);
+      writeTaskToDoc(ytasks, 'child-1', child);
     }, ORIGIN.LOCAL);
 
     expect(store.getTask('parent')).toBeDefined();

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
-import { initSchema, taskToYMap } from '../../schema/ydoc';
+import { getDocMaps, writeTaskToDoc } from '../../schema/ydoc';
 import type { Task } from '../../types';
 import { ORIGIN, TRACKED_ORIGINS } from '../origins';
 
@@ -42,7 +42,7 @@ describe('Y.UndoManager', () => {
 
   beforeEach(() => {
     doc = new Y.Doc();
-    const schema = initSchema(doc);
+    const schema = getDocMaps(doc);
     ytasks = schema.tasks;
     undoManager = new Y.UndoManager(ytasks, {
       trackedOrigins: TRACKED_ORIGINS,
@@ -59,7 +59,7 @@ describe('Y.UndoManager', () => {
     it('undoes local-origin changes', () => {
       const task = makeTask();
       doc.transact(() => {
-        ytasks.set(task.id, taskToYMap(task));
+        writeTaskToDoc(ytasks, task.id, task);
       }, ORIGIN.LOCAL);
 
       expect(ytasks.has('task-1')).toBe(true);
@@ -73,7 +73,7 @@ describe('Y.UndoManager', () => {
     it('does not undo sheets-origin changes', () => {
       const task = makeTask();
       doc.transact(() => {
-        ytasks.set(task.id, taskToYMap(task));
+        writeTaskToDoc(ytasks, task.id, task);
       }, ORIGIN.SHEETS);
 
       expect(ytasks.has('task-1')).toBe(true);
@@ -83,7 +83,7 @@ describe('Y.UndoManager', () => {
     it('does not undo remote (null origin) changes', () => {
       const task = makeTask();
       doc.transact(() => {
-        ytasks.set(task.id, taskToYMap(task));
+        writeTaskToDoc(ytasks, task.id, task);
       });
 
       expect(ytasks.has('task-1')).toBe(true);
@@ -93,7 +93,7 @@ describe('Y.UndoManager', () => {
     it('redo restores undone changes', () => {
       const task = makeTask();
       doc.transact(() => {
-        ytasks.set(task.id, taskToYMap(task));
+        writeTaskToDoc(ytasks, task.id, task);
       }, ORIGIN.LOCAL);
 
       undoManager.undo();
@@ -109,7 +109,7 @@ describe('Y.UndoManager', () => {
     it('undoes a field update atomically', () => {
       const task = makeTask();
       doc.transact(() => {
-        ytasks.set(task.id, taskToYMap(task));
+        writeTaskToDoc(ytasks, task.id, task);
       }, ORIGIN.LOCAL);
 
       // Update name and dates in single transaction (simulating move + cascade)
@@ -137,8 +137,8 @@ describe('Y.UndoManager', () => {
       const task2 = makeTask({ id: 'task-2', startDate: '2026-03-14', endDate: '2026-03-16' });
 
       doc.transact(() => {
-        ytasks.set(task1.id, taskToYMap(task1));
-        ytasks.set(task2.id, taskToYMap(task2));
+        writeTaskToDoc(ytasks, task1.id, task1);
+        writeTaskToDoc(ytasks, task2.id, task2);
       }, ORIGIN.LOCAL);
 
       // Simulate move + cascade: both tasks move in one transaction
@@ -162,7 +162,7 @@ describe('Y.UndoManager', () => {
     it('clear() empties undo/redo stacks', () => {
       const task = makeTask();
       doc.transact(() => {
-        ytasks.set(task.id, taskToYMap(task));
+        writeTaskToDoc(ytasks, task.id, task);
       }, ORIGIN.LOCAL);
 
       expect(undoManager.canUndo()).toBe(true);
@@ -178,14 +178,14 @@ describe('Y.UndoManager', () => {
     it('after clear, new changes can still be undone', () => {
       const task1 = makeTask({ id: 'task-1' });
       doc.transact(() => {
-        ytasks.set(task1.id, taskToYMap(task1));
+        writeTaskToDoc(ytasks, task1.id, task1);
       }, ORIGIN.LOCAL);
 
       undoManager.clear();
 
       const task2 = makeTask({ id: 'task-2' });
       doc.transact(() => {
-        ytasks.set(task2.id, taskToYMap(task2));
+        writeTaskToDoc(ytasks, task2.id, task2);
       }, ORIGIN.LOCAL);
 
       expect(undoManager.canUndo()).toBe(true);
@@ -202,11 +202,11 @@ describe('Y.UndoManager', () => {
       const task2 = makeTask({ id: 'task-2', name: 'Second Task' });
 
       doc.transact(() => {
-        ytasks.set(task1.id, taskToYMap(task1));
+        writeTaskToDoc(ytasks, task1.id, task1);
       }, ORIGIN.LOCAL);
 
       doc.transact(() => {
-        ytasks.set(task2.id, taskToYMap(task2));
+        writeTaskToDoc(ytasks, task2.id, task2);
       }, ORIGIN.LOCAL);
 
       doc.transact(() => {
@@ -250,7 +250,7 @@ describe('Y.UndoManager', () => {
       });
 
       doc.transact(() => {
-        ytasks.set(task.id, taskToYMap(task));
+        writeTaskToDoc(ytasks, task.id, task);
       }, ORIGIN.LOCAL);
 
       // Delete task

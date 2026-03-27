@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { TaskStore } from '../../store/TaskStore';
 import { setupObserver } from '../observer';
-import { initSchema, taskToYMap } from '../../schema/ydoc';
+import { getDocMaps, writeTaskToDoc } from '../../schema/ydoc';
 import type { Task } from '../../types';
 import { ORIGIN, TRACKED_ORIGINS } from '../origins';
 
@@ -62,7 +62,7 @@ describe('Observer pipeline integration', () => {
 
     doc = new Y.Doc();
     taskStore = new TaskStore();
-    initSchema(doc);
+    getDocMaps(doc);
 
     cleanup = setupObserver(doc, taskStore, {
       criticalPathScope: { type: 'project', name: 'Alpha' },
@@ -80,7 +80,7 @@ describe('Observer pipeline integration', () => {
     const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
 
     doc.transact(() => {
-      ytasks.set('t1', taskToYMap(task));
+      writeTaskToDoc(ytasks, 't1', task);
     }, ORIGIN.LOCAL);
 
     // Should be available immediately (same tick)
@@ -98,7 +98,7 @@ describe('Observer pipeline integration', () => {
     const fakeProvider = { ws: {} };
 
     doc.transact(() => {
-      ytasks.set('t2', taskToYMap(task));
+      writeTaskToDoc(ytasks, 't2', task);
     }, fakeProvider);
 
     // Should NOT be available immediately (batched)
@@ -120,7 +120,7 @@ describe('Observer pipeline integration', () => {
     const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
 
     doc.transact(() => {
-      ytasks.set('t3', taskToYMap(task));
+      writeTaskToDoc(ytasks, 't3', task);
     }, ORIGIN.SHEETS);
 
     // Should be available immediately
@@ -137,7 +137,7 @@ describe('Observer pipeline integration', () => {
 
     // Add task locally first
     doc.transact(() => {
-      ytasks.set('t4', taskToYMap(task));
+      writeTaskToDoc(ytasks, 't4', task);
     }, ORIGIN.LOCAL);
     expect(taskStore.getTask('t4')).toBeDefined();
 
@@ -156,13 +156,13 @@ describe('Observer pipeline integration', () => {
 
     // Add 3 tasks in separate remote transactions (provider origin)
     doc.transact(() => {
-      ytasks.set('r1', taskToYMap(makeTask('r1')));
+      writeTaskToDoc(ytasks, 'r1', makeTask('r1'));
     }, fakeProvider);
     doc.transact(() => {
-      ytasks.set('r2', taskToYMap(makeTask('r2')));
+      writeTaskToDoc(ytasks, 'r2', makeTask('r2'));
     }, fakeProvider);
     doc.transact(() => {
-      ytasks.set('r3', taskToYMap(makeTask('r3')));
+      writeTaskToDoc(ytasks, 'r3', makeTask('r3'));
     }, fakeProvider);
 
     // None available yet (batched via RAF)
@@ -189,7 +189,7 @@ describe('Observer pipeline integration', () => {
 
     // Make a local edit
     doc.transact(() => {
-      ytasks.set('u1', taskToYMap(makeTask('u1')));
+      writeTaskToDoc(ytasks, 'u1', makeTask('u1'));
     }, ORIGIN.LOCAL);
 
     origins.length = 0; // Clear previous origins

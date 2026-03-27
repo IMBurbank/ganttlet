@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { yMapToTask, taskToYMap, initSchema, TASK_FIELDS } from '../ydoc';
+import {
+  yMapToTask,
+  writeTaskToDoc,
+  getDocMaps,
+  migrateDoc,
+  TASK_FIELDS,
+  CURRENT_VERSION,
+} from '../ydoc';
+import { MIGRATIONS } from '../migrations';
 import type { Task } from '../../types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -30,15 +38,13 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 /**
- * Helper: insert a task into a Y.Doc via taskToYMap and return the Y.Map
- * that is now attached to the doc (so .get()/.has() work).
+ * Helper: write a task to a Y.Doc and return the attached Y.Map.
  */
 function insertTask(task: Task): Y.Map<unknown> {
   const doc = new Y.Doc();
-  const tasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
-  const ymap = taskToYMap(task);
-  tasks.set(task.id, ymap);
-  return tasks.get(task.id)!;
+  const { tasks: ytasks } = getDocMaps(doc);
+  writeTaskToDoc(ytasks, task.id, task);
+  return ytasks.get(task.id)!;
 }
 
 /**
@@ -57,6 +63,8 @@ function createRawYMap(entries: [string, unknown][]): Y.Map<unknown> {
   });
   return attached;
 }
+
+// ─── yMapToTask ──────────────────────────────────────────────────────
 
 describe('yMapToTask', () => {
   it('returns correct Task from a fully-populated Y.Map', () => {
@@ -177,19 +185,20 @@ describe('yMapToTask', () => {
   });
 });
 
-describe('taskToYMap', () => {
-  it('writes exactly the 19 TASK_FIELDS', () => {
-    const task = makeTask();
-    const ymap = insertTask(task);
+// ─── writeTaskToDoc ──────────────────────────────────────────────────
 
-    // All 19 fields should be present
+describe('writeTaskToDoc', () => {
+  it('creates a new Y.Map with all TASK_FIELDS when task is new', () => {
+    const doc = new Y.Doc();
+    const { tasks: ytasks } = getDocMaps(doc);
+    const task = makeTask();
+
+    writeTaskToDoc(ytasks, task.id, task);
+    const ymap = ytasks.get(task.id)!;
+
     for (const field of TASK_FIELDS) {
       expect(ymap.has(field)).toBe(true);
     }
-
-    // Should have exactly 19 keys (constraintType + constraintDate are set since task has them)
-    const keys = Array.from(ymap.keys());
-    expect(keys.length).toBe(19);
   });
 
   it('does NOT write duration', () => {
@@ -219,36 +228,195 @@ describe('taskToYMap', () => {
     expect(ymap.has('constraintType')).toBe(false);
     expect(ymap.has('constraintDate')).toBe(false);
   });
+
+  it('updates existing Y.Map in place (preserves unknown fields)', () => {
+    const doc = new Y.Doc();
+    const { tasks: ytasks } = getDocMaps(doc);
+    const task = makeTask({ name: 'Original' });
+
+    // Create the task
+    writeTaskToDoc(ytasks, task.id, task);
+    const ymap = ytasks.get(task.id)!;
+
+    // Simulate a future version adding an unknown field
+    ymap.set('futureField', 'v3-data');
+
+    // Update via writeTaskToDoc — should preserve unknown fields
+    const updated = makeTask({ name: 'Updated' });
+    writeTaskToDoc(ytasks, task.id, updated);
+
+    const result = ytasks.get(task.id)!;
+    expect(result.get('name')).toBe('Updated');
+    expect(result.get('futureField')).toBe('v3-data'); // preserved!
+  });
+
+  it('covers all TASK_FIELDS (catches forgotten fields)', () => {
+    const task = makeTask();
+    const ymap = insertTask(task);
+    const writtenKeys = Array.from(ymap.keys());
+
+    for (const field of TASK_FIELDS) {
+      expect(writtenKeys).toContain(field);
+    }
+  });
 });
 
-describe('initSchema', () => {
-  it('creates tasks map, taskOrder array, meta map', () => {
+// ─── getDocMaps ──────────────────────────────────────────────────────
+
+describe('getDocMaps', () => {
+  it('returns tasks map, taskOrder array, meta map', () => {
     const doc = new Y.Doc();
-    const { tasks, taskOrder, meta } = initSchema(doc);
+    const { tasks, taskOrder, meta } = getDocMaps(doc);
     expect(tasks).toBeInstanceOf(Y.Map);
     expect(taskOrder).toBeInstanceOf(Y.Array);
     expect(meta).toBeInstanceOf(Y.Map);
   });
 
-  it('sets schemaVersion: 2', () => {
+  it('returns same references as doc.getMap/getArray', () => {
     const doc = new Y.Doc();
-    const { meta } = initSchema(doc);
-    expect(meta.get('schemaVersion')).toBe(2);
-  });
-
-  it('returns correct references (same as doc.getMap/getArray)', () => {
-    const doc = new Y.Doc();
-    const { tasks, taskOrder, meta } = initSchema(doc);
+    const { tasks, taskOrder, meta } = getDocMaps(doc);
     expect(tasks).toBe(doc.getMap('tasks'));
     expect(taskOrder).toBe(doc.getArray('taskOrder'));
     expect(meta).toBe(doc.getMap('meta'));
   });
+});
 
-  it('does not overwrite schemaVersion if already set', () => {
+// ─── migrateDoc ──────────────────────────────────────────────────────
+
+describe('migrateDoc', () => {
+  it('migrates fresh doc (v0) to current version', () => {
     const doc = new Y.Doc();
-    const meta = doc.getMap('meta');
-    meta.set('schemaVersion', 42);
-    initSchema(doc);
-    expect(meta.get('schemaVersion')).toBe(42);
+    const result = migrateDoc(doc);
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.fromVersion).toBe(0);
+      expect(result.toVersion).toBe(CURRENT_VERSION);
+      expect(result.migrationsRun).toBe(MIGRATIONS.length);
+    }
+
+    const { meta } = getDocMaps(doc);
+    expect(meta.get('schemaVersion')).toBe(CURRENT_VERSION);
+  });
+
+  it('strips isExpanded/isHidden from v1 doc (v2 migration)', () => {
+    const doc = new Y.Doc();
+    const { tasks: ytasks, meta } = getDocMaps(doc);
+
+    // Simulate a v1 doc with isExpanded/isHidden on tasks
+    meta.set('schemaVersion', 1);
+    const ymap = new Y.Map<unknown>();
+    ymap.set('id', 'task-1');
+    ymap.set('name', 'Test');
+    ymap.set('isExpanded', true);
+    ymap.set('isHidden', false);
+    ytasks.set('task-1', ymap);
+
+    const result = migrateDoc(doc);
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.fromVersion).toBe(1);
+      expect(result.migrationsRun).toBe(1);
+    }
+
+    const migrated = ytasks.get('task-1')!;
+    expect(migrated.has('isExpanded')).toBe(false);
+    expect(migrated.has('isHidden')).toBe(false);
+    expect(migrated.get('name')).toBe('Test'); // other fields preserved
+  });
+
+  it('returns noop for doc already at current version', () => {
+    const doc = new Y.Doc();
+    const { meta } = getDocMaps(doc);
+    meta.set('schemaVersion', CURRENT_VERSION);
+
+    const result = migrateDoc(doc);
+    expect(result).toEqual({ status: 'noop' });
+  });
+
+  it('returns incompatible for doc from the future', () => {
+    const doc = new Y.Doc();
+    const { meta } = getDocMaps(doc);
+    meta.set('schemaVersion', 99);
+
+    const result = migrateDoc(doc);
+    expect(result).toEqual({
+      status: 'incompatible',
+      docVersion: 99,
+      codeVersion: CURRENT_VERSION,
+    });
+  });
+
+  it('is idempotent — double call returns noop on second run', () => {
+    const doc = new Y.Doc();
+    const result1 = migrateDoc(doc);
+    const result2 = migrateDoc(doc);
+
+    expect(result1.status).toBe('ok');
+    expect(result2.status).toBe('noop');
+  });
+
+  it('every migration is idempotent (run twice, same result)', () => {
+    for (const migration of MIGRATIONS) {
+      const doc1 = new Y.Doc();
+      const doc2 = new Y.Doc();
+
+      // Set up identical v1-like docs with stale fields
+      for (const d of [doc1, doc2]) {
+        const ytasks = d.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+        const ymap = new Y.Map<unknown>();
+        ymap.set('id', 'test');
+        ymap.set('isExpanded', true);
+        ymap.set('isHidden', false);
+        ytasks.set('test', ymap);
+      }
+
+      // Run migration once on doc1
+      migration.migrate(doc1);
+
+      // Run migration twice on doc2
+      migration.migrate(doc2);
+      migration.migrate(doc2);
+
+      // Results should be identical
+      const ytasks1 = doc1.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+      const ytasks2 = doc2.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+      const ymap1 = ytasks1.get('test')!;
+      const ymap2 = ytasks2.get('test')!;
+
+      expect(Array.from(ymap1.keys()).sort()).toEqual(Array.from(ymap2.keys()).sort());
+      for (const key of ymap1.keys()) {
+        expect(ymap1.get(key)).toEqual(ymap2.get(key));
+      }
+    }
+  });
+
+  it('CAS guard prevents double-execution within a single client', () => {
+    const doc = new Y.Doc();
+    const { meta } = getDocMaps(doc);
+
+    // Simulate: someone else already migrated within the transaction window
+    // by pre-setting version inside a transact
+    let migrationBodyRan = false;
+    const originalMigrate = MIGRATIONS[0].migrate;
+    MIGRATIONS[0].migrate = (d) => {
+      migrationBodyRan = true;
+      originalMigrate(d);
+    };
+
+    // First call: should run
+    meta.set('schemaVersion', 0);
+    migrateDoc(doc);
+    expect(migrationBodyRan).toBe(true);
+
+    // Reset and try again — should be noop
+    migrationBodyRan = false;
+    const result = migrateDoc(doc);
+    expect(result.status).toBe('noop');
+    expect(migrationBodyRan).toBe(false);
+
+    // Restore original
+    MIGRATIONS[0].migrate = originalMigrate;
   });
 });

@@ -1,5 +1,6 @@
 import type { Awareness } from 'y-protocols/awareness';
 import type { CollabUser } from '../types';
+import { CURRENT_VERSION } from '../schema/ydoc';
 
 const PRESENCE_COLORS = [
   '#3b82f6', // blue
@@ -33,6 +34,9 @@ export function setLocalAwareness(
     viewingTaskId: null,
     viewingCellColumn: null,
   });
+  // Broadcast schema version for peer version awareness.
+  // Peers monitor this to detect version mismatches.
+  awareness.setLocalStateField('schemaVersion', CURRENT_VERSION);
 }
 
 /**

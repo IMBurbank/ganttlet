@@ -10,7 +10,7 @@ import {
   validateHeaders,
   columnLetter,
 } from './sheetsMapper';
-import { yMapToTask } from '../schema/ydoc';
+import { yMapToTask, writeTaskToDoc } from '../schema/ydoc';
 import { getAuthState } from './oauth';
 
 const DEBOUNCE_MS = 2000;
@@ -617,42 +617,15 @@ export class SheetsAdapter {
   private injectTaskIntoYDoc(task: Task): void {
     const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
     const taskOrder = this.doc.getArray<string>('taskOrder');
+    const isNew = !ytasks.has(task.id);
 
     this.doc.transact(() => {
-      const ymap = new Y.Map<unknown>();
-      ymap.set('id', task.id);
-      ymap.set('name', task.name);
-      ymap.set('startDate', task.startDate);
-      ymap.set('endDate', task.endDate);
-      ymap.set('owner', task.owner);
-      ymap.set('workStream', task.workStream);
-      ymap.set('project', task.project);
-      ymap.set('functionalArea', task.functionalArea);
-      ymap.set('done', task.done);
-      ymap.set('description', task.description);
-      ymap.set('isMilestone', task.isMilestone);
-      ymap.set('isSummary', task.isSummary);
-      ymap.set('parentId', task.parentId);
-      ymap.set('childIds', JSON.stringify(task.childIds));
-      ymap.set('dependencies', JSON.stringify(task.dependencies));
-      ymap.set('notes', task.notes);
-      ymap.set('okrs', JSON.stringify(task.okrs));
-      if (task.constraintType != null) {
-        ymap.set('constraintType', task.constraintType);
-      }
-      if (task.constraintDate != null) {
-        ymap.set('constraintDate', task.constraintDate);
-      }
+      // writeTaskToDoc handles create vs update:
+      // - Existing tasks: field-level update (preserves unknown fields from future versions)
+      // - New tasks: creates fresh Y.Map
+      writeTaskToDoc(ytasks, task.id, task);
 
-      // Update existing or add new
-      if (ytasks.has(task.id)) {
-        // Update fields on existing Y.Map
-        const existing = ytasks.get(task.id)!;
-        ymap.forEach((value, key) => {
-          existing.set(key, value);
-        });
-      } else {
-        ytasks.set(task.id, ymap);
+      if (isNew) {
         taskOrder.push([task.id]);
       }
     }, ORIGIN.SHEETS); // 'sheets' origin — not undoable, no cascade

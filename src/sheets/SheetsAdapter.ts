@@ -659,18 +659,22 @@ export class SheetsAdapter {
    * Clear a conflict notification and update the base value to the current
    * Y.Doc state. This prevents the same conflict from being re-reported
    * on the next poll — the base now matches the resolved Y.Doc value.
+   *
+   * Uses withLock to serialize with loadFromSheet/flushWrite — without the
+   * lock, the poll's read-compute-write on baseValues could overwrite the
+   * resolved base hash.
    */
   async clearConflict(taskId: string, field: string): Promise<void> {
     this.notifiedConflicts.delete(`${taskId}:${field}`);
 
-    // Update base value to current Y.Doc state so the three-way merge
-    // doesn't re-detect this conflict on the next poll.
-    const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
-    const ymap = ytasks.get(taskId);
-    if (ymap) {
-      const task = yMapToTask(ymap);
-      await this.baseValues.put(taskId, hashTask(task));
-    }
+    await this.withLock(async () => {
+      const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+      const ymap = ytasks.get(taskId);
+      if (ymap) {
+        const task = yMapToTask(ymap);
+        await this.baseValues.put(taskId, hashTask(task));
+      }
+    });
   }
 
   async clearBaseValues(): Promise<void> {

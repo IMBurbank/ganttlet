@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
-import { createPortal } from 'react-dom';
 import type { Task, ColumnConfig, ColorByField } from '../../types';
 
 const CONSTRAINT_OPTIONS: { value: NonNullable<Task['constraintType']>; label: string }[] = [
@@ -328,78 +327,14 @@ export default function TaskRow({
       onMouseLeave={() => awareness && updateViewingTask(awareness, null)}
     >
       {visibleColumns.map((col) => (
-        <PresenceCell
+        <div
           key={col.key}
-          width={col.width}
-          isHighlighted={false}
-          viewerColor={viewerColor}
-          viewerName={primaryViewer?.name}
+          className="px-2 truncate shrink-0 flex items-center"
+          style={{ width: col.width, height: 44 }}
         >
           {renderCell(col)}
-        </PresenceCell>
+        </div>
       ))}
-    </div>
-  );
-}
-
-function PresenceCell({
-  width,
-  isHighlighted,
-  viewerColor,
-  viewerName,
-  children,
-}: {
-  width: number;
-  isHighlighted: boolean;
-  viewerColor?: string;
-  viewerName?: string;
-  children: React.ReactNode;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-
-  function handleMouseEnter(e: React.MouseEvent) {
-    if (!isHighlighted) return;
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top - 4 });
-    setHovered(true);
-  }
-
-  function handleMouseLeave() {
-    setHovered(false);
-  }
-
-  return (
-    <div
-      className="px-2 truncate shrink-0 flex items-center relative"
-      style={{
-        width,
-        height: 44,
-        boxShadow: isHighlighted ? `inset 0 0 0 2px ${viewerColor}` : undefined,
-        borderRadius: isHighlighted ? 2 : undefined,
-      }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      {children}
-      {isHighlighted &&
-        hovered &&
-        viewerName &&
-        createPortal(
-          <div
-            className="fixed z-50 px-2 py-1 text-xs rounded shadow-lg pointer-events-none fade-in whitespace-nowrap"
-            style={{
-              left: tooltipPos.x,
-              top: tooltipPos.y,
-              transform: 'translate(-50%, -100%)',
-              backgroundColor: viewerColor,
-              color: 'white',
-            }}
-          >
-            {viewerName}
-          </div>,
-          document.body
-        )}
     </div>
   );
 }

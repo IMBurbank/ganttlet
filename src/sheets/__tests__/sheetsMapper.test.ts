@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as Y from 'yjs';
 import type { Task, Dependency } from '../../types';
 import {
   taskToRow,
@@ -8,6 +9,7 @@ import {
   HEADER_ROW,
   SHEET_COLUMNS,
 } from '../sheetsMapper';
+import { TASK_FIELDS, writeTaskToDoc, yMapToTask, getDocMaps } from '../../schema/ydoc';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -444,6 +446,116 @@ describe('sheetsMapper', () => {
       ];
       const tasks = rowsToTasks(rows);
       expect(tasks).toHaveLength(2);
+    });
+  });
+
+  describe('cross-system field coverage', () => {
+    it('SHEET_COLUMNS covers every TASK_FIELD (catches field added to Y.Doc but missing from Sheets)', () => {
+      const sheetColumnSet = new Set(SHEET_COLUMNS);
+      for (const field of TASK_FIELDS) {
+        expect(sheetColumnSet.has(field as (typeof SHEET_COLUMNS)[number])).toBe(true);
+      }
+    });
+
+    it('TASK_FIELDS covers every SHEET_COLUMN except computed/attribution (catches column added to Sheets but missing from Y.Doc)', () => {
+      // These columns exist in Sheets but NOT in Y.Doc:
+      // - duration: computed from startDate/endDate, not stored
+      // - lastModifiedBy / lastModifiedAt: written by SheetsAdapter, not part of Task
+      const SHEETS_ONLY = new Set(['duration', 'lastModifiedBy', 'lastModifiedAt']);
+      const taskFieldSet = new Set(TASK_FIELDS);
+
+      for (const col of SHEET_COLUMNS) {
+        if (SHEETS_ONLY.has(col)) continue;
+        expect(taskFieldSet.has(col)).toBe(true);
+      }
+    });
+
+    it('Sheets round-trip preserves every TASK_FIELD (catches taskToRow/rowToTask forgetting a field)', () => {
+      // Build a task with non-default values for EVERY field so round-trip can detect loss
+      const original = makeTask({
+        id: 'rt-test',
+        name: 'Round Trip',
+        startDate: '2026-03-02',
+        endDate: '2026-03-06',
+        owner: 'Bob',
+        workStream: 'Design',
+        project: 'Beta',
+        functionalArea: 'Frontend',
+        done: true,
+        description: 'Full field test',
+        isMilestone: true,
+        isSummary: false,
+        parentId: 'parent-1',
+        childIds: ['c1', 'c2'],
+        dependencies: [{ fromId: 'dep-1', toId: 'rt-test', type: 'SF', lag: 2 }],
+        notes: 'Important note',
+        okrs: ['OKR-1', 'OKR-2'],
+        constraintType: 'SNET',
+        constraintDate: '2026-03-09',
+      });
+
+      const row = taskToRow(original);
+      const restored = rowToTask(row)!;
+
+      // Check every TASK_FIELD individually so failures pinpoint the missing field
+      for (const field of TASK_FIELDS) {
+        const key = field as keyof Task;
+        if (key === 'dependencies') {
+          // dependencies lose toId in rowToTask (fixed by rowsToTasks) — check fromId/type/lag
+          expect(restored.dependencies.length).toBe(original.dependencies.length);
+          for (let i = 0; i < original.dependencies.length; i++) {
+            expect(restored.dependencies[i].fromId).toBe(original.dependencies[i].fromId);
+            expect(restored.dependencies[i].type).toBe(original.dependencies[i].type);
+            expect(restored.dependencies[i].lag).toBe(original.dependencies[i].lag);
+          }
+        } else {
+          expect(restored[key]).toEqual(original[key]);
+        }
+      }
+    });
+
+    it('full pipeline: Y.Doc → yMapToTask → taskToRow → rowToTask → writeTaskToDoc → Y.Doc (lossless)', () => {
+      const doc = new Y.Doc();
+      const { tasks: ytasks } = getDocMaps(doc);
+
+      // Write a fully-populated task into Y.Doc
+      const original = makeTask({
+        id: 'pipeline-test',
+        name: 'Pipeline',
+        parentId: 'p1',
+        childIds: ['c1'],
+        dependencies: [{ fromId: 'd1', toId: 'pipeline-test', type: 'FS', lag: 0 }],
+        okrs: ['O1'],
+        constraintType: 'FNLT',
+        constraintDate: '2026-04-15',
+      });
+      writeTaskToDoc(ytasks, original.id, original);
+
+      // Y.Doc → Task
+      const fromDoc = yMapToTask(ytasks.get(original.id)!);
+
+      // Task → Sheet row → Task
+      const row = taskToRow(fromDoc);
+      const fromSheet = rowToTask(row)!;
+
+      // Task → Y.Doc (simulate Sheets injection back into Y.Doc)
+      const doc2 = new Y.Doc();
+      const { tasks: ytasks2 } = getDocMaps(doc2);
+      writeTaskToDoc(ytasks2, fromSheet.id, fromSheet);
+      const finalTask = yMapToTask(ytasks2.get(fromSheet.id)!);
+
+      // Compare: every TASK_FIELD should survive the full pipeline
+      for (const field of TASK_FIELDS) {
+        const key = field as keyof Task;
+        if (key === 'dependencies') {
+          expect(finalTask.dependencies.length).toBe(original.dependencies.length);
+          expect(finalTask.dependencies[0].fromId).toBe(original.dependencies[0].fromId);
+          expect(finalTask.dependencies[0].type).toBe(original.dependencies[0].type);
+          expect(finalTask.dependencies[0].lag).toBe(original.dependencies[0].lag);
+        } else {
+          expect(finalTask[key]).toEqual(original[key]);
+        }
+      }
     });
   });
 });

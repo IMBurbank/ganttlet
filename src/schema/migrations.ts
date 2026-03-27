@@ -42,7 +42,12 @@ export const CURRENT_MINOR = 0;
 export interface Migration {
   /** Target version this migration produces (major version) */
   version: number;
-  /** Whether this migration is breaking (locks out older code) or additive (soft warning) */
+  /**
+   * Documentation metadata: whether this migration is breaking (locks out older
+   * code) or additive (soft warning only). Not enforced at runtime — the major/minor
+   * version numbers in migrateDoc() handle compatibility gating. This field exists
+   * so the migration registry is self-documenting and tooling can audit it.
+   */
   breaking: boolean;
   /** Human-readable description for logs */
   description: string;

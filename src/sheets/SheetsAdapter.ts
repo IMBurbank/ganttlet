@@ -236,6 +236,14 @@ export class SheetsAdapter {
     return this.saveDirty;
   }
 
+  isStopped(): boolean {
+    return this.stopped;
+  }
+
+  getSpreadsheetId(): string {
+    return this.spreadsheetId;
+  }
+
   // ------------------------------------------------------------------
   // Write path: Y.Doc → Sheets
   // ------------------------------------------------------------------
@@ -549,10 +557,15 @@ export class SheetsAdapter {
       // If sheetHash === ydocHash, no action needed
     }
 
-    // Check for tasks in Y.Doc but not in Sheet (deleted externally)
+    // Check for tasks in Y.Doc but not in Sheet (deleted externally).
+    // NOTE: External deletes win unconditionally — even if the task was locally
+    // modified. This is by design: Sheets is the durable source of truth, and
+    // a delete in Sheets represents an explicit external decision. Local edits
+    // to a deleted task are lost. Future work could surface this as a conflict
+    // (compare ydocHash !== baseHash before deleting), but the current behavior
+    // is consistent with the "Sheets is authoritative" architecture constraint.
     for (const ydocId of ydocTaskIds) {
       if (!sheetTasks.has(ydocId)) {
-        // Task was deleted externally — remove from Y.Doc and base value store.
         // Use 'sheets' origin so observers don't cascade and UndoManager ignores it.
         this.doc.transact(() => {
           ytasks.delete(ydocId);

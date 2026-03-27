@@ -14,6 +14,7 @@ const CONSTRAINT_OPTIONS: { value: NonNullable<Task['constraintType']>; label: s
 ];
 import type { ViewerInfo } from './TaskTable';
 import { useMutate } from '../../hooks';
+import { useUIStore } from '../../hooks/useUIStore';
 import { UIStoreContext } from '../../store/UIStore';
 import { getTaskDepth } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
@@ -47,6 +48,7 @@ export default function TaskRow({
 }: TaskRowProps) {
   const mutate = useMutate();
   const uiStore = useContext(UIStoreContext)!;
+  const collapsedTasks = useUIStore((s) => s.collapsedTasks);
   const rowRef = useRef<HTMLDivElement>(null);
   const [okrPickerOpen, setOkrPickerOpen] = useState(false);
 
@@ -119,7 +121,7 @@ export default function TaskRow({
                   height="10"
                   viewBox="0 0 10 10"
                   fill="currentColor"
-                  className={`transition-transform duration-150 ${!uiStore.getState().collapsedTasks.has(task.id) ? 'rotate-90' : ''}`}
+                  className={`transition-transform duration-150 ${!collapsedTasks.has(task.id) ? 'rotate-90' : ''}`}
                 >
                   <path d="M3 1 L8 5 L3 9 Z" />
                 </svg>

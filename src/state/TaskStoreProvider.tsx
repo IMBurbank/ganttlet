@@ -155,10 +155,6 @@ export function TaskStoreProvider({
 
 /**
  * Schema incompatibility error.
- * Rendered when the Y.Doc has a higher schema version than the code supports.
- */
-/**
- * Schema incompatibility error.
  * Rendered when the Y.Doc has a higher major version than the code supports.
  * This happens during rolling deployments when a collaborator on newer code
  * migrates a shared doc, or after a rollback.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import type { CollabUser } from '../../types';
@@ -18,20 +18,20 @@ export function useCollabConnection(
   userName?: string,
   userEmail?: string
 ): UseCollabConnectionResult {
-  const awarenessRef = useRef<Awareness | null>(null);
+  const [awareness, setAwareness] = useState<Awareness | null>(null);
   const [collabUsers, setCollabUsers] = useState<CollabUser[]>([]);
   const [isCollabConnected, setIsCollabConnected] = useState(false);
 
   useEffect(() => {
     if (!roomId || !accessToken) {
-      awarenessRef.current = null;
+      setAwareness(null);
       setCollabUsers([]);
       setIsCollabConnected(false);
       return;
     }
 
     const { awareness: aw } = connectCollab(roomId, accessToken, doc);
-    awarenessRef.current = aw;
+    setAwareness(aw);
 
     // Set local identity
     if (userName && userEmail) {
@@ -59,12 +59,12 @@ export function useCollabConnection(
       aw.off('change', onChange);
       if (prov) prov.off('status', onStatus);
       disconnectCollab();
-      awarenessRef.current = null;
+      setAwareness(null);
     };
   }, [roomId, accessToken, doc, userName, userEmail]);
 
   return {
-    awareness: awarenessRef.current,
+    awareness,
     collabUsers,
     isCollabConnected,
   };

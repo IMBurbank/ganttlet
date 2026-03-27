@@ -99,7 +99,7 @@ export function getDocMaps(doc: Y.Doc): DocMaps {
  * - 'incompatible': doc major version is higher than code — older code would corrupt data.
  *   Hard lock-out: app must block editing.
  * - 'compatible': doc minor version is higher than code — additive changes only.
- *   Older code can safely operate. Show a soft "update available" banner.
+ *   Older code can safely operate. Caller may show a soft "update available" banner.
  */
 export type MigrateResult =
   | { status: 'ok'; fromVersion: number; toVersion: number; migrationsRun: number }
@@ -154,8 +154,10 @@ export function migrateDoc(doc: Y.Doc): MigrateResult {
 
   // Run pending migrations
   const pending = MIGRATIONS.filter((m) => m.version > docMajor);
+  let migrated = false;
   doc.transact(() => {
-    // Re-check inside transaction (CAS guard)
+    // Re-check inside transaction (CAS guard: if another effect or peer
+    // already migrated during the async gap, skip to avoid double-run)
     const currentMajor =
       (meta.get('schemaMajor') as number) ?? (meta.get('schemaVersion') as number) ?? 0;
     if (currentMajor >= CURRENT_MAJOR) return;
@@ -169,7 +171,14 @@ export function migrateDoc(doc: Y.Doc): MigrateResult {
     if (meta.has('schemaVersion')) {
       meta.delete('schemaVersion');
     }
+    migrated = true;
   }, ORIGIN.INIT);
+
+  // CAS guard may skip the migration body if another caller already migrated.
+  // In that case, the doc is at the correct version — return noop, not ok.
+  if (!migrated) {
+    return { status: 'noop' };
+  }
 
   return {
     status: 'ok',

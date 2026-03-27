@@ -18,6 +18,17 @@ export function useSheetsSync(
   useEffect(() => {
     if (!spreadsheetId || !uiStore || !accessToken) return;
 
+    // Guard: if the adapter is already running for this spreadsheetId, don't
+    // tear it down on token refresh. The adapter uses getAccessToken() (callback)
+    // for all API calls, so it automatically picks up refreshed tokens.
+    if (
+      adapterRef.current &&
+      !adapterRef.current.isStopped() &&
+      adapterRef.current.getSpreadsheetId() === spreadsheetId
+    ) {
+      return;
+    }
+
     // Clear undo stack on sandbox->sheet promotion
     if (undoManagerRef.current) {
       undoManagerRef.current.clear();

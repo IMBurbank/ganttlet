@@ -49,17 +49,6 @@ export type ColorByField = 'owner' | 'workStream' | 'project' | 'functionalArea'
 
 export type ZoomLevel = 'day' | 'week' | 'month';
 
-export interface ChangeRecord {
-  id: string;
-  timestamp: string;
-  user: string;
-  taskId: string;
-  taskName: string;
-  field: string;
-  oldValue: string;
-  newValue: string;
-}
-
 export interface CollabUser {
   clientId: number;
   name: string;
@@ -80,16 +69,6 @@ export interface ColumnConfig {
 export type CriticalPathScope =
   | { type: 'project'; name: string }
   | { type: 'workstream'; name: string };
-
-export interface CascadeShift {
-  taskId: string;
-  fromStartDate: string;
-  fromEndDate: string;
-}
-
-export type DataSource = 'sandbox' | 'loading' | 'sheet' | 'empty';
-
-export type TaskUpdateSource = 'local' | 'yjs' | 'sheets';
 
 export interface SyncError {
   type: 'auth' | 'not_found' | 'forbidden' | 'rate_limit' | 'network' | 'header_mismatch';
@@ -118,37 +97,3 @@ export type MutateAction =
   | { type: 'REMOVE_DEPENDENCY'; taskId: string; fromId: string }
   | { type: 'RECALCULATE_EARLIEST'; taskIds: string[] }
   | { type: 'INITIALIZE_TASKS'; tasks: Task[] };
-
-export interface GanttState {
-  tasks: Task[];
-  columns: ColumnConfig[];
-  colorBy: ColorByField;
-  zoomLevel: ZoomLevel;
-  searchQuery: string;
-  changeHistory: ChangeRecord[];
-  isHistoryPanelOpen: boolean;
-  isSyncing: boolean;
-  syncComplete: boolean;
-  contextMenu: { x: number; y: number; taskId: string } | null;
-  showOwnerOnBar: boolean;
-  showAreaOnBar: boolean;
-  showOkrsOnBar: boolean;
-  showCriticalPath: boolean;
-  dependencyEditor: { taskId: string; highlightFromId?: string } | null;
-  theme: 'light' | 'dark';
-  collabUsers: CollabUser[];
-  isCollabConnected: boolean;
-  undoStack: Task[][];
-  redoStack: Task[][];
-  lastCascadeIds: string[];
-  cascadeShifts: CascadeShift[];
-  criticalPathScope: CriticalPathScope;
-  collapseWeekends: boolean;
-  focusNewTaskId: string | null;
-  isLeftPaneCollapsed: boolean;
-  reparentPicker: { taskId: string } | null;
-  dataSource: DataSource | undefined;
-  syncError: SyncError | null;
-  sandboxDirty: boolean;
-  lastTaskSource?: TaskUpdateSource;
-}

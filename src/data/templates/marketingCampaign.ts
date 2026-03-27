@@ -1,4 +1,4 @@
-import type { Task, ChangeRecord } from '../../types';
+import type { Task } from '../../types';
 
 const tasks: Task[] = [
   // Root summary
@@ -331,6 +331,4 @@ const tasks: Task[] = [
   },
 ];
 
-const changeHistory: ChangeRecord[] = [];
-
-export { tasks, changeHistory };
+export { tasks };

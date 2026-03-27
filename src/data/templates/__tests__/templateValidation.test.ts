@@ -12,7 +12,6 @@ describe('Template data validation', () => {
     expect(blank).toBeDefined();
     const data = await blank.load();
     expect(data.tasks).toEqual([]);
-    expect(data.changeHistory).toEqual([]);
   });
 
   for (const template of nonBlankTemplates) {

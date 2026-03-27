@@ -132,8 +132,13 @@ export function TaskStoreProvider({
   }
 
   // Compatible: doc minor version is higher — additive change, safe to operate.
-  // The inner component mounts normally. A soft warning could be shown via UIStore
-  // but editing is not blocked (writeTaskToDoc preserves unknown fields).
+  // Editing is not blocked (writeTaskToDoc preserves unknown fields).
+  if (migrationResult.status === 'compatible') {
+    console.info(
+      `[schema] Document has minor version ${migrationResult.docMinor} (code: ${migrationResult.codeMinor}). ` +
+        `Safe to operate — unknown fields are preserved. Consider refreshing to get the latest features.`
+    );
+  }
 
   // Migration complete — mount the inner component with all hooks
   return (

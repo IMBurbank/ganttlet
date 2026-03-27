@@ -43,7 +43,9 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 
 ## Architecture Constraints (do not violate)
 - **Y.Doc is live session state**: All task mutations flow through Y.Doc transactions. Three mutation sources (local, remote peer, Sheets injection) → one consumption path via Y.Doc observation → TaskStore.
-- **Google Sheets is durable truth**: Sheets is the single source of truth for persistence. Y.Doc is the live collaborative session; Sheets survives beyond sessions.
+- **Google Sheets is durable truth**: Sheets is the single source of truth for persistence. Y.Doc is the live collaborative session; Sheets survives beyond sessions. Y.Doc is always rebuildable from Sheets.
+- **Schema migration system**: `src/schema/migrations.ts` registry + `migrateDoc()` in ydoc.ts. Major/minor versions. `FIELD_REGISTRY` drives serialization. `writeTaskToDoc()` is the only write path. See `src/CLAUDE.md` for details.
+- **Structural rules**: `src/__tests__/structuralRules.test.ts` enforces: no RefObject in hook return types, no `.getState()` in JSX render expressions, no raw origin strings in transact(). These tests fail with prescriptive fix messages.
 - **Thin server**: Relay forwards CRDT messages + validates OAuth. No business logic, no persistent state, no Sheets access.
 - **Browser-first**: All scheduling, rendering, Sheets I/O, and data transformation runs in the browser.
 - **Compute-first + atomic transact**: Mutations read current state, compute cascade in WASM (outside transaction), then write all changes in one `doc.transact()` call. One undo step per user action.

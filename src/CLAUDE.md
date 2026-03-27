@@ -45,6 +45,7 @@ The field registry in `src/schema/ydoc.ts` drives Y.Doc serialization. `setKnown
 - **Component-split gate**: TaskStoreProvider outer handles migration; inner mounts hooks only after migration succeeds. Unmigrated docs structurally cannot reach hooks.
 - **Header-based column lookup**: `rowToTask` reads by column name via `HeaderMap`, not positional index. Column reordering doesn't break reads. `COLUMN_ALIASES` in sheetsMapper.ts supports renamed columns.
 - **hashTask**: three-way merge hashes by canonical Task object, not raw row position.
+- **Structural rules** (`src/__tests__/structuralRules.test.ts`): Source-scanning tests that catch common mistakes with prescriptive fix messages. Enforces: no RefObject in hook returns, no `.getState()` in JSX render, no raw origin strings.
 - v1: Original Y.Map schema (19 fields, 20 sheet columns)
 - v2: Phase 20 — strip `isExpanded`/`isHidden`, centralized origins, optional attribution columns
 

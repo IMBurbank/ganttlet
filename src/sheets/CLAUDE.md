@@ -2,7 +2,8 @@
 
 ## Architecture
 - **SheetsAdapter** (`SheetsAdapter.ts`) — service class orchestrating bidirectional Y.Doc ↔ Sheets sync
-- Three-way merge with base values stored in IndexedDB (per sheetId), hashed by canonical Task object (`hashTask`)
+- **BaseValueStore** (`BaseValueStore.ts`) — IndexedDB wrapper for three-way merge base values. `hashTask()` hashes canonical Task objects (column-order independent).
+- Three-way merge compares: Sheet row hash vs Y.Doc task hash vs base value (from BaseValueStore)
 - Write path: mark dirty on Y.Doc `ORIGIN.LOCAL` observation → debounce 2s → pre-write validation → writeSheet API → update base values on success
 - Read path: poll every 30s → three-way merge per task (sheet vs ydoc vs base) → inject changes via `doc.transact({}, ORIGIN.SHEETS)` → surface conflicts to UIStore
 - Attribution columns: `lastModifiedBy` + `lastModifiedAt` track per-task edit origin

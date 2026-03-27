@@ -229,3 +229,15 @@ Complete frontend architecture redesign across 10 parallel groups (A-J).
 - **Group H (Providers)**: TaskStoreProvider manages Y.Doc, TaskStore, mutations, undo, collab, SheetsAdapter lifecycle. UIStoreProvider manages per-user state with localStorage persistence.
 - **Group I (Undo/Recovery)**: Y.UndoManager (per-client, scoped to 'local' origin). y-indexeddb for crash recovery. Error boundaries for component isolation. Pre-write validation.
 - **Group J (Documentation)**: Updated all CLAUDE.md files, skills, agents, and architecture docs to reflect new architecture.
+
+**Schema migration & production hardening (post-merge session):**
+- **Migration registry** (`src/schema/migrations.ts`): Ordered, idempotent migrations. Major/minor versioning — major = breaking (hard lock-out), minor = additive (soft warning, no lock-out during rolling deployments).
+- **`migrateDoc()`**: Replaces `initSchema()`. CAS guard inside transaction. Forward-compat gate for future major versions. Component-split gate in TaskStoreProvider — inner component only mounts after migration succeeds.
+- **Field registry** (`FIELD_REGISTRY` in `src/schema/ydoc.ts`): Single source of truth for Task ↔ Y.Doc serialization. `setKnownFields`, `yMapToTask`, and `TASK_FIELDS` are all derived from the registry. Adding a field = one registry entry.
+- **`writeTaskToDoc()`**: Single write path for all Y.Doc task writes. Existing tasks updated in-place (preserves unknown fields from future versions). Forward-compat by construction.
+- **Header-based column lookup** (`HeaderMap` in `sheetsMapper.ts`): Read path uses column names, not positions. Survives user column reordering. `COLUMN_ALIASES` for future renames.
+- **Column-order-resilient writes**: Write path (`taskToRowWithMap`) writes in the Sheet's actual column order. User column reordering is preserved, not silently reverted.
+- **`BaseValueStore`** (`src/sheets/BaseValueStore.ts`): Extracted IndexedDB wrapper for three-way merge base values. `hashTask` hashes canonical Task objects (column-order independent).
+- **Structural rule enforcement** (`src/__tests__/structuralRules.test.ts`): Source-scanning tests that fail with prescriptive messages. Catches: hooks returning RefObject, `.getState()` in JSX render expressions, raw origin strings in transact().
+- **Dead code removed**: ChangeHistoryPanel, ChangeRecord, GanttState, CascadeShift, TaskUpdateSource, changeHistory in templates.
+- **Hook reactivity fixes**: `useCollabConnection` awareness via useState (not ref). `useSheetsSync` adapter via useState (not ref). Guards against unnecessary adapter teardown on token refresh.

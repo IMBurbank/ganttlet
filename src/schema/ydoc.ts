@@ -1,34 +1,73 @@
 import * as Y from 'yjs';
-import type { Task, Dependency } from '../types';
+import type { Task } from '../types';
 import { taskDuration } from '../utils/dateUtils';
 import { ORIGIN } from '../collab/origins';
 import { CURRENT_MAJOR, CURRENT_MINOR, MIGRATIONS } from './migrations';
 
+// ─── Field Registry ──────────────────────────────────────────────────
+//
+// Single source of truth for all Task ↔ Y.Doc field serialization.
+//
+// To add a new field:
+//   1. Add it to the Task interface in src/types/index.ts
+//   2. Add an entry here with the correct serialization type
+//   3. Add it to SHEET_COLUMNS + taskToRow + REQUIRED_COLUMNS in src/sheets/sheetsMapper.ts
+//   4. If the field needs a default for existing docs, add a migration in src/schema/migrations.ts
+//   5. Run `npx vitest run` — the cross-system coverage tests will catch anything you missed
+//
+// That's it. setKnownFields, yMapToTask, and TASK_FIELDS are all derived from this registry.
+// You do NOT need to update them manually.
+
+type FieldType =
+  | 'string'
+  | 'boolean'
+  | 'json-string-array'
+  | 'json-dep-array'
+  | 'nullable-string'
+  | 'optional-string';
+
+interface FieldDef {
+  /** Field name on the Task interface (must match exactly) */
+  name: string;
+  /** Serialization type — determines how the field is written to/read from Y.Map */
+  type: FieldType;
+}
+
 /**
- * The 19 collaborative fields stored in each task's Y.Map.
- * Excludes: duration (computed from startDate/endDate).
+ * The field registry. Order doesn't matter — TASK_FIELDS is derived from this.
+ *
+ * Types:
+ *   'string'            — stored as-is, defaults to ''
+ *   'boolean'           — stored as-is, defaults to false
+ *   'json-string-array' — JSON.stringify on write, JSON.parse on read, defaults to []
+ *   'json-dep-array'    — same as json-string-array but typed as Dependency[]
+ *   'nullable-string'   — stored as-is, defaults to null
+ *   'optional-string'   — only written if non-null, defaults to undefined on read
  */
-export const TASK_FIELDS: string[] = [
-  'id',
-  'name',
-  'startDate',
-  'endDate',
-  'owner',
-  'workStream',
-  'project',
-  'functionalArea',
-  'done',
-  'description',
-  'isMilestone',
-  'isSummary',
-  'parentId',
-  'childIds',
-  'dependencies',
-  'notes',
-  'okrs',
-  'constraintType',
-  'constraintDate',
+const FIELD_REGISTRY: FieldDef[] = [
+  { name: 'id', type: 'string' },
+  { name: 'name', type: 'string' },
+  { name: 'startDate', type: 'string' },
+  { name: 'endDate', type: 'string' },
+  { name: 'owner', type: 'string' },
+  { name: 'workStream', type: 'string' },
+  { name: 'project', type: 'string' },
+  { name: 'functionalArea', type: 'string' },
+  { name: 'done', type: 'boolean' },
+  { name: 'description', type: 'string' },
+  { name: 'isMilestone', type: 'boolean' },
+  { name: 'isSummary', type: 'boolean' },
+  { name: 'parentId', type: 'nullable-string' },
+  { name: 'childIds', type: 'json-string-array' },
+  { name: 'dependencies', type: 'json-dep-array' },
+  { name: 'notes', type: 'string' },
+  { name: 'okrs', type: 'json-string-array' },
+  { name: 'constraintType', type: 'optional-string' },
+  { name: 'constraintDate', type: 'optional-string' },
 ];
+
+/** Derived from FIELD_REGISTRY — do not edit manually. */
+export const TASK_FIELDS: string[] = FIELD_REGISTRY.map((f) => f.name);
 
 // ─── Doc Structure Accessor ──────────────────────────────────────────
 
@@ -140,7 +179,7 @@ export function migrateDoc(doc: Y.Doc): MigrateResult {
   };
 }
 
-// ─── Task ↔ Y.Map Conversion ────────────────────────────────────────
+// ─── Task ↔ Y.Map Conversion (registry-driven) ──────────────────────
 
 /**
  * Write a task to the Y.Doc. Single public write path.
@@ -161,30 +200,30 @@ export function writeTaskToDoc(ytasks: Y.Map<Y.Map<unknown>>, taskId: string, ta
   }
 }
 
-/** Set all known fields on an existing Y.Map. Unknown fields are preserved. */
+/**
+ * Set all known fields on a Y.Map from a Task object.
+ * Driven by FIELD_REGISTRY — adding a field to the registry automatically
+ * includes it here. Unknown fields on the Y.Map are preserved.
+ */
 function setKnownFields(ymap: Y.Map<unknown>, task: Task): void {
-  ymap.set('id', task.id);
-  ymap.set('name', task.name);
-  ymap.set('startDate', task.startDate);
-  ymap.set('endDate', task.endDate);
-  ymap.set('owner', task.owner);
-  ymap.set('workStream', task.workStream);
-  ymap.set('project', task.project);
-  ymap.set('functionalArea', task.functionalArea);
-  ymap.set('done', task.done);
-  ymap.set('description', task.description);
-  ymap.set('isMilestone', task.isMilestone);
-  ymap.set('isSummary', task.isSummary);
-  ymap.set('parentId', task.parentId);
-  ymap.set('childIds', JSON.stringify(task.childIds));
-  ymap.set('dependencies', JSON.stringify(task.dependencies));
-  ymap.set('notes', task.notes);
-  ymap.set('okrs', JSON.stringify(task.okrs));
-  if (task.constraintType != null) {
-    ymap.set('constraintType', task.constraintType);
-  }
-  if (task.constraintDate != null) {
-    ymap.set('constraintDate', task.constraintDate);
+  for (const field of FIELD_REGISTRY) {
+    const value = (task as unknown as Record<string, unknown>)[field.name];
+    switch (field.type) {
+      case 'string':
+      case 'boolean':
+      case 'nullable-string':
+        ymap.set(field.name, value);
+        break;
+      case 'json-string-array':
+      case 'json-dep-array':
+        ymap.set(field.name, JSON.stringify(value));
+        break;
+      case 'optional-string':
+        if (value != null) {
+          ymap.set(field.name, value);
+        }
+        break;
+    }
   }
 }
 
@@ -197,61 +236,50 @@ function createTaskYMap(task: Task): Y.Map<unknown> {
 
 /**
  * Convert a Y.Map back to a Task object.
- * Computes duration from startDate/endDate via taskDuration().
- * Parses childIds, dependencies, okrs from JSON strings with fallback to [].
+ * Driven by FIELD_REGISTRY — adding a field to the registry automatically
+ * includes it here. Computes duration from startDate/endDate.
  */
 export function yMapToTask(ymap: Y.Map<unknown>): Task {
-  let childIds: string[] = [];
-  let dependencies: Dependency[] = [];
-  let okrs: string[] = [];
+  const result: Record<string, unknown> = {};
 
-  try {
-    const raw = ymap.get('childIds');
-    if (typeof raw === 'string') childIds = JSON.parse(raw);
-  } catch {
-    /* default to empty */
+  for (const field of FIELD_REGISTRY) {
+    const raw = ymap.get(field.name);
+    switch (field.type) {
+      case 'string':
+        result[field.name] = (raw as string) ?? '';
+        break;
+      case 'boolean':
+        result[field.name] = (raw as boolean) ?? false;
+        break;
+      case 'nullable-string':
+        result[field.name] = (raw as string | null) ?? null;
+        break;
+      case 'optional-string':
+        result[field.name] = (raw as string) ?? undefined;
+        break;
+      case 'json-string-array':
+        try {
+          result[field.name] = typeof raw === 'string' ? JSON.parse(raw) : [];
+        } catch {
+          result[field.name] = [];
+        }
+        break;
+      case 'json-dep-array':
+        try {
+          result[field.name] = typeof raw === 'string' ? JSON.parse(raw) : [];
+        } catch {
+          result[field.name] = [];
+        }
+        break;
+    }
   }
 
-  try {
-    const raw = ymap.get('dependencies');
-    if (typeof raw === 'string') dependencies = JSON.parse(raw);
-  } catch {
-    /* default to empty */
-  }
+  // Computed field: duration is derived, never stored
+  const startDate = result.startDate as string;
+  const endDate = result.endDate as string;
+  result.duration = startDate && endDate ? taskDuration(startDate, endDate) : 0;
 
-  try {
-    const raw = ymap.get('okrs');
-    if (typeof raw === 'string') okrs = JSON.parse(raw);
-  } catch {
-    /* default to empty */
-  }
-
-  const startDate = (ymap.get('startDate') as string) ?? '';
-  const endDate = (ymap.get('endDate') as string) ?? '';
-  const duration = startDate && endDate ? taskDuration(startDate, endDate) : 0;
-
-  return {
-    id: (ymap.get('id') as string) ?? '',
-    name: (ymap.get('name') as string) ?? '',
-    startDate,
-    endDate,
-    duration,
-    owner: (ymap.get('owner') as string) ?? '',
-    workStream: (ymap.get('workStream') as string) ?? '',
-    project: (ymap.get('project') as string) ?? '',
-    functionalArea: (ymap.get('functionalArea') as string) ?? '',
-    done: (ymap.get('done') as boolean) ?? false,
-    description: (ymap.get('description') as string) ?? '',
-    isMilestone: (ymap.get('isMilestone') as boolean) ?? false,
-    isSummary: (ymap.get('isSummary') as boolean) ?? false,
-    parentId: (ymap.get('parentId') as string | null) ?? null,
-    childIds,
-    dependencies,
-    notes: (ymap.get('notes') as string) ?? '',
-    okrs,
-    constraintType: (ymap.get('constraintType') as Task['constraintType']) ?? undefined,
-    constraintDate: (ymap.get('constraintDate') as string) ?? undefined,
-  };
+  return result as unknown as Task;
 }
 
 // Re-export for consumers

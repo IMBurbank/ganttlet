@@ -7,6 +7,12 @@ export interface Dependency {
   lag: number; // days, can be negative for lead
 }
 
+/**
+ * Task — the core domain object. Stored in Y.Doc and persisted to Google Sheets.
+ *
+ * **Adding a field?** Don't edit setKnownFields/yMapToTask manually — they're
+ * registry-driven. See the "Adding a Task field" checklist in src/CLAUDE.md.
+ */
 export interface Task {
   id: string;
   name: string;

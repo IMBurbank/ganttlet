@@ -342,8 +342,8 @@ export default function TaskBar({
       <g
         ref={gRef}
         opacity={done ? 0.4 : 1}
-        onMouseEnter={() => awareness && updateViewingTask(awareness, taskId, null)}
-        onMouseLeave={() => awareness && updateViewingTask(awareness, null, null)}
+        onMouseEnter={() => awareness && updateViewingTask(awareness, taskId)}
+        onMouseLeave={() => awareness && updateViewingTask(awareness, null)}
       >
         <defs>
           <clipPath id={clipId.current}>

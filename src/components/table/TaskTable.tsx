@@ -19,7 +19,6 @@ interface TaskTableProps {
 export interface ViewerInfo {
   name: string;
   color: string;
-  viewingCellColumn: string | null;
 }
 
 export default function TaskTable({
@@ -44,15 +43,20 @@ export default function TaskTable({
   }, [focusNewTaskId, uiStore]);
 
   const viewingMap = useMemo(() => {
-    const map = new Map<string, ViewerInfo>();
+    const map = new Map<string, ViewerInfo[]>();
     if (isCollabConnected && collabUsers && collabUsers.length > 0) {
       collabUsers.forEach((u) => {
         if (u.viewingTaskId) {
-          map.set(u.viewingTaskId, {
+          const entry: ViewerInfo = {
             name: u.name,
             color: u.color,
-            viewingCellColumn: u.viewingCellColumn,
-          });
+          };
+          const existing = map.get(u.viewingTaskId);
+          if (existing) {
+            existing.push(entry);
+          } else {
+            map.set(u.viewingTaskId, [entry]);
+          }
         }
       });
     }
@@ -76,7 +80,7 @@ export default function TaskTable({
               columns={columns}
               colorBy={colorBy}
               taskMap={taskMap}
-              viewer={viewer ?? null}
+              viewers={viewer ?? null}
               autoFocusName={task.id === focusNewTaskId}
               awareness={awareness ?? null}
             />

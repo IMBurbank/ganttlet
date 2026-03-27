@@ -36,7 +36,8 @@ interface TaskRowProps {
   columns: ColumnConfig[];
   colorBy: ColorByField;
   taskMap: Map<string, Task>;
-  viewer: ViewerInfo | null;
+  /** All viewers currently looking at this task (multiple peers can view the same row). */
+  viewers: ViewerInfo[] | null;
   autoFocusName?: boolean;
   awareness: Awareness | null;
 }
@@ -46,7 +47,7 @@ export default function TaskRow({
   columns,
   colorBy,
   taskMap,
-  viewer,
+  viewers,
   autoFocusName,
   awareness,
 }: TaskRowProps) {
@@ -308,9 +309,10 @@ export default function TaskRow({
     }
   }
 
-  const isViewed = !!viewer;
-  const viewerColor = viewer?.color;
-  const viewerCellColumn = viewer?.viewingCellColumn ?? null;
+  const isViewed = viewers !== null && viewers.length > 0;
+  // Use first viewer for the row-level border; show all viewers in cell tooltips
+  const primaryViewer = viewers?.[0] ?? null;
+  const viewerColor = primaryViewer?.color;
 
   return (
     <div
@@ -322,23 +324,20 @@ export default function TaskRow({
         borderLeft: isViewed ? `3px solid ${viewerColor}` : '3px solid transparent',
       }}
       onContextMenu={handleContextMenu}
-      onMouseEnter={() => awareness && updateViewingTask(awareness, task.id, null)}
-      onMouseLeave={() => awareness && updateViewingTask(awareness, null, null)}
+      onMouseEnter={() => awareness && updateViewingTask(awareness, task.id)}
+      onMouseLeave={() => awareness && updateViewingTask(awareness, null)}
     >
-      {visibleColumns.map((col) => {
-        const isCellViewed = isViewed && viewerCellColumn === col.key;
-        return (
-          <PresenceCell
-            key={col.key}
-            width={col.width}
-            isHighlighted={isCellViewed}
-            viewerColor={viewerColor}
-            viewerName={viewer?.name}
-          >
-            {renderCell(col)}
-          </PresenceCell>
-        );
-      })}
+      {visibleColumns.map((col) => (
+        <PresenceCell
+          key={col.key}
+          width={col.width}
+          isHighlighted={false}
+          viewerColor={viewerColor}
+          viewerName={primaryViewer?.name}
+        >
+          {renderCell(col)}
+        </PresenceCell>
+      ))}
     </div>
   );
 }

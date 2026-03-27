@@ -77,6 +77,12 @@ export function connectCollab(
  */
 export function disconnectCollab(): void {
   if (provider) {
+    // Explicitly clear local awareness state before disconnect so peers
+    // immediately see the removal. Without this, stale viewing/drag state
+    // persists for ~30s until y-protocols awareness timeout.
+    if (provider.awareness.getLocalState() !== null) {
+      provider.awareness.setLocalState(null);
+    }
     provider.disconnect();
     provider.destroy();
     provider = null;

@@ -138,7 +138,13 @@ export class SheetsAdapter {
     window.addEventListener('online', this.onlineHandler);
   }
 
-  stop(): void {
+  /**
+   * Stop the adapter. Async because it waits for in-flight operations
+   * (flushWrite, loadFromSheet) to complete before closing IndexedDB.
+   * Without this, restart() during an in-flight operation would close
+   * the database under pending IndexedDB transactions.
+   */
+  async stop(): Promise<void> {
     this.stopped = true;
 
     if (this.pollTimer) {
@@ -165,11 +171,14 @@ export class SheetsAdapter {
       this.onlineHandler = null;
     }
 
+    // Wait for any in-flight withLock operations (flushWrite, loadFromSheet)
+    // to complete before closing the database.
+    await this.syncLock;
     this.baseValues.close();
   }
 
   async restart(): Promise<void> {
-    this.stop();
+    await this.stop();
     await this.start();
   }
 
@@ -398,8 +407,13 @@ export class SheetsAdapter {
         const rawRows = await readSheet(this.spreadsheetId, range);
 
         if (rawRows.length === 0) {
-          // Empty sheet — write current Y.Doc
-          this.sheetHeaderMap = null; // no header to preserve
+          // Empty sheet — write current Y.Doc.
+          // Preserve sheetHeaderMap if we've loaded before (another user may have
+          // cleared the data rows but the column order should be maintained).
+          // Only set to null on true first load (never seen a header).
+          if (!this.initialLoadDone) {
+            this.sheetHeaderMap = null;
+          }
           if (this.getYDocTaskCount() > 0) {
             this.markDirty();
           }
@@ -641,8 +655,22 @@ export class SheetsAdapter {
 
   // ─── Public: conflict & base value management ─────────────────────
 
-  clearConflict(taskId: string, field: string): void {
+  /**
+   * Clear a conflict notification and update the base value to the current
+   * Y.Doc state. This prevents the same conflict from being re-reported
+   * on the next poll — the base now matches the resolved Y.Doc value.
+   */
+  async clearConflict(taskId: string, field: string): Promise<void> {
     this.notifiedConflicts.delete(`${taskId}:${field}`);
+
+    // Update base value to current Y.Doc state so the three-way merge
+    // doesn't re-detect this conflict on the next poll.
+    const ytasks = this.doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+    const ymap = ytasks.get(taskId);
+    if (ymap) {
+      const task = yMapToTask(ymap);
+      await this.baseValues.put(taskId, hashTask(task));
+    }
   }
 
   async clearBaseValues(): Promise<void> {

@@ -65,14 +65,19 @@ function AppContent() {
     [uiStore]
   );
 
-  // Sync vertical scroll between table and gantt
+  // Sync vertical scroll between table and gantt.
+  // The guard must be reset AFTER the browser processes the programmatic
+  // scrollTop assignment — otherwise the reciprocal scroll handler fires
+  // before the guard is down, causing bidirectional scroll loops.
   const handleTableScroll = useCallback(() => {
     if (isSyncing.current) return;
     isSyncing.current = true;
     if (tableScrollRef.current && ganttScrollRef.current) {
       ganttScrollRef.current.scrollTop = tableScrollRef.current.scrollTop;
     }
-    isSyncing.current = false;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
   }, []);
 
   const handleGanttScroll = useCallback(() => {
@@ -81,7 +86,9 @@ function AppContent() {
     if (ganttScrollRef.current && tableScrollRef.current) {
       tableScrollRef.current.scrollTop = ganttScrollRef.current.scrollTop;
     }
-    isSyncing.current = false;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
   }, []);
 
   const handleDependencyClick = useCallback(

@@ -77,10 +77,15 @@ export default function Header() {
     if (sheetId && !url.searchParams.has('room')) {
       url.searchParams.set('room', sheetId);
     }
-    navigator.clipboard.writeText(url.toString()).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
-    });
+    navigator.clipboard
+      .writeText(url.toString())
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      })
+      .catch(() => {
+        // Clipboard API may fail in insecure contexts or if permission denied
+      });
   }, [sheetId]);
 
   const handleSignIn = useCallback(() => signIn(), []);

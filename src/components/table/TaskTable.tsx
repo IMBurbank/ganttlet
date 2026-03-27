@@ -1,4 +1,4 @@
-import React, { useEffect, useContext } from 'react';
+import React, { useEffect, useContext, useMemo } from 'react';
 import type { Task, ColumnConfig, ColorByField, CollabUser } from '../../types';
 import { useUIStore } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
@@ -40,19 +40,21 @@ export default function TaskTable({
     }
   }, [focusNewTaskId, uiStore]);
 
-  const viewingMap = new Map<string, ViewerInfo>();
-
-  if (isCollabConnected && collabUsers && collabUsers.length > 0) {
-    collabUsers.forEach((u) => {
-      if (u.viewingTaskId) {
-        viewingMap.set(u.viewingTaskId, {
-          name: u.name,
-          color: u.color,
-          viewingCellColumn: u.viewingCellColumn,
-        });
-      }
-    });
-  }
+  const viewingMap = useMemo(() => {
+    const map = new Map<string, ViewerInfo>();
+    if (isCollabConnected && collabUsers && collabUsers.length > 0) {
+      collabUsers.forEach((u) => {
+        if (u.viewingTaskId) {
+          map.set(u.viewingTaskId, {
+            name: u.name,
+            color: u.color,
+            viewingCellColumn: u.viewingCellColumn,
+          });
+        }
+      });
+    }
+    return map;
+  }, [collabUsers, isCollabConnected]);
 
   const totalWidth = columns.filter((c) => c.visible).reduce((sum, c) => sum + c.width, 0);
 

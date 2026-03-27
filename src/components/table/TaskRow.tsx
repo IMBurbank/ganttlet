@@ -13,9 +13,10 @@ const CONSTRAINT_OPTIONS: { value: NonNullable<Task['constraintType']>; label: s
   { value: 'MFO', label: 'MFO' },
 ];
 import type { ViewerInfo } from './TaskTable';
-import { useMutate } from '../../hooks';
+import { useMutate, useCollab } from '../../hooks';
 import { useUIStore } from '../../hooks/useUIStore';
 import { UIStoreContext } from '../../store/UIStore';
+import { updateViewingTask } from '../../collab/awareness';
 import { getTaskDepth } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
 import { getHierarchyRole, findWorkstreamAncestor } from '../../utils/hierarchyUtils';
@@ -48,6 +49,7 @@ export default function TaskRow({
 }: TaskRowProps) {
   const mutate = useMutate();
   const uiStore = useContext(UIStoreContext)!;
+  const { awareness } = useCollab();
   const collapsedTasks = useUIStore((s) => s.collapsedTasks);
   const rowRef = useRef<HTMLDivElement>(null);
   const [okrPickerOpen, setOkrPickerOpen] = useState(false);
@@ -318,6 +320,8 @@ export default function TaskRow({
         borderLeft: isViewed ? `3px solid ${viewerColor}` : '3px solid transparent',
       }}
       onContextMenu={handleContextMenu}
+      onMouseEnter={() => awareness && updateViewingTask(awareness, task.id, null)}
+      onMouseLeave={() => awareness && updateViewingTask(awareness, null, null)}
     >
       {visibleColumns.map((col) => {
         const isCellViewed = isViewed && viewerCellColumn === col.key;

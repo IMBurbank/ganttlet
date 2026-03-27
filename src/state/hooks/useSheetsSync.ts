@@ -78,10 +78,12 @@ export function useSheetsSync(
     };
     window.addEventListener('beforeunload', beforeUnloadHandler);
 
-    // Conflict resolution event handler
+    // Conflict resolution event handler — also clear from notifiedConflicts
+    // so the same field can be re-reported if the conflict recurs.
     const conflictResolveHandler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { taskId: string; field: string; value: unknown };
       updateTaskField(doc, detail.taskId, detail.field, detail.value);
+      newAdapter.clearConflict(detail.taskId, detail.field);
     };
     window.addEventListener('ganttlet:conflict-resolve', conflictResolveHandler);
 

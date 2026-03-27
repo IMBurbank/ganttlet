@@ -1,4 +1,5 @@
 import React, { useEffect, useContext, useMemo } from 'react';
+import type { Awareness } from 'y-protocols/awareness';
 import type { Task, ColumnConfig, ColorByField, CollabUser } from '../../types';
 import { useUIStore } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
@@ -12,6 +13,7 @@ interface TaskTableProps {
   taskMap: Map<string, Task>;
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
+  awareness?: Awareness | null;
 }
 
 export interface ViewerInfo {
@@ -27,6 +29,7 @@ export default function TaskTable({
   taskMap,
   collabUsers,
   isCollabConnected,
+  awareness,
 }: TaskTableProps) {
   const focusNewTaskId = useUIStore((s) => s.focusNewTaskId);
   const uiStore = useContext(UIStoreContext)!;
@@ -75,6 +78,7 @@ export default function TaskTable({
               taskMap={taskMap}
               viewer={viewer ?? null}
               autoFocusName={task.id === focusNewTaskId}
+              awareness={awareness ?? null}
             />
           );
         })}

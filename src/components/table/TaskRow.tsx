@@ -13,7 +13,8 @@ const CONSTRAINT_OPTIONS: { value: NonNullable<Task['constraintType']>; label: s
   { value: 'MFO', label: 'MFO' },
 ];
 import type { ViewerInfo } from './TaskTable';
-import { useMutate, useCollab } from '../../hooks';
+import type { Awareness } from 'y-protocols/awareness';
+import { useMutate } from '../../hooks';
 import { useUIStore } from '../../hooks/useUIStore';
 import { UIStoreContext } from '../../store/UIStore';
 import { updateViewingTask } from '../../collab/awareness';
@@ -37,6 +38,7 @@ interface TaskRowProps {
   taskMap: Map<string, Task>;
   viewer: ViewerInfo | null;
   autoFocusName?: boolean;
+  awareness: Awareness | null;
 }
 
 export default function TaskRow({
@@ -46,10 +48,10 @@ export default function TaskRow({
   taskMap,
   viewer,
   autoFocusName,
+  awareness,
 }: TaskRowProps) {
   const mutate = useMutate();
   const uiStore = useContext(UIStoreContext)!;
-  const { awareness } = useCollab();
   const collapsedTasks = useUIStore((s) => s.collapsedTasks);
   const rowRef = useRef<HTMLDivElement>(null);
   const [okrPickerOpen, setOkrPickerOpen] = useState(false);

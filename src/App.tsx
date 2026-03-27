@@ -211,6 +211,7 @@ function AppContent() {
               taskMap={taskMap}
               collabUsers={collabUsers}
               isCollabConnected={isCollabConnected}
+              awareness={awareness}
             />
           </DataSafeErrorBoundary>
         </div>

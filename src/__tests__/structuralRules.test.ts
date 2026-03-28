@@ -208,3 +208,89 @@ describe('Rule: no raw origin strings in doc.transact()', () => {
     expect(violations, violations.join('\n\n')).toEqual([]);
   });
 });
+
+// ─── Rule 4: No raw ymap.set() outside mutations/ and schema/ ───────
+//
+// Why: Y.Map field writes must go through mutation functions or writeTaskToDoc.
+// A raw ymap.set() in a component or other module bypasses the field registry,
+// origin classification, and the single write path.
+
+describe('Rule: ymap.set() only in mutations/ and schema/', () => {
+  it('no raw Y.Map field writes in production code outside allowed directories', () => {
+    const files = findSourceFiles(SRC_DIR);
+    const violations: string[] = [];
+
+    const ALLOWED_DIRS = ['mutations', 'schema'];
+
+    for (const fullPath of files) {
+      const rel = relative(SRC_DIR, fullPath);
+      if (ALLOWED_DIRS.some((d) => rel.startsWith(d + '/'))) continue;
+
+      const content = readFileSync(fullPath, 'utf-8');
+      const lines = content.split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        if (/ymap\.set\s*\(/.test(lines[i])) {
+          violations.push(
+            `${rel}:${i + 1}: raw ymap.set() — use mutation functions or writeTaskToDoc.\n` +
+              `  Y.Map field writes must go through src/mutations/ (field-level) or\n` +
+              `  src/schema/ydoc.ts writeTaskToDoc() (full-task).`
+          );
+        }
+      }
+    }
+
+    expect(violations, violations.join('\n\n')).toEqual([]);
+  });
+});
+
+// ─── Rule 5: addEventListener must have paired removeEventListener ──
+//
+// Why: Event listeners added in components without cleanup cause memory leaks.
+
+describe('Rule: addEventListener must have cleanup', () => {
+  it('every addEventListener in components has a paired removeEventListener', () => {
+    const componentDir = join(SRC_DIR, 'components');
+    const files = findSourceFiles(componentDir);
+    const violations: string[] = [];
+
+    for (const fullPath of files) {
+      const content = readFileSync(fullPath, 'utf-8');
+      const rel = relative(SRC_DIR, fullPath);
+
+      const addMatches = content.matchAll(/addEventListener\(\s*['"](\w+)['"]/g);
+      for (const match of addMatches) {
+        const eventType = match[1];
+        if (
+          !content.includes(`removeEventListener('${eventType}'`) &&
+          !content.includes(`removeEventListener("${eventType}"`)
+        ) {
+          violations.push(
+            `${rel}: addEventListener('${eventType}') without removeEventListener.\n` +
+              `  Event listeners in components must be cleaned up in useEffect return.`
+          );
+        }
+      }
+    }
+
+    expect(violations, violations.join('\n\n')).toEqual([]);
+  });
+});
+
+// ─── Rule 6: Exhaustive switch on MutateAction ──────────────────────
+//
+// Why: Adding a new mutation type without a case silently drops it.
+
+describe('Rule: MutateAction switch is exhaustive', () => {
+  it('TaskStoreProvider switch has an exhaustive never check', () => {
+    const content = readFileSync(join(SRC_DIR, 'state', 'TaskStoreProvider.tsx'), 'utf-8');
+
+    const hasExhaustive = /const\s+\w+:\s*never\s*=\s*action/.test(content);
+
+    expect(
+      hasExhaustive,
+      'TaskStoreProvider.tsx switch on action.type must have an exhaustive\n' +
+        'never check. Add: default: { const _exhaustive: never = action; }'
+    ).toBe(true);
+  });
+});

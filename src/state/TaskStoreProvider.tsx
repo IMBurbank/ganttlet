@@ -303,6 +303,12 @@ function TaskStoreProviderInner({
         case 'INITIALIZE_TASKS':
           initializeYDoc(doc, action.tasks);
           break;
+        default: {
+          // Exhaustive check: TypeScript errors here if a new MutateAction
+          // variant is added without a corresponding case above.
+          const _exhaustive: never = action;
+          throw new Error(`Unhandled mutation: ${(_exhaustive as MutateAction).type}`);
+        }
       }
     },
     [doc]

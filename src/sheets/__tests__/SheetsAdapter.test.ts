@@ -586,25 +586,40 @@ describe('SheetsAdapter', () => {
   // ─── Lifecycle integration tests ────────────────────────────────
 
   it('conflict resolution updates baseHash — next poll does not re-report', async () => {
-    // Populate Y.Doc with a task
-    populateYDoc(doc, [makeTask({ id: 'resolve-test', name: 'Before' })]);
+    // Pre-seed Y.Doc and base value to simulate an established sync session
+    populateYDoc(doc, [makeTask({ id: 'resolve-test', name: 'Original' })]);
 
-    // First poll: sheet has different value from both local and base → conflict
-    const conflictRow = taskToRow(makeTask({ id: 'resolve-test', name: 'Sheet Edit' }));
-    vi.mocked(readSheet).mockResolvedValue([HEADER_ROW, conflictRow]);
+    // Pre-seed the base value directly — simulates a previous successful sync
+    const originalHash = taskToRow(makeTask({ id: 'resolve-test', name: 'Original' }))
+      .slice(0, 20)
+      .join('\x00');
+    mockIDBStore.set('resolve-test', originalHash);
 
+    // Both sides have edited independently
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+    const ymap = ytasks.get('resolve-test')!;
+    doc.transact(() => {
+      ymap.set('name', 'Local Edit');
+    }, ORIGIN.LOCAL);
+
+    const sheetEditRow = taskToRow(makeTask({ id: 'resolve-test', name: 'Sheet Edit' }));
+    vi.mocked(readSheet).mockResolvedValue([HEADER_ROW, sheetEditRow]);
+
+    // Start adapter — first poll: base='Original', ydoc='Local Edit', sheet='Sheet Edit' → CONFLICT
     const adapter = new SheetsAdapter(doc, 'sheet-1', callbacks, () => 'token');
     await adapter.start();
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0); // flush IDB
+    expect(conflictCalls.length).toBe(1); // Conflict actually detected
 
-    // Resolve the conflict — this updates baseHash to current Y.Doc state
+    // User resolves conflict — clearConflict updates base to current ydoc hash
     await adapter.clearConflict('resolve-test', 'name');
+    await vi.advanceTimersByTimeAsync(0); // flush IDB writes
 
-    // Next poll: sheet still has 'Sheet Edit'
+    // Next poll: base now matches ydoc ('Local Edit'), sheet still 'Sheet Edit'
+    // → ydocHash === baseHash, sheetHash !== baseHash → inject sheet, NO new conflict
     await vi.advanceTimersByTimeAsync(30000);
-
-    // Should NOT re-report the same conflict
-    expect(conflictCalls.length).toBeLessThanOrEqual(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(conflictCalls.length).toBe(1); // Still 1 — NOT re-reported
 
     await adapter.stop();
   });

@@ -129,9 +129,24 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
                 onSelectTemplate();
               }
               import('../../sheets/sheetCreation')
-                .then(({ createProjectFromTemplate }) =>
-                  createProjectFromTemplate('Ganttlet Project', templateId, mutate)
-                )
+                .then(async ({ createProjectFromTemplate }) => {
+                  const spreadsheetId = await createProjectFromTemplate(
+                    'Ganttlet Project',
+                    templateId,
+                    mutate
+                  );
+                  // Navigate to the new sheet — same pattern as Header.tsx
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('sheet', spreadsheetId);
+                  url.searchParams.set('room', spreadsheetId);
+                  window.history.replaceState({}, '', url.toString());
+                  uiStore?.setState({
+                    spreadsheetId,
+                    roomId: spreadsheetId,
+                    dataSource: 'loading',
+                    syncError: null,
+                  });
+                })
                 .catch((e) => console.warn('Template creation failed:', e));
             }}
             onClose={() => setShowTemplatePicker(false)}

@@ -128,9 +128,11 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
               if (onSelectTemplate) {
                 onSelectTemplate();
               }
-              import('../../sheets/sheetCreation').then(({ createProjectFromTemplate }) => {
-                createProjectFromTemplate('Ganttlet Project', templateId, mutate);
-              });
+              import('../../sheets/sheetCreation')
+                .then(({ createProjectFromTemplate }) =>
+                  createProjectFromTemplate('Ganttlet Project', templateId, mutate)
+                )
+                .catch((e) => console.warn('Template creation failed:', e));
             }}
             onClose={() => setShowTemplatePicker(false)}
           />

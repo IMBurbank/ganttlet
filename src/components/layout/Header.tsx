@@ -401,24 +401,25 @@ export default function Header() {
           <TemplatePicker
             onSelect={(templateId) => {
               setShowTemplatePicker(false);
-              import('../../sheets/sheetCreation').then(async ({ createProjectFromTemplate }) => {
-                const spreadsheetId = await createProjectFromTemplate(
-                  `Ganttlet Project`,
-                  templateId,
-                  mutate
-                );
-                // Reactive state transition — update URL for bookmarking, UIStore for rendering
-                const url = new URL(window.location.href);
-                url.searchParams.set('sheet', spreadsheetId);
-                url.searchParams.set('room', spreadsheetId);
-                window.history.replaceState({}, '', url.toString());
-                uiStore.setState({
-                  spreadsheetId,
-                  roomId: spreadsheetId,
-                  dataSource: 'loading',
-                  syncError: null,
-                });
-              });
+              import('../../sheets/sheetCreation')
+                .then(async ({ createProjectFromTemplate }) => {
+                  const spreadsheetId = await createProjectFromTemplate(
+                    `Ganttlet Project`,
+                    templateId,
+                    mutate
+                  );
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('sheet', spreadsheetId);
+                  url.searchParams.set('room', spreadsheetId);
+                  window.history.replaceState({}, '', url.toString());
+                  uiStore.setState({
+                    spreadsheetId,
+                    roomId: spreadsheetId,
+                    dataSource: 'loading',
+                    syncError: null,
+                  });
+                })
+                .catch((e) => console.warn('Template creation failed:', e));
             }}
             onClose={() => setShowTemplatePicker(false)}
           />

@@ -10,7 +10,7 @@
 //! ## Adding a new protocol
 //!
 //! 1. Create a new module (e.g., `gemini.rs`) implementing `ProtocolAdapter`
-//! 2. Add it to the `run_hook` dispatch in main.rs
+//! 2. Add it to `get_adapter()` and `supported_protocols()` in this module
 //! 3. Submit a PR — all adapters ship in the single fencepost binary
 //!
 //! ## Selecting a protocol
@@ -71,18 +71,13 @@ pub enum CheckRequest {
 
 /// Run a hook check using the given protocol adapter.
 /// This is the main entry point called by main.rs after selecting an adapter.
-pub fn run_hook(
-    adapter: &dyn ProtocolAdapter,
-    ctx: &ProjectContext,
-    mode: &str,
-    stdin_data: &str,
-) -> Option<String> {
+pub fn run_hook(adapter: &dyn ProtocolAdapter, ctx: &ProjectContext, mode: &str, stdin_data: &str) {
     let request = match adapter.parse_request(mode, stdin_data) {
         Ok(req) => req,
         Err(reason) => {
             // Malformed input — output error in the adapter's format
             println!("{}", adapter.format_error(&reason));
-            return None;
+            return;
         }
     };
 
@@ -95,8 +90,6 @@ pub fn run_hook(
     if let Some(reason) = result {
         println!("{}", adapter.format_block(&reason));
     }
-
-    None // already printed
 }
 
 /// Read all of stdin. Returns Err on OS-level infrastructure errors (ENXIO, EAGAIN, ENOENT)

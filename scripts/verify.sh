@@ -99,7 +99,7 @@ run_guard() {
   echo "[guard: test + rebuild]"
   cargo test -p fencepost 2>&1 | tail -5; GUARD_EXIT=${PIPESTATUS[0]:-$?}
   if [[ $GUARD_EXIT -eq 0 ]]; then
-    cargo build --release -p fencepost 2>&1 | tail -3
+    cargo install --path crates/fencepost 2>&1 | tail -3
     echo "[guard: binary rebuilt]"
   else
     echo "[guard: tests failed — binary NOT rebuilt]"

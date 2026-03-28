@@ -15,10 +15,6 @@ impl BashRule for WorktreeRemove {
          requires acknowledgment for agent worktrees (tier 2), allows non-agent paths (tier 3)."
     }
 
-    fn confirm_token(&self) -> Option<&'static str> {
-        Some("I_CREATED_THIS=1")
-    }
-
     fn check_segment(&self, ctx: &ProjectContext, seg: &ContextualSegment) -> Option<Violation> {
         if !(seg.is_git("worktree") && seg.has_arg("remove")) {
             return None;
@@ -53,15 +49,22 @@ impl BashRule for WorktreeRemove {
         }
 
         // Tier 2: target is under agent worktrees dir
-        // The confirm_token() check is handled by the check loop — if
-        // I_CREATED_THIS=1 is present, this rule is skipped entirely.
-        // If we reach here, the token was NOT present.
+        // Manual token check — confirm_token() is NOT used because the generic
+        // confirm check in check.rs skips the ENTIRE rule, which would bypass
+        // the tier-1 CWD hard-block above.
         let wt_prefix = ctx.worktrees_prefix();
         let is_agent_path = resolved
             .as_ref()
             .map(|r| r.to_string_lossy().starts_with(wt_prefix.as_str()))
             .unwrap_or(false);
         if is_agent_path {
+            let cmd_pos = seg.effective_command().map(|(i, _)| i).unwrap_or(0);
+            let acknowledged = seg.tokens()[..cmd_pos]
+                .iter()
+                .any(|t| matches!(t, crate::token::Token::Word(w) if w == "I_CREATED_THIS=1"));
+            if acknowledged {
+                return None;
+            }
             return Some(Violation::new(
                 self.name(),
                 Severity::Block,

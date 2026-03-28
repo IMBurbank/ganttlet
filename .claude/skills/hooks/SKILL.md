@@ -43,6 +43,15 @@ All hooks are declared in `.claude/settings.json` under the `"hooks"` key:
         "matcher": "Bash",
         "hooks": [{ "type": "command", "command": "fencepost bash || true" }]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "./scripts/verify.sh" },
+          { "type": "command", "command": "./crates/bizday/target/release/bizday lint --stdin 2>/dev/null || true" }
+        ]
+      }
     ]
   }
 }

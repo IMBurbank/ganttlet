@@ -1,4 +1,4 @@
-//! Rule implementations for the guard binary.
+//! Rule implementations for fencepost.
 //!
 //! Each check is a named struct implementing `BashRule` or `EditRule`.
 //! Rules are independently testable and discoverable via the registries.

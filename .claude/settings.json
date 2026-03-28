@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "fencepost edit"
+            "command": "fencepost edit || true"
           }
         ]
       },
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "fencepost bash"
+            "command": "fencepost bash || true"
           }
         ]
       }

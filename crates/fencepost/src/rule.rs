@@ -128,14 +128,14 @@ impl Violation {
 ///         if seg.effective_command().map(|(_, c)| c) == Some("dangerous-cmd")
 ///             && seg.has_protected_path()
 ///         {
-///             Some(Violation {
-///                 rule: self.name(),
-///                 severity: Severity::Block,
-///                 attempted: "dangerous-cmd on protected path".into(),
-///                 explanation: "this would modify files under the project root".into(),
-///                 suggestion: format!("Run from a worktree: git worktree add {}/<name> -b <branch>",
+///             Some(Violation::new(
+///                 self.name(),
+///                 Severity::Block,
+///                 "dangerous-cmd on protected path",
+///                 "this would modify files under the project root",
+///                 format!("Run from a worktree: git worktree add {}/<name> -b <branch>",
 ///                     ctx.worktrees_dir().display()),
-///             })
+///             ))
 ///         } else {
 ///             None
 ///         }

@@ -1,4 +1,4 @@
-import React, { useEffect, useContext, useMemo } from 'react';
+import { useEffect, useContext, useMemo } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 import type { Task, ColumnConfig, ColorByField, CollabUser } from '../../types';
 import { useUIStore } from '../../hooks';

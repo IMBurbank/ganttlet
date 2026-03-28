@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { parseISO, isValid } from 'date-fns';
 import type { Awareness } from 'y-protocols/awareness';
 import type { Task, ZoomLevel, ColorByField, Dependency, CollabUser } from '../../types';

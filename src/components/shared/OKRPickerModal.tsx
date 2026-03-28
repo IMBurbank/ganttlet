@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface OKRPickerModalProps {
@@ -9,7 +9,13 @@ export interface OKRPickerModalProps {
   onClose: () => void;
 }
 
-export default function OKRPickerModal({ taskId, currentOkrs, availableOkrs, onSave, onClose }: OKRPickerModalProps) {
+export default function OKRPickerModal({
+  taskId: _taskId,
+  currentOkrs,
+  availableOkrs,
+  onSave,
+  onClose,
+}: OKRPickerModalProps) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(currentOkrs));
 
   const close = useCallback(() => onClose(), [onClose]);
@@ -23,7 +29,7 @@ export default function OKRPickerModal({ taskId, currentOkrs, availableOkrs, onS
   }, [close]);
 
   function toggleOkr(okr: string) {
-    setSelected(prev => {
+    setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(okr)) {
         next.delete(okr);
@@ -50,15 +56,19 @@ export default function OKRPickerModal({ taskId, currentOkrs, availableOkrs, onS
   const modal = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={(e) => { if (e.target === e.currentTarget) close(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
     >
-      <div className="absolute inset-0" style={{ backgroundColor: 'var(--raw-backdrop)' }} onClick={close} />
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: 'var(--raw-backdrop)' }}
+        onClick={close}
+      />
 
       <div className="relative bg-surface-raised border border-border-default rounded-lg shadow-xl w-[420px] max-h-[60vh] flex flex-col fade-in">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
-          <h2 className="text-sm font-semibold text-text-primary">
-            Select OKRs
-          </h2>
+          <h2 className="text-sm font-semibold text-text-primary">Select OKRs</h2>
           <button
             onClick={close}
             className="text-text-secondary hover:text-text-primary transition-colors text-lg leading-none cursor-pointer"
@@ -72,7 +82,7 @@ export default function OKRPickerModal({ taskId, currentOkrs, availableOkrs, onS
             <p className="text-text-muted text-sm">No OKRs available for this workstream.</p>
           ) : (
             <div className="space-y-2">
-              {allOkrs.map(okr => {
+              {allOkrs.map((okr) => {
                 const isSelected = selected.has(okr);
                 const isFromWorkstream = availableOkrs.includes(okr);
                 return (
@@ -86,7 +96,11 @@ export default function OKRPickerModal({ taskId, currentOkrs, availableOkrs, onS
                       onChange={() => toggleOkr(okr)}
                       className="mt-0.5 w-4 h-4 rounded border-border-strong bg-surface-sunken text-blue-500 focus:ring-blue-500/30 cursor-pointer shrink-0"
                     />
-                    <span className={isFromWorkstream ? 'text-text-secondary' : 'text-text-muted italic'}>
+                    <span
+                      className={
+                        isFromWorkstream ? 'text-text-secondary' : 'text-text-muted italic'
+                      }
+                    >
                       {okr}
                       {!isFromWorkstream && ' (custom)'}
                     </span>

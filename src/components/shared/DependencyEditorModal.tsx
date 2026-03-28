@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useContext } from 'react';
+import { useEffect, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import type { Dependency, DependencyType } from '../../types';
 import { useUIStore, useMutate, useAllTasks, useTask } from '../../hooks';

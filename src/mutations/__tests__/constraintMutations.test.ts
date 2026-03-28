@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { Task } from '../../types';
 import { getDocMaps, writeTaskToDoc } from '../../schema/ydoc';
-import { ORIGIN } from '../../collab/origins';
 import { setConstraint } from '../constraintMutations';
 
 // Mock WASM — cascadeDependents shifts dependent tasks by daysDelta

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useContext } from 'react';
+import { useState, useRef, useEffect, useMemo, useContext } from 'react';
 import { useUIStore, useMutate, useAllTasks, useTaskOrder } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
 import type { ColorByField, ZoomLevel } from '../../types';

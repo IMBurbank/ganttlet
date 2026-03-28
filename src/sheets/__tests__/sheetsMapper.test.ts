@@ -10,7 +10,6 @@ import {
   HEADER_ROW,
   SHEET_COLUMNS,
   buildHeaderMap,
-  type HeaderMap,
 } from '../sheetsMapper';
 import { TASK_FIELDS, writeTaskToDoc, yMapToTask, getDocMaps } from '../../schema/ydoc';
 

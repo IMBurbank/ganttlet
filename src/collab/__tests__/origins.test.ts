@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
 import { ORIGIN, classifyOrigin, triggersWriteback, isUndoable, TRACKED_ORIGINS } from '../origins';
 

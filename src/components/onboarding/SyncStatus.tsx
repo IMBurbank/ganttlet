@@ -1,4 +1,3 @@
-import React from 'react';
 import { useUIStore } from '../../hooks';
 
 export default function SyncStatus() {

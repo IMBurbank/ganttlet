@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback } from 'react';
 import { SHEET_COLUMNS } from '../../sheets/sheetsMapper';
 import { useUIStore } from '../../hooks';
 

@@ -1,4 +1,3 @@
-import React from 'react';
 import type { ColumnConfig } from '../../types';
 import { useContext } from 'react';
 import { UIStoreContext } from '../../store/UIStore';

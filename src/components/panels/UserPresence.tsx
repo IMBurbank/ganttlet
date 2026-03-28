@@ -1,4 +1,3 @@
-import React from 'react';
 import Avatar from '../shared/Avatar';
 import Tooltip from '../shared/Tooltip';
 import { useCollab } from '../../hooks/useCollab';

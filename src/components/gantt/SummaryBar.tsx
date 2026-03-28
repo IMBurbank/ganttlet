@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface SummaryBarProps {
   x: number;
   y: number;
@@ -11,7 +9,16 @@ interface SummaryBarProps {
   viewerColor?: string;
 }
 
-export default function SummaryBar({ x, y, width, color, done, taskName, viewerName, viewerColor }: SummaryBarProps) {
+export default function SummaryBar({
+  x,
+  y,
+  width,
+  color,
+  done,
+  taskName,
+  viewerName,
+  viewerColor,
+}: SummaryBarProps) {
   const barHeight = 8;
   const tipSize = 4;
 

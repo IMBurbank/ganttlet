@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useId } from 'react';
+import { useEffect, useState, useId } from 'react';
 
 interface CascadeHighlightProps {
   originalX: number;
@@ -9,7 +9,14 @@ interface CascadeHighlightProps {
   height: number;
 }
 
-export default function CascadeHighlight({ originalX, currentX, y, originalWidth, currentWidth, height }: CascadeHighlightProps) {
+export default function CascadeHighlight({
+  originalX,
+  currentX,
+  y,
+  originalWidth,
+  currentWidth,
+  height,
+}: CascadeHighlightProps) {
   const [opacity, setOpacity] = useState(0.5);
   const gradientId = useId();
 
@@ -33,7 +40,13 @@ export default function CascadeHighlight({ originalX, currentX, y, originalWidth
   return (
     <g style={{ pointerEvents: 'none' }}>
       <defs>
-        <linearGradient id={gradientId} x1={movedRight ? '0%' : '100%'} y1="0%" x2={movedRight ? '100%' : '0%'} y2="0%">
+        <linearGradient
+          id={gradientId}
+          x1={movedRight ? '0%' : '100%'}
+          y1="0%"
+          x2={movedRight ? '100%' : '0%'}
+          y2="0%"
+        >
           <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.4} />
           <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
         </linearGradient>

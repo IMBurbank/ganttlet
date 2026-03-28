@@ -1,4 +1,3 @@
-import React from 'react';
 import type { ZoomLevel } from '../../types';
 import { useUIStore } from '../../hooks';
 import {
@@ -8,8 +7,6 @@ import {
   getTimelineMonths,
   getColumnWidth,
   formatTimelineHeader,
-  formatTimelineSubHeader,
-  getMonthLabel,
   isWeekendDay,
 } from '../../utils/dateUtils';
 import { format } from 'date-fns';

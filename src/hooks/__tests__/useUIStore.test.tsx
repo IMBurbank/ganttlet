@@ -45,7 +45,6 @@ describe('useUIStore', () => {
       { wrapper: createWrapper(store) }
     );
 
-    const initialRenderCount = renderCount.value;
     expect(result.current).toBe('week');
 
     // Change an unrelated property

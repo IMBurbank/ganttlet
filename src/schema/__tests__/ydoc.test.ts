@@ -11,7 +11,6 @@ import {
   CURRENT_MINOR,
 } from '../ydoc';
 import { MIGRATIONS } from '../migrations';
-import { ORIGIN } from '../../collab/origins';
 import { initializeYDoc, hydrateFromSheets } from '../../collab/initialization';
 import type { Task } from '../../types';
 

@@ -1,0 +1,17 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/app/target
+    working_dir: /app
+    command: sleep infinity
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+
+volumes:
+  cargo-cache:
+  target-cache:

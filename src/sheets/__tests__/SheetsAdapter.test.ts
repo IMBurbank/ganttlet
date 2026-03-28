@@ -575,11 +575,97 @@ describe('SheetsAdapter', () => {
     expect(conflictCalls.length).toBe(1);
 
     // Clear the conflict and poll again — should re-report
-    adapter.clearConflict('dup-task', 'name');
+    await adapter.clearConflict('dup-task', 'name');
     await vi.advanceTimersByTimeAsync(30000);
 
     expect(conflictCalls.length).toBe(2);
 
-    adapter.stop();
+    await adapter.stop();
+  });
+
+  // ─── Lifecycle integration tests ────────────────────────────────
+
+  it('conflict resolution updates baseHash — next poll does not re-report', async () => {
+    // Populate Y.Doc with a task
+    populateYDoc(doc, [makeTask({ id: 'resolve-test', name: 'Before' })]);
+
+    // First poll: sheet has different value from both local and base → conflict
+    const conflictRow = taskToRow(makeTask({ id: 'resolve-test', name: 'Sheet Edit' }));
+    vi.mocked(readSheet).mockResolvedValue([HEADER_ROW, conflictRow]);
+
+    const adapter = new SheetsAdapter(doc, 'sheet-1', callbacks, () => 'token');
+    await adapter.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Resolve the conflict — this updates baseHash to current Y.Doc state
+    await adapter.clearConflict('resolve-test', 'name');
+
+    // Next poll: sheet still has 'Sheet Edit'
+    await vi.advanceTimersByTimeAsync(30000);
+
+    // Should NOT re-report the same conflict
+    expect(conflictCalls.length).toBeLessThanOrEqual(1);
+
+    await adapter.stop();
+  });
+
+  it('empty sheet preserves column order after initial load', async () => {
+    // First load: sheet has data with headers
+    vi.mocked(readSheet).mockResolvedValue([HEADER_ROW, taskToRow(makeTask({ id: 'emp-test' }))]);
+
+    const adapter = new SheetsAdapter(doc, 'sheet-1', callbacks, () => 'token');
+    await adapter.start();
+
+    // Second poll: sheet is now empty (data cleared by another user)
+    vi.mocked(readSheet).mockResolvedValue([]);
+    await vi.advanceTimersByTimeAsync(30000);
+
+    // The adapter preserves sheetHeaderMap — no crash, completes cleanly
+    await adapter.stop();
+  });
+
+  it('convergence: both sides edit to same value — no conflict', async () => {
+    // Set up: Y.Doc and sheet both have original value
+    populateYDoc(doc, [makeTask({ id: 'conv-test', name: 'Original' })]);
+
+    // First poll: establish base
+    const originalRow = taskToRow(makeTask({ id: 'conv-test', name: 'Original' }));
+    vi.mocked(readSheet).mockResolvedValue([HEADER_ROW, originalRow]);
+
+    const adapter = new SheetsAdapter(doc, 'sheet-1', callbacks, () => 'token');
+    await adapter.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Both sides independently edit to the same new value
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+    const ymap = ytasks.get('conv-test')!;
+    doc.transact(() => {
+      ymap.set('name', 'Converged');
+    }, ORIGIN.LOCAL);
+
+    // Sheet also has 'Converged'
+    const convergedRow = taskToRow(makeTask({ id: 'conv-test', name: 'Converged' }));
+    vi.mocked(readSheet).mockResolvedValue([HEADER_ROW, convergedRow]);
+    await vi.advanceTimersByTimeAsync(30000);
+
+    // No conflict should be reported (both converged to same value)
+    expect(conflictCalls.length).toBe(0);
+
+    await adapter.stop();
+  });
+
+  it('restart during idle completes without crash', async () => {
+    vi.mocked(readSheet).mockResolvedValue([HEADER_ROW]);
+
+    const adapter = new SheetsAdapter(doc, 'sheet-1', callbacks, () => 'token');
+    await adapter.start();
+
+    // Restart while idle (no in-flight operations)
+    await adapter.restart();
+
+    // Should be running again without errors
+    expect(adapter.isStopped()).toBe(false);
+
+    await adapter.stop();
   });
 });

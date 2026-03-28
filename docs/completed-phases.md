@@ -26,6 +26,8 @@ See [CLAUDE.md](/CLAUDE.md) for the active project guide.
 | 14 | Drag Reliability & Sync Integrity | 6 (A-F) | Dispatch split, atomic drag, CRDT structural sync |
 | 15 | Scheduling Engine: Constraints & Conflicts | 4 (A-D) | All constraint types, SF deps, conflict detection, constraint UI |
 | 16 | Date Calculation Bug Fixes | 9 (A-I) | Inclusive end_date convention, taskDuration, WEEKEND_VIOLATION, bar width |
+| 18 | Onboarding UX | — | State machine, welcome flows, sheet management |
+| 20 | Frontend Redesign | 10 (A-J) | Y.Doc state, TaskStore/UIStore, SheetsAdapter, virtualization, undo, drag perf |
 
 ---
 
@@ -209,3 +211,33 @@ Switched end_date convention from exclusive to inclusive across the entire codeb
 - Renamed `dateToXCollapsed` → `dateToX` (weekend-aware default)
 - Structural tests: cascade/recalculate agreement, cross-language consistency
 - Pre-commit hook rejects deprecated function names
+
+## Phase 18: Onboarding UX — DONE
+State machine, welcome flows, and sheet management. Design-7 sync fixes (T1.1–T2.5, T3.1–T3.2) all implemented. 35 E2E tests, 584 unit tests passing. PR #70 + PR #75.
+
+## Phase 20: Frontend Redesign — DONE
+Complete frontend architecture redesign across 10 parallel groups (A-J).
+
+**Core architecture changes:**
+- **Group A (Y.Doc Schema)**: Y.Doc replaces useReducer for task state. `src/schema/ydoc.ts` defines Y.Map<Y.Map> structure with 19 collaborative fields per task. Stable UUIDs, JSON-serialized arrays for atomic updates.
+- **Group B (TaskStore + UIStore)**: O(1) per-task subscriptions via `useSyncExternalStore`. TaskStore for task data, UIStore for per-user display state (zoom, theme, expanded tasks) persisted to localStorage. Replaces GanttContext.
+- **Group C (Mutations)**: Compute-first + atomic transact pattern. Mutation functions read Y.Doc, compute cascade in WASM (outside transaction), write all changes in one `doc.transact()` call. Replaces ganttReducer task cases.
+- **Group D (Observer)**: `src/collab/observer.ts` converts Y.Doc mutations into TaskStore updates. Origin-aware processing: local (sync), remote (batched via RAF), sheets (sync, skip cold derivations). Incremental summary recalculation.
+- **Group E (SheetsAdapter)**: Service class replacing sheetsSync module. Three-way merge with base values in IndexedDB. Pre-write validation (non-blocking). Attribution columns (lastModifiedBy, lastModifiedAt).
+- **Group F (Drag Performance)**: Pointer Events API + CSS transforms during drag (zero Y.Doc writes). Commit-on-drop pattern — single atomic write on mouseup.
+- **Group G (SVG Virtualization)**: Viewport-based rendering for task bars and dependency arrows. React Compiler configuration.
+- **Group H (Providers)**: TaskStoreProvider manages Y.Doc, TaskStore, mutations, undo, collab, SheetsAdapter lifecycle. UIStoreProvider manages per-user state with localStorage persistence.
+- **Group I (Undo/Recovery)**: Y.UndoManager (per-client, scoped to 'local' origin). y-indexeddb for crash recovery. Error boundaries for component isolation. Pre-write validation.
+- **Group J (Documentation)**: Updated all CLAUDE.md files, skills, agents, and architecture docs to reflect new architecture.
+
+**Schema migration & production hardening (post-merge session):**
+- **Migration registry** (`src/schema/migrations.ts`): Ordered, idempotent migrations. Major/minor versioning — major = breaking (hard lock-out), minor = additive (soft warning, no lock-out during rolling deployments).
+- **`migrateDoc()`**: Replaces `initSchema()`. CAS guard inside transaction. Forward-compat gate for future major versions. Component-split gate in TaskStoreProvider — inner component only mounts after migration succeeds.
+- **Field registry** (`FIELD_REGISTRY` in `src/schema/ydoc.ts`): Single source of truth for Task ↔ Y.Doc serialization. `setKnownFields`, `yMapToTask`, and `TASK_FIELDS` are all derived from the registry. Adding a field = one registry entry.
+- **`writeTaskToDoc()`**: Single write path for all Y.Doc task writes. Existing tasks updated in-place (preserves unknown fields from future versions). Forward-compat by construction.
+- **Header-based column lookup** (`HeaderMap` in `sheetsMapper.ts`): Read path uses column names, not positions. Survives user column reordering. `COLUMN_ALIASES` for future renames.
+- **Column-order-resilient writes**: Write path (`taskToRowWithMap`) writes in the Sheet's actual column order. User column reordering is preserved, not silently reverted.
+- **`BaseValueStore`** (`src/sheets/BaseValueStore.ts`): Extracted IndexedDB wrapper for three-way merge base values. `hashTask` hashes canonical Task objects (column-order independent).
+- **Structural rule enforcement** (`src/__tests__/structuralRules.test.ts`): Source-scanning tests that fail with prescriptive messages. Catches: hooks returning RefObject, `.getState()` in JSX render expressions, raw origin strings in transact().
+- **Dead code removed**: ChangeHistoryPanel, ChangeRecord, GanttState, CascadeShift, TaskUpdateSource, changeHistory in templates.
+- **Hook reactivity fixes**: `useCollabConnection` awareness via useState (not ref). `useSheetsSync` adapter via useState (not ref). Guards against unnecessary adapter teardown on token refresh.

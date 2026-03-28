@@ -21,11 +21,20 @@ export interface CollabConnection {
  * Connect to the collaboration server for a given room.
  * The room ID is typically a Google Sheet ID.
  * The access token is sent as a WebSocket message after connection.
+ *
+ * Schema: The Y.Doc uses Y.Map<Y.Map<unknown>>('tasks') (not Y.Array).
+ * See src/schema/ydoc.ts getDocMaps() for the full structure.
  */
-export function connectCollab(roomId: string, accessToken: string): CollabConnection {
+export function connectCollab(
+  roomId: string,
+  accessToken: string,
+  externalDoc: Y.Doc
+): CollabConnection {
   disconnectCollab();
 
-  doc = new Y.Doc();
+  // Use the caller's doc — don't create a new one.
+  // The caller owns the doc lifecycle (creation + destruction).
+  doc = externalDoc;
 
   const wsUrl = `${COLLAB_URL}/ws`;
 
@@ -68,14 +77,18 @@ export function connectCollab(roomId: string, accessToken: string): CollabConnec
  */
 export function disconnectCollab(): void {
   if (provider) {
+    // Explicitly clear local awareness state before disconnect so peers
+    // immediately see the removal. Without this, stale viewing/drag state
+    // persists for ~30s until y-protocols awareness timeout.
+    if (provider.awareness.getLocalState() !== null) {
+      provider.awareness.setLocalState(null);
+    }
     provider.disconnect();
     provider.destroy();
     provider = null;
   }
-  if (doc) {
-    doc.destroy();
-    doc = null;
-  }
+  // Don't destroy the doc — the caller owns its lifecycle.
+  doc = null;
 }
 
 /**

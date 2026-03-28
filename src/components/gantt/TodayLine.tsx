@@ -1,4 +1,3 @@
-import React from 'react';
 import type { ZoomLevel } from '../../types';
 import { dateToX, formatDate, getColumnWidth } from '../../utils/dateUtils';
 

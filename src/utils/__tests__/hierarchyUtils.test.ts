@@ -28,8 +28,6 @@ function makeTask(overrides: Partial<Task>): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
     notes: '',
     okrs: [],
     ...overrides,
@@ -37,7 +35,7 @@ function makeTask(overrides: Partial<Task>): Task {
 }
 
 function buildTaskMap(tasks: Task[]): Map<string, Task> {
-  return new Map(tasks.map(t => [t.id, t]));
+  return new Map(tasks.map((t) => [t.id, t]));
 }
 
 describe('getHierarchyRole', () => {
@@ -72,7 +70,13 @@ describe('getHierarchyRole', () => {
 
 describe('findProjectAncestor', () => {
   it('returns the project ancestor for a deep task', () => {
-    const project = makeTask({ id: 'root', name: 'Project', isSummary: true, parentId: null, childIds: ['ws'] });
+    const project = makeTask({
+      id: 'root',
+      name: 'Project',
+      isSummary: true,
+      parentId: null,
+      childIds: ['ws'],
+    });
     const ws = makeTask({ id: 'ws', isSummary: true, parentId: 'root', childIds: ['t1'] });
     const task = makeTask({ id: 't1', parentId: 'ws' });
     const taskMap = buildTaskMap([project, ws, task]);
@@ -95,7 +99,13 @@ describe('findProjectAncestor', () => {
 describe('findWorkstreamAncestor', () => {
   it('returns the workstream ancestor for a task', () => {
     const project = makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws'] });
-    const ws = makeTask({ id: 'ws', name: 'WS', isSummary: true, parentId: 'root', childIds: ['t1'] });
+    const ws = makeTask({
+      id: 'ws',
+      name: 'WS',
+      isSummary: true,
+      parentId: 'root',
+      childIds: ['t1'],
+    });
     const task = makeTask({ id: 't1', parentId: 'ws' });
     const taskMap = buildTaskMap([project, ws, task]);
     expect(findWorkstreamAncestor(task, taskMap)).toEqual(ws);
@@ -160,29 +170,19 @@ describe('generatePrefixedId', () => {
 
   it('returns max+1 based on existing children', () => {
     const parent = makeTask({ id: 'pe', isSummary: true });
-    const existing = [
-      makeTask({ id: 'pe-1' }),
-      makeTask({ id: 'pe-5' }),
-      makeTask({ id: 'pe-3' }),
-    ];
+    const existing = [makeTask({ id: 'pe-1' }), makeTask({ id: 'pe-5' }), makeTask({ id: 'pe-3' })];
     expect(generatePrefixedId(parent, existing)).toBe('pe-6');
   });
 
   it('handles gaps correctly', () => {
     const parent = makeTask({ id: 'pe', isSummary: true });
-    const existing = [
-      makeTask({ id: 'pe-1' }),
-      makeTask({ id: 'pe-9' }),
-    ];
+    const existing = [makeTask({ id: 'pe-1' }), makeTask({ id: 'pe-9' })];
     expect(generatePrefixedId(parent, existing)).toBe('pe-10');
   });
 
   it('ignores non-matching IDs', () => {
     const parent = makeTask({ id: 'pe', isSummary: true });
-    const existing = [
-      makeTask({ id: 'ux-1' }),
-      makeTask({ id: 'gtm-2' }),
-    ];
+    const existing = [makeTask({ id: 'ux-1' }), makeTask({ id: 'gtm-2' })];
     expect(generatePrefixedId(parent, existing)).toBe('pe-1');
   });
 });
@@ -198,7 +198,13 @@ describe('computeInheritedFields', () => {
   });
 
   it('inherits project name from project parent', () => {
-    const project = makeTask({ id: 'root', name: 'Q2 Launch', isSummary: true, parentId: null, okrs: ['OKR-1'] });
+    const project = makeTask({
+      id: 'root',
+      name: 'Q2 Launch',
+      isSummary: true,
+      parentId: null,
+      okrs: ['OKR-1'],
+    });
     const taskMap = buildTaskMap([project]);
     expect(computeInheritedFields('root', taskMap)).toEqual({
       project: 'Q2 Launch',
@@ -208,8 +214,21 @@ describe('computeInheritedFields', () => {
   });
 
   it('inherits project + workStream from workstream parent', () => {
-    const project = makeTask({ id: 'root', name: 'Q2 Launch', isSummary: true, parentId: null, childIds: ['ws'] });
-    const ws = makeTask({ id: 'ws', name: 'Platform', isSummary: true, parentId: 'root', project: 'Q2 Launch', okrs: ['KR-1'] });
+    const project = makeTask({
+      id: 'root',
+      name: 'Q2 Launch',
+      isSummary: true,
+      parentId: null,
+      childIds: ['ws'],
+    });
+    const ws = makeTask({
+      id: 'ws',
+      name: 'Platform',
+      isSummary: true,
+      parentId: 'root',
+      project: 'Q2 Launch',
+      okrs: ['KR-1'],
+    });
     const taskMap = buildTaskMap([project, ws]);
     expect(computeInheritedFields('ws', taskMap)).toEqual({
       project: 'Q2 Launch',
@@ -221,7 +240,13 @@ describe('computeInheritedFields', () => {
   it('inherits fields from regular task parent', () => {
     const project = makeTask({ id: 'root', isSummary: true, parentId: null, childIds: ['ws'] });
     const ws = makeTask({ id: 'ws', isSummary: true, parentId: 'root', childIds: ['t1'] });
-    const t1 = makeTask({ id: 't1', parentId: 'ws', project: 'Proj', workStream: 'WS', okrs: ['KR-A'] });
+    const t1 = makeTask({
+      id: 't1',
+      parentId: 'ws',
+      project: 'Proj',
+      workStream: 'WS',
+      okrs: ['KR-A'],
+    });
     const taskMap = buildTaskMap([project, ws, t1]);
     expect(computeInheritedFields('t1', taskMap)).toEqual({
       project: 'Proj',

@@ -1,7 +1,8 @@
-import React, { useMemo, useEffect } from 'react';
+import { useMemo } from 'react';
 import { parseISO, isValid } from 'date-fns';
-import type { Task, ZoomLevel, ColorByField, Dependency, FakeUser, CollabUser } from '../../types';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import type { Awareness } from 'y-protocols/awareness';
+import type { Task, ZoomLevel, ColorByField, Dependency, CollabUser } from '../../types';
+import { useUIStore } from '../../hooks';
 import {
   dateToX,
   getTimelineRange,
@@ -14,13 +15,13 @@ import {
 } from '../../utils/dateUtils';
 import { buildTaskYPositions, ROW_HEIGHT } from '../../utils/layoutUtils';
 import { getTaskColor } from '../../data/colorPalettes';
+import type { CriticalPathScope } from '../../types';
 import {
   computeCriticalPathScoped,
   computeEarliestStart,
   detectConflicts,
 } from '../../utils/schedulerWasm';
 import SlackIndicator from './SlackIndicator';
-import CascadeHighlight from './CascadeHighlight';
 import TimelineHeader from './TimelineHeader';
 import GridLines from './GridLines';
 import TodayLine from './TodayLine';
@@ -34,10 +35,12 @@ interface GanttChartProps {
   allTasks: Task[];
   zoom: ZoomLevel;
   colorBy: ColorByField;
-  users: FakeUser[];
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
+  awareness?: Awareness | null;
   onDependencyClick?: (dep: Dependency, successorId: string) => void;
+  virtualStartIndex?: number;
+  virtualEndIndex?: number;
 }
 
 export default function GanttChart({
@@ -45,42 +48,19 @@ export default function GanttChart({
   allTasks,
   zoom,
   colorBy,
-  users,
   collabUsers,
   isCollabConnected,
+  awareness,
   onDependencyClick,
+  virtualStartIndex,
+  virtualEndIndex,
 }: GanttChartProps) {
-  const {
-    showOwnerOnBar,
-    showAreaOnBar,
-    showOkrsOnBar,
-    showCriticalPath,
-    criticalPathScope,
-    collapseWeekends,
-    lastCascadeIds,
-    cascadeShifts,
-  } = useGanttState();
-  const dispatch = useGanttDispatch();
-
-  // Auto-clear cascade IDs after 2 seconds
-  useEffect(() => {
-    if (lastCascadeIds.length > 0) {
-      const timer = setTimeout(() => {
-        dispatch({ type: 'SET_LAST_CASCADE_IDS', taskIds: [] });
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [lastCascadeIds, dispatch]);
-
-  // Auto-clear cascade shifts after 2 seconds
-  useEffect(() => {
-    if (cascadeShifts.length > 0) {
-      const timer = setTimeout(() => {
-        dispatch({ type: 'SET_CASCADE_SHIFTS', shifts: [] });
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [cascadeShifts, dispatch]);
+  const showOwnerOnBar = useUIStore((s) => s.showOwnerOnBar);
+  const showAreaOnBar = useUIStore((s) => s.showAreaOnBar);
+  const showOkrsOnBar = useUIStore((s) => s.showOkrsOnBar);
+  const showCriticalPath = useUIStore((s) => s.showCriticalPath);
+  const criticalPathScope = useUIStore((s) => s.criticalPathScope);
+  const collapseWeekends = useUIStore((s) => s.collapseWeekends);
 
   const viewingMap = useMemo(() => {
     const map = new Map<string, { color: string; name: string }>();
@@ -90,23 +70,15 @@ export default function GanttChart({
           map.set(u.viewingTaskId, { color: u.color, name: u.name });
         }
       });
-    } else {
-      users.forEach((u) => {
-        if (u.viewingTaskId && u.isOnline) {
-          map.set(u.viewingTaskId, { color: u.color, name: u.name });
-        }
-      });
     }
     return map;
-  }, [users, collabUsers, isCollabConnected]);
+  }, [collabUsers, isCollabConnected]);
 
-  const criticalPathResult = useMemo(
-    () =>
-      showCriticalPath
-        ? computeCriticalPathScoped(allTasks, criticalPathScope)
-        : { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> },
-    [allTasks, showCriticalPath, criticalPathScope]
-  );
+  const criticalPathResult = useMemo(() => {
+    if (!showCriticalPath)
+      return { taskIds: new Set<string>(), edges: [] as Array<{ fromId: string; toId: string }> };
+    return computeCriticalPathScoped(allTasks, criticalPathScope as CriticalPathScope);
+  }, [allTasks, showCriticalPath, criticalPathScope]);
   const criticalPathIds = criticalPathResult.taskIds;
   const criticalEdges = criticalPathResult.edges;
 
@@ -127,6 +99,19 @@ export default function GanttChart({
   const colWidth = getColumnWidth(zoom);
   const dayPx = getDayPx(zoom);
   const taskYPositions = useMemo(() => buildTaskYPositions(visibleTasks), [visibleTasks]);
+
+  // Virtualization: slice tasks to only those in the visible range
+  const isVirtualized = virtualStartIndex !== undefined && virtualEndIndex !== undefined;
+  const renderedTasks = useMemo(() => {
+    if (!isVirtualized) return visibleTasks;
+    return visibleTasks.slice(virtualStartIndex, virtualEndIndex);
+  }, [visibleTasks, virtualStartIndex, virtualEndIndex, isVirtualized]);
+
+  // Set of task IDs in the virtual viewport (for dependency arrow filtering)
+  const virtualVisibleIds = useMemo(() => {
+    if (!isVirtualized) return undefined;
+    return new Set(renderedTasks.map((t) => t.id));
+  }, [renderedTasks, isVirtualized]);
 
   const totalDays = useMemo(() => {
     if (zoom === 'day') {
@@ -158,61 +143,27 @@ export default function GanttChart({
             totalHeight={totalHeight}
           />
           <TodayLine timelineStart={timelineStart} zoom={zoom} totalHeight={totalHeight} />
-          {/* Slack indicators and cascade highlights */}
-          {visibleTasks.map((task) => {
+          {/* Slack indicators */}
+          {renderedTasks.map((task) => {
             if (task.isSummary || task.isMilestone) return null;
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
 
             const earliest = computeEarliestStart(allTasks, task.id);
             const taskX = dateToX(task.startDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const taskEndX = dateToX(task.endDate, timelineStart, colWidth, zoom, collapseWeekends);
-            const taskWidth = Math.max(taskEndX - taskX + dayPx, 0);
 
-            const shift = cascadeShifts.find((s) => s.taskId === task.id);
-
-            return (
-              <React.Fragment key={`indicators-${task.id}`}>
-                {earliest && (
-                  <SlackIndicator
-                    earliestX={dateToX(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
-                    actualX={taskX}
-                    y={yPos}
-                    height={ROW_HEIGHT}
-                  />
-                )}
-                {shift && (
-                  <CascadeHighlight
-                    originalX={dateToX(
-                      shift.fromStartDate,
-                      timelineStart,
-                      colWidth,
-                      zoom,
-                      collapseWeekends
-                    )}
-                    currentX={taskX}
-                    y={yPos}
-                    originalWidth={Math.max(
-                      dateToX(shift.fromEndDate, timelineStart, colWidth, zoom, collapseWeekends) -
-                        dateToX(
-                          shift.fromStartDate,
-                          timelineStart,
-                          colWidth,
-                          zoom,
-                          collapseWeekends
-                        ) +
-                        dayPx,
-                      0
-                    )}
-                    currentWidth={taskWidth}
-                    height={ROW_HEIGHT}
-                  />
-                )}
-              </React.Fragment>
-            );
+            return earliest ? (
+              <SlackIndicator
+                key={`slack-${task.id}`}
+                earliestX={dateToX(earliest, timelineStart, colWidth, zoom, collapseWeekends)}
+                actualX={taskX}
+                y={yPos}
+                height={ROW_HEIGHT}
+              />
+            ) : null;
           })}
           {/* Render bars */}
-          {visibleTasks.map((task) => {
+          {renderedTasks.map((task) => {
             const yPos = taskYPositions.get(task.id);
             if (yPos === undefined) return null;
             const color = getTaskColor(colorBy, task[colorBy] as string);
@@ -282,6 +233,7 @@ export default function GanttChart({
                 collapseWeekends={collapseWeekends}
                 earliestStart={earliest ?? undefined}
                 conflictMessage={conflictMap.get(task.id)}
+                awareness={awareness}
               />
             );
           })}
@@ -330,6 +282,7 @@ export default function GanttChart({
             criticalPathIds={criticalPathIds}
             criticalEdges={criticalEdges}
             collapseWeekends={collapseWeekends}
+            virtualVisibleIds={virtualVisibleIds}
           />
         </svg>
       </div>

@@ -20,8 +20,6 @@ function makeTask(overrides: Partial<Task>): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
     notes: '',
     okrs: [],
     ...overrides,
@@ -86,7 +84,11 @@ describe('checkMoveConflicts', () => {
   it('detects conflict when task depends on target parent', () => {
     const tasks = [
       makeTask({ id: 'p1', isSummary: true, childIds: ['t1'] }),
-      makeTask({ id: 't1', parentId: 'p1', dependencies: [{ fromId: 'p2', toId: 't1', type: 'FS', lag: 0 }] }),
+      makeTask({
+        id: 't1',
+        parentId: 'p1',
+        dependencies: [{ fromId: 'p2', toId: 't1', type: 'FS', lag: 0 }],
+      }),
       makeTask({ id: 'p2', isSummary: true, childIds: [] }),
     ];
     // Moving t1 under p2 — t1 depends on p2 (ancestor of target)
@@ -97,7 +99,11 @@ describe('checkMoveConflicts', () => {
   it('returns no conflicts when task depends on sibling under target', () => {
     const tasks = [
       makeTask({ id: 'p1', isSummary: true, childIds: ['t1'] }),
-      makeTask({ id: 't1', parentId: 'p1', dependencies: [{ fromId: 't2', toId: 't1', type: 'FS', lag: 0 }] }),
+      makeTask({
+        id: 't1',
+        parentId: 'p1',
+        dependencies: [{ fromId: 't2', toId: 't1', type: 'FS', lag: 0 }],
+      }),
       makeTask({ id: 'p2', isSummary: true, childIds: ['t2'] }),
       makeTask({ id: 't2', parentId: 'p2' }),
     ];
@@ -110,7 +116,12 @@ describe('checkMoveConflicts', () => {
     const tasks = [
       makeTask({ id: 'p1', isSummary: true, childIds: ['t1'] }),
       makeTask({ id: 't1', parentId: 'p1' }),
-      makeTask({ id: 'p2', isSummary: true, childIds: [], dependencies: [{ fromId: 't1', toId: 'p2', type: 'FS', lag: 0 }] }),
+      makeTask({
+        id: 'p2',
+        isSummary: true,
+        childIds: [],
+        dependencies: [{ fromId: 't1', toId: 'p2', type: 'FS', lag: 0 }],
+      }),
     ];
     // Moving t1 under p2 — p2 depends on t1 which is being moved
     const conflicts = checkMoveConflicts(tasks, 't1', 'p2');

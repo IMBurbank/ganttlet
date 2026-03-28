@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Dependency, Task, ZoomLevel } from '../../types';
 import {
   getDependencyPoints,

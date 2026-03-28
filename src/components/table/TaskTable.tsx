@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
-import type { Task, ColumnConfig, ColorByField, FakeUser, CollabUser } from '../../types';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { useEffect, useContext, useMemo } from 'react';
+import type { Awareness } from 'y-protocols/awareness';
+import type { Task, ColumnConfig, ColorByField, CollabUser } from '../../types';
+import { useUIStore } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 import ColumnHeader from './ColumnHeader';
 import TaskRow from './TaskRow';
 
@@ -9,48 +11,59 @@ interface TaskTableProps {
   columns: ColumnConfig[];
   colorBy: ColorByField;
   taskMap: Map<string, Task>;
-  users: FakeUser[];
   collabUsers?: CollabUser[];
   isCollabConnected?: boolean;
+  awareness?: Awareness | null;
 }
 
 export interface ViewerInfo {
   name: string;
   color: string;
-  viewingCellColumn: string | null;
 }
 
-export default function TaskTable({ tasks, columns, colorBy, taskMap, users, collabUsers, isCollabConnected }: TaskTableProps) {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
-  const focusNewTaskId = state.focusNewTaskId;
+export default function TaskTable({
+  tasks,
+  columns,
+  colorBy,
+  taskMap,
+  collabUsers,
+  isCollabConnected,
+  awareness,
+}: TaskTableProps) {
+  const focusNewTaskId = useUIStore((s) => s.focusNewTaskId);
+  const uiStore = useContext(UIStoreContext)!;
 
   useEffect(() => {
     if (focusNewTaskId) {
       const timer = setTimeout(() => {
-        dispatch({ type: 'CLEAR_FOCUS_NEW_TASK' });
+        uiStore.setState({ focusNewTaskId: null });
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [focusNewTaskId, dispatch]);
+  }, [focusNewTaskId, uiStore]);
 
-  const viewingMap = new Map<string, ViewerInfo>();
+  const viewingMap = useMemo(() => {
+    const map = new Map<string, ViewerInfo[]>();
+    if (isCollabConnected && collabUsers && collabUsers.length > 0) {
+      collabUsers.forEach((u) => {
+        if (u.viewingTaskId) {
+          const entry: ViewerInfo = {
+            name: u.name,
+            color: u.color,
+          };
+          const existing = map.get(u.viewingTaskId);
+          if (existing) {
+            existing.push(entry);
+          } else {
+            map.set(u.viewingTaskId, [entry]);
+          }
+        }
+      });
+    }
+    return map;
+  }, [collabUsers, isCollabConnected]);
 
-  if (isCollabConnected && collabUsers && collabUsers.length > 0) {
-    collabUsers.forEach(u => {
-      if (u.viewingTaskId) {
-        viewingMap.set(u.viewingTaskId, { name: u.name, color: u.color, viewingCellColumn: u.viewingCellColumn });
-      }
-    });
-  } else {
-    users.forEach(u => {
-      if (u.viewingTaskId && u.isOnline) {
-        viewingMap.set(u.viewingTaskId, { name: u.name, color: u.color, viewingCellColumn: u.viewingCellColumn });
-      }
-    });
-  }
-
-  const totalWidth = columns.filter(c => c.visible).reduce((sum, c) => sum + c.width, 0);
+  const totalWidth = columns.filter((c) => c.visible).reduce((sum, c) => sum + c.width, 0);
 
   return (
     <div className="min-w-0" style={{ width: totalWidth }}>
@@ -58,7 +71,7 @@ export default function TaskTable({ tasks, columns, colorBy, taskMap, users, col
         <ColumnHeader columns={columns} />
       </div>
       <div>
-        {tasks.map(task => {
+        {tasks.map((task) => {
           const viewer = viewingMap.get(task.id);
           return (
             <TaskRow
@@ -67,8 +80,9 @@ export default function TaskTable({ tasks, columns, colorBy, taskMap, users, col
               columns={columns}
               colorBy={colorBy}
               taskMap={taskMap}
-              viewer={viewer ?? null}
+              viewers={viewer ?? null}
               autoFocusName={task.id === focusNewTaskId}
+              awareness={awareness ?? null}
             />
           );
         })}

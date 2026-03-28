@@ -1,30 +1,26 @@
-import React, { useCallback } from 'react';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import React, { useCallback, useContext } from 'react';
+import { useUIStore } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
+import { SheetsAdapterContext } from '../../state/TaskStoreProvider';
 import { signIn, setAuthChangeCallback, removeAuthChangeCallback } from '../../sheets/oauth';
-import {
-  loadFromSheet,
-  scheduleSave,
-  startPolling,
-  stopPolling,
-  getSpreadsheetId,
-} from '../../sheets/sheetsSync';
-import { classifySyncError } from '../../sheets/syncErrors';
 import { removeRecentSheet } from '../../utils/recentSheets';
 import type { SyncError } from '../../types';
 
 export default function ErrorBanner() {
-  const { syncError, dataSource, tasks } = useGanttState();
-  const dispatch = useGanttDispatch();
+  const syncError = useUIStore((s) => s.syncError);
+  const dataSource = useUIStore((s) => s.dataSource);
+  const uiStore = useContext(UIStoreContext);
+  const adapter = useContext(SheetsAdapterContext);
 
   const handleReAuth = useCallback(() => {
     const onAuthChange = () => {
-      dispatch({ type: 'SET_SYNC_ERROR', error: null });
-      scheduleSave(tasks);
+      uiStore?.setState({ syncError: null });
       removeAuthChangeCallback(onAuthChange);
+      adapter?.restart();
     };
     setAuthChangeCallback(onAuthChange);
     signIn();
-  }, [dispatch, tasks]);
+  }, [uiStore, adapter]);
 
   const handleOpenAnother = useCallback(() => {
     // Navigate to root (removes ?sheet= param)
@@ -32,30 +28,15 @@ export default function ErrorBanner() {
   }, []);
 
   const handleRetry = useCallback(() => {
-    dispatch({ type: 'SET_SYNC_ERROR', error: null });
-    dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'loading' });
-    loadFromSheet()
-      .then((loadedTasks) => {
-        if (loadedTasks.length > 0) {
-          dispatch({ type: 'SET_TASKS', tasks: loadedTasks, source: 'sheets' });
-          dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
-        } else {
-          dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'empty' });
-        }
-        // Resume polling — loadFromSheet sets lastWriteHash when tasks exist;
-        // empty sheets poll safely (incomingTasks.length === 0 guard in pollOnce)
-        startPolling();
-      })
-      .catch((err) => {
-        dispatch({ type: 'SET_SYNC_ERROR', error: classifySyncError(err) });
-      });
-  }, [dispatch]);
+    uiStore?.setState({ syncError: null, dataSource: 'loading' });
+    adapter?.restart();
+  }, [uiStore, adapter]);
 
   if (!syncError) return null;
   if (syncError.type === 'rate_limit' || syncError.type === 'header_mismatch') return null;
 
   const isLoading = dataSource === 'loading';
-  const sheetId = getSpreadsheetId();
+  const sheetId = new URLSearchParams(window.location.search).get('sheet');
 
   return (
     <div
@@ -68,7 +49,6 @@ export default function ErrorBanner() {
         {(syncError.type === 'not_found' || syncError.type === 'forbidden') && (
           <button
             onClick={() => {
-              stopPolling();
               if (syncError.type === 'not_found' && sheetId) {
                 removeRecentSheet(sheetId);
               }

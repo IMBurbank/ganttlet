@@ -1,5 +1,7 @@
-import { useCallback, useRef, useEffect, useState, lazy, Suspense } from 'react';
-import { useGanttDispatch } from '../../state/GanttContext';
+import { useCallback, useRef, useEffect, useState, useContext, lazy, Suspense } from 'react';
+import { useMutate } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
+import { navigateToSheet } from '../../utils/navigation';
 
 const TemplatePicker = lazy(() => import('./TemplatePicker'));
 
@@ -8,7 +10,8 @@ interface EmptyStateProps {
 }
 
 export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
-  const dispatch = useGanttDispatch();
+  const mutate = useMutate();
+  const uiStore = useContext(UIStoreContext);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -19,10 +22,11 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
   const handleAddTask = useCallback(
     (name: string) => {
       if (!name.trim()) return;
-      // Dispatch ADD_TASK — the reducer handles startDate/endDate with ensureBusinessDay + taskEndDate
-      dispatch({ type: 'ADD_TASK', parentId: null, afterTaskId: null, name: name.trim() });
+      mutate({ type: 'ADD_TASK', task: { name: name.trim() } });
+      // Transition from empty state to sandbox so the Gantt chart renders
+      uiStore?.setState({ dataSource: 'sandbox' });
     },
-    [dispatch]
+    [mutate, uiStore]
   );
 
   const handleKeyDown = useCallback(
@@ -125,9 +129,16 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
               if (onSelectTemplate) {
                 onSelectTemplate();
               }
-              import('../../sheets/sheetCreation').then(({ createProjectFromTemplate }) => {
-                createProjectFromTemplate('Ganttlet Project', templateId, dispatch);
-              });
+              import('../../sheets/sheetCreation')
+                .then(async ({ createProjectFromTemplate }) => {
+                  const spreadsheetId = await createProjectFromTemplate(
+                    'Ganttlet Project',
+                    templateId,
+                    mutate
+                  );
+                  if (uiStore) navigateToSheet(spreadsheetId, uiStore);
+                })
+                .catch((e) => console.warn('Template creation failed:', e));
             }}
             onClose={() => setShowTemplatePicker(false)}
           />

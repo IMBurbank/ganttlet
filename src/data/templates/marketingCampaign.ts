@@ -1,4 +1,4 @@
-import type { Task, ChangeRecord } from '../../types';
+import type { Task } from '../../types';
 
 const tasks: Task[] = [
   // Root summary
@@ -30,8 +30,7 @@ const tasks: Task[] = [
       '0e9ac877-10d2-42f5-9cad-1b4e25d1f1e4',
     ],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
+
     notes: '',
     okrs: [],
   },
@@ -53,8 +52,7 @@ const tasks: Task[] = [
     parentId: '477dde0a-d30a-487d-af70-fcfc9679037d',
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Analyze target audience, competitors, and market trends',
     okrs: [],
   },
@@ -83,8 +81,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Define positioning, messaging, and brand voice',
     okrs: [],
   },
@@ -113,8 +110,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Plan blog posts, videos, and social media calendar',
     okrs: [],
   },
@@ -143,8 +139,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Design graphics, banners, and visual assets',
     okrs: [],
   },
@@ -173,8 +168,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Write ad copy, email content, and landing page text',
     okrs: [],
   },
@@ -203,8 +197,7 @@ const tasks: Task[] = [
         lag: 2,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Configure social channels, schedule posts',
     okrs: [],
   },
@@ -239,8 +232,7 @@ const tasks: Task[] = [
         lag: -1,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Build drip sequences and promotional emails',
     okrs: [],
   },
@@ -269,8 +261,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Launch PPC, display, and social ad campaigns',
     okrs: [],
   },
@@ -305,8 +296,7 @@ const tasks: Task[] = [
         lag: 3,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Coordinate go-live across all channels',
     okrs: [],
   },
@@ -335,13 +325,10 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Analyze KPIs, ROI, and lessons learned',
     okrs: [],
   },
 ];
 
-const changeHistory: ChangeRecord[] = [];
-
-export { tasks, changeHistory };
+export { tasks };

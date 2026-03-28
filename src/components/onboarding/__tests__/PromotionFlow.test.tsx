@@ -22,47 +22,6 @@ vi.mock('../../../sheets/sheetCreation', () => ({
   createSheet: (...args: unknown[]) => mockCreateSheet(...args),
 }));
 
-// Mock sheetsSync
-const mockInitSync = vi.fn();
-const mockScheduleSave = vi.fn();
-const mockStartPolling = vi.fn();
-
-vi.mock('../../../sheets/sheetsSync', () => ({
-  initSync: (...args: unknown[]) => mockInitSync(...args),
-  scheduleSave: (...args: unknown[]) => mockScheduleSave(...args),
-  startPolling: (...args: unknown[]) => mockStartPolling(...args),
-  stopPolling: vi.fn(),
-  loadFromSheet: vi.fn().mockResolvedValue([]),
-  getSpreadsheetId: () => null,
-}));
-
-// Mock schedulerWasm
-vi.mock('../../../utils/schedulerWasm', () => ({
-  cascadeDependents: (tasks: unknown[]) => tasks,
-  recalculateEarliest: () => [],
-  initScheduler: () => Promise.resolve(),
-}));
-
-// Mock collab modules
-vi.mock('../../../collab/yjsProvider', () => ({
-  connectCollab: vi.fn(),
-  disconnectCollab: vi.fn(),
-  getDoc: () => null,
-}));
-
-vi.mock('../../../collab/yjsBinding', () => ({
-  bindYjsToDispatch: vi.fn(),
-  applyTasksToYjs: vi.fn(),
-  applyActionToYjs: vi.fn(),
-  hydrateYjsFromTasks: vi.fn(),
-}));
-
-vi.mock('../../../collab/awareness', () => ({
-  setLocalAwareness: vi.fn(),
-  updateViewingTask: vi.fn(),
-  getCollabUsers: () => [],
-}));
-
 // Mock SheetSelector
 vi.mock('../SheetSelector', () => ({
   default: ({ onSelectSheet }: { onSelectSheet: (id: string) => void }) => (
@@ -88,6 +47,9 @@ vi.mock('../TargetSheetCheck', () => ({
       <button onClick={() => onAction('proceed')} data-testid="mock-proceed">
         Proceed
       </button>
+      <button onClick={() => onAction('open-existing')} data-testid="mock-open-existing">
+        Open Existing
+      </button>
       <button onClick={onCancel} data-testid="mock-cancel">
         Cancel
       </button>
@@ -96,25 +58,30 @@ vi.mock('../TargetSheetCheck', () => ({
 }));
 
 import PromotionFlow from '../PromotionFlow';
-import { GanttProvider } from '../../../state/GanttContext';
+import { UIStore, UIStoreContext } from '../../../store/UIStore';
+
+let uiStore: UIStore;
 
 function renderWithProvider(onClose = vi.fn()) {
-  return render(
-    <GanttProvider>
-      <PromotionFlow onClose={onClose} />
-    </GanttProvider>
-  );
+  uiStore = new UIStore({ dataSource: 'sandbox' });
+  return {
+    uiStore,
+    onClose,
+    ...render(
+      <UIStoreContext.Provider value={uiStore}>
+        <PromotionFlow onClose={onClose} />
+      </UIStoreContext.Provider>
+    ),
+  };
 }
 
 describe('PromotionFlow', () => {
+  let replaceStateSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsSignedIn.mockReturnValue(true);
-    Object.defineProperty(window, 'location', {
-      value: { href: 'http://localhost/', search: '' },
-      writable: true,
-    });
-    window.history.replaceState = vi.fn();
+    replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
   });
 
   it('shows sign-in gate when not signed in', () => {
@@ -141,10 +108,9 @@ describe('PromotionFlow', () => {
     expect(screen.getByTestId('save-to-existing-button')).toBeTruthy();
   });
 
-  it('creates new sheet and transitions on "Create new sheet"', async () => {
+  it('creates new sheet and updates UIStore reactively (no page reload)', async () => {
     mockCreateSheet.mockResolvedValue('new-sheet-456');
-    const onClose = vi.fn();
-    renderWithProvider(onClose);
+    const { uiStore, onClose } = renderWithProvider();
 
     fireEvent.click(screen.getByTestId('create-new-sheet-button'));
 
@@ -153,11 +119,16 @@ describe('PromotionFlow', () => {
     });
 
     await waitFor(() => {
-      expect(mockInitSync).toHaveBeenCalled();
-      expect(mockStartPolling).toHaveBeenCalled();
-      expect(mockScheduleSave).toHaveBeenCalled();
-      expect(onClose).toHaveBeenCalled();
+      const state = uiStore.getState();
+      expect(state.spreadsheetId).toBe('new-sheet-456');
+      expect(state.roomId).toBe('new-sheet-456');
+      expect(state.dataSource).toBe('loading');
+      expect(state.syncError).toBeNull();
     });
+
+    // URL updated via replaceState for bookmarking, not full navigation
+    expect(replaceStateSpy).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('shows SheetSelector when "Save to existing" is clicked', () => {
@@ -177,25 +148,46 @@ describe('PromotionFlow', () => {
     expect(screen.getByTestId('target-check')).toBeTruthy();
   });
 
-  it('executes transition after target check proceeds', async () => {
-    const onClose = vi.fn();
-    renderWithProvider(onClose);
+  it('updates UIStore reactively after target check proceeds', async () => {
+    const { uiStore, onClose } = renderWithProvider();
 
     fireEvent.click(screen.getByTestId('save-to-existing-button'));
     fireEvent.click(screen.getByTestId('mock-select-sheet'));
     fireEvent.click(screen.getByTestId('mock-proceed'));
 
     await waitFor(() => {
-      expect(mockInitSync).toHaveBeenCalled();
-      expect(mockStartPolling).toHaveBeenCalled();
-      expect(mockScheduleSave).toHaveBeenCalled();
-      expect(onClose).toHaveBeenCalled();
+      const state = uiStore.getState();
+      expect(state.spreadsheetId).toBe('existing-123');
+      expect(state.roomId).toBe('existing-123');
+      expect(state.dataSource).toBe('loading');
     });
+
+    expect(replaceStateSpy).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('updates UIStore reactively on open-existing action', async () => {
+    const { uiStore, onClose } = renderWithProvider();
+
+    fireEvent.click(screen.getByTestId('save-to-existing-button'));
+    fireEvent.click(screen.getByTestId('mock-select-sheet'));
+    fireEvent.click(screen.getByTestId('mock-open-existing'));
+
+    await waitFor(() => {
+      const state = uiStore.getState();
+      expect(state.spreadsheetId).toBe('existing-123');
+      expect(state.roomId).toBe('existing-123');
+      expect(state.dataSource).toBe('loading');
+      expect(state.syncError).toBeNull();
+    });
+
+    expect(replaceStateSpy).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('shows error state on createSheet failure', async () => {
     mockCreateSheet.mockRejectedValue(new Error('API error'));
-    renderWithProvider();
+    const { onClose } = renderWithProvider();
 
     fireEvent.click(screen.getByTestId('create-new-sheet-button'));
 
@@ -203,23 +195,8 @@ describe('PromotionFlow', () => {
       expect(screen.getByTestId('promotion-error')).toBeTruthy();
       expect(screen.getByText('API error')).toBeTruthy();
     });
-  });
 
-  it('calls scheduleSave before SET_DATA_SOURCE', async () => {
-    mockCreateSheet.mockResolvedValue('new-id');
-    const callOrder: string[] = [];
-    mockScheduleSave.mockImplementation(() => callOrder.push('scheduleSave'));
-    const onClose = vi.fn();
-    renderWithProvider(onClose);
-
-    fireEvent.click(screen.getByTestId('create-new-sheet-button'));
-
-    await waitFor(() => {
-      expect(onClose).toHaveBeenCalled();
-    });
-
-    // scheduleSave must have been called (dispatch ordering tested by call order)
-    expect(callOrder).toContain('scheduleSave');
-    expect(mockScheduleSave).toHaveBeenCalled();
+    // onClose should NOT be called on error
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

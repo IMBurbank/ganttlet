@@ -1,13 +1,14 @@
 ---
 name: google-sheets-sync
-description: "Use when working on Google Sheets integration, OAuth2 flow, or the sync layer. Covers sheetsClient, sheetsMapper, sheetsSync modules and data mapping patterns."
+description: "Use when working on Google Sheets integration, OAuth2 flow, or the sync layer. Covers sheetsClient, sheetsMapper, SheetsAdapter class and data mapping patterns."
 ---
 
 # Google Sheets Sync Guide
 
 ## Architecture
-Google Sheets is the single source of truth for project data. There is no application
-database. All Sheets I/O runs in the browser via Google Sheets API v4.
+Google Sheets is the single source of truth for persistent project data. Y.Doc is the
+live session state. All Sheets I/O runs in the browser via Google Sheets API v4.
+SheetsAdapter orchestrates bidirectional Y.Doc ↔ Sheets sync with three-way merge.
 
 ## OAuth2 Flow
 - Client-side OAuth2 token handling (Google Identity Services)
@@ -17,7 +18,15 @@ database. All Sheets I/O runs in the browser via Google Sheets API v4.
 ## Key Modules
 - `sheetsClient.ts` — Low-level Sheets API wrapper (read/write ranges, batch operations)
 - `sheetsMapper.ts` — Maps between Ganttlet task format and Sheets row format
-- `sheetsSync.ts` — Orchestrates bidirectional sync (Ganttlet ↔ Sheets)
+- `SheetsAdapter.ts` — Service class orchestrating bidirectional Y.Doc ↔ Sheets sync with three-way merge
+
+## Three-Way Merge
+On each poll cycle, SheetsAdapter compares per-task:
+- `sheet_value == base_value` → local wins (write ydoc_value to Sheet)
+- `ydoc_value == base_value` → external wins (inject sheet_value into Y.Doc via `'sheets'` origin)
+- All three differ → **CONFLICT** → surfaced to user via UIStore
+- No base (first sync) → treat as no external edit
+Base values stored in IndexedDB (`ganttlet-sync-base-{sheetId}`), updated after successful writes.
 
 ## Data Mapping
 
@@ -51,11 +60,11 @@ The column order is defined in `src/sheets/sheetsMapper.ts` as `SHEET_COLUMNS`:
 Dependencies serialize as `fromId:type:lag` joined by `;`. Example: `task-1:FS:0;task-2:SS:1`. Parsed by `parseDependencies()` in `sheetsMapper.ts`. Note: `toId` is NOT stored in the sheet — it is reconstructed at read time from the owning task's ID (`task.dependencies.map(d => ({ ...d, toId: task.id }))`).
 
 ### Sync Mechanism
-- **Write path**: `scheduleSave()` in `sheetsSync.ts` debounces writes by 2000ms (`WRITE_DEBOUNCE_MS`). Uses a JSON hash of all 20 persisted fields (sorted by ID, excluding UI-only `isExpanded`/`isHidden`) to skip no-op writes. After writing, `clearSheet` removes orphaned rows below the data range.
-- **Read path**: `startPolling()` polls the sheet every 30s (`BASE_POLL_INTERVAL_MS`). Changes are dispatched as `MERGE_EXTERNAL_TASKS` and also propagated to Yjs for CRDT sync. Backoff: doubles interval after 3 consecutive errors (max 300s). Poll skips when a save is pending (`saveDirty`) or in-flight (`saveInFlight`).
-- **Write range**: `Sheet1!A1:T{rowCount}` — column T is the 20th column matching the 20 `SHEET_COLUMNS` fields.
+- **Write path**: SheetsAdapter marks dirty on Y.Doc `'local'` origin observation, debounces writes by 2000ms. Pre-write validation logs orphaned refs and invalid dates as warnings (non-blocking). After writing, base values updated in IndexedDB. `clearSheet` removes orphaned rows below the data range.
+- **Read path**: Polls the sheet every 30s. Three-way merge per task resolves changes. Changes injected into Y.Doc via `doc.transact(() => { ... }, 'sheets')`. Conflicts surfaced to UIStore. Polling uses a fixed 30s interval; errors are logged but do not adjust the interval.
+- **Write range**: `Sheet1!A1:V{rowCount}` — column V is the 22nd column (20 task fields + lastModifiedBy + lastModifiedAt).
 - **Read range**: `Sheet1` (entire sheet).
-- **Source tracking**: `lastTaskSource` in GanttState tracks whether tasks came from local edits, Yjs, or Sheets polling. Auto-save only fires for `'local'` sources — prevents echo write-back loops.
+- **Transaction origins**: `'local'` writes are undoable and trigger cascade; `'sheets'` injections are not undoable and skip cascade.
 
 ## Gotchas & Known Issues
 
@@ -67,17 +76,15 @@ Dependencies serialize as `fromId:type:lag` joined by `;`. Example: `task-1:FS:0
 
 4. **Hash function covers all 20 persisted fields.** RESOLVED — `hashTasks()` now hashes all 20 `SHEET_COLUMNS` fields, sorted by ID for order-independence. `isExpanded` and `isHidden` are excluded (UI-only, reset on every read by `sheetsMapper`).
 
-5. **Token expiry is checked but never refreshed automatically.** `getAccessToken()` in `src/sheets/oauth.ts` returns `null` if `Date.now() >= expiresAt`, but there is no automatic refresh — the user must sign in again. The SKILL description says "Token refresh handled automatically by the Google auth library" but the actual code does not call `google.accounts.oauth2.initTokenClient` with `prompt: 'none'` for silent refresh. API calls will fail silently after token expiry (caught by the try/catch in `sheetsSync.ts` which only logs to console).
+5. **Token expiry is checked but never refreshed automatically.** `getAccessToken()` in `src/sheets/oauth.ts` returns `null` if `Date.now() >= expiresAt`, but there is no automatic refresh — the user must sign in again. The SKILL description says "Token refresh handled automatically by the Google auth library" but the actual code does not call `google.accounts.oauth2.initTokenClient` with `prompt: 'none'` for silent refresh. API calls will fail silently after token expiry (caught by the try/catch in `SheetsAdapter` which only logs to console).
 
-6. **Polling ignores empty sheets to avoid data loss.** If `incomingTasks.length === 0` during a poll, the result is silently discarded (no merge, no dispatch). This prevents overwriting local data when the sheet is empty, but also means a legitimate "delete all tasks" action in Sheets will not propagate to Ganttlet. See `src/sheets/sheetsSync.ts` line 87.
+6. **Polling ignores empty sheets to avoid data loss.** If `incomingTasks.length === 0` during a poll, the result is silently discarded (no merge, no dispatch). This prevents overwriting local data when the sheet is empty, but also means a legitimate "delete all tasks" action in Sheets will not propagate to Ganttlet.
 
 7. **Retry logic treats non-ok responses as thrown `Response` objects.** `sheetsClient.ts` does `if (!res.ok) throw res` — the retry handler then checks `error instanceof Response && error.status === 429` for rate limiting. This is unusual; most code throws `Error` objects. Any middleware that wraps fetch or changes the Response prototype could break the 429/Retry-After detection. See `src/sheets/sheetsClient.ts` lines 26–29 and 56.
 
-8. **MERGE_EXTERNAL_TASKS keeps local version of existing tasks.** When polling returns tasks that already exist locally, the local version is preserved (not overwritten by external). External edits to existing tasks are silently discarded until the next full reload. Only new tasks (IDs not in local state) are accepted from polling.
+8. **Saves must clear orphaned rows.** Every write path writes the data range then calls `clearSheet` on rows below the data. Without this, orphaned rows from a previous larger write persist and create a duplicate-row feedback loop via polling.
 
-9. **Saves must clear orphaned rows.** Every `scheduleSave` call writes the data range then calls `clearSheet` on rows below the data. Without this, orphaned rows from a previous larger write persist and create a duplicate-row feedback loop via polling.
-
-10. **Poll skips during save.** `saveDirty` (set when `scheduleSave` is called) and `saveInFlight` (set during API call) prevent `pollOnce` from reading stale data during the 2s debounce + API call window.
+9. **Pre-write validation is non-blocking.** Orphaned dependencies, orphaned parentId/childIds, and invalid dates are logged as warnings but writes proceed. This prevents data loss from validation false positives.
 
 ## Testing Patterns
 - Unit tests mock the Sheets API responses

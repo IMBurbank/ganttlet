@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface MilestoneMarkerProps {
   x: number;
   y: number;
@@ -11,7 +9,16 @@ interface MilestoneMarkerProps {
   viewerColor?: string;
 }
 
-export default function MilestoneMarker({ x, y, color, size = 10, taskName, isCritical, viewerName, viewerColor }: MilestoneMarkerProps) {
+export default function MilestoneMarker({
+  x,
+  y,
+  color,
+  size = 10,
+  taskName,
+  isCritical,
+  viewerName,
+  viewerColor,
+}: MilestoneMarkerProps) {
   const half = size / 2;
   const displayColor = isCritical ? '#ef4444' : color;
   return (

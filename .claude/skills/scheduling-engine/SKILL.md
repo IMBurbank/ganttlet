@@ -90,3 +90,9 @@ via wasm-bindgen in `src/lib.rs`.
 - 2026-03-01: Cascade is asymmetric: forward moves propagate, backward moves expose slack. Don't expect backward cascade.
 - Three FS formulas diverged (compute_earliest_start, cascade_dependents, find_conflicts) because there was no shared helper. Use `fs_successor_start` etc. to prevent divergence.
 - `workingDaysBetween` counted [start, end) exclusive, causing duration to be 1 too low. Replaced by `taskDuration` which counts [start, end] inclusive.
+
+
+## Integration with Frontend
+- **Compute-then-write pattern**: Mutation functions read current state from Y.Doc, compute cascade/recalculate in WASM (outside transaction), then write all changes in one `doc.transact()` call. WASM errors never corrupt Y.Doc state.
+- **Cold derivations**: Critical path + conflict detection run via `requestIdleCallback` after Y.Doc observation, not inline with mutations. Skipped for `'sheets'` origin transactions.
+- **Observer integration**: `src/collab/observer.ts` schedules WASM-based cold derivations (CPM, conflicts) after batching Y.Doc changes into TaskStore.

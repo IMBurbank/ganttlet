@@ -1,4 +1,4 @@
-import type { Task, ChangeRecord } from '../../types';
+import type { Task } from '../../types';
 
 const tasks: Task[] = [
   // Root summary
@@ -30,8 +30,7 @@ const tasks: Task[] = [
       'a002cda7-9776-4f59-94ac-45b7ff4490f1',
     ],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
+
     notes: '',
     okrs: [],
   },
@@ -53,8 +52,7 @@ const tasks: Task[] = [
     parentId: '6df2eebe-480a-472e-af4a-c2182d9bf228',
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Define objectives, target audience, and success metrics',
     okrs: [],
   },
@@ -83,8 +81,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Itemize costs for venue, catering, AV, and marketing',
     okrs: [],
   },
@@ -113,8 +110,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Research, visit, and book event venue',
     okrs: [],
   },
@@ -143,8 +139,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Invite speakers, confirm topics, and finalize agenda',
     okrs: [],
   },
@@ -173,8 +168,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Create event page, send invitations, run social campaigns',
     okrs: [],
   },
@@ -203,8 +197,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Configure ticketing platform and attendee management',
     okrs: [],
   },
@@ -233,8 +226,7 @@ const tasks: Task[] = [
         lag: 10,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Book catering, arrange seating, and coordinate vendors',
     okrs: [],
   },
@@ -263,8 +255,7 @@ const tasks: Task[] = [
         lag: 8,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Plan audio/visual equipment, streaming, and tech support',
     okrs: [],
   },
@@ -299,8 +290,7 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Run through full event schedule with all vendors',
     okrs: [],
   },
@@ -329,13 +319,10 @@ const tasks: Task[] = [
         lag: 0,
       },
     ],
-    isExpanded: false,
-    isHidden: false,
+
     notes: 'Execute event day plan, manage on-site operations',
     okrs: [],
   },
 ];
 
-const changeHistory: ChangeRecord[] = [];
-
-export { tasks, changeHistory };
+export { tasks };

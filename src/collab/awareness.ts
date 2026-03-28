@@ -31,25 +31,19 @@ export function setLocalAwareness(
     email: user.email,
     color: pickColor(clientId),
     viewingTaskId: null,
-    viewingCellColumn: null,
   });
 }
 
 /**
- * Update which task and cell the local user is currently viewing.
+ * Update which task the local user is currently viewing.
  */
-export function updateViewingTask(
-  awareness: Awareness,
-  taskId: string | null,
-  cellColumn: string | null
-): void {
+export function updateViewingTask(awareness: Awareness, taskId: string | null): void {
   const current = awareness.getLocalState();
   if (!current?.user) return;
 
   awareness.setLocalStateField('user', {
     ...current.user,
     viewingTaskId: taskId,
-    viewingCellColumn: cellColumn,
   });
 }
 
@@ -87,7 +81,6 @@ export function getCollabUsers(awareness: Awareness): CollabUser[] {
       email: state.user.email ?? '',
       color: state.user.color ?? pickColor(clientId),
       viewingTaskId: state.user.viewingTaskId ?? null,
-      viewingCellColumn: state.user.viewingCellColumn ?? null,
       dragging: state.user.dragging ?? null,
     });
   });

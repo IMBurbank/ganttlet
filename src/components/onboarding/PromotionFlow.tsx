@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useContext } from 'react';
 import {
   isSignedIn,
   signIn,
@@ -6,8 +6,8 @@ import {
   removeAuthChangeCallback,
 } from '../../sheets/oauth';
 import { createSheet } from '../../sheets/sheetCreation';
-import { initSync, scheduleSave, startPolling } from '../../sheets/sheetsSync';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { UIStoreContext } from '../../store/UIStore';
+import { navigateToSheet } from '../../utils/navigation';
 import SheetSelector from './SheetSelector';
 import TargetSheetCheck, { type TargetSheetAction } from './TargetSheetCheck';
 
@@ -24,8 +24,7 @@ interface PromotionFlowProps {
 }
 
 export default function PromotionFlow({ onClose }: PromotionFlowProps) {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
+  const uiStore = useContext(UIStoreContext);
   const [step, setStep] = useState<FlowStep>(
     isSignedIn() ? { type: 'destination' } : { type: 'sign-in' }
   );
@@ -34,26 +33,7 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
     async (spreadsheetId: string) => {
       setStep({ type: 'writing' });
       try {
-        // (1) Update URL
-        const url = new URL(window.location.href);
-        url.searchParams.set('sheet', spreadsheetId);
-        url.searchParams.set('room', spreadsheetId);
-        window.history.replaceState({}, '', url.toString());
-
-        // (2) initSync
-        initSync(spreadsheetId, dispatch);
-
-        // (3) startPolling
-        startPolling();
-
-        // (4) scheduleSave — writes data + sets lastWriteHash
-        scheduleSave(state.tasks);
-
-        // (5) SET_DATA_SOURCE('sheet') — activates auto-save, resets sandboxDirty
-        dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'sheet' });
-
-        // (6) Clear any sync errors
-        dispatch({ type: 'SET_SYNC_ERROR', error: null });
+        if (uiStore) navigateToSheet(spreadsheetId, uiStore);
 
         onClose();
       } catch (err) {
@@ -61,7 +41,7 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
         setStep({ type: 'error', message });
       }
     },
-    [state.tasks, dispatch, onClose]
+    [uiStore, onClose]
   );
 
   const handleSignIn = useCallback(() => {
@@ -98,18 +78,16 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
           await executeTransition(step.sheetId);
         }
       } else if (action === 'open-existing') {
-        // Navigate to the sheet without writing sandbox data
+        // Open the sheet without writing sandbox data — reactive transition
         if (step.type === 'target-check') {
-          const url = new URL(window.location.href);
-          url.searchParams.set('sheet', step.sheetId);
-          url.searchParams.set('room', step.sheetId);
-          window.location.href = url.toString();
+          if (uiStore) navigateToSheet(step.sheetId, uiStore);
+          onClose();
         }
       } else if (action === 'create-new') {
         await handleCreateNew();
       }
     },
-    [step, executeTransition, handleCreateNew]
+    [step, executeTransition, handleCreateNew, uiStore, onClose]
   );
 
   // Sign-in gate

@@ -1,0 +1,204 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as Y from 'yjs';
+import { TaskStore } from '../../store/TaskStore';
+import { setupObserver } from '../observer';
+import { getDocMaps, writeTaskToDoc } from '../../schema/ydoc';
+import type { Task } from '../../types';
+import { ORIGIN, TRACKED_ORIGINS } from '../origins';
+
+// Mock WASM scheduler functions
+vi.mock('../../utils/schedulerWasm', () => ({
+  cascadeDependents: vi.fn(() => []),
+  computeCriticalPathScoped: vi.fn(() => ({ taskIds: new Set(), edges: [] })),
+  detectConflicts: vi.fn(() => []),
+  recalculateEarliest: vi.fn(() => []),
+}));
+
+// Mock summaryUtils to avoid complex date logic in pipeline tests
+vi.mock('../../utils/summaryUtils', () => ({
+  recalcSummaryDates: vi.fn((tasks: Task[]) => tasks),
+}));
+
+function makeTask(id: string, overrides: Partial<Task> = {}): Task {
+  return {
+    id,
+    name: `Task ${id}`,
+    startDate: '2025-01-06',
+    endDate: '2025-01-10',
+    duration: 5,
+    owner: 'Alice',
+    workStream: 'Engineering',
+    project: 'Alpha',
+    functionalArea: 'Backend',
+    done: false,
+    description: '',
+    isMilestone: false,
+    isSummary: false,
+    parentId: null,
+    childIds: [],
+    dependencies: [],
+    notes: '',
+    okrs: [],
+    ...overrides,
+  };
+}
+
+describe('Observer pipeline integration', () => {
+  let doc: Y.Doc;
+  let taskStore: TaskStore;
+  let cleanup: () => void;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Polyfill requestAnimationFrame for jsdom
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      (cb: FrameRequestCallback) => setTimeout(() => cb(performance.now()), 16) as unknown as number
+    );
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+    vi.stubGlobal('requestIdleCallback', (cb: IdleRequestCallback) =>
+      setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline), 16)
+    );
+
+    doc = new Y.Doc();
+    taskStore = new TaskStore();
+    getDocMaps(doc);
+
+    cleanup = setupObserver(doc, taskStore, {
+      criticalPathScope: { type: 'project', name: 'Alpha' },
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('local mutation -> immediate store update', () => {
+    const task = makeTask('t1');
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 't1', task);
+    }, ORIGIN.LOCAL);
+
+    // Should be available immediately (same tick)
+    const stored = taskStore.getTask('t1');
+    expect(stored).toBeDefined();
+    expect(stored!.id).toBe('t1');
+    expect(stored!.name).toBe('Task t1');
+  });
+
+  it('remote mutation -> batched via RAF', () => {
+    const task = makeTask('t2');
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+
+    // Simulate a WebSocket provider origin (object with 'ws' property)
+    const fakeProvider = { ws: {} };
+
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 't2', task);
+    }, fakeProvider);
+
+    // Should NOT be available immediately (batched)
+    expect(taskStore.getTask('t2')).toBeUndefined();
+
+    // After RAF fires (16ms)
+    vi.advanceTimersByTime(16);
+    const stored = taskStore.getTask('t2');
+    expect(stored).toBeDefined();
+    expect(stored!.id).toBe('t2');
+  });
+
+  it('sheets mutation -> immediate, no cold derivations', async () => {
+    const { computeCriticalPathScoped } = await import('../../utils/schedulerWasm');
+    const cpMock = vi.mocked(computeCriticalPathScoped);
+    cpMock.mockClear();
+
+    const task = makeTask('t3');
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 't3', task);
+    }, ORIGIN.SHEETS);
+
+    // Should be available immediately
+    expect(taskStore.getTask('t3')).toBeDefined();
+
+    // Cold derivations should NOT be scheduled (no computeCriticalPathScoped call)
+    vi.advanceTimersByTime(100);
+    expect(cpMock).not.toHaveBeenCalled();
+  });
+
+  it('delete propagates', () => {
+    const task = makeTask('t4');
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+
+    // Add task locally first
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 't4', task);
+    }, ORIGIN.LOCAL);
+    expect(taskStore.getTask('t4')).toBeDefined();
+
+    // Delete it
+    doc.transact(() => {
+      ytasks.delete('t4');
+    }, ORIGIN.LOCAL);
+    expect(taskStore.getTask('t4')).toBeUndefined();
+  });
+
+  it('multiple remote changes batch correctly', () => {
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+
+    // Simulate a WebSocket provider origin (object with 'ws' property)
+    const fakeProvider = { ws: {} };
+
+    // Add 3 tasks in separate remote transactions (provider origin)
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 'r1', makeTask('r1'));
+    }, fakeProvider);
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 'r2', makeTask('r2'));
+    }, fakeProvider);
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 'r3', makeTask('r3'));
+    }, fakeProvider);
+
+    // None available yet (batched via RAF)
+    expect(taskStore.getTask('r1')).toBeUndefined();
+    expect(taskStore.getTask('r2')).toBeUndefined();
+    expect(taskStore.getTask('r3')).toBeUndefined();
+
+    // After one RAF, all 3 appear
+    vi.advanceTimersByTime(16);
+    expect(taskStore.getTask('r1')).toBeDefined();
+    expect(taskStore.getTask('r2')).toBeDefined();
+    expect(taskStore.getTask('r3')).toBeDefined();
+  });
+
+  it('undo origin marks transaction with UndoManager instance', () => {
+    const ytasks = doc.getMap('tasks') as Y.Map<Y.Map<unknown>>;
+    const undoManager = new Y.UndoManager(ytasks, { trackedOrigins: TRACKED_ORIGINS });
+
+    // Track transaction origins
+    const origins: unknown[] = [];
+    doc.on('afterTransaction', (txn: Y.Transaction) => {
+      origins.push(txn.origin);
+    });
+
+    // Make a local edit
+    doc.transact(() => {
+      writeTaskToDoc(ytasks, 'u1', makeTask('u1'));
+    }, ORIGIN.LOCAL);
+
+    origins.length = 0; // Clear previous origins
+
+    // Undo it
+    undoManager.undo();
+
+    // The undo transaction's origin should be the UndoManager instance
+    expect(origins.length).toBeGreaterThan(0);
+    expect(origins[0]).toBe(undoManager);
+  });
+});

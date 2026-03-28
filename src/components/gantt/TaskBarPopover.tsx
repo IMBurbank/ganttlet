@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { useTask, useMutate } from '../../hooks';
 import type { Task } from '../../types';
-import { businessDaysDelta, taskEndDate, taskDuration, isWeekendDate } from '../../utils/dateUtils';
+import { taskEndDate, taskDuration, isWeekendDate } from '../../utils/dateUtils';
 import { validateEndDate } from '../../utils/taskFieldValidation';
 
 const CONSTRAINT_LABELS: Record<NonNullable<Task['constraintType']>, string> = {
@@ -26,17 +26,24 @@ interface TaskBarPopoverProps {
 }
 
 export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPopoverProps) {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
+  const task = useTask(taskId);
+  const mutate = useMutate();
   const popoverRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const task = state.tasks.find((t) => t.id === taskId);
 
-  const [name, setName] = useState(task?.name ?? '');
-  const [startDate, setStartDate] = useState(task?.startDate ?? '');
-  const [endDate, setEndDate] = useState(task?.endDate ?? '');
-  const [owner, setOwner] = useState(task?.owner ?? '');
+  // Touched-field tracking: untouched fields sync from store, touched keep user's value
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+  const [localName, setLocalName] = useState(task?.name ?? '');
+  const [localStartDate, setLocalStartDate] = useState(task?.startDate ?? '');
+  const [localEndDate, setLocalEndDate] = useState(task?.endDate ?? '');
+  const [localOwner, setLocalOwner] = useState(task?.owner ?? '');
   const [dateError, setDateError] = useState<string | null>(null);
+
+  // Effective values: touched fields use local, untouched sync from store
+  const name = touched.has('name') ? localName : (task?.name ?? '');
+  const startDate = touched.has('startDate') ? localStartDate : (task?.startDate ?? '');
+  const endDate = touched.has('endDate') ? localEndDate : (task?.endDate ?? '');
+  const owner = touched.has('owner') ? localOwner : (task?.owner ?? '');
 
   useEffect(() => {
     nameInputRef.current?.focus();
@@ -73,29 +80,16 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
     if (value === oldValue) return;
 
     if (field === 'startDate') {
-      // Only check weekend — skip ordering check since endDate is recalculated below
       if (isWeekendDate(value)) {
         setDateError('Start date cannot be a weekend');
         return;
       }
       setDateError(null);
       const newEndDate = taskEndDate(value, task!.duration);
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'startDate', value });
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value: newEndDate });
-      setEndDate(newEndDate);
-      dispatch({
-        type: 'ADD_CHANGE_RECORD',
-        taskId,
-        taskName: task!.name,
-        field: 'startDate',
-        oldValue,
-        newValue: value,
-        user: 'You',
-      });
-      const delta = businessDaysDelta(oldValue, value);
-      if (delta !== 0) {
-        dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: delta });
-      }
+      // Move task: updates start + end + cascades dependents
+      mutate({ type: 'MOVE_TASK', taskId, newStart: value, newEnd: newEndDate });
+      setLocalEndDate(newEndDate);
+      setTouched((prev) => new Set(prev).add('endDate'));
     } else if (field === 'endDate') {
       const error = validateEndDate(task!.startDate, value);
       if (error) {
@@ -103,41 +97,19 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         return;
       }
       setDateError(null);
-      const newDuration = taskDuration(task!.startDate, value);
-      if (newDuration < 1) return;
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'endDate', value });
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field: 'duration', value: newDuration });
-      dispatch({
-        type: 'ADD_CHANGE_RECORD',
-        taskId,
-        taskName: task!.name,
-        field: 'endDate',
-        oldValue,
-        newValue: value,
-        user: 'You',
-      });
-      const endDelta = businessDaysDelta(oldValue, value);
-      if (endDelta !== 0) {
-        dispatch({ type: 'CASCADE_DEPENDENTS', taskId, daysDelta: endDelta });
-      }
+      // Resize task: updates end + cascades dependents
+      mutate({ type: 'RESIZE_TASK', taskId, newEnd: value });
     } else {
       setDateError(null);
-      dispatch({ type: 'UPDATE_TASK_FIELD', taskId, field, value });
-      dispatch({
-        type: 'ADD_CHANGE_RECORD',
-        taskId,
-        taskName: task!.name,
-        field,
-        oldValue,
-        newValue: value,
-        user: 'You',
-      });
+      mutate({ type: 'UPDATE_FIELD', taskId, field, value });
     }
   }
 
   // Position popover so it doesn't overflow viewport
   const top = Math.min(position.y, window.innerHeight - 280);
   const left = Math.min(position.x, window.innerWidth - 260);
+
+  const duration = taskDuration(task.startDate, task.endDate);
 
   const popover = (
     <div
@@ -168,7 +140,10 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             ref={nameInputRef}
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setLocalName(e.target.value);
+              setTouched((prev) => new Set(prev).add('name'));
+            }}
             onBlur={() => saveField('name', name)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -189,7 +164,8 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
               type="date"
               value={startDate}
               onChange={(e) => {
-                setStartDate(e.target.value);
+                setLocalStartDate(e.target.value);
+                setTouched((prev) => new Set(prev).add('startDate'));
                 saveField('startDate', e.target.value);
               }}
               className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
@@ -207,7 +183,8 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
               type="date"
               value={endDate}
               onChange={(e) => {
-                setEndDate(e.target.value);
+                setLocalEndDate(e.target.value);
+                setTouched((prev) => new Set(prev).add('endDate'));
                 saveField('endDate', e.target.value);
               }}
               className="w-full bg-surface-overlay border border-border-strong rounded px-2 py-1 text-text-primary text-xs focus:outline-none focus:border-blue-500"
@@ -217,7 +194,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
         {dateError && <span className="text-[10px] text-red-400">{dateError}</span>}
         <div>
           <label className="text-[10px] text-text-muted uppercase">Duration</label>
-          <span className="block text-xs text-text-secondary px-2 py-1">{task.duration}d</span>
+          <span className="block text-xs text-text-secondary px-2 py-1">{duration}d</span>
         </div>
         <div>
           <label
@@ -230,7 +207,10 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             id={`popover-owner-${taskId}`}
             type="text"
             value={owner}
-            onChange={(e) => setOwner(e.target.value)}
+            onChange={(e) => {
+              setLocalOwner(e.target.value);
+              setTouched((prev) => new Set(prev).add('owner'));
+            }}
             onBlur={() => saveField('owner', owner)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -250,7 +230,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
             value={task.constraintType ?? 'ASAP'}
             onChange={(e) => {
               const ct = e.target.value as NonNullable<Task['constraintType']>;
-              dispatch({
+              mutate({
                 type: 'SET_CONSTRAINT',
                 taskId,
                 constraintType: ct,
@@ -286,7 +266,7 @@ export default function TaskBarPopover({ taskId, position, onClose }: TaskBarPop
                   return;
                 }
                 setDateError(null);
-                dispatch({
+                mutate({
                   type: 'SET_CONSTRAINT',
                   taskId,
                   constraintType: task.constraintType!,

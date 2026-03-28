@@ -1,17 +1,19 @@
-import React, { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useContext, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
-import { getHierarchyRole, getAllDescendantIds, generatePrefixedId } from '../../utils/hierarchyUtils';
+import { useUIStore, useMutate, useAllTasks } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
+import { getHierarchyRole, getAllDescendantIds } from '../../utils/hierarchyUtils';
 import { checkMoveConflicts } from '../../utils/dependencyValidation';
 
 export default function ReparentPickerModal() {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
-  const picker = state.reparentPicker;
+  const picker = useUIStore((s) => s.reparentPicker);
+  const uiStore = useContext(UIStoreContext)!;
+  const mutate = useMutate();
+  const allTasks = useAllTasks();
 
   const close = useCallback(() => {
-    dispatch({ type: 'SET_REPARENT_PICKER', picker: null });
-  }, [dispatch]);
+    uiStore.setState({ reparentPicker: null });
+  }, [uiStore]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -21,10 +23,7 @@ export default function ReparentPickerModal() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [close]);
 
-  const taskMap = useMemo(
-    () => new Map(state.tasks.map(t => [t.id, t])),
-    [state.tasks]
-  );
+  const taskMap = useMemo(() => new Map(allTasks.map((t) => [t.id, t])), [allTasks]);
 
   if (!picker) return null;
 
@@ -33,9 +32,8 @@ export default function ReparentPickerModal() {
 
   const descendantIds = getAllDescendantIds(task.id, taskMap);
 
-  // Valid targets: summary tasks (projects/workstreams) that aren't the task itself,
-  // its current parent, or its descendants
-  const validTargets = state.tasks.filter(t => {
+  // Valid targets: summary tasks that aren't the task itself, its current parent, or its descendants
+  const validTargets = allTasks.filter((t) => {
     if (!t.isSummary) return false;
     if (t.id === task.id) return false;
     if (t.id === task.parentId) return false;
@@ -44,35 +42,34 @@ export default function ReparentPickerModal() {
   });
 
   function handleSelect(targetId: string) {
-    const target = taskMap.get(targetId);
-    if (!target) return;
-
-    const conflicts = checkMoveConflicts(state.tasks, task!.id, targetId);
+    const conflicts = checkMoveConflicts(allTasks, task!.id, targetId);
     if (conflicts.length > 0) {
-      // Don't move — conflicts exist. Could show a warning, but for now just reject.
       return;
     }
 
-    const newId = generatePrefixedId(target, state.tasks);
-    dispatch({ type: 'REPARENT_TASK', taskId: task!.id, newParentId: targetId, newId });
+    mutate({ type: 'REPARENT_TASK', taskId: task!.id, newParentId: targetId });
     close();
   }
 
   const modal = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={(e) => { if (e.target === e.currentTarget) close(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0" style={{ backgroundColor: 'var(--raw-backdrop)' }} onClick={close} />
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: 'var(--raw-backdrop)' }}
+        onClick={close}
+      />
 
       {/* Modal content */}
       <div className="relative bg-surface-raised border border-border-default rounded-lg shadow-xl w-[400px] max-h-[60vh] flex flex-col fade-in">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-default">
-          <h2 className="text-sm font-semibold text-text-primary">
-            Move "{task.name}" to...
-          </h2>
+          <h2 className="text-sm font-semibold text-text-primary">Move "{task.name}" to...</h2>
           <button
             onClick={close}
             className="text-text-secondary hover:text-text-primary transition-colors text-lg leading-none cursor-pointer"
@@ -87,9 +84,9 @@ export default function ReparentPickerModal() {
             <p className="text-text-muted text-sm">No valid targets available.</p>
           ) : (
             <div className="space-y-1">
-              {validTargets.map(target => {
+              {validTargets.map((target) => {
                 const role = getHierarchyRole(target, taskMap);
-                const conflicts = checkMoveConflicts(state.tasks, task!.id, target.id);
+                const conflicts = checkMoveConflicts(allTasks, task!.id, target.id);
                 const hasConflicts = conflicts.length > 0;
 
                 return (
@@ -104,14 +101,14 @@ export default function ReparentPickerModal() {
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] uppercase text-text-muted font-medium w-16">{role}</span>
+                      <span className="text-[10px] uppercase text-text-muted font-medium w-16">
+                        {role}
+                      </span>
                       <span className="font-mono text-text-muted">{target.id}</span>
                       <span className="truncate">{target.name}</span>
                     </div>
                     {hasConflicts && (
-                      <div className="mt-1 text-[10px] text-amber-400">
-                        {conflicts[0].reason}
-                      </div>
+                      <div className="mt-1 text-[10px] text-amber-400">{conflicts[0].reason}</div>
                     )}
                   </button>
                 );

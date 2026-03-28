@@ -1,21 +1,20 @@
-import React from 'react';
-import { useGanttState } from '../../state/GanttContext';
 import Avatar from '../shared/Avatar';
 import Tooltip from '../shared/Tooltip';
+import { useCollab } from '../../hooks/useCollab';
 
 export default function UserPresence() {
-  const { collabUsers, isCollabConnected } = useGanttState();
+  const { collabUsers, isCollabConnected } = useCollab();
 
-  if (!(isCollabConnected && collabUsers.length > 0)) {
+  if (!isCollabConnected || collabUsers.length === 0) {
     return null;
   }
 
   return (
     <div className="flex items-center -space-x-2">
-      {collabUsers.map(user => {
+      {collabUsers.map((user) => {
         const initials = user.name
           .split(' ')
-          .map(part => part[0])
+          .map((part) => part[0])
           .join('')
           .toUpperCase()
           .slice(0, 2);
@@ -35,12 +34,7 @@ export default function UserPresence() {
               </div>
             }
           >
-            <Avatar
-              initials={initials || '?'}
-              color={user.color}
-              size={28}
-              isOnline={true}
-            />
+            <Avatar initials={initials || '?'} color={user.color} size={28} isOnline={true} />
           </Tooltip>
         );
       })}

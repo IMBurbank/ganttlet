@@ -1,7 +1,12 @@
 import React from 'react';
 import type { ZoomLevel } from '../../types';
-import { useGanttState } from '../../state/GanttContext';
-import { getTimelineDays, getTimelineDaysFiltered, isWeekendDay, getColumnWidth } from '../../utils/dateUtils';
+import { useUIStore } from '../../hooks';
+import {
+  getTimelineDays,
+  getTimelineDaysFiltered,
+  isWeekendDay,
+  getColumnWidth,
+} from '../../utils/dateUtils';
 
 interface GridLinesProps {
   timelineStart: Date;
@@ -10,12 +15,18 @@ interface GridLinesProps {
   totalHeight: number;
 }
 
-export default function GridLines({ timelineStart, timelineEnd, zoom, totalHeight }: GridLinesProps) {
+export default function GridLines({
+  timelineStart,
+  timelineEnd,
+  zoom,
+  totalHeight,
+}: GridLinesProps) {
   const colWidth = getColumnWidth(zoom);
-  const { collapseWeekends } = useGanttState();
-  const days = zoom === 'day' && collapseWeekends
-    ? getTimelineDaysFiltered(timelineStart, timelineEnd, true)
-    : getTimelineDays(timelineStart, timelineEnd);
+  const collapseWeekends = useUIStore((s) => s.collapseWeekends);
+  const days =
+    zoom === 'day' && collapseWeekends
+      ? getTimelineDaysFiltered(timelineStart, timelineEnd, true)
+      : getTimelineDays(timelineStart, timelineEnd);
 
   if (zoom === 'day') {
     return (
@@ -26,9 +37,22 @@ export default function GridLines({ timelineStart, timelineEnd, zoom, totalHeigh
           return (
             <React.Fragment key={i}>
               {!collapseWeekends && weekend && (
-                <rect x={x} y={0} width={colWidth} height={totalHeight} fill="var(--raw-grid-weekend)" />
+                <rect
+                  x={x}
+                  y={0}
+                  width={colWidth}
+                  height={totalHeight}
+                  fill="var(--raw-grid-weekend)"
+                />
               )}
-              <line x1={x} y1={0} x2={x} y2={totalHeight} stroke="var(--raw-grid-line)" strokeWidth={1} />
+              <line
+                x1={x}
+                y1={0}
+                x2={x}
+                y2={totalHeight}
+                stroke="var(--raw-grid-line)"
+                strokeWidth={1}
+              />
             </React.Fragment>
           );
         })}
@@ -42,7 +66,15 @@ export default function GridLines({ timelineStart, timelineEnd, zoom, totalHeigh
       {Array.from({ length: count + 1 }, (_, i) => {
         const x = i * colWidth;
         return (
-          <line key={i} x1={x} y1={0} x2={x} y2={totalHeight} stroke="var(--raw-grid-line)" strokeWidth={1} />
+          <line
+            key={i}
+            x1={x}
+            y1={0}
+            x2={x}
+            y2={totalHeight}
+            stroke="var(--raw-grid-line)"
+            strokeWidth={1}
+          />
         );
       })}
     </g>

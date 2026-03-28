@@ -60,6 +60,35 @@ test.describe('Collaboration E2E @collab', () => {
     });
   });
 
+  test('table row hover broadcasts awareness to collaborator @slow', async ({ collabPair }) => {
+    await test.step('hover first task row on page A', async () => {
+      // Hover the first editable cell in the task table to trigger awareness broadcast
+      await collabPair.pageA.editableCells.first().hover();
+    });
+
+    await test.step('verify presence border appears on page B', async () => {
+      // When peer A hovers a task row, peer B should see a colored left border
+      // on the same row (3px solid <color> from TaskRow's viewer prop).
+      await expect(async () => {
+        // The row gets a non-transparent border-left when a viewer is present
+        const rows = collabPair.pageB.page.locator('.flex.items-center.h-11');
+        const count = await rows.count();
+        let foundViewedRow = false;
+        for (let i = 0; i < count; i++) {
+          const borderLeft = await rows
+            .nth(i)
+            .evaluate((el) => getComputedStyle(el).borderLeftColor);
+          // A viewed row has a non-transparent, non-default border color
+          if (borderLeft && borderLeft !== 'transparent' && borderLeft !== 'rgba(0, 0, 0, 0)') {
+            foundViewedRow = true;
+            break;
+          }
+        }
+        expect(foundViewedRow).toBe(true);
+      }).toPass({ timeout: 15_000 });
+    });
+  });
+
   test('conflict indicator visible to collaborators @slow', async ({ collabPair }) => {
     await test.step('set MSO with past date on page A', async () => {
       const popover = await collabPair.pageA.openPopover(0);

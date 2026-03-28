@@ -1,0 +1,101 @@
+# Phase 20: Frontend Redesign — Complete Architecture Overhaul
+# Design: docs/plans/frontend-redesign.md
+# Prerequisite: Phase 19 merged to main
+#
+# 10 groups across 7 stages. Each stage gate-checks before the next starts.
+# Delivers: new state architecture + Sheets sync + performance + undo + docs.
+
+phase: phase20
+merge_target: feature/phase20
+
+stages:
+  - name: "Stage 1: Foundation — Store classes + Y.Doc schema + mutations (parallel — 2 agents)"
+    groups:
+      - id: groupA
+        branch: feature/phase20-stores
+        merge_message: "Merge feature/phase20-stores: TaskStore with per-task O(1) subscriptions, UIStore, hooks, MutateAction type"
+      - id: groupB
+        branch: feature/phase20-mutations
+        merge_message: "Merge feature/phase20-mutations: Y.Doc schema (Y.Map<Y.Map>), mutation functions, yMapToTask/taskToYMap"
+
+  - name: "Stage 2: Bridge — Observation handler + providers (single agent)"
+    groups:
+      - id: groupC
+        branch: feature/phase20-observer
+        merge_message: "Merge feature/phase20-observer: observation handler, Y.Doc init, TaskStoreProvider + MutateContext wiring, UIStoreProvider + effects"
+
+  - name: "Stage 3: Migration — Components to new hooks (parallel — 2 agents)"
+    merge_order: [groupD, groupE]
+    groups:
+      - id: groupD
+        branch: feature/phase20-migrate-gantt
+        merge_message: "Merge feature/phase20-migrate-gantt: 15 gantt/table/layout components migrated to new hooks + mutation API"
+      - id: groupE
+        branch: feature/phase20-migrate-onboarding
+        merge_message: "Merge feature/phase20-migrate-onboarding: onboarding + shared components migrated, old architecture deleted"
+
+  - name: "Stage 4: Sheets Adapter — Bidirectional sync + conflict resolution (single agent)"
+    groups:
+      - id: groupF
+        branch: feature/phase20-sheets-adapter
+        merge_message: "Merge feature/phase20-sheets-adapter: SheetsAdapter class, three-way merge, conflict UI, attribution columns, base values in IndexedDB"
+
+  - name: "Stage 5: Performance — SVG virtualization + drag (parallel — 2 agents)"
+    groups:
+      - id: groupG
+        branch: feature/phase20-virtualization
+        merge_message: "Merge feature/phase20-virtualization: SVG viewport virtualization for task bars + dependency arrows, React Compiler config"
+      - id: groupH
+        branch: feature/phase20-drag-perf
+        merge_message: "Merge feature/phase20-drag-perf: Pointer Events API, CSS transforms during drag, commit-on-drop pattern"
+
+  - name: "Stage 6: Undo + Error Recovery (single agent)"
+    groups:
+      - id: groupI
+        branch: feature/phase20-undo-recovery
+        merge_message: "Merge feature/phase20-undo-recovery: Y.UndoManager (per-client), y-indexeddb, error boundaries, pre-write validation"
+
+  - name: "Stage 7: Documentation (single agent)"
+    groups:
+      - id: groupJ
+        branch: feature/phase20-docs
+        merge_message: "Merge feature/phase20-docs: all CLAUDE.md, skills, agents, architecture.md, TASKS.md, inline comments updated"
+
+pr:
+  title: "Phase 20: Frontend Redesign — Y.Doc architecture, Sheets sync, performance, undo"
+  summary: |
+    Complete frontend redesign from first principles:
+
+    Architecture (Stages 1-3):
+    - Y.Doc as live session state (Y.Map<Y.Map>, O(1) lookup, stable UUIDs)
+    - TaskStore with per-task event emitter (true O(1) subscriptions)
+    - UIStore for display/panel state
+    - Mutation functions write to Y.Doc directly (compute-first, atomic)
+    - Observation handler: incremental, origin-aware (local sync / remote batched / sheets no-cascade)
+    - All components migrated. Old reducer/context/yjsBinding deleted.
+
+    Sheets Sync (Stage 4):
+    - SheetsAdapter class: bidirectional Y.Doc ↔ Sheets
+    - Three-way merge conflict resolution (AppSheet model)
+    - lastModifiedBy/lastModifiedAt attribution columns
+
+    Performance (Stage 5):
+    - SVG viewport virtualization (1000 tasks at 60fps)
+    - Pointer Events + CSS transforms for drag (zero React re-renders)
+    - React Compiler enabled
+
+    Reliability (Stage 6):
+    - Y.UndoManager: per-client scoped undo (fixes collab undo bug)
+    - y-indexeddb: crash recovery
+    - Error boundaries per panel
+
+    Documentation (Stage 7):
+    - All CLAUDE.md, skills, agents, docs updated for new architecture
+  test_plan: |
+    - [ ] `npx tsc --noEmit` passes
+    - [ ] `npx vitest run` — all tests pass
+    - [ ] `npx playwright test` — all 29 local E2E tests pass
+    - [ ] E2E cloud: `gh workflow run e2e.yml --ref feature/phase20 -f force=true`
+    - [ ] Demo: sandbox edit, sheet sync, collab, drag at 1000 tasks
+    - [ ] Zero stale architecture references
+    - [ ] `./scripts/full-verify.sh` passes

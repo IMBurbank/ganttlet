@@ -12,7 +12,6 @@ describe('Template data validation', () => {
     expect(blank).toBeDefined();
     const data = await blank.load();
     expect(data.tasks).toEqual([]);
-    expect(data.changeHistory).toEqual([]);
   });
 
   for (const template of nonBlankTemplates) {
@@ -98,12 +97,12 @@ describe('Template data validation', () => {
         }
       });
 
-      it('no UI state fields (isExpanded/isHidden set to defaults)', async () => {
+      it('no UI state fields (isExpanded/isHidden removed from Task type)', async () => {
         const { tasks } = await template.load();
         for (const task of tasks) {
-          // isExpanded and isHidden should be present but set to defaults
-          expect(typeof task.isExpanded).toBe('boolean');
-          expect(typeof task.isHidden).toBe('boolean');
+          // isExpanded and isHidden are per-user view state, not part of Task
+          expect(task).not.toHaveProperty('isExpanded');
+          expect(task).not.toHaveProperty('isHidden');
         }
       });
     });

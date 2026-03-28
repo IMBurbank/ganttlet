@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { computeCriticalPath, computeCriticalPathScoped, computeEarliestStart, wouldCreateCycle, cascadeDependents, cascadeDependentsWithIds, initScheduler } from '../schedulerWasm';
+import {
+  computeCriticalPath,
+  computeCriticalPathScoped,
+  computeEarliestStart,
+  wouldCreateCycle,
+  cascadeDependents,
+  cascadeDependentsWithIds,
+  initScheduler,
+} from '../schedulerWasm';
 import type { Task } from '../../types';
 
 beforeAll(async () => {
@@ -10,7 +18,7 @@ function makeTask(overrides: Partial<Task>): Task {
   return {
     id: 'test',
     name: 'Test',
-    startDate: '2026-03-01',
+    startDate: '2026-03-02',
     endDate: '2026-03-10',
     duration: 7,
     owner: '',
@@ -24,8 +32,6 @@ function makeTask(overrides: Partial<Task>): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: false,
-    isHidden: false,
     notes: '',
     okrs: [],
     ...overrides,
@@ -40,16 +46,14 @@ describe('criticalPathUtils', () => {
   });
 
   it('returns empty set for only summary tasks', () => {
-    const tasks: Task[] = [
-      makeTask({ id: 'summary', isSummary: true }),
-    ];
+    const tasks: Task[] = [makeTask({ id: 'summary', isSummary: true })];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds).toEqual(new Set());
   });
 
   it('standalone task is critical (determines project end)', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 9 }),
     ];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds.has('a')).toBe(true);
@@ -57,9 +61,21 @@ describe('criticalPathUtils', () => {
 
   it('identifies critical path in linear FS chain', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
-      makeTask({ id: 'b', startDate: '2026-03-10', endDate: '2026-03-19', duration: 9, dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
-      makeTask({ id: 'c', startDate: '2026-03-19', endDate: '2026-03-28', duration: 9, dependencies: [{ fromId: 'b', toId: 'c', type: 'FS', lag: 0 }] }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 9 }),
+      makeTask({
+        id: 'b',
+        startDate: '2026-03-10',
+        endDate: '2026-03-19',
+        duration: 9,
+        dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
+      }),
+      makeTask({
+        id: 'c',
+        startDate: '2026-03-19',
+        endDate: '2026-03-27',
+        duration: 9,
+        dependencies: [{ fromId: 'b', toId: 'c', type: 'FS', lag: 0 }],
+      }),
     ];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds.has('a')).toBe(true);
@@ -69,9 +85,15 @@ describe('criticalPathUtils', () => {
 
   it('identifies non-critical tasks with float', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 10 }),
-      makeTask({ id: 'b', startDate: '2026-03-11', endDate: '2026-03-20', duration: 10, dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
-      makeTask({ id: 'c', startDate: '2026-03-01', endDate: '2026-03-05', duration: 5 }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 10 }),
+      makeTask({
+        id: 'b',
+        startDate: '2026-03-11',
+        endDate: '2026-03-20',
+        duration: 10,
+        dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
+      }),
+      makeTask({ id: 'c', startDate: '2026-03-02', endDate: '2026-03-05', duration: 5 }),
     ];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds.has('a')).toBe(true);
@@ -81,8 +103,14 @@ describe('criticalPathUtils', () => {
 
   it('handles SS dependency in CPM', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 10 }),
-      makeTask({ id: 'b', startDate: '2026-03-06', endDate: '2026-03-15', duration: 10, dependencies: [{ fromId: 'a', toId: 'b', type: 'SS', lag: 5 }] }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 10 }),
+      makeTask({
+        id: 'b',
+        startDate: '2026-03-06',
+        endDate: '2026-03-16',
+        duration: 10,
+        dependencies: [{ fromId: 'a', toId: 'b', type: 'SS', lag: 5 }],
+      }),
     ];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds.has('a')).toBe(true);
@@ -91,8 +119,14 @@ describe('criticalPathUtils', () => {
 
   it('handles FF dependency in CPM', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 10 }),
-      makeTask({ id: 'b', startDate: '2026-03-01', endDate: '2026-03-10', duration: 10, dependencies: [{ fromId: 'a', toId: 'b', type: 'FF', lag: 0 }] }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 10 }),
+      makeTask({
+        id: 'b',
+        startDate: '2026-03-02',
+        endDate: '2026-03-10',
+        duration: 10,
+        dependencies: [{ fromId: 'a', toId: 'b', type: 'FF', lag: 0 }],
+      }),
     ];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds.has('a')).toBe(true);
@@ -101,8 +135,15 @@ describe('criticalPathUtils', () => {
 
   it('includes milestones on the critical path', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 10 }),
-      makeTask({ id: 'ms', startDate: '2026-03-10', endDate: '2026-03-10', duration: 0, isMilestone: true, dependencies: [{ fromId: 'a', toId: 'ms', type: 'FS', lag: 0 }] }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 10 }),
+      makeTask({
+        id: 'ms',
+        startDate: '2026-03-10',
+        endDate: '2026-03-10',
+        duration: 0,
+        isMilestone: true,
+        dependencies: [{ fromId: 'a', toId: 'ms', type: 'FS', lag: 0 }],
+      }),
     ];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds.has('a')).toBe(true);
@@ -112,8 +153,20 @@ describe('criticalPathUtils', () => {
   it('excludes summary tasks from critical path', () => {
     const tasks: Task[] = [
       makeTask({ id: 'summary', isSummary: true, childIds: ['a'] }),
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 10, parentId: 'summary' }),
-      makeTask({ id: 'b', startDate: '2026-03-11', endDate: '2026-03-20', duration: 10, dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
+      makeTask({
+        id: 'a',
+        startDate: '2026-03-02',
+        endDate: '2026-03-10',
+        duration: 10,
+        parentId: 'summary',
+      }),
+      makeTask({
+        id: 'b',
+        startDate: '2026-03-11',
+        endDate: '2026-03-20',
+        duration: 10,
+        dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
+      }),
     ];
     const result = computeCriticalPath(tasks);
     expect(result.taskIds.has('summary')).toBe(false);
@@ -123,9 +176,29 @@ describe('criticalPathUtils', () => {
 
   it('scoped critical path highlights full chain within a project', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a1', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9, project: 'Alpha' }),
-      makeTask({ id: 'a2', startDate: '2026-03-10', endDate: '2026-03-19', duration: 9, project: 'Alpha', dependencies: [{ fromId: 'a1', toId: 'a2', type: 'FS', lag: 0 }] }),
-      makeTask({ id: 'a3', startDate: '2026-03-19', endDate: '2026-03-28', duration: 9, project: 'Alpha', dependencies: [{ fromId: 'a2', toId: 'a3', type: 'FS', lag: 0 }] }),
+      makeTask({
+        id: 'a1',
+        startDate: '2026-03-02',
+        endDate: '2026-03-10',
+        duration: 9,
+        project: 'Alpha',
+      }),
+      makeTask({
+        id: 'a2',
+        startDate: '2026-03-10',
+        endDate: '2026-03-19',
+        duration: 9,
+        project: 'Alpha',
+        dependencies: [{ fromId: 'a1', toId: 'a2', type: 'FS', lag: 0 }],
+      }),
+      makeTask({
+        id: 'a3',
+        startDate: '2026-03-19',
+        endDate: '2026-03-27',
+        duration: 9,
+        project: 'Alpha',
+        dependencies: [{ fromId: 'a2', toId: 'a3', type: 'FS', lag: 0 }],
+      }),
     ];
     const result = computeCriticalPathScoped(tasks, { type: 'project', name: 'Alpha' });
     expect(result.taskIds.has('a1')).toBe(true);
@@ -135,8 +208,23 @@ describe('criticalPathUtils', () => {
 
   it('scoped workstream critical path does not crash and returns results', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'e1', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9, project: 'Alpha', workStream: 'Engineering' }),
-      makeTask({ id: 'e2', startDate: '2026-03-10', endDate: '2026-03-19', duration: 9, project: 'Alpha', workStream: 'Engineering', dependencies: [{ fromId: 'e1', toId: 'e2', type: 'FS', lag: 0 }] }),
+      makeTask({
+        id: 'e1',
+        startDate: '2026-03-02',
+        endDate: '2026-03-10',
+        duration: 9,
+        project: 'Alpha',
+        workStream: 'Engineering',
+      }),
+      makeTask({
+        id: 'e2',
+        startDate: '2026-03-10',
+        endDate: '2026-03-19',
+        duration: 9,
+        project: 'Alpha',
+        workStream: 'Engineering',
+        dependencies: [{ fromId: 'e1', toId: 'e2', type: 'FS', lag: 0 }],
+      }),
     ];
     const result = computeCriticalPathScoped(tasks, { type: 'workstream', name: 'Engineering' });
     expect(result.taskIds.has('e1')).toBe(true);
@@ -147,7 +235,7 @@ describe('criticalPathUtils', () => {
 describe('WASM wrapper safety', () => {
   it('computeEarliestStart returns null for nonexistent task', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 9 }),
     ];
     const result = computeEarliestStart(tasks, 'nonexistent');
     expect(result).toBeNull();
@@ -155,8 +243,14 @@ describe('WASM wrapper safety', () => {
 
   it('wouldCreateCycle returns boolean for valid tasks', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
-      makeTask({ id: 'b', startDate: '2026-03-10', endDate: '2026-03-19', duration: 9, dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }] }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 9 }),
+      makeTask({
+        id: 'b',
+        startDate: '2026-03-10',
+        endDate: '2026-03-19',
+        duration: 9,
+        dependencies: [{ fromId: 'a', toId: 'b', type: 'FS', lag: 0 }],
+      }),
     ];
     expect(wouldCreateCycle(tasks, 'a', 'b')).toBe(true);
     expect(wouldCreateCycle(tasks, 'b', 'a')).toBe(false);
@@ -164,7 +258,7 @@ describe('WASM wrapper safety', () => {
 
   it('cascadeDependents returns original tasks when no cascade needed', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 9 }),
     ];
     const result = cascadeDependents(tasks, 'a', 3);
     expect(result).toHaveLength(1);
@@ -173,7 +267,7 @@ describe('WASM wrapper safety', () => {
 
   it('cascadeDependentsWithIds returns empty changedIds when no dependents', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9 }),
+      makeTask({ id: 'a', startDate: '2026-03-02', endDate: '2026-03-10', duration: 9 }),
     ];
     const result = cascadeDependentsWithIds(tasks, 'a', 3);
     expect(result.changedIds).toEqual([]);
@@ -182,7 +276,13 @@ describe('WASM wrapper safety', () => {
 
   it('computeCriticalPathScoped returns empty set for nonexistent scope', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'a', startDate: '2026-03-01', endDate: '2026-03-10', duration: 9, project: 'Alpha' }),
+      makeTask({
+        id: 'a',
+        startDate: '2026-03-02',
+        endDate: '2026-03-10',
+        duration: 9,
+        project: 'Alpha',
+      }),
     ];
     const result = computeCriticalPathScoped(tasks, { type: 'project', name: 'NonExistent' });
     expect(result.taskIds.size).toBe(0);

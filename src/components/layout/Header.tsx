@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { useState, useEffect, useCallback, useRef, useContext, lazy, Suspense } from 'react';
+import { useUIStore, useMutate } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
+import { navigateToSheet } from '../../utils/navigation';
 import UserPresence from '../panels/UserPresence';
 import SyncStatus from '../onboarding/SyncStatus';
 import ErrorBanner from '../onboarding/ErrorBanner';
@@ -13,15 +15,16 @@ import {
   removeAuthChangeCallback,
   type AuthState,
 } from '../../sheets/oauth';
-import { stopPolling } from '../../sheets/sheetsSync';
 import { disconnectCollab } from '../../collab/yjsProvider';
 
 const SheetSelector = lazy(() => import('../onboarding/SheetSelector'));
 const TemplatePicker = lazy(() => import('../onboarding/TemplatePicker'));
 
 export default function Header() {
-  const { isHistoryPanelOpen, theme, dataSource } = useGanttState();
-  const dispatch = useGanttDispatch();
+  const theme = useUIStore((s) => s.theme);
+  const dataSource = useUIStore((s) => s.dataSource);
+  const uiStore = useContext(UIStoreContext)!;
+  const mutate = useMutate();
   const [auth, setAuth] = useState<AuthState>(getAuthState());
 
   useEffect(() => {
@@ -75,10 +78,15 @@ export default function Header() {
     if (sheetId && !url.searchParams.has('room')) {
       url.searchParams.set('room', sheetId);
     }
-    navigator.clipboard.writeText(url.toString()).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
-    });
+    navigator.clipboard
+      .writeText(url.toString())
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      })
+      .catch(() => {
+        // Clipboard API may fail in insecure contexts or if permission denied
+      });
   }, [sheetId]);
 
   const handleSignIn = useCallback(() => signIn(), []);
@@ -92,8 +100,7 @@ export default function Header() {
   }, [sheetId]);
 
   const handleSwitchSheet = useCallback(() => {
-    // Teardown current connection first
-    stopPolling();
+    // Teardown current connection first (SheetsAdapter cleanup handled by React unmount)
     disconnectCollab();
     setDropdownOpen(false);
     setShowSheetSelector(true);
@@ -106,10 +113,10 @@ export default function Header() {
       url.searchParams.set('sheet', newSheetId);
       url.searchParams.set('room', newSheetId);
       window.history.replaceState({}, '', url.toString());
-      dispatch({ type: 'SET_DATA_SOURCE', dataSource: 'loading' });
+      uiStore.setState({ dataSource: 'loading' });
       window.location.reload();
     },
-    [dispatch]
+    [uiStore]
   );
 
   const handleCreateNew = useCallback(() => {
@@ -125,12 +132,11 @@ export default function Header() {
     url.searchParams.delete('sheet');
     url.searchParams.delete('room');
     window.history.replaceState({}, '', url.toString());
-    // Teardown
-    stopPolling();
+    // Teardown (SheetsAdapter cleanup handled by React unmount)
     disconnectCollab();
-    // Reset state — auth persists in localStorage
-    dispatch({ type: 'RESET_STATE' });
-  }, [dispatch]);
+    // Reset UI state
+    uiStore.setState({ dataSource: undefined });
+  }, [uiStore]);
 
   const shareToast = copied
     ? 'Link copied. Anyone with access to the Google Sheet can collaborate.'
@@ -308,9 +314,7 @@ export default function Header() {
           )}
           {/* Theme toggle */}
           <button
-            onClick={() =>
-              dispatch({ type: 'SET_THEME', theme: theme === 'dark' ? 'light' : 'dark' })
-            }
+            onClick={() => uiStore.setState({ theme: theme === 'dark' ? 'light' : 'dark' })}
             className="flex items-center justify-center w-8 h-8 rounded text-text-secondary hover:text-text-primary hover:bg-surface-overlay transition-colors"
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
@@ -349,29 +353,6 @@ export default function Header() {
                 <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
               </svg>
             )}
-          </button>
-          <button
-            onClick={() => dispatch({ type: 'TOGGLE_HISTORY_PANEL' })}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-              isHistoryPanelOpen
-                ? 'bg-blue-600 text-white'
-                : 'text-text-secondary hover:text-text-primary hover:bg-surface-overlay'
-            }`}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            History
           </button>
         </div>
       </header>
@@ -421,10 +402,16 @@ export default function Header() {
           <TemplatePicker
             onSelect={(templateId) => {
               setShowTemplatePicker(false);
-              // Import and call createProjectFromTemplate
-              import('../../sheets/sheetCreation').then(({ createProjectFromTemplate }) => {
-                createProjectFromTemplate(`Ganttlet Project`, templateId, dispatch);
-              });
+              import('../../sheets/sheetCreation')
+                .then(async ({ createProjectFromTemplate }) => {
+                  const spreadsheetId = await createProjectFromTemplate(
+                    `Ganttlet Project`,
+                    templateId,
+                    mutate
+                  );
+                  navigateToSheet(spreadsheetId, uiStore);
+                })
+                .catch((e) => console.warn('Template creation failed:', e));
             }}
             onClose={() => setShowTemplatePicker(false)}
           />

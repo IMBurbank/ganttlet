@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useGanttState, useGanttDispatch } from '../../state/GanttContext';
+import { useState, useRef, useEffect, useMemo, useContext } from 'react';
+import { useUIStore, useMutate, useAllTasks, useTaskOrder } from '../../hooks';
+import { UIStoreContext } from '../../store/UIStore';
 import type { ColorByField, ZoomLevel } from '../../types';
 import { getPaletteEntries } from '../../data/colorPalettes';
 import UndoRedoButtons from '../shared/UndoRedoButtons';
@@ -18,8 +19,22 @@ const zoomOptions: { value: ZoomLevel; label: string }[] = [
 ];
 
 export default function Toolbar() {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
+  const colorBy = useUIStore((s) => s.colorBy);
+  const zoomLevel = useUIStore((s) => s.zoomLevel);
+  const collapseWeekends = useUIStore((s) => s.collapseWeekends);
+  const showOwnerOnBar = useUIStore((s) => s.showOwnerOnBar);
+  const showAreaOnBar = useUIStore((s) => s.showAreaOnBar);
+  const showOkrsOnBar = useUIStore((s) => s.showOkrsOnBar);
+  const showCriticalPath = useUIStore((s) => s.showCriticalPath);
+  const criticalPathScope = useUIStore((s) => s.criticalPathScope);
+  const searchQuery = useUIStore((s) => s.searchQuery);
+  const columns = useUIStore((s) => s.columns);
+
+  const uiStore = useContext(UIStoreContext)!;
+  const mutate = useMutate();
+  const allTasks = useAllTasks();
+  const taskOrder = useTaskOrder();
+
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
   const [showCpScopeMenu, setShowCpScopeMenu] = useState(false);
@@ -43,16 +58,17 @@ export default function Toolbar() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const legendEntries = getPaletteEntries(state.colorBy);
+  const legendEntries = getPaletteEntries(colorBy);
 
   const projectNames = useMemo(
-    () => [...new Set(state.tasks.map((t) => t.project).filter(Boolean))],
-    [state.tasks]
+    () => [...new Set(allTasks.map((t) => t.project).filter(Boolean))],
+    [allTasks]
   );
   const workstreamNames = useMemo(
-    () => state.tasks.filter((t) => t.isSummary && t.parentId !== null).map((t) => t.name),
-    [state.tasks]
+    () => allTasks.filter((t) => t.isSummary && t.parentId !== null).map((t) => t.name),
+    [allTasks]
   );
+
   return (
     <div className="flex items-center gap-2 px-4 h-10 bg-surface-raised/50 border-b border-border-subtle shrink-0 text-xs">
       {/* Search */}
@@ -73,13 +89,13 @@ export default function Toolbar() {
         <input
           type="text"
           placeholder="Search tasks..."
-          value={state.searchQuery}
-          onChange={(e) => dispatch({ type: 'SET_SEARCH', query: e.target.value })}
+          value={searchQuery}
+          onChange={(e) => uiStore.setState({ searchQuery: e.target.value })}
           className="w-44 pl-7 pr-2 py-1 bg-surface-overlay border border-border-default rounded text-text-secondary text-xs placeholder-text-muted focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors"
         />
-        {state.searchQuery && (
+        {searchQuery && (
           <button
-            onClick={() => dispatch({ type: 'SET_SEARCH', query: '' })}
+            onClick={() => uiStore.setState({ searchQuery: '' })}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
           >
             <svg
@@ -105,9 +121,9 @@ export default function Toolbar() {
         {zoomOptions.map((opt) => (
           <button
             key={opt.value}
-            onClick={() => dispatch({ type: 'SET_ZOOM', zoomLevel: opt.value })}
+            onClick={() => uiStore.setState({ zoomLevel: opt.value })}
             className={`px-2.5 py-0.5 transition-colors ${
-              state.zoomLevel === opt.value
+              zoomLevel === opt.value
                 ? 'bg-blue-600 text-white'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-sunken'
             }`}
@@ -118,11 +134,11 @@ export default function Toolbar() {
       </div>
 
       {/* Collapse weekends */}
-      {state.zoomLevel === 'day' && (
+      {zoomLevel === 'day' && (
         <button
-          onClick={() => dispatch({ type: 'TOGGLE_COLLAPSE_WEEKENDS' })}
+          onClick={() => uiStore.setState({ collapseWeekends: !collapseWeekends })}
           className={`px-2 py-0.5 rounded transition-colors ${
-            state.collapseWeekends
+            collapseWeekends
               ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
               : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
           }`}
@@ -137,10 +153,8 @@ export default function Toolbar() {
       <div className="relative" ref={legendRef}>
         <span className="text-text-muted mr-1">Color:</span>
         <select
-          value={state.colorBy}
-          onChange={(e) =>
-            dispatch({ type: 'SET_COLOR_BY', colorBy: e.target.value as ColorByField })
-          }
+          value={colorBy}
+          onChange={(e) => uiStore.setState({ colorBy: e.target.value as ColorByField })}
           className="bg-surface-overlay border border-border-default rounded px-2 py-0.5 text-text-secondary text-xs focus:outline-none focus:border-blue-500 cursor-pointer"
         >
           {colorByOptions.map((opt) => (
@@ -204,7 +218,7 @@ export default function Toolbar() {
         </button>
         {showColumnMenu && (
           <div className="absolute top-full left-0 mt-1 bg-surface-overlay border border-border-default rounded-lg shadow-xl p-2 z-40 min-w-[160px] fade-in">
-            {state.columns.map((col) => (
+            {columns.map((col) => (
               <label
                 key={col.key}
                 className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-surface-sunken/50 px-1 rounded"
@@ -212,7 +226,12 @@ export default function Toolbar() {
                 <input
                   type="checkbox"
                   checked={col.visible}
-                  onChange={() => dispatch({ type: 'TOGGLE_COLUMN', columnKey: col.key })}
+                  onChange={() => {
+                    const newCols = columns.map((c) =>
+                      c.key === col.key ? { ...c, visible: !c.visible } : c
+                    );
+                    uiStore.setState({ columns: newCols });
+                  }}
                   disabled={col.key === 'name'}
                   className="rounded border-border-strong bg-surface-sunken text-blue-500 focus:ring-blue-500/30"
                 />
@@ -228,9 +247,9 @@ export default function Toolbar() {
       {/* Bar label toggles */}
       <span className="text-text-muted">Bar labels:</span>
       <button
-        onClick={() => dispatch({ type: 'TOGGLE_SHOW_OWNER_ON_BAR' })}
+        onClick={() => uiStore.setState({ showOwnerOnBar: !showOwnerOnBar })}
         className={`px-2 py-0.5 rounded transition-colors ${
-          state.showOwnerOnBar
+          showOwnerOnBar
             ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
             : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
         }`}
@@ -238,9 +257,9 @@ export default function Toolbar() {
         Owner
       </button>
       <button
-        onClick={() => dispatch({ type: 'TOGGLE_SHOW_AREA_ON_BAR' })}
+        onClick={() => uiStore.setState({ showAreaOnBar: !showAreaOnBar })}
         className={`px-2 py-0.5 rounded transition-colors ${
-          state.showAreaOnBar
+          showAreaOnBar
             ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
             : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
         }`}
@@ -248,9 +267,9 @@ export default function Toolbar() {
         Area
       </button>
       <button
-        onClick={() => dispatch({ type: 'TOGGLE_SHOW_OKRS_ON_BAR' })}
+        onClick={() => uiStore.setState({ showOkrsOnBar: !showOkrsOnBar })}
         className={`px-2 py-0.5 rounded transition-colors ${
-          state.showOkrsOnBar
+          showOkrsOnBar
             ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
             : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
         }`}
@@ -263,16 +282,16 @@ export default function Toolbar() {
       {/* Critical path toggle + scope */}
       <div className="relative flex items-center" ref={cpScopeRef}>
         <button
-          onClick={() => dispatch({ type: 'TOGGLE_CRITICAL_PATH' })}
+          onClick={() => uiStore.setState({ showCriticalPath: !showCriticalPath })}
           className={`px-2 py-0.5 rounded-l transition-colors ${
-            state.showCriticalPath
+            showCriticalPath
               ? 'bg-red-600/30 text-red-400 border border-red-500/40'
               : 'text-text-muted hover:text-text-secondary hover:bg-surface-overlay'
           }`}
         >
           Critical Path
         </button>
-        {state.showCriticalPath && (
+        {showCriticalPath && (
           <button
             onClick={() => setShowCpScopeMenu(!showCpScopeMenu)}
             className="px-1.5 py-0.5 rounded-r bg-red-600/30 text-red-400 border border-l-0 border-red-500/40 hover:bg-red-600/50 transition-colors"
@@ -284,7 +303,7 @@ export default function Toolbar() {
             </svg>
           </button>
         )}
-        {showCpScopeMenu && state.showCriticalPath && (
+        {showCpScopeMenu && showCriticalPath && (
           <div className="absolute top-full left-0 mt-1 bg-surface-overlay border border-border-default rounded-lg shadow-xl p-1 z-40 min-w-[160px] fade-in">
             {projectNames.length > 0 && (
               <>
@@ -293,15 +312,15 @@ export default function Toolbar() {
                   <button
                     key={name}
                     onClick={() => {
-                      dispatch({
-                        type: 'SET_CRITICAL_PATH_SCOPE',
-                        scope: { type: 'project', name },
+                      uiStore.setState({
+                        criticalPathScope: { type: 'project', name },
                       });
                       setShowCpScopeMenu(false);
                     }}
                     className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                      state.criticalPathScope.type === 'project' &&
-                      state.criticalPathScope.name === name
+                      criticalPathScope.type === 'project' &&
+                      'name' in criticalPathScope &&
+                      criticalPathScope.name === name
                         ? 'bg-red-600/20 text-red-400'
                         : 'text-text-secondary hover:bg-surface-sunken'
                     }`}
@@ -318,15 +337,15 @@ export default function Toolbar() {
                   <button
                     key={name}
                     onClick={() => {
-                      dispatch({
-                        type: 'SET_CRITICAL_PATH_SCOPE',
-                        scope: { type: 'workstream', name },
+                      uiStore.setState({
+                        criticalPathScope: { type: 'workstream', name },
                       });
                       setShowCpScopeMenu(false);
                     }}
                     className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                      state.criticalPathScope.type === 'workstream' &&
-                      state.criticalPathScope.name === name
+                      criticalPathScope.type === 'workstream' &&
+                      'name' in criticalPathScope &&
+                      criticalPathScope.name === name
                         ? 'bg-red-600/20 text-red-400'
                         : 'text-text-secondary hover:bg-surface-sunken'
                     }`}
@@ -344,7 +363,7 @@ export default function Toolbar() {
 
       {/* Add task */}
       <button
-        onClick={() => dispatch({ type: 'ADD_TASK', parentId: null, afterTaskId: null })}
+        onClick={() => mutate({ type: 'ADD_TASK', task: { parentId: null } })}
         className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors"
       >
         + Add Task
@@ -352,7 +371,9 @@ export default function Toolbar() {
 
       {/* Recalculate All */}
       <button
-        onClick={() => dispatch({ type: 'RECALCULATE_EARLIEST', scope: {} })}
+        onClick={() => {
+          mutate({ type: 'RECALCULATE_EARLIEST', taskIds: taskOrder });
+        }}
         className="px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-surface-overlay rounded transition-colors"
         title="Recalculate all tasks to their earliest possible dates"
       >
@@ -363,16 +384,6 @@ export default function Toolbar() {
       <UndoRedoButtons />
 
       <div className="flex-1" />
-
-      {/* Show all hidden */}
-      {state.tasks.some((t) => t.isHidden) && (
-        <button
-          onClick={() => dispatch({ type: 'SHOW_ALL_TASKS' })}
-          className="px-2 py-0.5 text-amber-400 hover:text-amber-300 hover:bg-surface-overlay rounded transition-colors"
-        >
-          Show hidden tasks
-        </button>
-      )}
     </div>
   );
 }

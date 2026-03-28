@@ -1,13 +1,20 @@
 import { describe, it, expect } from 'vitest';
+import * as Y from 'yjs';
 import type { Task, Dependency } from '../../types';
 import {
   taskToRow,
+  taskToRowWithMap,
   rowToTask,
   tasksToRows,
   rowsToTasks,
   HEADER_ROW,
   SHEET_COLUMNS,
+  buildHeaderMap,
 } from '../sheetsMapper';
+import { TASK_FIELDS, writeTaskToDoc, yMapToTask, getDocMaps } from '../../schema/ydoc';
+
+/** Default header map matching canonical SHEET_COLUMNS order. */
+const DEFAULT_HEADER_MAP = buildHeaderMap(HEADER_ROW)!;
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -27,8 +34,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     parentId: null,
     childIds: [],
     dependencies: [],
-    isExpanded: true,
-    isHidden: false,
     notes: 'Some notes',
     okrs: [],
     ...overrides,
@@ -110,7 +115,7 @@ describe('sheetsMapper', () => {
 
   describe('rowToTask', () => {
     it('returns null for empty id', () => {
-      expect(rowToTask(['', 'name'])).toBeNull();
+      expect(rowToTask(['', 'name'], DEFAULT_HEADER_MAP)).toBeNull();
     });
 
     it('deserializes a full row', () => {
@@ -136,7 +141,7 @@ describe('sheetsMapper', () => {
         '',
         '',
       ];
-      const task = rowToTask(row);
+      const task = rowToTask(row, DEFAULT_HEADER_MAP);
       expect(task).not.toBeNull();
       expect(task!.id).toBe('task-1');
       expect(task!.name).toBe('Test Task');
@@ -149,36 +154,34 @@ describe('sheetsMapper', () => {
       expect(task!.parentId).toBeNull();
       expect(task!.childIds).toEqual([]);
       expect(task!.dependencies).toEqual([]);
-      expect(task!.isExpanded).toBe(true);
-      expect(task!.isHidden).toBe(false);
     });
 
     it('parses done=true', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[9] = 'true';
-      expect(rowToTask(row)!.done).toBe(true);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.done).toBe(true);
     });
 
     it('parses childIds from comma-separated string', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[14] = 'c1,c2,c3';
-      expect(rowToTask(row)!.childIds).toEqual(['c1', 'c2', 'c3']);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.childIds).toEqual(['c1', 'c2', 'c3']);
     });
 
     it('parses okrs from pipe-separated string', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[17] = 'OKR-1|OKR-2';
-      expect(rowToTask(row)!.okrs).toEqual(['OKR-1', 'OKR-2']);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.okrs).toEqual(['OKR-1', 'OKR-2']);
     });
 
     it('parses dependencies', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[15] = 'a:FS:0;b:SS:2';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.dependencies).toHaveLength(2);
       expect(task.dependencies[0]).toEqual({ fromId: 'a', toId: '', type: 'FS', lag: 0 });
       expect(task.dependencies[1]).toEqual({ fromId: 'b', toId: '', type: 'SS', lag: 2 });
@@ -189,12 +192,12 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[4] = '5';
       // No start/end dates → falls back to parsed duration column
-      expect(rowToTask(row)!.duration).toBe(5);
+      expect(rowToTask(row, DEFAULT_HEADER_MAP)!.duration).toBe(5);
     });
 
     it('handles short rows gracefully', () => {
       const row = ['task-short', 'Name'];
-      const task = rowToTask(row);
+      const task = rowToTask(row, DEFAULT_HEADER_MAP);
       expect(task).not.toBeNull();
       expect(task!.id).toBe('task-short');
       expect(task!.name).toBe('Name');
@@ -206,7 +209,7 @@ describe('sheetsMapper', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[15] = 'a::0';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.dependencies[0].type).toBe('FS');
     });
 
@@ -215,7 +218,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[18] = 'SNET';
       row[19] = '2026-04-01';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBe('SNET');
       expect(task.constraintDate).toBe('2026-04-01');
     });
@@ -226,7 +229,7 @@ describe('sheetsMapper', () => {
         row[0] = 'x';
         row[18] = ct;
         row[19] = '2026-04-01';
-        const task = rowToTask(row)!;
+        const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
         expect(task.constraintType).toBe(ct);
       }
     });
@@ -236,7 +239,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[18] = 'ALAP';
       row[19] = '2026-04-01';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBe('ALAP');
       expect(task.constraintDate).toBeUndefined();
     });
@@ -245,14 +248,14 @@ describe('sheetsMapper', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[18] = 'INVALID';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBeUndefined();
     });
 
     it('returns no constraint fields for empty columns', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBeUndefined();
       expect(task.constraintDate).toBeUndefined();
     });
@@ -261,7 +264,7 @@ describe('sheetsMapper', () => {
       const row = Array(20).fill('');
       row[0] = 'x';
       row[19] = '2026-04-01';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintType).toBeUndefined();
       expect(task.constraintDate).toBeUndefined();
     });
@@ -273,7 +276,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-07'; // Saturday
       row[3] = '2026-03-13'; // Friday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.startDate).toBe('2026-03-09'); // Monday
     });
 
@@ -282,7 +285,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-02'; // Monday
       row[3] = '2026-03-08'; // Sunday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.endDate).toBe('2026-03-06'); // Friday
     });
 
@@ -291,7 +294,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-02';
       row[3] = '2026-03-02';
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.duration).toBeGreaterThanOrEqual(1);
     });
 
@@ -300,7 +303,7 @@ describe('sheetsMapper', () => {
       row[0] = 'x';
       row[2] = '2026-03-06'; // Friday
       row[3] = '2026-03-02'; // Monday (before start)
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.endDate).toBe(task.startDate);
     });
 
@@ -311,7 +314,7 @@ describe('sheetsMapper', () => {
       row[3] = '2026-03-06';
       row[18] = 'SNET';
       row[19] = '2026-03-07'; // Saturday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintDate).toBe('2026-03-09'); // Monday (ensureBusinessDay)
     });
 
@@ -322,7 +325,7 @@ describe('sheetsMapper', () => {
       row[3] = '2026-03-06';
       row[18] = 'FNET';
       row[19] = '2026-03-07'; // Saturday
-      const task = rowToTask(row)!;
+      const task = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(task.constraintDate).toBe('2026-03-06'); // Friday (prevBusinessDay)
     });
   });
@@ -339,7 +342,7 @@ describe('sheetsMapper', () => {
       });
 
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
 
       expect(restored.id).toBe(original.id);
       expect(restored.name).toBe(original.name);
@@ -370,7 +373,7 @@ describe('sheetsMapper', () => {
         constraintDate: '2026-05-15',
       });
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(restored.constraintType).toBe('FNLT');
       expect(restored.constraintDate).toBe('2026-05-15');
     });
@@ -378,7 +381,7 @@ describe('sheetsMapper', () => {
     it('round-trips ASAP constraint (no date)', () => {
       const original = makeTask({ constraintType: 'ASAP' });
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(restored.constraintType).toBe('ASAP');
       expect(restored.constraintDate).toBeUndefined();
     });
@@ -386,7 +389,7 @@ describe('sheetsMapper', () => {
     it('round-trips task without constraints', () => {
       const original = makeTask();
       const row = taskToRow(original);
-      const restored = rowToTask(row)!;
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
       expect(restored.constraintType).toBeUndefined();
       expect(restored.constraintDate).toBeUndefined();
     });
@@ -448,6 +451,198 @@ describe('sheetsMapper', () => {
       ];
       const tasks = rowsToTasks(rows);
       expect(tasks).toHaveLength(2);
+    });
+  });
+
+  describe('cross-system field coverage', () => {
+    it('SHEET_COLUMNS covers every TASK_FIELD (catches field added to Y.Doc but missing from Sheets)', () => {
+      const sheetColumnSet = new Set(SHEET_COLUMNS);
+      for (const field of TASK_FIELDS) {
+        expect(sheetColumnSet.has(field as (typeof SHEET_COLUMNS)[number])).toBe(true);
+      }
+    });
+
+    it('TASK_FIELDS covers every SHEET_COLUMN except computed/attribution (catches column added to Sheets but missing from Y.Doc)', () => {
+      // These columns exist in Sheets but NOT in Y.Doc:
+      // - duration: computed from startDate/endDate, not stored
+      // - lastModifiedBy / lastModifiedAt: written by SheetsAdapter, not part of Task
+      const SHEETS_ONLY = new Set(['duration', 'lastModifiedBy', 'lastModifiedAt']);
+      const taskFieldSet = new Set(TASK_FIELDS);
+
+      for (const col of SHEET_COLUMNS) {
+        if (SHEETS_ONLY.has(col)) continue;
+        expect(taskFieldSet.has(col)).toBe(true);
+      }
+    });
+
+    it('Sheets round-trip preserves every TASK_FIELD (catches taskToRow/rowToTask forgetting a field)', () => {
+      // Build a task with non-default values for EVERY field so round-trip can detect loss
+      const original = makeTask({
+        id: 'rt-test',
+        name: 'Round Trip',
+        startDate: '2026-03-02',
+        endDate: '2026-03-06',
+        owner: 'Bob',
+        workStream: 'Design',
+        project: 'Beta',
+        functionalArea: 'Frontend',
+        done: true,
+        description: 'Full field test',
+        isMilestone: true,
+        isSummary: false,
+        parentId: 'parent-1',
+        childIds: ['c1', 'c2'],
+        dependencies: [{ fromId: 'dep-1', toId: 'rt-test', type: 'SF', lag: 2 }],
+        notes: 'Important note',
+        okrs: ['OKR-1', 'OKR-2'],
+        constraintType: 'SNET',
+        constraintDate: '2026-03-09',
+      });
+
+      const row = taskToRow(original);
+      const restored = rowToTask(row, DEFAULT_HEADER_MAP)!;
+
+      // Check every TASK_FIELD individually so failures pinpoint the missing field
+      for (const field of TASK_FIELDS) {
+        const key = field as keyof Task;
+        if (key === 'dependencies') {
+          // dependencies lose toId in rowToTask (fixed by rowsToTasks) — check fromId/type/lag
+          expect(restored.dependencies.length).toBe(original.dependencies.length);
+          for (let i = 0; i < original.dependencies.length; i++) {
+            expect(restored.dependencies[i].fromId).toBe(original.dependencies[i].fromId);
+            expect(restored.dependencies[i].type).toBe(original.dependencies[i].type);
+            expect(restored.dependencies[i].lag).toBe(original.dependencies[i].lag);
+          }
+        } else {
+          expect(restored[key]).toEqual(original[key]);
+        }
+      }
+    });
+
+    it('full pipeline: Y.Doc → yMapToTask → taskToRow → rowToTask → writeTaskToDoc → Y.Doc (lossless)', () => {
+      const doc = new Y.Doc();
+      const { tasks: ytasks } = getDocMaps(doc);
+
+      // Write a fully-populated task into Y.Doc
+      const original = makeTask({
+        id: 'pipeline-test',
+        name: 'Pipeline',
+        parentId: 'p1',
+        childIds: ['c1'],
+        dependencies: [{ fromId: 'd1', toId: 'pipeline-test', type: 'FS', lag: 0 }],
+        okrs: ['O1'],
+        constraintType: 'FNLT',
+        constraintDate: '2026-04-15',
+      });
+      writeTaskToDoc(ytasks, original.id, original);
+
+      // Y.Doc → Task
+      const fromDoc = yMapToTask(ytasks.get(original.id)!);
+
+      // Task → Sheet row → Task
+      const row = taskToRow(fromDoc);
+      const fromSheet = rowToTask(row, DEFAULT_HEADER_MAP)!;
+
+      // Task → Y.Doc (simulate Sheets injection back into Y.Doc)
+      const doc2 = new Y.Doc();
+      const { tasks: ytasks2 } = getDocMaps(doc2);
+      writeTaskToDoc(ytasks2, fromSheet.id, fromSheet);
+      const finalTask = yMapToTask(ytasks2.get(fromSheet.id)!);
+
+      // Compare: every TASK_FIELD should survive the full pipeline
+      for (const field of TASK_FIELDS) {
+        const key = field as keyof Task;
+        if (key === 'dependencies') {
+          expect(finalTask.dependencies.length).toBe(original.dependencies.length);
+          expect(finalTask.dependencies[0].fromId).toBe(original.dependencies[0].fromId);
+          expect(finalTask.dependencies[0].type).toBe(original.dependencies[0].type);
+          expect(finalTask.dependencies[0].lag).toBe(original.dependencies[0].lag);
+        } else {
+          expect(finalTask[key]).toEqual(original[key]);
+        }
+      }
+    });
+  });
+
+  describe('taskToRowWithMap (column-order resilience)', () => {
+    it('writes fields in the HeaderMap order, not canonical order', () => {
+      // Simulate a Sheet where "name" and "id" columns are swapped
+      const reorderedHeader = [...HEADER_ROW];
+      reorderedHeader[0] = 'name';
+      reorderedHeader[1] = 'id';
+      const headerMap = buildHeaderMap(reorderedHeader)!;
+      expect(headerMap).not.toBeNull();
+
+      const task = makeTask({ id: 'test-1', name: 'My Task' });
+      const row = taskToRowWithMap(task, headerMap, reorderedHeader.length);
+
+      // In the reordered Sheet, position 0 is "name", position 1 is "id"
+      expect(row[0]).toBe('My Task'); // name at index 0
+      expect(row[1]).toBe('test-1'); // id at index 1
+    });
+
+    it('round-trips correctly with reordered columns', () => {
+      // Reverse all columns
+      const reversedHeader = [...HEADER_ROW].reverse();
+      const headerMap = buildHeaderMap(reversedHeader)!;
+      expect(headerMap).not.toBeNull();
+
+      const original = makeTask({
+        id: 'rt-reorder',
+        name: 'Reorder Test',
+        owner: 'Bob',
+        done: true,
+        constraintType: 'SNET',
+        constraintDate: '2026-03-09',
+      });
+
+      // Write in reversed order
+      const row = taskToRowWithMap(original, headerMap, reversedHeader.length);
+
+      // Read back using the same reversed header map
+      const restored = rowToTask(row, headerMap)!;
+      expect(restored).not.toBeNull();
+
+      // All fields should survive the round-trip
+      for (const field of TASK_FIELDS) {
+        const key = field as keyof typeof original;
+        if (key === 'dependencies') {
+          expect(restored.dependencies.length).toBe(original.dependencies.length);
+        } else {
+          expect(restored[key]).toEqual(original[key]);
+        }
+      }
+    });
+
+    it('fills unknown columns with empty strings', () => {
+      // Sheet has an extra user-added column at index 22
+      const extendedHeader = [...HEADER_ROW, 'myCustomColumn'];
+      const headerMap = buildHeaderMap(extendedHeader)!;
+
+      const task = makeTask();
+      const row = taskToRowWithMap(task, headerMap, extendedHeader.length);
+
+      // Row should have 23 cells, unknown column filled with ''
+      expect(row.length).toBe(23);
+      expect(row[22]).toBe('');
+    });
+
+    it('canonical taskToRow and taskToRowWithMap produce equivalent data for canonical order', () => {
+      const headerMap = buildHeaderMap(HEADER_ROW)!;
+      const task = makeTask({
+        parentId: 'p1',
+        childIds: ['c1'],
+        dependencies: [{ fromId: 'd1', toId: 'task-1', type: 'FS', lag: 0 }],
+        okrs: ['O1'],
+        constraintType: 'SNET',
+        constraintDate: '2026-03-09',
+      });
+
+      const canonicalRow = taskToRow(task);
+      const mappedRow = taskToRowWithMap(task, headerMap, HEADER_ROW.length);
+
+      // Should be identical for canonical header order
+      expect(mappedRow).toEqual(canonicalRow);
     });
   });
 });

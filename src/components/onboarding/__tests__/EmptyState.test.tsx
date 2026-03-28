@@ -1,49 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
 import EmptyState from '../EmptyState';
-import { GanttProvider } from '../../../state/GanttContext';
-
-vi.mock('../../../utils/schedulerWasm', () => ({
-  cascadeDependents: (tasks: unknown[]) => tasks,
-  recalculateEarliest: () => [],
-  initScheduler: () => Promise.resolve(),
-}));
-
-vi.mock('../../../collab/yjsProvider', () => ({
-  connectCollab: vi.fn(),
-  disconnectCollab: vi.fn(),
-  getDoc: () => null,
-}));
-
-vi.mock('../../../collab/yjsBinding', () => ({
-  bindYjsToDispatch: vi.fn(),
-  applyTasksToYjs: vi.fn(),
-  applyActionToYjs: vi.fn(),
-  hydrateYjsFromTasks: vi.fn(),
-}));
-
-vi.mock('../../../collab/awareness', () => ({
-  setLocalAwareness: vi.fn(),
-  updateViewingTask: vi.fn(),
-  getCollabUsers: () => [],
-}));
-
-vi.mock('../../../sheets/oauth', () => ({
-  isSignedIn: () => false,
-  getAccessToken: () => null,
-  getAuthState: () => ({}),
-  setAuthChangeCallback: vi.fn(),
-  removeAuthChangeCallback: vi.fn(),
-}));
-
-vi.mock('../../../sheets/sheetsSync', () => ({
-  initSync: vi.fn(),
-  loadFromSheet: vi.fn().mockResolvedValue([]),
-  scheduleSave: vi.fn(),
-  startPolling: vi.fn(),
-  stopPolling: vi.fn(),
-  getSpreadsheetId: () => null,
-}));
+import { UIStore, UIStoreContext } from '../../../store/UIStore';
+import { TaskStore, TaskStoreContext } from '../../../store/TaskStore';
+import { MutateContext } from '../../../hooks/useMutate';
 
 vi.mock('../../../sheets/sheetCreation', () => ({
   createSheet: vi.fn().mockResolvedValue('mock-sheet-id'),
@@ -64,6 +25,20 @@ vi.mock('../../../sheets/sheetsMapper', () => ({
   validateHeaders: vi.fn(),
 }));
 
+const mockMutate = vi.fn();
+const uiStore = new UIStore();
+const taskStore = new TaskStore();
+
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <UIStoreContext.Provider value={uiStore}>
+      <TaskStoreContext.Provider value={taskStore}>
+        <MutateContext.Provider value={mockMutate}>{children}</MutateContext.Provider>
+      </TaskStoreContext.Provider>
+    </UIStoreContext.Provider>
+  );
+}
+
 describe('EmptyState', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -71,9 +46,9 @@ describe('EmptyState', () => {
 
   it('renders empty state with timeline scaffolding', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('empty-state')).toBeTruthy();
@@ -83,9 +58,9 @@ describe('EmptyState', () => {
 
   it('renders add task input', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     const input = screen.getByTestId('empty-state-task-input');
@@ -95,9 +70,9 @@ describe('EmptyState', () => {
 
   it('renders CTA text', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('empty-state-cta').textContent).toBe('Add your first task');
@@ -105,11 +80,10 @@ describe('EmptyState', () => {
 
   it('accepts onSelectTemplate prop', () => {
     const mockTemplate = vi.fn();
-    // Should render without error
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState onSelectTemplate={mockTemplate} />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('empty-state')).toBeTruthy();
@@ -117,9 +91,9 @@ describe('EmptyState', () => {
 
   it('renders start from template button', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     const templateBtn = screen.getByTestId('start-from-template');
@@ -127,43 +101,42 @@ describe('EmptyState', () => {
     expect(templateBtn.textContent).toBe('Or start from a template');
   });
 
-  it('dispatches ADD_TASK with name on Enter key', () => {
+  it('calls mutate with ADD_TASK on Enter key', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     const input = screen.getByTestId('empty-state-task-input') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'My First Task' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    // Input should be cleared after adding
+    expect(mockMutate).toHaveBeenCalledWith({ type: 'ADD_TASK', task: { name: 'My First Task' } });
     expect(input.value).toBe('');
   });
 
-  it('does not dispatch ADD_TASK on Enter with empty input', () => {
+  it('does not call mutate on Enter with empty input', () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     const input = screen.getByTestId('empty-state-task-input') as HTMLInputElement;
     fireEvent.keyDown(input, { key: 'Enter' });
-    // No crash, input stays empty
+    expect(mockMutate).not.toHaveBeenCalled();
     expect(input.value).toBe('');
   });
 
   it('opens template picker on template button click', async () => {
     render(
-      <GanttProvider>
+      <TestWrapper>
         <EmptyState />
-      </GanttProvider>
+      </TestWrapper>
     );
 
     fireEvent.click(screen.getByTestId('start-from-template'));
-    // TemplatePicker is lazy loaded
     await waitFor(() => {
       expect(screen.getByTestId('template-picker')).toBeTruthy();
     });

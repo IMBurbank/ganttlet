@@ -1,11 +1,11 @@
-import type { Task, ChangeRecord } from '../../types';
+import type { Task } from '../../types';
 
 export interface Template {
   id: string;
   name: string;
   description: string;
   taskCount: number;
-  load: () => Promise<{ tasks: Task[]; changeHistory: ChangeRecord[] }>;
+  load: () => Promise<{ tasks: Task[] }>;
 }
 
 export const templates: Template[] = [
@@ -14,7 +14,7 @@ export const templates: Template[] = [
     name: 'Blank Project',
     description: 'Start from scratch with an empty project',
     taskCount: 0,
-    load: async () => ({ tasks: [], changeHistory: [] }),
+    load: async () => ({ tasks: [] }),
   },
   {
     id: 'software-release',
@@ -23,7 +23,7 @@ export const templates: Template[] = [
     taskCount: 32,
     load: async () => {
       const mod = await import('./softwareRelease');
-      return { tasks: mod.fakeTasks, changeHistory: mod.fakeChangeHistory };
+      return { tasks: mod.fakeTasks };
     },
   },
   {
@@ -33,7 +33,7 @@ export const templates: Template[] = [
     taskCount: 11,
     load: async () => {
       const mod = await import('./marketingCampaign');
-      return { tasks: mod.tasks, changeHistory: mod.changeHistory };
+      return { tasks: mod.tasks };
     },
   },
   {
@@ -43,7 +43,7 @@ export const templates: Template[] = [
     taskCount: 11,
     load: async () => {
       const mod = await import('./eventPlanning');
-      return { tasks: mod.tasks, changeHistory: mod.changeHistory };
+      return { tasks: mod.tasks };
     },
   },
 ];

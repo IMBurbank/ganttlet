@@ -77,10 +77,6 @@ export function createBezierPath(start: Point, end: Point, depType?: DependencyT
     const outset = 20;
     // For FF: both stubs go right; for SS: both stubs go left
     const dir = depType === 'FF' ? 1 : -1;
-    const peakX =
-      Math.max(start.x, end.x) * dir > 0
-        ? Math.max(start.x, end.x) + outset
-        : Math.min(start.x, end.x) - outset;
     const farX =
       depType === 'FF' ? Math.max(start.x, end.x) + outset : Math.min(start.x, end.x) - outset;
     const r = 6;

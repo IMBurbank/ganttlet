@@ -1,6 +1,6 @@
-import React from 'react';
 import type { Task, Dependency } from '../../types';
-import { useGanttDispatch } from '../../state/GanttContext';
+import { useContext } from 'react';
+import { UIStoreContext } from '../../store/UIStore';
 
 interface PredecessorsCellProps {
   task: Task;
@@ -20,14 +20,14 @@ function formatDep(dep: Dependency, _taskMap: Map<string, Task>): string {
 }
 
 export default function PredecessorsCell({ task, taskMap }: PredecessorsCellProps) {
-  const dispatch = useGanttDispatch();
+  const uiStore = useContext(UIStoreContext)!;
 
   if (task.isSummary) {
     return <span className="text-text-muted text-xs">--</span>;
   }
 
   const handleClick = () => {
-    dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: { taskId: task.id } });
+    uiStore.setState({ dependencyEditor: { taskId: task.id } });
   };
 
   if (task.dependencies.length === 0) {
@@ -41,7 +41,7 @@ export default function PredecessorsCell({ task, taskMap }: PredecessorsCellProp
     );
   }
 
-  const text = task.dependencies.map(d => formatDep(d, taskMap)).join(', ');
+  const text = task.dependencies.map((d) => formatDep(d, taskMap)).join(', ');
 
   return (
     <button

@@ -1,20 +1,42 @@
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
-import { GanttProvider, useGanttState, useGanttDispatch } from './state/GanttContext';
+import { useMemo, useCallback, useRef, useEffect, useContext } from 'react';
+import { UIStoreProvider } from './state/UIStoreProvider';
+import { TaskStoreProvider } from './state/TaskStoreProvider';
+import { useUIStore, useMutate, useAllTasks, useCollab, useAuthState } from './hooks';
+import { UIStoreContext } from './store/UIStore';
 import WelcomeGate from './components/onboarding/WelcomeGate';
 import { getVisibleTasks } from './utils/layoutUtils';
 import Header from './components/layout/Header';
 import Toolbar from './components/layout/Toolbar';
 import TaskTable from './components/table/TaskTable';
-import GanttChart from './components/gantt/GanttChart';
-import ChangeHistoryPanel from './components/panels/ChangeHistoryPanel';
+import VirtualizedGanttChart from './components/gantt/VirtualizedGanttChart';
 import ContextMenu from './components/shared/ContextMenu';
 import DependencyEditorModal from './components/shared/DependencyEditorModal';
 import ReparentPickerModal from './components/shared/ReparentPickerModal';
 import EmptyState from './components/onboarding/EmptyState';
+import ConflictResolutionModal from './components/onboarding/ConflictResolutionModal';
+import { DataSafeErrorBoundary } from './components/shared/DataSafeErrorBoundary';
 
 function AppContent() {
-  const state = useGanttState();
-  const dispatch = useGanttDispatch();
+  const theme = useUIStore((s) => s.theme);
+  const dataSource = useUIStore((s) => s.dataSource);
+  const searchQuery = useUIStore((s) => s.searchQuery);
+  const columns = useUIStore((s) => s.columns);
+  const colorBy = useUIStore((s) => s.colorBy);
+  const zoomLevel = useUIStore((s) => s.zoomLevel);
+  const isLeftPaneCollapsed = useUIStore((s) => s.isLeftPaneCollapsed);
+  const contextMenu = useUIStore((s) => s.contextMenu);
+  const dependencyEditor = useUIStore((s) => s.dependencyEditor);
+  const reparentPicker = useUIStore((s) => s.reparentPicker);
+
+  const uiStore = useContext(UIStoreContext)!;
+  const mutate = useMutate();
+  const { collabUsers, isCollabConnected, awareness } = useCollab();
+
+  // Reactively subscribe to ALL task data changes via useSyncExternalStore.
+  // This is required for React Compiler compatibility — the compiler can't track
+  // changes through manual store.getX() calls during render.
+  const allTasks = useAllTasks();
+
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const ganttScrollRef = useRef<HTMLDivElement>(null);
   const isSyncing = useRef(false);
@@ -22,34 +44,40 @@ function AppContent() {
   // Sync theme class on <html> and persist to localStorage
   useEffect(() => {
     const root = document.documentElement;
-    if (state.theme === 'dark') {
+    if (theme === 'dark') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
     }
-    localStorage.setItem('ganttlet-theme', state.theme);
-  }, [state.theme]);
+    localStorage.setItem('ganttlet-theme', theme);
+  }, [theme]);
 
-  const taskMap = useMemo(() => new Map(state.tasks.map((t) => [t.id, t])), [state.tasks]);
+  const taskMap = useMemo(() => new Map(allTasks.map((t) => [t.id, t])), [allTasks]);
 
+  const collapsedTasks = useUIStore((s) => s.collapsedTasks);
   const visibleTasks = useMemo(
-    () => getVisibleTasks(state.tasks, state.searchQuery),
-    [state.tasks, state.searchQuery]
+    () => getVisibleTasks(allTasks, searchQuery, collapsedTasks),
+    [allTasks, searchQuery, collapsedTasks]
   );
 
   const handleCloseContextMenu = useCallback(
-    () => dispatch({ type: 'SET_CONTEXT_MENU', menu: null }),
-    [dispatch]
+    () => uiStore.setState({ contextMenu: null }),
+    [uiStore]
   );
 
-  // Sync vertical scroll between table and gantt
+  // Sync vertical scroll between table and gantt.
+  // The guard must be reset AFTER the browser processes the programmatic
+  // scrollTop assignment — otherwise the reciprocal scroll handler fires
+  // before the guard is down, causing bidirectional scroll loops.
   const handleTableScroll = useCallback(() => {
     if (isSyncing.current) return;
     isSyncing.current = true;
     if (tableScrollRef.current && ganttScrollRef.current) {
       ganttScrollRef.current.scrollTop = tableScrollRef.current.scrollTop;
     }
-    isSyncing.current = false;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
   }, []);
 
   const handleGanttScroll = useCallback(() => {
@@ -58,24 +86,24 @@ function AppContent() {
     if (ganttScrollRef.current && tableScrollRef.current) {
       tableScrollRef.current.scrollTop = ganttScrollRef.current.scrollTop;
     }
-    isSyncing.current = false;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
   }, []);
 
   const handleDependencyClick = useCallback(
     (_dep: import('./types').Dependency, successorId: string) => {
-      dispatch({
-        type: 'SET_DEPENDENCY_EDITOR',
-        editor: { taskId: successorId, highlightFromId: _dep.fromId },
+      uiStore.setState({
+        dependencyEditor: { taskId: successorId, highlightFromId: _dep.fromId },
       });
     },
-    [dispatch]
+    [uiStore]
   );
 
   const contextMenuItems = useMemo(() => {
-    if (!state.contextMenu) return [];
-    const task = taskMap.get(state.contextMenu.taskId);
+    if (!contextMenu) return [];
+    const task = taskMap.get(contextMenu.taskId);
     if (!task) return [];
-    // Determine if this is a project summary (top-level) or workstream summary (has parent)
     const isProjectSummary = task.isSummary && task.parentId === null;
     const isWorkstreamSummary = task.isSummary && task.parentId !== null;
 
@@ -83,31 +111,37 @@ function AppContent() {
       ...(task.isSummary
         ? [
             {
-              label: task.isExpanded ? 'Collapse group' : 'Expand group',
-              onClick: () => dispatch({ type: 'TOGGLE_EXPAND', taskId: task.id }),
+              label: collapsedTasks.has(task.id) ? 'Expand group' : 'Collapse group',
+              onClick: () => {
+                const expanded = new Set(uiStore.getState().collapsedTasks);
+                if (expanded.has(task.id)) {
+                  expanded.delete(task.id);
+                } else {
+                  expanded.add(task.id);
+                }
+                uiStore.setState({ collapsedTasks: expanded });
+              },
             },
             {
               label: 'Add subtask',
-              onClick: () => dispatch({ type: 'ADD_TASK', parentId: task.id, afterTaskId: null }),
+              onClick: () => mutate({ type: 'ADD_TASK', task: { parentId: task.id } }),
             },
           ]
         : [
             {
               label: 'Edit dependencies',
-              onClick: () =>
-                dispatch({ type: 'SET_DEPENDENCY_EDITOR', editor: { taskId: task.id } }),
+              onClick: () => uiStore.setState({ dependencyEditor: { taskId: task.id } }),
             },
             {
               label: 'Move to workstream...',
-              onClick: () => dispatch({ type: 'SET_REPARENT_PICKER', picker: { taskId: task.id } }),
+              onClick: () => uiStore.setState({ reparentPicker: { taskId: task.id } }),
             },
           ]),
-      // Recalculate options
       ...(!task.isSummary
         ? [
             {
               label: 'Recalculate to earliest',
-              onClick: () => dispatch({ type: 'RECALCULATE_EARLIEST', scope: { taskId: task.id } }),
+              onClick: () => mutate({ type: 'RECALCULATE_EARLIEST', taskIds: [task.id] }),
             },
           ]
         : []),
@@ -115,8 +149,11 @@ function AppContent() {
         ? [
             {
               label: 'Recalculate workstream',
-              onClick: () =>
-                dispatch({ type: 'RECALCULATE_EARLIEST', scope: { workstream: task.workStream } }),
+              onClick: () => {
+                const wsName = task.workStream;
+                const wsTaskIds = allTasks.filter((t) => t.workStream === wsName).map((t) => t.id);
+                mutate({ type: 'RECALCULATE_EARLIEST', taskIds: wsTaskIds });
+              },
             },
           ]
         : []),
@@ -124,27 +161,33 @@ function AppContent() {
         ? [
             {
               label: 'Recalculate project',
-              onClick: () =>
-                dispatch({ type: 'RECALCULATE_EARLIEST', scope: { project: task.project } }),
+              onClick: () => {
+                const projName = task.project;
+                const projTaskIds = allTasks.filter((t) => t.project === projName).map((t) => t.id);
+                mutate({ type: 'RECALCULATE_EARLIEST', taskIds: projTaskIds });
+              },
             },
           ]
         : []),
       {
         label: 'Add task below',
         onClick: () =>
-          dispatch({ type: 'ADD_TASK', parentId: task.parentId, afterTaskId: task.id }),
+          mutate({ type: 'ADD_TASK', task: { parentId: task.parentId }, afterTaskId: task.id }),
       },
       {
         label: 'Delete task',
-        onClick: () => dispatch({ type: 'DELETE_TASK', taskId: task.id }),
+        onClick: () => mutate({ type: 'DELETE_TASK', taskId: task.id }),
         danger: true,
       },
     ];
-  }, [state.contextMenu, taskMap, dispatch]);
+  }, [contextMenu, taskMap, uiStore, mutate, allTasks, collapsedTasks]);
 
-  if (state.dataSource === 'empty') {
+  if (dataSource === 'empty') {
     return (
-      <div className="flex flex-col h-screen bg-surface-base text-text-primary">
+      <div
+        className="flex flex-col h-screen bg-surface-base text-text-primary"
+        data-collab-status={isCollabConnected ? 'connected' : 'disconnected'}
+      >
         <Header />
         <EmptyState />
       </div>
@@ -154,7 +197,7 @@ function AppContent() {
   return (
     <div
       className="flex flex-col h-screen bg-surface-base text-text-primary"
-      data-collab-status={state.isCollabConnected ? 'connected' : 'disconnected'}
+      data-collab-status={isCollabConnected ? 'connected' : 'disconnected'}
     >
       <Header />
       <Toolbar />
@@ -163,82 +206,107 @@ function AppContent() {
         <div
           ref={tableScrollRef}
           className={`shrink-0 border-r border-border-default overflow-y-auto overflow-x-hidden transition-all duration-200 ${
-            state.isLeftPaneCollapsed ? 'w-0 overflow-hidden' : ''
+            isLeftPaneCollapsed ? 'w-0 overflow-hidden' : ''
           }`}
           onScroll={handleTableScroll}
         >
-          <TaskTable
-            tasks={visibleTasks}
-            columns={state.columns}
-            colorBy={state.colorBy}
-            taskMap={taskMap}
-            users={state.users}
-            collabUsers={state.collabUsers}
-            isCollabConnected={state.isCollabConnected}
-          />
+          <DataSafeErrorBoundary panelName="table">
+            <TaskTable
+              tasks={visibleTasks}
+              columns={columns}
+              colorBy={colorBy}
+              taskMap={taskMap}
+              collabUsers={collabUsers}
+              isCollabConnected={isCollabConnected}
+              awareness={awareness}
+            />
+          </DataSafeErrorBoundary>
         </div>
         {/* Pane divider toggle */}
         <button
-          onClick={() => dispatch({ type: 'TOGGLE_LEFT_PANE' })}
+          onClick={() => uiStore.setState({ isLeftPaneCollapsed: !isLeftPaneCollapsed })}
           className="shrink-0 w-5 flex items-center justify-center bg-surface-raised hover:bg-surface-overlay border-r border-border-default transition-colors cursor-pointer"
-          title={state.isLeftPaneCollapsed ? 'Show table (Ctrl+B)' : 'Hide table (Ctrl+B)'}
+          title={isLeftPaneCollapsed ? 'Show table (Ctrl+B)' : 'Hide table (Ctrl+B)'}
         >
           <svg
             width="10"
             height="10"
             viewBox="0 0 10 10"
             fill="currentColor"
-            className={`text-text-muted transition-transform duration-200 ${state.isLeftPaneCollapsed ? 'rotate-0' : 'rotate-180'}`}
+            className={`text-text-muted transition-transform duration-200 ${isLeftPaneCollapsed ? 'rotate-0' : 'rotate-180'}`}
           >
             <path d="M3 1 L8 5 L3 9 Z" />
           </svg>
         </button>
-        {/* Gantt Chart - right panel */}
-        <div
-          ref={ganttScrollRef}
-          className="flex-1 overflow-auto min-w-0"
-          onScroll={handleGanttScroll}
-        >
-          <GanttChart
+        {/* Gantt Chart - right panel (virtualized) */}
+        <DataSafeErrorBoundary panelName="chart">
+          <VirtualizedGanttChart
+            ref={ganttScrollRef}
             visibleTasks={visibleTasks}
-            allTasks={state.tasks}
-            zoom={state.zoomLevel}
-            colorBy={state.colorBy}
-            users={state.users}
-            collabUsers={state.collabUsers}
-            isCollabConnected={state.isCollabConnected}
+            allTasks={allTasks}
+            zoom={zoomLevel}
+            colorBy={colorBy}
+            collabUsers={collabUsers}
+            isCollabConnected={isCollabConnected}
+            awareness={awareness}
             onDependencyClick={handleDependencyClick}
+            onScroll={handleGanttScroll}
           />
-        </div>
-        {/* Change History Panel */}
-        {state.isHistoryPanelOpen && <ChangeHistoryPanel records={state.changeHistory} />}
+        </DataSafeErrorBoundary>
       </div>
 
       {/* Context Menu */}
-      {state.contextMenu && (
+      {contextMenu && (
         <ContextMenu
-          x={state.contextMenu.x}
-          y={state.contextMenu.y}
+          x={contextMenu.x}
+          y={contextMenu.y}
           items={contextMenuItems}
           onClose={handleCloseContextMenu}
         />
       )}
 
       {/* Dependency Editor Modal */}
-      {state.dependencyEditor && <DependencyEditorModal />}
+      {dependencyEditor && <DependencyEditorModal />}
 
       {/* Reparent Picker Modal */}
-      {state.reparentPicker && <ReparentPickerModal />}
+      {reparentPicker && <ReparentPickerModal />}
+
+      {/* Conflict Resolution Modal */}
+      <ConflictResolutionModal />
     </div>
   );
 }
 
-export default function App() {
+function AppShell() {
+  const spreadsheetId = useUIStore((s) => s.spreadsheetId);
+  const roomId = useUIStore((s) => s.roomId);
+  const auth = useAuthState();
+
   return (
-    <GanttProvider>
-      <WelcomeGate>
-        <AppContent />
-      </WelcomeGate>
-    </GanttProvider>
+    <TaskStoreProvider
+      spreadsheetId={spreadsheetId}
+      roomId={roomId}
+      accessToken={auth.accessToken ?? undefined}
+      userName={auth.userName ?? undefined}
+      userEmail={auth.userEmail ?? undefined}
+    >
+      <DataSafeErrorBoundary>
+        <WelcomeGate>
+          <AppContent />
+        </WelcomeGate>
+      </DataSafeErrorBoundary>
+    </TaskStoreProvider>
+  );
+}
+
+export default function App() {
+  const params = new URLSearchParams(window.location.search);
+  const initialSheetId = params.get('sheet') || undefined;
+  const initialRoomId = params.get('room') || initialSheetId;
+
+  return (
+    <UIStoreProvider initialState={{ spreadsheetId: initialSheetId, roomId: initialRoomId }}>
+      <AppShell />
+    </UIStoreProvider>
   );
 }

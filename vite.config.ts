@@ -3,9 +3,18 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import wasm from 'vite-plugin-wasm';
+import ReactCompiler from 'babel-plugin-react-compiler';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), wasm()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [ReactCompiler],
+      },
+    }),
+    tailwindcss(),
+    wasm(),
+  ],
   build: {
     target: 'esnext',
   },

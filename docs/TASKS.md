@@ -11,6 +11,8 @@ Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phas
 
 ## Completed
 
+- **Phase 20**: Frontend Redesign — Y.Doc state, TaskStore/UIStore, SheetsAdapter, virtualization, undo, drag perf — DONE
+
 - **Phase 18**: Onboarding UX — State Machine, Welcome Flows & Sheet Management — PR #70 + PR #75 — DONE
   - Design-7 sync fixes (T1.1–T2.5, T3.1–T3.2) all implemented
   - 35 E2E tests, 584 unit tests passing
@@ -23,16 +25,12 @@ Prior phases (0-14, 13a, Plugin Adoption) are complete. See `docs/completed-phas
 
 ## Backlog (unstructured)
 
-### Performance & Scale (from Phase 18 audit)
+### Accessibility
+- [ ] Modal backdrop dismiss not keyboard-accessible — OKRPickerModal, TaskBarPopover, DependencyEditorModal, ConflictResolutionModal all use `onClick` on backdrop `<div>` without `role="button"` or keyboard handling. Escape key works via separate `onKeyDown` listener, but backdrop dismiss requires a mouse click. Fix: migrate to `<dialog>` element or add `role="button"` + `tabIndex={0}` + `onKeyDown` to backdrops.
 
-**Rendering (high priority at 200+ tasks):**
-- [ ] Add `React.memo` to TaskBar, SummaryBar, MilestoneMarker — currently every state update re-renders all visible tasks (~50-100ms at 100 tasks, 500ms+ at 500)
-- [ ] Virtualize task rows — only render tasks visible in the viewport (react-window or similar)
-- [ ] Profile and optimize `recalcSummaryDates` for deep hierarchies — O(N²) worst-case when all tasks are in a single chain
+### Performance & Scale
 
 **Sync layer (medium priority at 500+ tasks):**
-- [ ] Incremental Yjs sync — `applyTasksToYjs` does full delete+rebuild (2200 mutations for 100 tasks). Diff and apply only changed tasks instead
-- [ ] Incremental poll merge — poll reads entire Sheet1 (30KB at 100 tasks, scales linearly). Consider range-based reads or change detection
 - [ ] Server-push via SSE or Yjs relay — replace 30s polling with push notifications for changes. Current polling is adequate for <50 concurrent users but doesn't scale to 100+
 
 **API efficiency (low priority):**

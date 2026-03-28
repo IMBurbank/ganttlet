@@ -36,6 +36,7 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # Auto-install git hooks if in a git repo
 if [[ -d "$PROJECT_ROOT/.git" ]]; then
   ln -sf ../../scripts/pre-commit-hook.sh "$PROJECT_ROOT/.git/hooks/pre-commit" 2>/dev/null || true
+  ln -sf ../../scripts/post-merge-hook.sh "$PROJECT_ROOT/.git/hooks/post-merge" 2>/dev/null || true
 fi
 
 # Install fencepost binary to PATH (required by .claude/settings.json hooks)

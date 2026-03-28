@@ -93,7 +93,9 @@ pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
             } else if suffix.is_empty() {
                 name.starts_with(prefix) // "prefix*"
             } else {
-                name.starts_with(prefix) && name.ends_with(suffix) // "pre*suf"
+                name.len() >= prefix.len() + suffix.len()
+                    && name.starts_with(prefix)
+                    && name.ends_with(suffix) // "pre*suf"
             }
         }
         3 if parts[0].is_empty() && parts[2].is_empty() => {

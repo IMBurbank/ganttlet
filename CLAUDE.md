@@ -67,7 +67,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
   - `cloud-deployment` — Cloud Run, GCP, staging/prod environments
   - `issue-workflow` — Single-agent issue procedures, error handling
   - `shell-scripting` — Bash patterns, pipe exit codes, heredoc quoting
-  - `hooks` — Guard binary, PreToolUse/PostToolUse hooks, adding new checks
+  - `hooks` — Fencepost, PreToolUse/PostToolUse hooks, adding new checks
   - `curation` — Skill curation process, debrief reports, prompt templates
 - `.claude/agents/` — Subagents (auto-delegated, isolated context windows):
   - `codebase-explorer` — Read-only exploration, returns structured reports (haiku)

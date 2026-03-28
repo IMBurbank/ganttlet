@@ -41,9 +41,10 @@ pub struct Violation {
 }
 
 impl Violation {
-    /// Create a new violation. Panics in debug builds if any message part is
-    /// empty or too short (less than 10 characters) — this catches lazy messages
-    /// like "blocked" or "use worktree" during development and testing.
+    /// Create a new violation. Panics in debug builds if `attempted` or
+    /// `suggestion` are empty or too short (less than 10 characters), or if
+    /// `explanation` is empty — this catches lazy messages like "blocked"
+    /// or "use worktree" during development and testing.
     pub fn new(
         rule: &'static str,
         severity: Severity,

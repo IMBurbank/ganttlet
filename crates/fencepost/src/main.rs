@@ -184,11 +184,11 @@ fn init() {
                 if let Some(arr) = pre.as_array_mut() {
                     arr.push(serde_json::json!({
                         "matcher": "Edit|Write",
-                        "hooks": [{"type": "command", "command": "fencepost edit"}]
+                        "hooks": [{"type": "command", "command": "fencepost edit || true"}]
                     }));
                     arr.push(serde_json::json!({
                         "matcher": "Bash",
-                        "hooks": [{"type": "command", "command": "fencepost bash"}]
+                        "hooks": [{"type": "command", "command": "fencepost bash || true"}]
                     }));
                 }
                 let pretty = serde_json::to_string_pretty(&settings).unwrap();
@@ -206,11 +206,11 @@ fn init() {
                 "PreToolUse": [
                     {
                         "matcher": "Edit|Write",
-                        "hooks": [{"type": "command", "command": "fencepost edit"}]
+                        "hooks": [{"type": "command", "command": "fencepost edit || true"}]
                     },
                     {
                         "matcher": "Bash",
-                        "hooks": [{"type": "command", "command": "fencepost bash"}]
+                        "hooks": [{"type": "command", "command": "fencepost bash || true"}]
                     }
                 ]
             }
@@ -337,10 +337,10 @@ fn doctor() {
                         eprintln!("    Add fencepost hooks to .claude/settings.json:");
                         eprintln!("    {{\"hooks\":{{\"PreToolUse\":[");
                         eprintln!(
-                            "      {{\"matcher\":\"Edit|Write\",\"hooks\":[{{\"command\":\"fencepost edit\"}}]}},"
+                            "      {{\"matcher\":\"Edit|Write\",\"hooks\":[{{\"command\":\"fencepost edit || true\"}}]}},"
                         );
                         eprintln!(
-                            "      {{\"matcher\":\"Bash\",\"hooks\":[{{\"command\":\"fencepost bash\"}}]}}"
+                            "      {{\"matcher\":\"Bash\",\"hooks\":[{{\"command\":\"fencepost bash || true\"}}]}}"
                         );
                         eprintln!("    ]}}}}");
                         ok = false;

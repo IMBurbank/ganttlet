@@ -22,7 +22,7 @@ npx vitest run --reporter=dot
 
 echo ""
 echo "=== Rust guard tests ==="
-cargo test -p guard
+cargo test -p fencepost
 
 echo ""
 echo "=== Rust scheduler tests ==="

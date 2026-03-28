@@ -37,7 +37,7 @@ Use Grep/Glob/Read for: string literals, config keys, file discovery, understand
 - Keep dependencies minimal — every added dependency is attack surface.
 - NEVER ask the user to paste secrets, tokens, or credentials into the conversation. Instead, tell them where to put it (e.g., GitHub Secrets UI, `.env` file, `gh secret set`).
 - NEVER compute arithmetic or dates mentally — use tools (see scheduling-engine skill for full conventions and shell functions). NEVER use `addBusinessDays` directly for end dates — use `taskEndDate`.
-- **Guard binary** required by hooks. Built automatically in Docker; outside Docker: `cargo build --release -p guard`
+- **Fencepost** required by hooks. Installed automatically in Docker; outside Docker: `cargo install --path crates/fencepost`
 - **SDK `.claude/skills/` edit patch** required for curation curators. Claude Code v2.1.81 has a bug ([#37157](https://github.com/anthropics/claude-code/issues/37157)) where `.claude/skills/` is missing from the protected-directory exemption list, blocking Edit/Write in SDK mode. Run `python3 scripts/patch-sdk-skills-permission.py` after `npm install`. The patch modifies minified code in the SDK binary — if you encounter unexpected permission behavior (edits to `.claude/settings.json` succeeding when they shouldn't, or new errors after an SDK update), this patch may be the cause. The script is version-sensitive and will warn if the SDK changes, but verify carefully after any `npm install` that updates the SDK. See `docs/sdk-skill-edit-findings.md` for the full investigation.
 - When you discover a non-obvious gotcha or debugging insight, write a debrief report (the verify hook will remind you and point to the template at `docs/prompts/curation/debrief-template.md`).
 

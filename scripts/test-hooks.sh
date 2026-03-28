@@ -7,11 +7,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-GUARD="./target/release/guard"
-ABS_GUARD="$(pwd)/$GUARD"
-
-echo "Building guard binary..."
-cargo build --release -p guard 2>&1 | grep -v "^$" | tail -5
+# Ensure fencepost is installed to PATH
+echo "Installing fencepost..."
+cargo install --path crates/fencepost 2>&1 | grep -v "^$" | tail -3
+ABS_GUARD="$(command -v fencepost)"
 
 echo ""
 echo "=== Guard Hook Tests ==="
@@ -21,6 +20,13 @@ FAIL=0
 
 # Resolve the main workspace root (parent of .git common dir).
 WORKSPACE_ROOT="$(dirname "$(git rev-parse --git-common-dir)")"
+R="$WORKSPACE_ROOT"
+WT="$WORKSPACE_ROOT/.claude/worktrees"
+
+# Build a JSON payload with project paths substituted.
+# Usage: $(edit_json "$R/src/file.ts") or $(cmd_json "sed -i s/x/y/ $R/file")
+edit_json() { printf '{"tool_input":{"file_path":"%s"}}' "$1"; }
+cmd_json()  { printf '{"tool_input":{"command":"%s"}}' "$1"; }
 
 # --- Test runners ---
 
@@ -127,14 +133,14 @@ git -C "$WORKSPACE_ROOT" worktree add "$TEMP_WT" -b "$TEMP_WT_NAME" HEAD --quiet
 echo "--- Protected file guard (edit mode) ---"
 test_block  "Block .env file"           edit '{"tool_input":{"file_path":"/foo/.env"}}'
 test_block  "Block .env.local"          edit '{"tool_input":{"file_path":"/foo/.env.local"}}'
-test_block  "Block package-lock.json"   edit '{"tool_input":{"file_path":"/workspace/package-lock.json"}}'
-test_block  "Block src/wasm/scheduler/" edit '{"tool_input":{"file_path":"/workspace/src/wasm/scheduler/scheduler.js"}}'
+test_block  "Block package-lock.json"   edit "$(edit_json "$R/package-lock.json")"
+test_block  "Block src/wasm/scheduler/" edit "$(edit_json "$R/src/wasm/scheduler/scheduler.js")"
 test_block  "Fail-closed on bad JSON"   edit 'not-json'
 test_block  "Fail-closed on empty input" edit ''
 
 # --- Edit/Write: workspace isolation guard ---
 echo "--- Workspace isolation guard (edit mode) ---"
-test_block  "Block edit to /workspace/src/foo.ts"    edit '{"tool_input":{"file_path":"/workspace/src/foo.ts"}}'
+test_block  "Block edit to /workspace/src/foo.ts"    edit "$(edit_json "$R/src/foo.ts")"
 test_allow  "Allow edit outside /workspace/"         edit '{"tool_input":{"file_path":"/home/user/project/src/App.tsx"}}'
 
 # --- Bash: push-to-main guard ---
@@ -147,34 +153,33 @@ test_block  "Fail-closed on bad JSON"          bash 'not-json'
 
 # --- Bash: workspace file modification guard ---
 echo "--- Bash file-modification guard (bash mode) ---"
-test_block  "Block sed -i on /workspace/"      bash '{"tool_input":{"command":"sed -i s/foo/bar/ /workspace/src/test.ts"}}'
-test_block  "Block redirect to /workspace/"    bash '{"tool_input":{"command":"echo hello > /workspace/src/test.ts"}}'
-test_block  "Block append to /workspace/"      bash '{"tool_input":{"command":"echo hello >> /workspace/src/test.ts"}}'
-test_block  "Block clobber to /workspace/"     bash '{"tool_input":{"command":"echo hello >| /workspace/src/test.ts"}}'
-test_block  "Block tee to /workspace/"         bash '{"tool_input":{"command":"echo hello | tee /workspace/src/test.ts"}}'
-test_allow  "Allow redirect to worktree"       bash '{"tool_input":{"command":"echo hello > /workspace/.claude/worktrees/test/src/test.ts"}}'
-test_allow  "Allow sed -i in worktree"         bash '{"tool_input":{"command":"sed -i s/foo/bar/ /workspace/.claude/worktrees/test/src/test.ts"}}'
-test_allow  "Allow escaped redirect"           bash '{"tool_input":{"command":"echo \\> /workspace/file"}}'
+test_block  "Block sed -i on /workspace/"      bash "$(cmd_json "sed -i s/foo/bar/ $R/src/test.ts")"
+test_block  "Block redirect to /workspace/"    bash "$(cmd_json "echo hello > $R/src/test.ts")"
+test_block  "Block append to /workspace/"      bash "$(cmd_json "echo hello >> $R/src/test.ts")"
+test_block  "Block clobber to /workspace/"     bash "$(cmd_json "echo hello >| $R/src/test.ts")"
+test_block  "Block tee to /workspace/"         bash "$(cmd_json "echo hello | tee $R/src/test.ts")"
+test_allow  "Allow redirect to worktree"       bash "$(cmd_json "echo hello > $WT/test/src/test.ts")"
+test_allow  "Allow sed -i in worktree"         bash "$(cmd_json "sed -i s/foo/bar/ $WT/test/src/test.ts")"
+test_allow  "Allow escaped redirect"           bash "$(cmd_json "echo \\> $R/file")"
 test_allow  "Allow normal bash commands"       bash '{"tool_input":{"command":"git status"}}'
 test_block  "Fail-closed on bad JSON"          bash 'not-json'
 
 # --- Bash: worktree removal guard ---
 echo "--- Worktree removal guard (bash mode) ---"
 test_allow  "Allow worktree remove (non-agent path)" bash '{"tool_input":{"command":"git worktree remove /tmp/test"}}'
-test_block  "Block worktree remove (agent path)"     bash '{"tool_input":{"command":"git worktree remove /workspace/.claude/worktrees/some-agent"}}'
-test_allow  "Allow worktree remove (acknowledged)"   bash '{"tool_input":{"command":"I_CREATED_THIS=1 git worktree remove /workspace/.claude/worktrees/some-agent"}}'
+test_block  "Block worktree remove (agent path)"     bash "$(cmd_json "git worktree remove $WT/some-agent")"
+test_allow  "Allow worktree remove (acknowledged)"   bash "$(cmd_json "I_CREATED_THIS=1 git worktree remove $WT/some-agent")"
 test_allow  "Allow git worktree prune"               bash '{"tool_input":{"command":"git worktree prune"}}'
 test_allow  "Allow git worktree add"                 bash '{"tool_input":{"command":"git worktree add /tmp/test"}}'
 
 # --- Bash: rm worktree root guard ---
 echo "--- Worktree cleanup guard ---"
-test_block  "Block rm -rf worktree root"             bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-worktree"}}'
-test_allow  "Allow rm -rf worktree subdir"           bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-wt/node_modules"}}'
-test_allow  "Allow rm single file in worktree"       bash '{"tool_input":{"command":"rm /workspace/.claude/worktrees/test/temp.txt"}}'
-test_block  "Block rm -rf worktree root (trailing /)" bash '{"tool_input":{"command":"rm -rf /workspace/.claude/worktrees/my-worktree/"}}'
-test_allow  "Allow rm -f single file"                bash '{"tool_input":{"command":"rm -f /workspace/.claude/worktrees/my-wt/temp.txt"}}'
-test_allow  "Allow cp -r from worktree"              bash '{"tool_input":{"command":"cp -r /workspace/.claude/worktrees/my-wt/src /tmp/backup"}}'
-
+test_block  "Block rm -rf worktree root"             bash "$(cmd_json "rm -rf $WT/my-worktree")"
+test_allow  "Allow rm -rf worktree subdir"           bash "$(cmd_json "rm -rf $WT/my-wt/node_modules")"
+test_allow  "Allow rm single file in worktree"       bash "$(cmd_json "rm $WT/test/temp.txt")"
+test_block  "Block rm -rf worktree root (trailing /)" bash "$(cmd_json "rm -rf $WT/my-worktree/")"
+test_allow  "Allow rm -f single file"                bash "$(cmd_json "rm -f $WT/my-wt/temp.txt")"
+test_allow  "Allow cp -r from worktree"              bash "$(cmd_json "cp -r $WT/my-wt/src /tmp/backup")"
 # --- Bash: always-block destructive commands ---
 echo "--- Always-block destructive commands (bash mode) ---"
 test_block  "Block git reset --hard HEAD~3"    bash '{"tool_input":{"command":"git reset --hard HEAD~3"}}'

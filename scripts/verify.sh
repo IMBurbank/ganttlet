@@ -97,9 +97,9 @@ run_cargo() {
 
 run_guard() {
   echo "[guard: test + rebuild]"
-  cargo test -p guard 2>&1 | tail -5; GUARD_EXIT=${PIPESTATUS[0]:-$?}
+  cargo test -p fencepost 2>&1 | tail -5; GUARD_EXIT=${PIPESTATUS[0]:-$?}
   if [[ $GUARD_EXIT -eq 0 ]]; then
-    cargo build --release -p guard 2>&1 | tail -3
+    cargo build --release -p fencepost 2>&1 | tail -3
     echo "[guard: binary rebuilt]"
   else
     echo "[guard: tests failed — binary NOT rebuilt]"
@@ -129,7 +129,7 @@ case "$AGENT_SCOPE" in
     fi
     ;;
   full|*)
-    if [[ "$FILE" =~ crates/guard/ ]]; then
+    if [[ "$FILE" =~ crates/fencepost/ ]]; then
       run_guard
       FINAL_EXIT=$?
     elif [[ "$FILE" =~ \.(rs)$ ]]; then

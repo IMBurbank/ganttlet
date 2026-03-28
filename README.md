@@ -50,7 +50,7 @@ npm run dev
 - PostToolUse hook (`scripts/verify.sh`) auto-runs `tsc` + `vitest` after `.ts/.tsx` edits
 - Pre-commit hook: `ln -sf ../../scripts/pre-commit-hook.sh .git/hooks/pre-commit`
 - Git workflow: `main` always deployable, feature branches, PRs before merge
-- Guard binary: built automatically by `docker-entrypoint.sh`. Outside Docker: `cargo build --release -p guard`
+- Guard binary: built automatically by `docker-entrypoint.sh`. Outside Docker: `cargo build --release -p fencepost`
 
 ## Development Commands
 

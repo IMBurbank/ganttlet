@@ -52,6 +52,8 @@ The field registry in `src/schema/ydoc.ts` drives Y.Doc serialization. `setKnown
   - Rule 4: No raw `ymap.set()` outside `mutations/` and `schema/` (field registry bypass)
   - Rule 5: `addEventListener` must have paired `removeEventListener` (memory leaks)
   - Rule 6: MutateAction switch must have exhaustive `never` check (missing case detection)
+  - Rule 7: No weak assertions (`.length).toBeLessThanOrEqual`) in tests (vacuous tests)
+  - Rule 8: Sheet navigation via `navigateToSheet()` only — no manual URL + UIStore duplication
 - **TypeScript strict unused checks**: `noUnusedLocals: true`, `noUnusedParameters: true` — dead code is caught at compile time.
 - **Exhaustive MutateAction switch**: Adding a new mutation type without a case produces a compile-time error via `const _: never = action`.
 - v1: Original Y.Map schema (19 fields, 20 sheet columns)

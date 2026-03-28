@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useContext, lazy, Suspense } from 'react';
 import { useUIStore, useMutate } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
+import { navigateToSheet } from '../../utils/navigation';
 import UserPresence from '../panels/UserPresence';
 import SyncStatus from '../onboarding/SyncStatus';
 import ErrorBanner from '../onboarding/ErrorBanner';
@@ -408,16 +409,7 @@ export default function Header() {
                     templateId,
                     mutate
                   );
-                  const url = new URL(window.location.href);
-                  url.searchParams.set('sheet', spreadsheetId);
-                  url.searchParams.set('room', spreadsheetId);
-                  window.history.replaceState({}, '', url.toString());
-                  uiStore.setState({
-                    spreadsheetId,
-                    roomId: spreadsheetId,
-                    dataSource: 'loading',
-                    syncError: null,
-                  });
+                  navigateToSheet(spreadsheetId, uiStore);
                 })
                 .catch((e) => console.warn('Template creation failed:', e));
             }}

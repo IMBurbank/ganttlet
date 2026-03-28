@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useState, lazy, Suspense } from 'react';
 import { useUIStore } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
+import { navigateToSheet } from '../../utils/navigation';
 import { isSignedIn } from '../../sheets/oauth';
 import { getRecentSheets } from '../../utils/recentSheets';
 import FirstVisitWelcome from './FirstVisitWelcome';
@@ -22,18 +23,7 @@ export default function WelcomeGate({ children }: { children: React.ReactNode })
 
   const onSelectSheet = useCallback(
     (sheetId: string) => {
-      const url = new URL(window.location.href);
-      url.searchParams.set('sheet', sheetId);
-      url.searchParams.set('room', sheetId);
-      window.history.replaceState({}, '', url.toString());
-
-      // Reactive state update — no page reload needed
-      uiStore?.setState({
-        spreadsheetId: sheetId,
-        roomId: sheetId,
-        dataSource: 'loading',
-        syncError: null,
-      });
+      if (uiStore) navigateToSheet(sheetId, uiStore);
     },
     [uiStore]
   );

@@ -7,6 +7,7 @@ import {
 } from '../../sheets/oauth';
 import { createSheet } from '../../sheets/sheetCreation';
 import { UIStoreContext } from '../../store/UIStore';
+import { navigateToSheet } from '../../utils/navigation';
 import SheetSelector from './SheetSelector';
 import TargetSheetCheck, { type TargetSheetAction } from './TargetSheetCheck';
 
@@ -32,19 +33,7 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
     async (spreadsheetId: string) => {
       setStep({ type: 'writing' });
       try {
-        // Update URL for bookmarking (but don't navigate)
-        const url = new URL(window.location.href);
-        url.searchParams.set('sheet', spreadsheetId);
-        url.searchParams.set('room', spreadsheetId);
-        window.history.replaceState({}, '', url.toString());
-
-        // Reactive state update — TaskStoreProvider will create SheetsAdapter
-        uiStore?.setState({
-          spreadsheetId,
-          roomId: spreadsheetId,
-          dataSource: 'loading',
-          syncError: null,
-        });
+        if (uiStore) navigateToSheet(spreadsheetId, uiStore);
 
         onClose();
       } catch (err) {
@@ -91,18 +80,7 @@ export default function PromotionFlow({ onClose }: PromotionFlowProps) {
       } else if (action === 'open-existing') {
         // Open the sheet without writing sandbox data — reactive transition
         if (step.type === 'target-check') {
-          const url = new URL(window.location.href);
-          url.searchParams.set('sheet', step.sheetId);
-          url.searchParams.set('room', step.sheetId);
-          window.history.replaceState({}, '', url.toString());
-
-          uiStore?.setState({
-            spreadsheetId: step.sheetId,
-            roomId: step.sheetId,
-            dataSource: 'loading',
-            syncError: null,
-          });
-
+          if (uiStore) navigateToSheet(step.sheetId, uiStore);
           onClose();
         }
       } else if (action === 'create-new') {

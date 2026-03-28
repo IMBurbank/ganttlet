@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect, useState, useContext, lazy, Suspense } from 'react';
 import { useMutate } from '../../hooks';
 import { UIStoreContext } from '../../store/UIStore';
+import { navigateToSheet } from '../../utils/navigation';
 
 const TemplatePicker = lazy(() => import('./TemplatePicker'));
 
@@ -135,17 +136,7 @@ export default function EmptyState({ onSelectTemplate }: EmptyStateProps) {
                     templateId,
                     mutate
                   );
-                  // Navigate to the new sheet — same pattern as Header.tsx
-                  const url = new URL(window.location.href);
-                  url.searchParams.set('sheet', spreadsheetId);
-                  url.searchParams.set('room', spreadsheetId);
-                  window.history.replaceState({}, '', url.toString());
-                  uiStore?.setState({
-                    spreadsheetId,
-                    roomId: spreadsheetId,
-                    dataSource: 'loading',
-                    syncError: null,
-                  });
+                  if (uiStore) navigateToSheet(spreadsheetId, uiStore);
                 })
                 .catch((e) => console.warn('Template creation failed:', e));
             }}

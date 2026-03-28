@@ -294,3 +294,115 @@ describe('Rule: MutateAction switch is exhaustive', () => {
     ).toBe(true);
   });
 });
+
+// ─── Rule 7: No weak assertions in tests ─────────────────────────────
+//
+// Why: Assertions like toBeLessThanOrEqual or toBeGreaterThanOrEqual(0)
+// on values that should be exact pass vacuously. A test that asserts
+// expect(conflictCalls.length).toBeLessThanOrEqual(1) passes with 0 —
+// testing nothing. Use exact assertions (toBe, toEqual) for counts.
+//
+// Allowed: toBeLessThan in performance/timing tests where exact values
+// aren't deterministic. The rule only flags count-like patterns.
+
+describe('Rule: no weak assertions on counts in tests', () => {
+  it('test files do not use toBeLessThanOrEqual or toBeGreaterThanOrEqual(0) on .length', () => {
+    const files = findSourceFiles(SRC_DIR);
+    // Include test files this time
+    const testDir = join(SRC_DIR, '..');
+    const allFiles = [...files, ...findTestFiles(testDir)];
+    const violations: string[] = [];
+
+    for (const fullPath of allFiles) {
+      if (!fullPath.includes('.test.')) continue;
+      // Don't scan ourselves — our regex patterns contain the flagged strings
+      if (fullPath.includes('structuralRules.test.ts')) continue;
+      const content = readFileSync(fullPath, 'utf-8');
+      const lines = content.split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Flag: .length).toBeLessThanOrEqual( or .length).toBeGreaterThanOrEqual(0
+        if (
+          /\.length\)\.toBeLessThanOrEqual\(/.test(line) ||
+          /\.length\)\.toBeGreaterThanOrEqual\(\s*0\s*\)/.test(line)
+        ) {
+          const rel = relative(SRC_DIR, fullPath);
+          violations.push(
+            `${rel}:${i + 1}: weak assertion on .length — use exact toBe().\n` +
+              `  toBeLessThanOrEqual/toBeGreaterThanOrEqual(0) on counts pass\n` +
+              `  vacuously. If you expect 0, assert toBe(0). If you expect 1, assert toBe(1).\n` +
+              `  For genuinely variable counts, add a comment explaining why.`
+          );
+        }
+      }
+    }
+
+    expect(violations, violations.join('\n\n')).toEqual([]);
+  });
+});
+
+// ─── Rule 8: Sheet navigation via navigateToSheet only ───────────────
+//
+// Why: Sheet navigation (set URL params + UIStore state) was duplicated
+// in 5 files, 6 locations. Drift caused EmptyState to discard the
+// spreadsheetId after template creation. navigateToSheet() in
+// src/utils/navigation.ts is the single source of truth.
+//
+// Exception: Header.tsx handleSelectSheet uses window.location.reload()
+// after setting params — that's a full-page navigation, not a reactive
+// transition. It's allowed because it doesn't use UIStore.setState.
+
+describe('Rule: sheet navigation via navigateToSheet()', () => {
+  it('no component manually sets both sheet and room URL params', () => {
+    const componentDir = join(SRC_DIR, 'components');
+    const files = findSourceFiles(componentDir);
+    const violations: string[] = [];
+
+    for (const fullPath of files) {
+      const content = readFileSync(fullPath, 'utf-8');
+      const lines = content.split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        // Flag: searchParams.set('sheet', ...) without using navigateToSheet
+        if (
+          /searchParams\.set\(\s*['"]sheet['"]/.test(lines[i]) &&
+          !content.includes('navigateToSheet')
+        ) {
+          // Allow if there's a window.location.reload() nearby (full-page nav)
+          const context = lines.slice(Math.max(0, i - 5), i + 5).join('\n');
+          if (/location\.reload/.test(context)) continue;
+
+          const rel = relative(SRC_DIR, fullPath);
+          violations.push(
+            `${rel}:${i + 1}: manual URL param set — use navigateToSheet() from utils/navigation.ts.\n` +
+              `  Sheet navigation must go through the single navigateToSheet() function\n` +
+              `  to prevent drift between URL state and UIStore state.`
+          );
+        }
+      }
+    }
+
+    expect(violations, violations.join('\n\n')).toEqual([]);
+  });
+});
+
+/** Find test files recursively. */
+function findTestFiles(dir: string): string[] {
+  const results: string[] = [];
+  try {
+    for (const entry of readdirSync(dir)) {
+      const fullPath = join(dir, entry);
+      if (entry === 'node_modules' || entry === 'test-results') continue;
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        results.push(...findTestFiles(fullPath));
+      } else if (/\.test\.(ts|tsx)$/.test(entry)) {
+        results.push(fullPath);
+      }
+    }
+  } catch {
+    // directory doesn't exist
+  }
+  return results;
+}

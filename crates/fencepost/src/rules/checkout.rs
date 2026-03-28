@@ -14,7 +14,7 @@ impl BashRule for CheckoutSwitch {
         if (seg.is_git("checkout") || seg.is_git("switch"))
             && !seg.has_arg("--")
             && !seg.has_arg_containing("worktree")
-            && !ctx.is_worktree_cwd()
+            && ctx.is_project_root_cwd()
         {
             Some(Violation::new(
                 self.name(),

@@ -165,7 +165,7 @@ fn init() {
     let settings_path = claude_dir.join("settings.json");
     let settings_updated = if settings_path.exists() {
         let contents = fs::read_to_string(&settings_path).unwrap_or_default();
-        if contents.contains("fencepost") {
+        if contents.contains("fencepost edit") || contents.contains("fencepost bash") {
             println!("  Hooks: already registered in .claude/settings.json ✓");
             false
         } else {
@@ -227,6 +227,8 @@ fn init() {
         println!("  Config: .claude/fencepost.json already exists ✓");
     } else if !extra_patterns.is_empty() {
         let config = serde_json::json!({
+            "version": 1,
+            "protocol": "claude",
             "protected_files": extra_patterns
         });
         let pretty = serde_json::to_string_pretty(&config).unwrap();
@@ -293,11 +295,21 @@ fn doctor() {
         Some(ctx) => {
             println!("{} ✓", ctx.root().display());
 
+            // Check config file for field-level provenance
+            let config_has = |field: &str| -> bool {
+                ctx.root().join(".claude/fencepost.json").exists()
+                    && std::fs::read_to_string(ctx.root().join(".claude/fencepost.json"))
+                        .ok()
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                        .and_then(|v| v.get(field).cloned())
+                        .is_some()
+            };
+
             print!("  default branch: ");
             let branch_source = if std::env::var("FENCEPOST_DEFAULT_BRANCH").is_ok() {
                 "env"
-            } else if ctx.root().join(".claude/fencepost.json").exists() {
-                "config/auto"
+            } else if config_has("default_branch") {
+                "config"
             } else {
                 "auto"
             };
@@ -306,8 +318,8 @@ fn doctor() {
             print!("  remote: ");
             let remote_source = if std::env::var("FENCEPOST_REMOTE").is_ok() {
                 "env"
-            } else if ctx.root().join(".claude/fencepost.json").exists() {
-                "config/auto"
+            } else if config_has("remote") {
+                "config"
             } else {
                 "auto"
             };
@@ -330,7 +342,7 @@ fn doctor() {
             let settings_path = ctx.root().join(".claude/settings.json");
             match std::fs::read_to_string(&settings_path) {
                 Ok(contents) => {
-                    if contents.contains("fencepost") {
+                    if contents.contains("fencepost edit") || contents.contains("fencepost bash") {
                         println!("registered in .claude/settings.json ✓");
                     } else {
                         println!("NOT FOUND in .claude/settings.json ✗");

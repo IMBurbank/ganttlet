@@ -310,7 +310,7 @@ impl ProjectContext {
         if let Some(version) = config
             .as_ref()
             .and_then(|c| c.get("version"))
-            .and_then(|v| v.as_u64())
+            .and_then(|v| v.as_i64())
         {
             if version != 1 {
                 config_warnings.push(format!(

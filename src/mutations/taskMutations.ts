@@ -5,6 +5,27 @@ import { cascadeDependents, recalculateEarliest } from '../utils/schedulerWasm';
 import { daysBetween, formatDate, taskEndDate } from '../utils/dateUtils';
 import { ORIGIN } from '../collab/origins';
 
+// ─── JSON field helpers ──────────────────────────────────────────────
+// Centralized read/write for JSON-serialized array fields (childIds,
+// dependencies, okrs) on Y.Maps. Single source of truth for the
+// try-parse-modify-stringify pattern used across mutation functions.
+
+/** Read a JSON-serialized array field from a Y.Map. Returns [] on parse error. */
+function readJsonArray<T>(ymap: Y.Map<unknown>, field: string): T[] {
+  try {
+    const raw = ymap.get(field) as string;
+    if (raw) return JSON.parse(raw);
+  } catch {
+    /* malformed JSON — default to empty */
+  }
+  return [];
+}
+
+/** Write a JSON-serialized array field to a Y.Map. */
+function writeJsonArray(ymap: Y.Map<unknown>, field: string, value: unknown[]): void {
+  ymap.set(field, JSON.stringify(value));
+}
+
 /**
  * Read all tasks from the Y.Doc tasks map as a Task[].
  * Used to build the array that WASM expects.
@@ -173,15 +194,9 @@ export function addTask(doc: Y.Doc, task: Partial<Task>, afterTaskId?: string): 
     if (fullTask.parentId) {
       const parentYmap = ytasks.get(fullTask.parentId);
       if (parentYmap) {
-        let parentChildIds: string[] = [];
-        try {
-          const raw = parentYmap.get('childIds') as string;
-          if (raw) parentChildIds = JSON.parse(raw);
-        } catch {
-          /* default empty */
-        }
+        const parentChildIds = readJsonArray<string>(parentYmap, 'childIds');
         parentChildIds.push(id);
-        parentYmap.set('childIds', JSON.stringify(parentChildIds));
+        writeJsonArray(parentYmap, 'childIds', parentChildIds);
       }
     }
   }, ORIGIN.LOCAL);
@@ -209,13 +224,7 @@ export function deleteTask(doc: Y.Doc, taskId: string): void {
     const current = queue.shift()!;
     const currentYmap = ytasks.get(current);
     if (!currentYmap) continue;
-    let childIds: string[] = [];
-    try {
-      const raw = currentYmap.get('childIds') as string;
-      if (raw) childIds = JSON.parse(raw);
-    } catch {
-      /* empty */
-    }
+    const childIds = readJsonArray<string>(currentYmap, 'childIds');
     for (const childId of childIds) {
       if (!toDelete.has(childId)) {
         toDelete.add(childId);
@@ -244,30 +253,22 @@ export function deleteTask(doc: Y.Doc, taskId: string): void {
     if (parentId) {
       const parentYmap = ytasks.get(parentId);
       if (parentYmap) {
-        let parentChildIds: string[] = [];
-        try {
-          const raw = parentYmap.get('childIds') as string;
-          if (raw) parentChildIds = JSON.parse(raw);
-        } catch {
-          /* empty */
-        }
-        parentChildIds = parentChildIds.filter((id) => !toDelete.has(id));
-        parentYmap.set('childIds', JSON.stringify(parentChildIds));
+        const parentChildIds = readJsonArray<string>(parentYmap, 'childIds').filter(
+          (id) => !toDelete.has(id)
+        );
+        writeJsonArray(parentYmap, 'childIds', parentChildIds);
       }
     }
 
     // Clean dependency references in ALL remaining tasks
     ytasks.forEach((taskYmap) => {
-      let deps: Array<{ fromId: string; toId: string; type: string; lag: number }> = [];
-      try {
-        const raw = taskYmap.get('dependencies') as string;
-        if (raw) deps = JSON.parse(raw);
-      } catch {
-        return;
-      }
+      const deps = readJsonArray<{ fromId: string; toId: string; type: string; lag: number }>(
+        taskYmap,
+        'dependencies'
+      );
       const filtered = deps.filter((d) => !toDelete.has(d.fromId) && !toDelete.has(d.toId));
       if (filtered.length !== deps.length) {
-        taskYmap.set('dependencies', JSON.stringify(filtered));
+        writeJsonArray(taskYmap, 'dependencies', filtered);
       }
     });
   }, ORIGIN.LOCAL);
@@ -296,30 +297,19 @@ export function reparentTask(doc: Y.Doc, taskId: string, newParentId: string): v
     if (oldParentId) {
       const oldParentYmap = ytasks.get(oldParentId);
       if (oldParentYmap) {
-        let oldChildIds: string[] = [];
-        try {
-          const raw = oldParentYmap.get('childIds') as string;
-          if (raw) oldChildIds = JSON.parse(raw);
-        } catch {
-          /* empty */
-        }
-        oldChildIds = oldChildIds.filter((id) => id !== taskId);
-        oldParentYmap.set('childIds', JSON.stringify(oldChildIds));
+        const oldChildIds = readJsonArray<string>(oldParentYmap, 'childIds').filter(
+          (id) => id !== taskId
+        );
+        writeJsonArray(oldParentYmap, 'childIds', oldChildIds);
       }
     }
 
     // Add to new parent's childIds
     const newParentYmap = ytasks.get(newParentId);
     if (newParentYmap) {
-      let newChildIds: string[] = [];
-      try {
-        const raw = newParentYmap.get('childIds') as string;
-        if (raw) newChildIds = JSON.parse(raw);
-      } catch {
-        /* empty */
-      }
+      const newChildIds = readJsonArray<string>(newParentYmap, 'childIds');
       newChildIds.push(taskId);
-      newParentYmap.set('childIds', JSON.stringify(newChildIds));
+      writeJsonArray(newParentYmap, 'childIds', newChildIds);
 
       // Move in taskOrder: after new parent's last child
       // First remove current position
@@ -359,9 +349,9 @@ export function updateTaskField(doc: Y.Doc, taskId: string, field: string, value
   if (!ymap) return;
 
   doc.transact(() => {
-    // JSON-stringify array fields
+    // Array fields are JSON-serialized in Y.Doc
     if (field === 'childIds' || field === 'dependencies' || field === 'okrs') {
-      ymap.set(field, JSON.stringify(value));
+      writeJsonArray(ymap, field, value as unknown[]);
     } else {
       ymap.set(field, value);
     }

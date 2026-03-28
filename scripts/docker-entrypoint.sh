@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Seed container-local gcloud config from host credentials (read-only mount).
-# Runs once per fresh volume — skips if already initialized.
+# Container entrypoint: seeds credentials, installs tools, runs the given command.
+# No hardcoded paths — works with any project mount point.
+
+set -euo pipefail
 
 GCLOUD_DIR="$HOME/.config/gcloud"
 GCLOUD_HOST="$HOME/.config/gcloud-host"
@@ -28,15 +30,18 @@ if [[ -d "$GCLOUD_HOST" && ! -f "$GCLOUD_DIR/.seeded" ]]; then
   touch "$GCLOUD_DIR/.seeded"
 fi
 
+# Detect the project root from CWD (set by docker-compose working_dir or WORKDIR)
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
 # Auto-install git hooks if in a git repo
-if [[ -d /workspace/.git ]]; then
-  ln -sf ../../scripts/pre-commit-hook.sh /workspace/.git/hooks/pre-commit 2>/dev/null || true
+if [[ -d "$PROJECT_ROOT/.git" ]]; then
+  ln -sf ../../scripts/pre-commit-hook.sh "$PROJECT_ROOT/.git/hooks/pre-commit" 2>/dev/null || true
 fi
 
-# Build guard binary (required by .claude/settings.json hooks) if not already built
-if [[ -f /workspace/Cargo.toml && ! -x /workspace/target/release/guard ]]; then
-  echo "[entrypoint] Building guard binary..."
-  (cd /workspace && cargo build --release -p guard 2>&1) || echo "[entrypoint] WARNING: guard build failed — hooks may not work"
+# Install fencepost binary to PATH (required by .claude/settings.json hooks)
+if [[ -f "$PROJECT_ROOT/Cargo.toml" ]] && ! command -v fencepost &>/dev/null; then
+  echo "[entrypoint] Installing fencepost..."
+  (cd "$PROJECT_ROOT" && cargo install --path crates/fencepost 2>&1) || echo "[entrypoint] WARNING: fencepost install failed — hooks may not work"
 fi
 
 exec "$@"

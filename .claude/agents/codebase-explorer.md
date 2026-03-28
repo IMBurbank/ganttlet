@@ -15,7 +15,7 @@ modify files — you only read, search, and analyze.
 ## Project structure (verify with `ls` if unsure — this map may lag behind changes)
 - `crates/scheduler/src/` — Rust scheduling engine (CPM, cascade, constraints, WASM bindings)
 - `crates/bizday/` — Rust CLI + library: business-day date arithmetic tool (taskEndDate, taskDuration, verify subcommand)
-- `crates/guard/` — Rust Claude hook guard binary: blocks destructive git ops, workspace isolation, protected file writes
+- `crates/fencepost/` — Rust Claude hook guard binary: blocks destructive git ops, workspace isolation, protected file writes
 - `src/types/index.ts` — TypeScript type definitions (mirror of Rust types)
 - `src/state/` — Provider components (TaskStoreProvider.tsx, UIStoreProvider.tsx)
 - `src/store/` — Observable stores (TaskStore.ts — O(1) per-task subscriptions, UIStore.ts — per-user display state)

@@ -1,0 +1,26 @@
+[package]
+name = "fencepost"
+version = "0.1.0"
+edition = "2021"
+description = "A project-agnostic agent workflow guard for Claude Code hooks"
+license = "Apache-2.0"
+repository = "https://github.com/IMBurbank/fencepost"
+homepage = "https://github.com/IMBurbank/fencepost"
+keywords = ["claude-code", "hooks", "guard", "agent", "workflow"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+rust-version = "1.70"
+
+[lib]
+name = "fencepost"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fencepost"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

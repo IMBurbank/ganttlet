@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{ test -x ./target/release/guard && ./target/release/guard edit; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard edit; } || true"
+            "command": "fencepost edit || true"
           }
         ]
       },
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{ test -x ./target/release/guard && ./target/release/guard bash; } || { test -x /workspace/target/release/guard && /workspace/target/release/guard bash; } || true"
+            "command": "fencepost bash || true"
           }
         ]
       }

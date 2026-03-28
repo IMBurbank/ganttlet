@@ -130,7 +130,7 @@ Uses confidence-based scoring (threshold: 80) with 5 parallel review agents (CLA
 ## Hook Infrastructure
 
 Agent guardrails are enforced via Claude Code's **PreToolUse** hooks. A compiled Rust
-binary (`crates/guard/`) replaces the original `node -e` hook scripts for reliability
+binary (`crates/fencepost/`) replaces the original `node -e` hook scripts for reliability
 and performance.
 
 **`settings.json` structure:** The `.claude/settings.json` file registers hooks by tool

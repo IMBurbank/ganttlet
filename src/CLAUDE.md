@@ -45,7 +45,15 @@ The field registry in `src/schema/ydoc.ts` drives Y.Doc serialization. `setKnown
 - **Component-split gate**: TaskStoreProvider outer handles migration; inner mounts hooks only after migration succeeds. Unmigrated docs structurally cannot reach hooks.
 - **Header-based column lookup**: `rowToTask` reads by column name via `HeaderMap`, not positional index. Column reordering doesn't break reads. `COLUMN_ALIASES` in sheetsMapper.ts supports renamed columns.
 - **hashTask**: three-way merge hashes by canonical Task object, not raw row position.
-- **Structural rules** (`src/__tests__/structuralRules.test.ts`): Source-scanning tests that catch common mistakes with prescriptive fix messages. Enforces: no RefObject in hook returns, no `.getState()` in JSX render, no raw origin strings.
+- **Structural rules** (`src/__tests__/structuralRules.test.ts`): Source-scanning tests that catch common mistakes with prescriptive fix messages:
+  - Rule 1: No RefObject in hook return types (stale value bugs)
+  - Rule 2: No `.getState()` in JSX render expressions (React Compiler invisible)
+  - Rule 3: No raw origin strings in `doc.transact()` (origin misrouting)
+  - Rule 4: No raw `ymap.set()` outside `mutations/` and `schema/` (field registry bypass)
+  - Rule 5: `addEventListener` must have paired `removeEventListener` (memory leaks)
+  - Rule 6: MutateAction switch must have exhaustive `never` check (missing case detection)
+- **TypeScript strict unused checks**: `noUnusedLocals: true`, `noUnusedParameters: true` — dead code is caught at compile time.
+- **Exhaustive MutateAction switch**: Adding a new mutation type without a case produces a compile-time error via `const _: never = action`.
 - v1: Original Y.Map schema (19 fields, 20 sheet columns)
 - v2: Phase 20 — strip `isExpanded`/`isHidden`, centralized origins, optional attribution columns
 

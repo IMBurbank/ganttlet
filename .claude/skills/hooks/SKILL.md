@@ -275,14 +275,14 @@ impl BashRule for DangerousCommandRule {
         if seg.effective_command().map(|(_, c)| c) == Some("dangerous-cmd")
             && seg.has_protected_path()
         {
-            Some(Violation {
-                rule: self.name(),
-                severity: Severity::Block,
-                reason: format!(
-                    "Do not run dangerous-cmd on {} files. Use a worktree.",
-                    ctx.root().display()
-                ),
-            })
+            Some(Violation::new(
+                self.name(),
+                Severity::Block,
+                "dangerous-cmd targeting protected path",
+                "this would modify files under the project root",
+                format!("Run from a worktree: git worktree add {}/<name> -b <branch>",
+                    ctx.worktrees_dir().display()),
+            ))
         } else {
             None
         }
@@ -386,18 +386,11 @@ To hook a new tool (e.g., a custom Read guard):
 }
 ```
 
-2. Add a `"read"` arm in `main.rs`:
+2. Add a `CheckRequest::Read` variant to `protocol/mod.rs` and handle it in `run_hook()`.
 
-```rust
-let result = match mode {
-    "edit" => check_edit(&ctx, &input),
-    "bash" => check_bash(&ctx, &input),
-    "read" => check_read(&ctx, &input),  // new
-    _ => None,
-};
-```
+3. Add parsing for the new mode in `protocol/claude.rs` (and any other adapters).
 
-3. Implement `check_read()` in `lib.rs` with tests.
+4. Implement `check_read()` in `check.rs` with tests.
 
 ## ENXIO/Stdin Pitfalls
 
@@ -481,7 +474,7 @@ Fencepost uses a 5-layer pipeline:
    with. Raw token access requires explicit `seg.tokens()`.
 5. **Rules** — each check is a named struct implementing `BashRule` or `EditRule`. The
    trait requires `name()`, `description()`, and a check method that receives
-   `ContextualSegment`. Rules return `Violation { rule, severity, reason }`.
+   `ContextualSegment`. Rules return `Violation::new(rule, severity, attempted, explanation, suggestion)`.
    `check_bash` and `check_edit` iterate the rule registries (`BASH_RULES`, `EDIT_RULES`).
 
 **10 bash rules:** PushToDefaultBranch, CheckoutSwitch, ResetHard, CleanForce,

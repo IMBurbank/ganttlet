@@ -21,7 +21,7 @@ echo "=== Vitest unit tests ==="
 npx vitest run --reporter=dot
 
 echo ""
-echo "=== Rust guard tests ==="
+echo "=== Rust fencepost tests ==="
 cargo test -p fencepost
 
 echo ""

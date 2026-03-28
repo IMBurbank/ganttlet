@@ -1,0 +1,13 @@
+{
+  "name": "fencepost",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "dev",
+  "workspaceFolder": "/app",
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer", "tamasfe.even-better-toml"]
+    }
+  },
+  "postCreateCommand": "cargo install --path . && fencepost doctor",
+  "remoteUser": "root"
+}

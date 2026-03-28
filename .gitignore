@@ -56,3 +56,6 @@ tsconfig.tsbuildinfo
 logs/
 test-results/
 playwright-report/
+
+# Unreel (separate project, not part of Ganttlet)
+unreel/

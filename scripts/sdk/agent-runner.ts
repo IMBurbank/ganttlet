@@ -180,6 +180,7 @@ export async function runAgent(options: RunnerOptions, queryFn: QueryFn): Promis
         effort: attemptConfig.effort,
         maxBudgetUsd: remainingBudget,
         agent: options.agent,
+        sessionAncestor: options.sessionAncestor,
         logFile: options.logFile
           ? `${options.logFile.replace(/\.log$/, '')}-attempt${attemptIndex + 1}.log`
           : undefined,
@@ -302,6 +303,7 @@ interface CallQueryOpts {
   maxBudgetUsd?: number;
   agent?: string;
   logFile?: string;
+  sessionAncestor?: string;
 }
 
 interface CallQueryResult {
@@ -342,6 +344,14 @@ async function callQuery(queryFn: QueryFn, opts: CallQueryOpts): Promise<CallQue
   if (opts.maxBudgetUsd !== undefined) queryOpts.maxBudgetUsd = opts.maxBudgetUsd;
   if (opts.agent) queryOpts.agent = opts.agent;
   if (opts.resume) queryOpts.resume = opts.resume;
+  if (opts.sessionAncestor) {
+    const ancestorContent = fs.readFileSync(opts.sessionAncestor, 'utf-8');
+    queryOpts.systemPrompt = {
+      type: 'preset',
+      preset: 'claude_code',
+      append: ancestorContent,
+    };
+  }
 
   const stream = queryFn({
     prompt: opts.prompt,

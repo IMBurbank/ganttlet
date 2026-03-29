@@ -141,6 +141,16 @@ async function main(): Promise<void> {
   // Derive run identity
   const run = deriveRunIdentity(configAbsPath, config.phase, config.mergeTarget, cliArgs.baseRef);
 
+  // Session ancestor — compressed session context shared across agents
+  if (config.sessionAncestor) {
+    const ancestorPath = path.resolve(path.dirname(configAbsPath), config.sessionAncestor);
+    if (fs.existsSync(ancestorPath)) {
+      run.sessionAncestor = ancestorPath;
+    } else {
+      process.stderr.write(`Warning: session_ancestor not found: ${ancestorPath}\n`);
+    }
+  }
+
   // Filter nodes if --only
   let nodes = config.nodes;
   if (cliArgs.only) {

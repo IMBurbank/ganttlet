@@ -180,11 +180,13 @@ run_agent() {
     local max_budget="${MAX_BUDGET:-$DEFAULT_MAX_BUDGET}"
     local model_flag=""
     [[ -n "${MODEL:-}" ]] && model_flag="--model $MODEL"
+    local ancestor_flag=""
+    [[ -n "${SESSION_ANCESTOR:-}" ]] && ancestor_flag="--append-system-prompt-file $SESSION_ANCESTOR"
     set +e
     (
       cd "$workdir"
       # shellcheck disable=SC2086
-      echo "$full_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" $model_flag -p -
+      echo "$full_prompt" | claude --dangerously-skip-permissions --max-turns "$max_turns" --max-budget-usd "$max_budget" $model_flag $ancestor_flag -p -
     ) >> "$logfile" 2>&1
     local exit_code=$?
     set -e

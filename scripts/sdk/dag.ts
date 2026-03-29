@@ -40,6 +40,7 @@ export interface RawConfig {
   phase: string;
   merge_target: string;
   max_parallel?: number;
+  session_ancestor?: string;
   groups?: RawGroupSpec[];
   stages?: RawStage[];
   group_templates?: RawGroupTemplate[];
@@ -51,6 +52,7 @@ export interface ParsedConfig {
   phase: string;
   mergeTarget: string;
   maxParallel?: number;
+  sessionAncestor?: string;
   groups: GroupSpec[];
   nodes: DAGNode[];
 }
@@ -95,6 +97,7 @@ export function parseConfig(raw: RawConfig): ParsedConfig {
     phase: raw.phase,
     mergeTarget: raw.merge_target,
     maxParallel: raw.max_parallel,
+    sessionAncestor: raw.session_ancestor,
     groups,
     nodes,
   };

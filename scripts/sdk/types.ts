@@ -78,6 +78,7 @@ export interface RunnerOptions {
   outputFile?: string;
   promptVars?: Record<string, string>;
   agent?: string;
+  sessionAncestor?: string;
 }
 
 // ── Pipeline orchestration ───────────────────────────────────────────
@@ -145,6 +146,7 @@ export interface RunIdentity {
   logDir: string;
   launchDir: string;
   configPath: string;
+  sessionAncestor?: string;
 }
 
 export type PipelineStatus = 'running' | 'complete' | 'partial' | 'failed' | 'deadlock';

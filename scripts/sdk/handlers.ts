@@ -137,5 +137,6 @@ export function toRunnerOptions(spec: GroupSpec, run: RunIdentity, workdir: stri
     outputFile: spec.output ? path.join(run.logDir, spec.output) : undefined,
     promptVars: spec.promptVars,
     agent: spec.agent,
+    sessionAncestor: run.sessionAncestor,
   };
 }

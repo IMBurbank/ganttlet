@@ -84,6 +84,19 @@ load_config() {
     done
   done
 
+  # Session ancestor (optional — compressed session context shared across agents in a stage)
+  SESSION_ANCESTOR=$(yq -r '.session_ancestor // ""' "$config_file")
+  if [[ -n "$SESSION_ANCESTOR" && "$SESSION_ANCESTOR" != "null" ]]; then
+    if [[ ! -f "$SESSION_ANCESTOR" ]]; then
+      warn "session_ancestor file not found: ${SESSION_ANCESTOR} — agents will run without ancestor context"
+      SESSION_ANCESTOR=""
+    else
+      log "Session ancestor: ${SESSION_ANCESTOR} ($(wc -c < "$SESSION_ANCESTOR" | tr -d ' ') bytes)"
+    fi
+  else
+    SESSION_ANCESTOR=""
+  fi
+
   # PR metadata (optional — defaults generated from phase name if missing)
   PR_TITLE=$(yq -r ".pr.title // \"${PHASE}: implementation\"" "$config_file")
   PR_SUMMARY=$(yq -r '.pr.summary // ""' "$config_file")
